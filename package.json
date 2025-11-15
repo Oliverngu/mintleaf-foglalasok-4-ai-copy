@@ -1,0 +1,38 @@
+{
+  "name": "mintleaf-foglalasok-4",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@google/genai": "^1.27.0",
+    "firebase": "^12.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "uuid": "^13.0.0",
+    "multer": "^2.0.2",
+    "url": "^0.11.4",
+    "zod": "^4.1.12",
+    "fs": "^0.0.1-security",
+    "crypto": "^1.0.1",
+    "path": "^0.12.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.0",
+    "helmet": "^8.1.0",
+    "html2canvas": "^1.4.1",
+    "@capacitor/cli": "^7.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

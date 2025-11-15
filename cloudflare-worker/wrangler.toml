@@ -1,0 +1,11 @@
+name = "mintleaf-email-gateway"
+account_id= "72825aafd9f45304a86510cb77662199"
+main = "src/index.ts"
+compatibility_date = "2024-11-21"
+
+[vars]
+ALLOWED_ORIGINS = "*"
+
+[env.production]
+route = "https://mintleaf.hu/api/email/*"
+zone_name = "mintleaf.hu"
