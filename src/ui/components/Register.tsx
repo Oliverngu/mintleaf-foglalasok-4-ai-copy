@@ -7,7 +7,7 @@ import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { User } from '../../core/models/data';
-import { sendEmail, createRegistrationEmail } from '../../core/api/emailService';
+import { sendEmail } from '../../core/api/emailService';
 
 interface RegisterProps {
   inviteCode: string;
@@ -119,14 +119,18 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       };
       await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
-      // 6. Send registration email
-      const userForEmail: User = {
-          id: user.uid,
-          ...userDataForDb,
-          role: userDataForDb.role as User['role'],
-      };
-      const emailParams = createRegistrationEmail(userForEmail);
-      await sendEmail(emailParams);
+      // 6. Send registration email via the new service
+      const emailResponse = await sendEmail({
+          typeId: 'user_registration_welcome',
+          to: userDataForDb.email,
+          locale: 'hu',
+          payload: {
+              firstName: userDataForDb.firstName,
+          }
+      });
+      if (!emailResponse.ok) {
+          console.warn("Registration welcome email could not be sent:", emailResponse.error);
+      }
 
       // 7. Mark invitation as used
       await updateDoc(doc(db, 'invitations', inviteCode), {

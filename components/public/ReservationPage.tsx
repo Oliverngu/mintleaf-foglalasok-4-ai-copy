@@ -5,8 +5,8 @@ import { doc, getDoc, collection, addDoc, setDoc, query, where, getDocs } from '
 import LoadingSpinner from '../LoadingSpinner';
 import CalendarIcon from '../icons/CalendarIcon';
 import CopyIcon from '../icons/CopyIcon'; // Új import
-import { translations } from '../../lib/i18n'; // Import a kiszervezett fájlból
-import { sendEmail, createGuestReservationConfirmationEmail, createUnitNewReservationNotificationEmail } from '../../core/api/emailService';
+import { translations } from '../../lib/i1n'; // Import a kiszervezett fájlból
+import { sendEmail } from '../../core/api/emailService';
 
 type Locale = 'hu' | 'en';
 
@@ -210,6 +210,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         setIsSubmitting(true);
         setError('');
 
+        let startDateTime: Date;
+
         try {
             // --- VALIDATION ---
             const requestedStartTime = formData.startTime;
@@ -249,7 +251,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             }
 
             // --- SUBMISSION LOGIC ---
-            const startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
+            startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
             let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000); // Default 2 hours duration
             if (formData.endTime) {
                 const potentialEndDateTime = new Date(`${toDateKey(selectedDate)}T${formData.endTime}`);
@@ -274,25 +276,68 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 id: referenceCode, // Add id for email service
             };
             await setDoc(newReservationRef, newReservation);
-
-            // Send emails
-            if(newReservation.contact.email) {
-                const emailConfirmationParams = createGuestReservationConfirmationEmail(newReservation, unit);
-                if (emailConfirmationParams) {
-                    await sendEmail(emailConfirmationParams);
-                }
+            
+            // --- NEW EMAIL LOGIC ---
+            // Send email to guest
+            if (newReservation.contact.email) {
+                sendEmail({
+                    typeId: 'booking_created_guest',
+                    unitId: unit.id,
+                    to: newReservation.contact.email,
+                    locale: newReservation.locale as 'hu' | 'en',
+                    payload: {
+                        unitName: unit.name,
+                        bookingName: newReservation.name,
+                        bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+                        bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+                        headcount: newReservation.headcount,
+                        bookingRef: newReservation.referenceCode,
+                        isAutoConfirm: reservationStatus === 'confirmed'
+                    },
+                    meta: {
+                        source: "mintleaf-guest-reservation-page",
+                        channel: "web",
+                    },
+                }).then(result => {
+                    if (!result.ok) console.error("booking_created_guest email failed:", result.error);
+                }).catch(err => console.error("booking_created_guest email error:", err));
             }
 
+            // Send notification to unit admins
             if (settings?.notificationEmails && settings.notificationEmails.length > 0) {
-                const unitNotificationParams = createUnitNewReservationNotificationEmail(newReservation, unit, settings.notificationEmails);
-                await sendEmail(unitNotificationParams);
+                 sendEmail({
+                    typeId: 'booking_created_admin',
+                    unitId: unit.id,
+                    to: settings.notificationEmails,
+                    locale: 'hu',
+                    payload: {
+                        unitName: unit.name,
+                        guestName: newReservation.name,
+                        guestEmail: newReservation.contact.email,
+                        guestPhone: newReservation.contact.phoneE164,
+                        headcount: newReservation.headcount,
+                        bookingDate: startDateTime.toLocaleDateString('hu-HU'),
+                        bookingTime: startDateTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
+                        isAutoConfirm: reservationStatus === 'confirmed',
+                        occasion: newReservation.occasion,
+                        customData: newReservation.customData,
+                    },
+                    meta: {
+                        source: "mintleaf-guest-reservation-page",
+                        event: "booking_created_admin_notification",
+                    },
+                 }).then(result => {
+                    if (!result.ok) console.error("booking_created_admin email failed:", result.error);
+                 }).catch(err => console.error("booking_created_admin email error:", err));
             }
+            // --- END NEW EMAIL LOGIC ---
 
             setSubmittedData({ ...newReservation, date: selectedDate });
             setStep(3);
         } catch (err) {
             console.error("Error during reservation submission:", err);
-            // FIX: Safely handle error object of type 'unknown'
+            // FIX: The 'err' object in a catch block is of type 'unknown'.
+            // We must verify it is an instance of Error before accessing the 'message' property.
             if (err instanceof Error) {
                 setError(err.message);
             } else {
@@ -545,10 +590,15 @@ const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any
         return phoneE164.slice(0, -7) + '••• •' + last4;
     };
 
+    const isAutoConfirm = settings.reservationMode === 'auto';
+    const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
+    const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+
+
     return (
         <div className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}>
-            <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>{t.step3Title}</h2>
-            <p className="text-[var(--color-text-primary)] mt-4">{t.step3Body}</p>
+            <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>{titleText}</h2>
+            <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
             <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
             
             {submittedData && (

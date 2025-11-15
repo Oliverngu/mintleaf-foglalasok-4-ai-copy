@@ -15,7 +15,7 @@ import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
-import { sendEmail, createNewScheduleNotificationEmail } from '../../../core/api/emailService';
+import { sendEmail } from '../../../core/api/emailService';
 import ColorPicker from '../common/ColorPicker';
 
 // Helper function to calculate shift duration in hours
@@ -906,11 +906,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     const handleConfirmPublish = async (selectedUnitIds: string[]) => {
         if (selectedUnitIds.length === 0) return;
-
+    
         const weekStart = weekDays[0];
         const weekEnd = new Date(weekDays[6]);
         weekEnd.setHours(23, 59, 59, 999);
-
+    
         const shiftsToPublish = schedule.filter(s =>
             (s.status === 'draft' || !s.status) &&
             s.start &&
@@ -919,23 +919,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             s.unitId &&
             selectedUnitIds.includes(s.unitId)
         );
-
+    
         if (shiftsToPublish.length > 0) {
             const batch = writeBatch(db);
             shiftsToPublish.forEach(shift => batch.update(doc(db, 'shifts', shift.id), { status: 'published' }));
             await batch.commit();
             alert('A kiválasztott műszakok sikeresen publikálva!');
-
+    
             // Find affected users and send notifications
             const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
             const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})} - ${weekDays[6].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})}`;
-
+    
             affectedUserIds.forEach(userId => {
                 const user = allAppUsers.find(u => u.id === userId);
                 // Send email if user exists, has an email, and notifications are enabled (or not set, defaulting to on)
                 if (user && user.email && user.notifications?.newSchedule !== false) {
-                    const emailParams = createNewScheduleNotificationEmail(user, weekLabel);
-                    sendEmail(emailParams); // No need to await here, can be fire-and-forget
+                    sendEmail({
+                        typeId: 'new_schedule_published',
+                        to: user.email,
+                        locale: 'hu',
+                        payload: {
+                            firstName: user.firstName,
+                            weekLabel: weekLabel,
+                        }
+                    }); // No need to await here, can be fire-and-forget
                 }
             });
         }

@@ -294,7 +294,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 activeUnitIds={activeUnitIds}
             />
         case 'kerelemek':
-            return <KerelemekApp requests={requests} loading={false} error={null} currentUser={currentUser} canManage={hasPermission('canManageLeaveRequests')} />;
+            return <KerelemekApp requests={requests} loading={false} error={null} currentUser={currentUser} canManage={hasPermission('canManageLeaveRequests')} allUsers={allUsers} allUnits={allUnits} />;
         case 'foglalasok':
             return <FoglalasokApp 
                         currentUser={currentUser} 

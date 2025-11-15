@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react';
-import { Request, User } from '../../../core/models/data';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Request, User, Unit } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
-import { collection, doc, updateDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot } from 'firebase/firestore';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
+import { sendEmail } from '../../../core/api/emailService';
 
 interface KerelemekAppProps {
   requests: Request[];
@@ -195,6 +196,24 @@ const RequestForm: React.FC<RequestFormProps> = ({ user, onSubmit, onCancel, all
 export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, error, currentUser, canManage }) => {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const isAdmin = canManage;
+  
+  // State for data fetched within the component
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [allUnits, setAllUnits] = useState<Unit[]>([]);
+
+  // Fetch users and units directly within this component
+  useEffect(() => {
+    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
+        setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+    });
+    const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => {
+        setAllUnits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unit)));
+    });
+    return () => {
+        unsubUsers();
+        unsubUnits();
+    };
+  }, []);
 
   const { pending, approved, rejected, myRequests } = useMemo(() => {
     const sortedRequests = [...requests].sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
@@ -237,6 +256,48 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
     try {
         await batch.commit();
         setIsFormVisible(false);
+
+        // --- EMAIL NOTIFICATION LOGIC ---
+        const unitAdmins = allUsers.filter(u => 
+            u.email && (
+                u.role === 'Admin' || 
+                (u.role === 'Unit Admin' && u.unitIds?.includes(unitIdForRequest))
+            )
+        );
+        const adminEmails = unitAdmins.map(u => u.email);
+        const unitName = allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység';
+
+        if (adminEmails.length > 0) {
+            sendEmail({
+                typeId: "leave_request_created",
+                unitId: unitIdForRequest,
+                to: adminEmails,
+                locale: "hu",
+                payload: {
+                    userName: currentUser.fullName,
+                    userEmail: currentUser.email,
+                    unitName: unitName,
+                    dateRanges: dateBlocks.map(b => ({
+                        start: b.startDate.toISOString(),
+                        end: b.endDate.toISOString(),
+                    })),
+                    note: note || "Nincs megjegyzés.",
+                    createdAt: new Date().toISOString(),
+                },
+                meta: {
+                    source: "mintleaf-webapp",
+                    event: "leave_request_created",
+                },
+            }).then(result => {
+                if (!result.ok) {
+                    console.error("leave_request_created email failed:", result.error);
+                }
+            }).catch(err => {
+                console.error("leave_request_created email error:", err);
+            });
+        }
+        // --- END EMAIL NOTIFICATION LOGIC ---
+
     } catch (err) {
         console.error("Error submitting requests:", err);
         alert("Hiba történt a kérelmek benyújtása során.");
@@ -244,12 +305,54 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
   };
   
   const handleUpdateRequestStatus = async (requestId: string, status: 'approved' | 'rejected') => {
+    const request = requests.find(r => r.id === requestId);
+    if (!request) {
+        alert("A kérelem nem található.");
+        return;
+    }
+
     try {
         await updateDoc(doc(db, 'requests', requestId), {
             status,
             reviewedBy: currentUser.fullName,
             reviewedAt: serverTimestamp(),
         });
+
+        // --- EMAIL NOTIFICATION LOGIC ---
+        const requestUser = allUsers.find(u => u.id === request.userId);
+        if (requestUser && requestUser.email) {
+            const typeId = status === "approved"
+                ? "leave_request_approved"
+                : "leave_request_rejected";
+
+            sendEmail({
+                typeId,
+                unitId: request.unitId || null,
+                to: requestUser.email,
+                locale: "hu",
+                payload: {
+                    userName: requestUser.fullName,
+                    firstName: requestUser.firstName,
+                    status: status,
+                    approverName: currentUser.fullName,
+                    startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
+                    endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
+                    updatedAt: new Date().toISOString(),
+                    note: "", // No admin note functionality in UI yet
+                },
+                meta: {
+                    source: "mintleaf-webapp",
+                    event: "leave_request_status_changed",
+                },
+            }).then(result => {
+                if (!result.ok) {
+                    console.error("leave_request status email failed:", result.error);
+                }
+            }).catch(err => {
+                console.error("leave_request status email error:", err);
+            });
+        }
+        // --- END EMAIL NOTIFICATION LOGIC ---
     } catch (err) {
         console.error("Error updating request status:", err);
         alert("Hiba a kérelem státuszának frissítésekor.");
