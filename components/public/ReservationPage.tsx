@@ -334,10 +334,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
 
             setSubmittedData({ ...newReservation, date: selectedDate });
             setStep(3);
+        // FIX: The 'err' variable in a catch block is of type 'unknown'. We must check if it's an Error instance before accessing 'err.message' to avoid a type error.
         } catch (err) {
             console.error("Error during reservation submission:", err);
-            // FIX: The 'err' object in a catch block is of type 'unknown'.
-            // We must verify it is an instance of Error before accessing the 'message' property.
+            // FIX: The 'err' variable is of type 'unknown'. A type guard is needed to safely access 'err.message'.
             if (err instanceof Error) {
                 setError(err.message);
             } else {

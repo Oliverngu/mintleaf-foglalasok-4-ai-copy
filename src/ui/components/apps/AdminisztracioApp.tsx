@@ -10,7 +10,7 @@ import EgysegekApp from './EgysegekApp';
 import PoziciokApp from './PoziciokApp';
 import JogosultsagokApp from './JogosultsagokApp';
 import NotificationSettings from './NotificationSettings';
-import EmailSettingsApp from '../admin/EmailSettingsApp'; // Új import a sablonok helyett
+import EmailSettingsApp from '../admin/EmailSettingsApp';
 
 
 import UsersIcon from '../../../../components/icons/UsersIcon';

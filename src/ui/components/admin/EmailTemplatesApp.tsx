@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Unit } from '../../../core/models/data';
-import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db, serverTimestamp, Timestamp } from '../../../core/firebase/config';
+import { doc, getDoc, setDoc, deleteField } from 'firebase/firestore';
 import { KNOWN_TYPE_IDS, EmailTypeId } from '../../../core/email/emailTypes';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 
@@ -16,7 +16,7 @@ interface TemplateData {
   text: string;
 }
 
-const EmailTemplatesApp: React.FC<EmailTemplatesAppProps> = ({ currentUser, allUnits }) => {
+const EmailSettingsApp: React.FC<EmailTemplatesAppProps> = ({ currentUser, allUnits }) => {
   const [selectedUnitId, setSelectedUnitId] = useState<string>('');
   const [selectedTypeId, setSelectedTypeId] = useState<EmailTypeId | ''>('');
   const [templateData, setTemplateData] = useState<TemplateData>({ subject: '', html: '', text: '' });
@@ -228,4 +228,5 @@ const EmailTemplatesApp: React.FC<EmailTemplatesAppProps> = ({ currentUser, allU
  * A kulcsot biztonságosan, a Worker titkosított környezeti változói között
  * kell tárolni.
  */
-export default EmailTemplatesApp;
+// FIX: Corrected export name to match component name
+export default EmailSettingsApp;

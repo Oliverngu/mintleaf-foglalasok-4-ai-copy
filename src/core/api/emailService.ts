@@ -38,6 +38,10 @@ interface SendEmailParams {
   payload?: Record<string, any>;
   /** Optional metadata for logging or tracking. */
   meta?: Record<string, any>;
+  /** Pre-rendered subject line. If provided, the worker will use this instead of its own template logic. */
+  subject?: string;
+  /** Pre-rendered HTML body. If provided, the worker will use this instead of its own template logic. */
+  html?: string;
 }
 
 interface SendEmailResponse {
@@ -79,6 +83,9 @@ export const sendEmail = async (params: SendEmailParams): Promise<SendEmailRespo
         locale: params.locale ?? "hu",
         payload: params.payload ?? {},
         meta: params.meta ?? {},
+        // Pass pre-rendered content to the worker
+        subject: params.subject,
+        html: params.html,
       }),
     });
 
@@ -101,144 +108,3 @@ export const sendEmail = async (params: SendEmailParams): Promise<SendEmailRespo
     return { ok: false, error: "network_error" };
   }
 };
-
-/**
- * =============================================================================
- * USAGE EXAMPLES
- * =============================================================================
- */
-
-/*
-// Example 1: Notify admins when a new leave request is created.
-// This would be called from the component where a user submits a leave request.
-
-async function handleLeaveRequestSubmit(requestData, adminEmails) {
-  // ... code to save the request to Firestore ...
-
-  const emailResponse = await sendEmail({
-    typeId: 'leave_request_created', // Matches the template ID on the worker
-    unitId: requestData.unitId,
-    to: adminEmails, // An array of admin email addresses
-    locale: 'hu',
-    payload: {
-      userName: requestData.userName,
-      startDate: requestData.startDate.toDate().toLocaleDateString('hu-HU'),
-      endDate: requestData.endDate.toDate().toLocaleDateString('hu-HU'),
-      note: requestData.note || 'Nincs megjegyzés.'
-    }
-  });
-
-  if (!emailResponse.ok) {
-    console.warn("Leave request notification email could not be sent:", emailResponse.error);
-    // Note: Don't block the user flow for this. The primary action (saving the request) succeeded.
-  }
-}
-*/
-
-
-/*
-// Example 2: Notify a user when their leave request is approved.
-// This would be called from the admin panel when an admin clicks "Approve".
-
-async function handleLeaveRequestApproval(request, userEmail) {
-  // ... code to update the request status in Firestore ...
-
-  const emailResponse = await sendEmail({
-    typeId: 'leave_request_approved', // Matches the template ID on the worker
-    unitId: request.unitId,
-    to: userEmail,
-    locale: 'hu', // Or get user's preferred locale
-    payload: {
-      firstName: request.userName.split(' ')[1] || request.userName,
-      startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
-      endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
-      reviewedBy: 'A vezetőség'
-    }
-  });
-
-  if (!emailResponse.ok) {
-    console.warn("Leave request approval email could not be sent:", emailResponse.error);
-  }
-}
-*/
-
-
-/*
-// Example 3: Send a confirmation email to a guest after they make a booking.
-// This would be called from the public reservation page.
-
-async function handleGuestBooking(bookingData, unit) {
-  // ... code to save the booking to Firestore ...
-
-  const emailResponse = await sendEmail({
-    typeId: 'booking_created_guest', // Matches the template ID on the worker
-    unitId: unit.id,
-    to: bookingData.contact.email,
-    locale: bookingData.locale || 'hu',
-    payload: {
-      unitName: unit.name,
-      bookingName: bookingData.name,
-      bookingDate: bookingData.startTime.toDate().toLocaleDateString(bookingData.locale),
-      bookingTime: bookingData.startTime.toDate().toLocaleTimeString(bookingData.locale, { hour: '2-digit', minute: '2-digit' }),
-      headcount: bookingData.headcount,
-      bookingRef: bookingData.referenceCode
-    }
-  });
-
-   if (!emailResponse.ok) {
-    console.warn("Guest booking confirmation email could not be sent:", emailResponse.error);
-  }
-}
-*/
-
-
-/**
- * =============================================================================
- * FUTURE DEVELOPMENT PLAN: DYNAMIC TEMPLATE EDITOR (COMMENT ONLY)
- * =============================================================================
- *
- * This section outlines a future enhancement and should NOT be implemented now.
- *
- * Goal: Allow admins to edit email templates directly within the application,
- * with overrides possible on a per-unit basis.
- *
- * --- Proposed Firestore Structure ---
- *
- * Collection: `email_templates`
- * Document ID: `unitId` (e.g., "central" for global defaults, or a specific unit ID for overrides)
- *
- * Document Fields:
- *   - templates: Map<string, TemplateData>
- *
- * --- TemplateData Map Structure ---
- *
- * The `templates` field would be a map where the key is the `typeId`.
- *
- * {
- *   "user_registration_welcome": {
- *     "subject": "Üdv a MintLeaf rendszerében, {{firstName}}!",
- *     "html": "<h1>Szia {{firstName}}!</h1><p>Sikeresen regisztráltál.</p>",
- *     "text": "Szia {{firstName}}! Sikeresen regisztráltál.",
- *     "updatedAt": Timestamp,
- *     "updatedBy": "userId"
- *   },
- *   "new_schedule_published": { ... }
- * }
- *
- * --- Worker Logic Enhancement ---
- *
- * The Cloudflare Worker's logic would be updated as follows when handling a request:
- *
- * 1. Receive `typeId` and optional `unitId` from the frontend.
- * 2. If a `unitId` is provided, first try to fetch the template from `email_templates/{unitId}`.
- *    - If `templates[typeId]` exists in the unit-specific document, use it.
- * 3. If no unit-specific template is found, fetch the global default from `email_templates/central`.
- *    - If `templates[typeId]` exists, use it.
- * 4. If no template is found in Firestore at all, fall back to the hardcoded default
- *    template currently built into the Worker.
- * 5. Populate the chosen template with the payload and send the email.
- *
- * This approach provides a flexible, multi-layered templating system without
- * complicating the frontend's responsibility. The frontend only needs to know
- * the `typeId` and what data the template requires.
- */

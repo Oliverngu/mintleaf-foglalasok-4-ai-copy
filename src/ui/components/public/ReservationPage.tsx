@@ -331,11 +331,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                     console.error("Failed to send 'booking_created_admin' email:", emailError);
                 }
             })();
-
-        } catch (err) {
+        // FIX: Explicitly type the catch clause variable as 'unknown' to handle potential non-Error exceptions gracefully.
+        } catch (err: unknown) {
             console.error("Error during reservation submission:", err);
-            // FIX: The 'err' object in a catch block is of type 'unknown'.
-            // We must verify it is an instance of Error before accessing the 'message' property.
+            // FIX: The 'err' variable is of type 'unknown'. A type guard is needed to safely access 'err.message'.
             if (err instanceof Error) {
                 setError(err.message);
             } else {
