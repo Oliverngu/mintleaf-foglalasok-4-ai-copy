@@ -8,6 +8,7 @@ import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import { sendEmail } from '../../../core/api/emailService';
+import { shouldSendEmail, getAdminRecipientsOverride } from '../../../core/api/emailSettingsService';
 
 interface KerelemekAppProps {
   requests: Request[];
@@ -197,11 +198,9 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
   const [isFormVisible, setIsFormVisible] = useState(false);
   const isAdmin = canManage;
   
-  // State for data fetched within the component
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [allUnits, setAllUnits] = useState<Unit[]>([]);
 
-  // Fetch users and units directly within this component
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
         setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
@@ -236,7 +235,7 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
 
   const handleFormSubmit = async (dateBlocks: { startDate: Date; endDate: Date }[], note: string) => {
     const batch = writeBatch(db);
-    const unitIdForRequest = currentUser.unitIds?.[0] || ''; // Default to the first unit if user has multiple
+    const unitIdForRequest = currentUser.unitIds?.[0] || '';
 
     dateBlocks.forEach(block => {
         const newRequestRef = doc(collection(db, 'requests'));
@@ -257,46 +256,43 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
         await batch.commit();
         setIsFormVisible(false);
 
-        // --- EMAIL NOTIFICATION LOGIC ---
-        const unitAdmins = allUsers.filter(u => 
-            u.email && (
-                u.role === 'Admin' || 
-                (u.role === 'Unit Admin' && u.unitIds?.includes(unitIdForRequest))
-            )
-        );
-        const adminEmails = unitAdmins.map(u => u.email);
-        const unitName = allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység';
+        try {
+            const canSend = await shouldSendEmail('leave_request_created', unitIdForRequest);
+            if (!canSend) {
+                console.log("Email sending for 'leave_request_created' is disabled by settings.");
+                return;
+            }
 
-        if (adminEmails.length > 0) {
-            sendEmail({
-                typeId: "leave_request_created",
-                unitId: unitIdForRequest,
-                to: adminEmails,
-                locale: "hu",
-                payload: {
-                    userName: currentUser.fullName,
-                    userEmail: currentUser.email,
-                    unitName: unitName,
-                    dateRanges: dateBlocks.map(b => ({
-                        start: b.startDate.toISOString(),
-                        end: b.endDate.toISOString(),
-                    })),
-                    note: note || "Nincs megjegyzés.",
-                    createdAt: new Date().toISOString(),
-                },
-                meta: {
-                    source: "mintleaf-webapp",
-                    event: "leave_request_created",
-                },
-            }).then(result => {
-                if (!result.ok) {
-                    console.error("leave_request_created email failed:", result.error);
-                }
-            }).catch(err => {
-                console.error("leave_request_created email error:", err);
-            });
+            const legacyAdminEmails = allUsers
+                .filter(u => u.email && (u.role === 'Admin' || (u.role === 'Unit Admin' && u.unitIds?.includes(unitIdForRequest))))
+                .map(u => u.email);
+
+            const adminEmails = await getAdminRecipientsOverride('leave_request_created', unitIdForRequest, legacyAdminEmails);
+
+            if (adminEmails.length > 0) {
+                await sendEmail({
+                    typeId: "leave_request_created",
+                    unitId: unitIdForRequest,
+                    to: adminEmails,
+                    locale: "hu",
+                    payload: {
+                        userName: currentUser.fullName,
+                        userEmail: currentUser.email,
+                        unitName: allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység',
+                        dateRanges: dateBlocks.map(b => ({
+                            start: b.startDate.toLocaleDateString('hu-HU'),
+                            end: b.endDate.toLocaleDateString('hu-HU'),
+                        })),
+                        note: note || "Nincs megjegyzés.",
+                        createdAt: new Date().toLocaleString('hu-HU'),
+                    },
+                });
+            } else {
+                console.log("No admin recipients found for 'leave_request_created'. Email skipped.");
+            }
+        } catch (emailError) {
+            console.error("Failed to process and send 'leave_request_created' email:", emailError);
         }
-        // --- END EMAIL NOTIFICATION LOGIC ---
 
     } catch (err) {
         console.error("Error submitting requests:", err);
@@ -318,41 +314,34 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
             reviewedAt: serverTimestamp(),
         });
 
-        // --- EMAIL NOTIFICATION LOGIC ---
-        const requestUser = allUsers.find(u => u.id === request.userId);
-        if (requestUser && requestUser.email) {
-            const typeId = status === "approved"
-                ? "leave_request_approved"
-                : "leave_request_rejected";
-
-            sendEmail({
-                typeId,
-                unitId: request.unitId || null,
-                to: requestUser.email,
-                locale: "hu",
-                payload: {
-                    userName: requestUser.fullName,
-                    firstName: requestUser.firstName,
-                    status: status,
-                    approverName: currentUser.fullName,
-                    startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
-                    endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
-                    updatedAt: new Date().toISOString(),
-                    note: "", // No admin note functionality in UI yet
-                },
-                meta: {
-                    source: "mintleaf-webapp",
-                    event: "leave_request_status_changed",
-                },
-            }).then(result => {
-                if (!result.ok) {
-                    console.error("leave_request status email failed:", result.error);
+        try {
+            const requestUser = allUsers.find(u => u.id === request.userId);
+            if (requestUser && requestUser.email) {
+                const typeId = status === "approved" ? "leave_request_approved" : "leave_request_rejected";
+                
+                const canSend = await shouldSendEmail(typeId, request.unitId);
+                if (!canSend) {
+                    console.log(`Email sending for '${typeId}' is disabled by settings.`);
+                    return;
                 }
-            }).catch(err => {
-                console.error("leave_request status email error:", err);
-            });
+
+                await sendEmail({
+                    typeId,
+                    unitId: request.unitId,
+                    to: requestUser.email,
+                    locale: "hu",
+                    payload: {
+                        firstName: requestUser.firstName,
+                        status: status === 'approved' ? 'jóváhagyva' : 'elutasítva',
+                        approverName: currentUser.fullName,
+                        startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
+                        endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
+                    },
+                });
+            }
+        } catch (emailError) {
+            console.error("Failed to process and send leave request status email:", emailError);
         }
-        // --- END EMAIL NOTIFICATION LOGIC ---
     } catch (err) {
         console.error("Error updating request status:", err);
         alert("Hiba a kérelem státuszának frissítésekor.");

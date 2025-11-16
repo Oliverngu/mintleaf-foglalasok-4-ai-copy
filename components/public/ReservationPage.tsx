@@ -338,7 +338,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             console.error("Error during reservation submission:", err);
             // FIX: The 'err' object in a catch block is of type 'unknown'.
             // We must verify it is an instance of Error before accessing the 'message' property.
-            // FIX: Check if err is an instance of Error before accessing message property
             if (err instanceof Error) {
                 setError(err.message);
             } else {

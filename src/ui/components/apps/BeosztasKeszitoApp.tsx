@@ -16,6 +16,7 @@ import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import { sendEmail } from '../../../core/api/emailService';
+import { shouldSendEmail } from '../../../core/api/emailSettingsService';
 import ColorPicker from '../common/ColorPicker';
 
 // Helper function to calculate shift duration in hours
@@ -602,7 +603,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     const [weekSettings, setWeekSettings] = useState<ScheduleSettings | null>(null);
     const [showSettings, setShowSettings] = useState(false);
-    // NEW: state for settings modal tabs
     const [activeSettingsTab, setActiveSettingsTab] = useState<'opening' | 'export'>('opening');
 
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
@@ -619,7 +619,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>([]);
     const [savedHiddenUserIds, setSavedHiddenUserIds] = useState<string[]>([]);
     
-    // --- NEW: Export settings states ---
     const [exportSettings, setExportSettings] = useState<ExportStyleSettings>(DEFAULT_EXPORT_SETTINGS);
     const [initialExportSettings, setInitialExportSettings] = useState<ExportStyleSettings>(DEFAULT_EXPORT_SETTINGS);
     const [isSavingExportSettings, setIsSavingExportSettings] = useState(false);
@@ -709,11 +708,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         }
     }, [settingsDocId]);
 
-    // --- NEW/MODIFIED: Fetch Export Settings based on unit ---
     useEffect(() => {
-        // This effect loads the unit-specific export settings when an admin selects a single unit.
         if (!canManage || activeUnitIds.length !== 1) {
-            // Reset to default if multiple units are selected or user is not an admin
             setExportSettings(DEFAULT_EXPORT_SETTINGS);
             setInitialExportSettings(DEFAULT_EXPORT_SETTINGS);
             return;
@@ -905,7 +901,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     };
 
     const handleConfirmPublish = async (selectedUnitIds: string[]) => {
-        if (selectedUnitIds.length === 0) return;
+        if (selectedUnitIds.length === 0) {
+            setIsPublishModalOpen(false);
+            return;
+        }
     
         const weekStart = weekDays[0];
         const weekEnd = new Date(weekDays[6]);
@@ -923,28 +922,53 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         if (shiftsToPublish.length > 0) {
             const batch = writeBatch(db);
             shiftsToPublish.forEach(shift => batch.update(doc(db, 'shifts', shift.id), { status: 'published' }));
-            await batch.commit();
-            alert('A kiválasztott műszakok sikeresen publikálva!');
+            try {
+                await batch.commit();
+                alert('A kiválasztott műszakok sikeresen publikálva!');
+            } catch (err) {
+                console.error("Error publishing shifts:", err);
+                alert("Hiba a műszakok publikálása során.");
+                setIsPublishModalOpen(false);
+                return;
+            }
     
-            // Find affected users and send notifications
-            const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
-            const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})} - ${weekDays[6].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})}`;
-    
-            affectedUserIds.forEach(userId => {
-                const user = allAppUsers.find(u => u.id === userId);
-                // Send email if user exists, has an email, and notifications are enabled (or not set, defaulting to on)
-                if (user && user.email && user.notifications?.newSchedule !== false) {
-                    sendEmail({
-                        typeId: 'new_schedule_published',
-                        to: user.email,
-                        locale: 'hu',
-                        payload: {
-                            firstName: user.firstName,
-                            weekLabel: weekLabel,
+            // Email notifications
+            try {
+                const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
+                const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})} - ${weekDays[6].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})}`;
+        
+                for (const userId of affectedUserIds) {
+                    try {
+                        const user = allAppUsers.find(u => u.id === userId);
+                        if (!user || !user.email || user.notifications?.newSchedule === false) {
+                            continue; // Skip if no user, no email, or notifications are off
                         }
-                    }); // No need to await here, can be fire-and-forget
+
+                        const userPrimaryUnitId = user.unitIds?.[0] || null;
+                        
+                        const canSend = await shouldSendEmail('new_schedule_published', userPrimaryUnitId);
+                        if (!canSend) {
+                            console.log(`Email disabled for 'new_schedule_published' for user ${user.fullName}.`);
+                            continue;
+                        }
+
+                        await sendEmail({
+                            typeId: 'new_schedule_published',
+                            unitId: userPrimaryUnitId || undefined,
+                            to: user.email,
+                            locale: 'hu',
+                            payload: {
+                                firstName: user.firstName,
+                                weekLabel: weekLabel,
+                            },
+                        });
+                    } catch (singleEmailError) {
+                         console.error(`Failed to send 'new_schedule_published' email to ${userId}:`, singleEmailError);
+                    }
                 }
-            });
+            } catch (emailError) {
+                console.error("An error occurred during the email notification process for published schedules:", emailError);
+            }
         }
         setIsPublishModalOpen(false);
     };

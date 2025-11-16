@@ -8,6 +8,7 @@ import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon'; // Új import
 import { translations } from '../../../lib/i18n'; // Import a kiszervezett fájlból
 import { sendEmail } from '../../../core/api/emailService';
+import { shouldSendEmail, getAdminRecipientsOverride } from '../../../core/api/emailSettingsService';
 
 type Locale = 'hu' | 'en';
 
@@ -212,6 +213,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         setError('');
 
         let startDateTime: Date;
+        let newReservation: any;
 
         try {
             // --- VALIDATION ---
@@ -224,7 +226,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 throw new Error(t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd));
             }
             
-            // Capacity validation (re-validate on submit for race conditions)
+            // Capacity validation
             if (settings.dailyCapacity && settings.dailyCapacity > 0) {
                 const dayStart = new Date(selectedDate);
                 dayStart.setHours(0, 0, 0, 0);
@@ -241,32 +243,25 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 const querySnapshot = await getDocs(q);
                 const currentHeadcount = querySnapshot.docs.reduce((sum, doc) => sum + (doc.data().headcount || 0), 0);
                 
-                if (currentHeadcount >= settings.dailyCapacity) {
-                    throw new Error(t.errorCapacityFull);
-                }
-
+                if (currentHeadcount >= settings.dailyCapacity) throw new Error(t.errorCapacityFull);
                 if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-                    const availableSlots = settings.dailyCapacity - currentHeadcount;
-                    throw new Error(t.errorCapacityLimited.replace('{count}', String(availableSlots)));
+                    throw new Error(t.errorCapacityLimited.replace('{count}', String(settings.dailyCapacity - currentHeadcount)));
                 }
             }
 
             // --- SUBMISSION LOGIC ---
             startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
-            let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000); // Default 2 hours duration
+            let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
             if (formData.endTime) {
                 const potentialEndDateTime = new Date(`${toDateKey(selectedDate)}T${formData.endTime}`);
-                if (potentialEndDateTime > startDateTime) {
-                    endDateTime = potentialEndDateTime;
-                }
+                if (potentialEndDateTime > startDateTime) endDateTime = potentialEndDateTime;
             }
             
             const newReservationRef = doc(collection(db, 'units', unitId, 'reservations'));
             const referenceCode = newReservationRef.id;
-
             const reservationStatus = settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
-            const newReservation = {
+            newReservation = {
                 unitId, name: formData.name, headcount: parseInt(formData.headcount),
                 startTime: Timestamp.fromDate(startDateTime), endTime: Timestamp.fromDate(endDateTime),
                 contact: { phoneE164: normalizePhone(formData.phone), email: formData.email.trim().toLowerCase() },
@@ -274,72 +269,73 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 occasion: formData.customData['occasion'] || '',
                 source: formData.customData['heardFrom'] || '',
                 customData: formData.customData,
-                id: referenceCode, // Add id for email service
             };
             await setDoc(newReservationRef, newReservation);
             
-            // --- NEW EMAIL LOGIC ---
-            // Send email to guest
-            if (newReservation.contact.email) {
-                sendEmail({
-                    typeId: 'booking_created_guest',
-                    unitId: unit.id,
-                    to: newReservation.contact.email,
-                    locale: newReservation.locale as 'hu' | 'en',
-                    payload: {
-                        unitName: unit.name,
-                        bookingName: newReservation.name,
-                        bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
-                        bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-                        headcount: newReservation.headcount,
-                        bookingRef: newReservation.referenceCode,
-                        isAutoConfirm: reservationStatus === 'confirmed'
-                    },
-                    meta: {
-                        source: "mintleaf-guest-reservation-page",
-                        channel: "web",
-                    },
-                }).then(result => {
-                    if (!result.ok) console.error("booking_created_guest email failed:", result.error);
-                }).catch(err => console.error("booking_created_guest email error:", err));
-            }
-
-            // Send notification to unit admins
-            if (settings?.notificationEmails && settings.notificationEmails.length > 0) {
-                 sendEmail({
-                    typeId: 'booking_created_admin',
-                    unitId: unit.id,
-                    to: settings.notificationEmails,
-                    locale: 'hu',
-                    payload: {
-                        unitName: unit.name,
-                        guestName: newReservation.name,
-                        guestEmail: newReservation.contact.email,
-                        guestPhone: newReservation.contact.phoneE164,
-                        headcount: newReservation.headcount,
-                        bookingDate: startDateTime.toLocaleDateString('hu-HU'),
-                        bookingTime: startDateTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
-                        isAutoConfirm: reservationStatus === 'confirmed',
-                        occasion: newReservation.occasion,
-                        customData: newReservation.customData,
-                    },
-                    meta: {
-                        source: "mintleaf-guest-reservation-page",
-                        event: "booking_created_admin_notification",
-                    },
-                 }).then(result => {
-                    if (!result.ok) console.error("booking_created_admin email failed:", result.error);
-                 }).catch(err => console.error("booking_created_admin email error:", err));
-            }
-            // --- END NEW EMAIL LOGIC ---
-
             setSubmittedData({ ...newReservation, date: selectedDate });
             setStep(3);
+            
+            // --- EMAIL LOGIC (fire-and-forget) ---
+            (async () => {
+                try {
+                    const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
+                    if (canSendGuest && newReservation.contact.email) {
+                        await sendEmail({
+                            typeId: 'booking_created_guest',
+                            unitId: unit.id,
+                            to: newReservation.contact.email,
+                            locale: newReservation.locale,
+                            payload: { 
+                                unitName: unit.name,
+                                bookingName: newReservation.name,
+                                bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+                                bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+                                headcount: newReservation.headcount,
+                                bookingRef: newReservation.referenceCode,
+                                isAutoConfirm: newReservation.status === 'confirmed'
+                            },
+                        });
+                    }
+                } catch (emailError) {
+                    console.error("Failed to send 'booking_created_guest' email:", emailError);
+                }
+    
+                try {
+                    const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
+                    if (canSendAdmin) {
+                        const legacyAdminRecipients = settings.notificationEmails || [];
+                        const adminEmails = await getAdminRecipientsOverride('booking_created_admin', unit.id, legacyAdminRecipients);
+    
+                        if (adminEmails.length > 0) {
+                             await sendEmail({
+                                typeId: 'booking_created_admin',
+                                unitId: unit.id,
+                                to: adminEmails,
+                                locale: 'hu',
+                                payload: { 
+                                    unitName: unit.name,
+                                    guestName: newReservation.name,
+                                    guestEmail: newReservation.contact.email,
+                                    guestPhone: newReservation.contact.phoneE164,
+                                    headcount: newReservation.headcount,
+                                    bookingDate: startDateTime.toLocaleDateString('hu-HU'),
+                                    bookingTime: startDateTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
+                                    isAutoConfirm: newReservation.status === 'confirmed',
+                                    occasion: newReservation.occasion,
+                                    customData: newReservation.customData,
+                                },
+                             });
+                        }
+                    }
+                } catch (emailError) {
+                    console.error("Failed to send 'booking_created_admin' email:", emailError);
+                }
+            })();
+
         } catch (err) {
             console.error("Error during reservation submission:", err);
             // FIX: The 'err' object in a catch block is of type 'unknown'.
-            // We must first verify it is an instance of Error before accessing the 'message' property.
-            // FIX: Check if err is an instance of Error before accessing message property
+            // We must verify it is an instance of Error before accessing the 'message' property.
             if (err instanceof Error) {
                 setError(err.message);
             } else {
