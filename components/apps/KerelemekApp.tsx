@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Request, User } from '../../data/mockData';
 import { db, Timestamp, serverTimestamp } from '../../firebase/config';
-import { collection, doc, updateDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, doc, updateDoc, writeBatch, deleteDoc, getDoc } from 'firebase/firestore';
 import CalendarIcon from '../icons/CalendarIcon';
 import LoadingSpinner from '../LoadingSpinner';
 import CheckIcon from '../icons/CheckIcon';
 import XIcon from '../icons/XIcon';
 import TrashIcon from '../icons/TrashIcon';
+import { sendEmail } from '../../core/api/emailGateway';
+import { getEmailSettingsForUnit, resolveEmailTemplate, renderTemplate } from '../../core/api/emailSettingsService';
 
 interface KerelemekAppProps {
   requests: Request[];
@@ -217,7 +219,7 @@ const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, error, c
 
   const handleFormSubmit = async (dateBlocks: { startDate: Date; endDate: Date }[], note: string) => {
     const batch = writeBatch(db);
-    const unitIdForRequest = currentUser.unitIds?.[0] || ''; // Default to the first unit if user has multiple
+    const unitIdForRequest = currentUser.unitIds?.[0] || '';
 
     dateBlocks.forEach(block => {
         const newRequestRef = doc(collection(db, 'requests'));
@@ -237,6 +239,39 @@ const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, error, c
     try {
         await batch.commit();
         setIsFormVisible(false);
+
+        (async () => {
+            try {
+                const settings = await getEmailSettingsForUnit(unitIdForRequest);
+                const unitDoc = await getDoc(doc(db, 'units', unitIdForRequest));
+                const adminRecipients = [...(settings.adminRecipients?.leave_request_created || []), ...(settings.adminDefaultEmail ? [settings.adminDefaultEmail] : [])];
+                
+                if (adminRecipients.length > 0) {
+                    const dates = dateBlocks.map(b => b.startDate.toLocaleDateString('hu-HU') === b.endDate.toLocaleDateString('hu-HU') ? b.startDate.toLocaleDateString('hu-HU') : `${b.startDate.toLocaleDateString('hu-HU')} - ${b.endDate.toLocaleDateString('hu-HU')}`).join(', ');
+                    const payload = {
+                        userName: currentUser.fullName,
+                        userEmail: currentUser.email,
+                        unitName: unitDoc.exists() ? unitDoc.data().name : 'Ismeretlen egység',
+                        dates,
+                        note: note || "Nincs megjegyzés.",
+                        createdAt: new Date().toLocaleString('hu-HU'),
+                    };
+                    const { subject, html } = resolveEmailTemplate('leave_request_created', settings);
+                    
+                    await sendEmail({
+                        typeId: "leave_request_created",
+                        unitId: unitIdForRequest,
+                        to: adminRecipients,
+                        subject: renderTemplate(subject, payload),
+                        html: renderTemplate(html, payload),
+                        payload,
+                    });
+                }
+            } catch (emailError) {
+                console.error("Failed to send 'leave_request_created' email:", emailError);
+            }
+        })();
+
     } catch (err) {
         console.error("Error submitting requests:", err);
         alert("Hiba történt a kérelmek benyújtása során.");
@@ -244,12 +279,46 @@ const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, error, c
   };
   
   const handleUpdateRequestStatus = async (requestId: string, status: 'approved' | 'rejected') => {
+    const request = requests.find(r => r.id === requestId);
+    if (!request || !request.unitId) return;
+
     try {
         await updateDoc(doc(db, 'requests', requestId), {
             status,
             reviewedBy: currentUser.fullName,
             reviewedAt: serverTimestamp(),
         });
+
+        (async () => {
+            try {
+                const userDoc = await getDoc(doc(db, 'users', request.userId));
+                const requestUser = userDoc.data() as User;
+
+                if (requestUser && requestUser.email) {
+                    const typeId = status === "approved" ? "leave_request_approved" : "leave_request_rejected";
+                    const settings = await getEmailSettingsForUnit(request.unitId!);
+                    const dates = request.startDate.toDate().toLocaleDateString('hu-HU') === request.endDate.toDate().toLocaleDateString('hu-HU') ? request.startDate.toDate().toLocaleDateString('hu-HU') : `${request.startDate.toDate().toLocaleDateString('hu-HU')} - ${request.endDate.toDate().toLocaleDateString('hu-HU')}`;
+
+                    const payload = {
+                        firstName: requestUser.firstName,
+                        dates: dates,
+                        approverName: currentUser.fullName,
+                    };
+                    const { subject, html } = resolveEmailTemplate(typeId, settings);
+
+                    await sendEmail({
+                        typeId,
+                        unitId: request.unitId,
+                        to: requestUser.email,
+                        subject: renderTemplate(subject, payload),
+                        html: renderTemplate(html, payload),
+                        payload,
+                    });
+                }
+            } catch (emailError) {
+                console.error("Failed to send leave request status email:", emailError);
+            }
+        })();
     } catch (err) {
         console.error("Error updating request status:", err);
         alert("Hiba a kérelem státuszának frissítésekor.");

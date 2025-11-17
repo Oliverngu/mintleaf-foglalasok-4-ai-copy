@@ -6,6 +6,8 @@ import MintLeafLogo from './icons/AppleLogo';
 import ArrowIcon from './icons/ArrowIcon';
 import EyeIcon from './icons/EyeIcon';
 import EyeSlashIcon from './icons/EyeSlashIcon';
+import { sendEmail } from '../core/api/emailGateway';
+import { getEmailSettingsForUnit, renderTemplate, resolveEmailTemplate } from '../core/api/emailSettingsService';
 
 interface RegisterProps {
   inviteCode: string;
@@ -77,7 +79,6 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     setError('');
 
     try {
-      // 1. Check if username is already taken
       const usernameQuery = query(collection(db, 'users'), where('name', '==', username.trim()));
       const usernameSnapshot = await getDocs(usernameQuery);
       if (!usernameSnapshot.empty) {
@@ -86,21 +87,17 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         return;
       }
       
-      // 2. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
       if (!user) throw new Error("User creation failed.");
 
-      // 3. Send verification email
       await sendEmailVerification(user);
 
-      // 4. Update Firebase Auth profile
       const userFullName = `${lastName.trim()} ${firstName.trim()}`;
       await updateProfile(user, {
         displayName: userFullName,
       });
 
-      // 5. Create user document in Firestore
       const userData = {
         name: username.trim(),
         lastName: lastName.trim(),
@@ -108,19 +105,36 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         fullName: userFullName,
         email: email.trim(),
         role: inviteDetails.role,
-        unitIds: [inviteDetails.unitId], // Assign unitId into the new array structure
+        unitIds: [inviteDetails.unitId],
         position: inviteDetails.position,
       };
       await setDoc(doc(db, 'users', user.uid), userData);
 
-      // 6. Mark invitation as used
+      (async () => {
+          try {
+              const settings = await getEmailSettingsForUnit(inviteDetails.unitId);
+              const payload = { firstName: userData.firstName };
+              const { subject: rawSubject, html: rawHtml } = resolveEmailTemplate('user_registration_welcome', settings);
+
+              await sendEmail({
+                  typeId: 'user_registration_welcome',
+                  unitId: inviteDetails.unitId,
+                  to: userData.email,
+                  payload,
+                  subject: renderTemplate(rawSubject, payload),
+                  html: renderTemplate(rawHtml, payload),
+              });
+          } catch (emailError) {
+              console.error("Failed to send welcome email:", emailError);
+          }
+      })();
+
       await updateDoc(doc(db, 'invitations', inviteCode), {
         status: 'used',
         usedBy: user.uid,
         usedAt: new Date(),
       });
 
-      // 7. Call success callback
       onRegisterSuccess();
     } catch (err: any) {
       switch (err.code) {

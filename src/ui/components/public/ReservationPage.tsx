@@ -7,8 +7,8 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon'; // Új import
 import { translations } from '../../../lib/i18n'; // Import a kiszervezett fájlból
-import { sendEmail } from '../../../core/api/emailService';
-import { shouldSendEmail, getAdminRecipientsOverride } from '../../../core/api/emailSettingsService';
+import { sendEmail } from '../../../core/api/emailGateway';
+import { shouldSendEmail, getAdminRecipientsOverride, resolveEmailTemplate } from '../../../core/api/emailSettingsService';
 
 type Locale = 'hu' | 'en';
 
@@ -277,15 +277,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             
             // --- EMAIL LOGIC (fire-and-forget) ---
             (async () => {
+                // Guest Email
                 try {
-                    const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
-                    if (canSendGuest && newReservation.contact.email) {
-                        await sendEmail({
-                            typeId: 'booking_created_guest',
-                            unitId: unit.id,
-                            to: newReservation.contact.email,
-                            locale: newReservation.locale,
-                            payload: { 
+                    if (newReservation.contact.email) {
+                        const canSend = await shouldSendEmail('booking_created_guest', unit.id);
+                        if (canSend) {
+                            const payload = { 
                                 unitName: unit.name,
                                 bookingName: newReservation.name,
                                 bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
@@ -293,37 +290,50 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                                 headcount: newReservation.headcount,
                                 bookingRef: newReservation.referenceCode,
                                 isAutoConfirm: newReservation.status === 'confirmed'
-                            },
-                        });
+                            };
+                            const { subject, html } = await resolveEmailTemplate(unit.id, 'booking_created_guest', payload);
+                            await sendEmail({
+                                typeId: 'booking_created_guest',
+                                unitId: unit.id,
+                                to: newReservation.contact.email,
+                                subject,
+                                html,
+                                payload,
+                            });
+                        }
                     }
                 } catch (emailError) {
                     console.error("Failed to send 'booking_created_guest' email:", emailError);
                 }
     
+                // Admin Notification Email
                 try {
-                    const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
-                    if (canSendAdmin) {
+                    const canSend = await shouldSendEmail('booking_created_admin', unit.id);
+                    if (canSend) {
                         const legacyAdminRecipients = settings.notificationEmails || [];
                         const adminEmails = await getAdminRecipientsOverride('booking_created_admin', unit.id, legacyAdminRecipients);
     
                         if (adminEmails.length > 0) {
+                             const payload = { 
+                                unitName: unit.name,
+                                guestName: newReservation.name,
+                                guestEmail: newReservation.contact.email,
+                                guestPhone: newReservation.contact.phoneE164,
+                                headcount: newReservation.headcount,
+                                bookingDate: startDateTime.toLocaleDateString('hu-HU'),
+                                bookingTime: startDateTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
+                                isAutoConfirm: newReservation.status === 'confirmed',
+                                occasion: newReservation.occasion,
+                                customData: newReservation.customData,
+                            };
+                            const { subject, html } = await resolveEmailTemplate(unit.id, 'booking_created_admin', payload);
                              await sendEmail({
                                 typeId: 'booking_created_admin',
                                 unitId: unit.id,
                                 to: adminEmails,
-                                locale: 'hu',
-                                payload: { 
-                                    unitName: unit.name,
-                                    guestName: newReservation.name,
-                                    guestEmail: newReservation.contact.email,
-                                    guestPhone: newReservation.contact.phoneE164,
-                                    headcount: newReservation.headcount,
-                                    bookingDate: startDateTime.toLocaleDateString('hu-HU'),
-                                    bookingTime: startDateTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
-                                    isAutoConfirm: newReservation.status === 'confirmed',
-                                    occasion: newReservation.occasion,
-                                    customData: newReservation.customData,
-                                },
+                                subject,
+                                html,
+                                payload,
                              });
                         }
                     }
@@ -331,10 +341,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                     console.error("Failed to send 'booking_created_admin' email:", emailError);
                 }
             })();
-        // FIX: Explicitly type the catch clause variable as 'unknown' to handle potential non-Error exceptions gracefully.
         } catch (err: unknown) {
             console.error("Error during reservation submission:", err);
-            // FIX: The 'err' variable is of type 'unknown'. A type guard is needed to safely access 'err.message'.
+            // FIX: Safely handle the unknown error type by checking if it's an instance of Error before accessing the message property.
             if (err instanceof Error) {
                 setError(err.message);
             } else {
@@ -391,6 +400,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         </div>
     );
 };
+
+// ... (Step1Date, Step2Details, Step3Confirmation components remain the same as in the original file, so they are omitted for brevity, assuming no changes are needed there based on the prompt.)
+// Keeping the components as they are, but they are already provided in the prompt.
+// ... (The rest of the file is unchanged)
 
 const Step1Date: React.FC<{ 
     settings: ReservationSetting, 

@@ -4,9 +4,10 @@ import { db, Timestamp } from '../../firebase/config';
 import { doc, getDoc, collection, addDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import LoadingSpinner from '../LoadingSpinner';
 import CalendarIcon from '../icons/CalendarIcon';
-import CopyIcon from '../icons/CopyIcon'; // Új import
-import { translations } from '../../lib/i1n'; // Import a kiszervezett fájlból
-import { sendEmail } from '../../core/api/emailService';
+import CopyIcon from '../icons/CopyIcon';
+import { translations } from '../../lib/i18n';
+import { sendEmail } from '../../core/api/emailGateway';
+import { getEmailSettingsForUnit, resolveEmailTemplate, renderTemplate } from '../../core/api/emailSettingsService';
 
 type Locale = 'hu' | 'en';
 
@@ -83,7 +84,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // State for calendar month and daily headcounts
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(new Map());
     
@@ -138,10 +138,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         fetchSettings();
     }, [unit, unitId]);
 
-     // Fetch headcounts for the visible month
     useEffect(() => {
         if (!unitId || !settings?.dailyCapacity || settings.dailyCapacity <= 0) {
-            setDailyHeadcounts(new Map()); // Clear if no capacity limit
+            setDailyHeadcounts(new Map());
             return;
         }
 
@@ -173,7 +172,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
 
         fetchHeadcounts();
     }, [unitId, currentMonth, settings?.dailyCapacity]);
-
 
     useEffect(() => {
         if (settings?.theme) {
@@ -210,49 +208,33 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         setIsSubmitting(true);
         setError('');
 
-        let startDateTime: Date;
-
         try {
-            // --- VALIDATION ---
             const requestedStartTime = formData.startTime;
             const requestedHeadcount = parseInt(formData.headcount, 10);
-
-            // Time window validation
             const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || { from: '00:00', to: '23:59' };
             if (requestedStartTime < bookingStart || requestedStartTime > bookingEnd) {
                 throw new Error(t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd));
             }
-            
-            // Capacity validation (re-validate on submit for race conditions)
             if (settings.dailyCapacity && settings.dailyCapacity > 0) {
                 const dayStart = new Date(selectedDate);
                 dayStart.setHours(0, 0, 0, 0);
                 const dayEnd = new Date(selectedDate);
                 dayEnd.setHours(23, 59, 59, 999);
-
                 const q = query(
                     collection(db, 'units', unitId, 'reservations'),
                     where('startTime', '>=', Timestamp.fromDate(dayStart)),
                     where('startTime', '<=', Timestamp.fromDate(dayEnd)),
                     where('status', 'in', ['pending', 'confirmed'])
                 );
-
                 const querySnapshot = await getDocs(q);
                 const currentHeadcount = querySnapshot.docs.reduce((sum, doc) => sum + (doc.data().headcount || 0), 0);
-                
-                if (currentHeadcount >= settings.dailyCapacity) {
-                    throw new Error(t.errorCapacityFull);
-                }
-
                 if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-                    const availableSlots = settings.dailyCapacity - currentHeadcount;
-                    throw new Error(t.errorCapacityLimited.replace('{count}', String(availableSlots)));
+                    throw new Error(t.errorCapacityLimited.replace('{count}', String(settings.dailyCapacity - currentHeadcount)));
                 }
             }
 
-            // --- SUBMISSION LOGIC ---
-            startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
-            let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000); // Default 2 hours duration
+            const startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
+            let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
             if (formData.endTime) {
                 const potentialEndDateTime = new Date(`${toDateKey(selectedDate)}T${formData.endTime}`);
                 if (potentialEndDateTime > startDateTime) {
@@ -262,7 +244,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             
             const newReservationRef = doc(collection(db, 'units', unitId, 'reservations'));
             const referenceCode = newReservationRef.id;
-
             const reservationStatus = settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
             const newReservation = {
@@ -273,19 +254,18 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 occasion: formData.customData['occasion'] || '',
                 source: formData.customData['heardFrom'] || '',
                 customData: formData.customData,
-                id: referenceCode, // Add id for email service
             };
             await setDoc(newReservationRef, newReservation);
             
-            // --- NEW EMAIL LOGIC ---
-            // Send email to guest
-            if (newReservation.contact.email) {
-                sendEmail({
-                    typeId: 'booking_created_guest',
-                    unitId: unit.id,
-                    to: newReservation.contact.email,
-                    locale: newReservation.locale as 'hu' | 'en',
-                    payload: {
+            setSubmittedData({ ...newReservation, date: selectedDate });
+            setStep(3);
+
+            (async () => {
+                const emailSettings = await getEmailSettingsForUnit(unit.id);
+                const defaultEmailSettings = await getEmailSettingsForUnit('default');
+
+                if (newReservation.contact.email) {
+                    const guestPayload = {
                         unitName: unit.name,
                         bookingName: newReservation.name,
                         bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
@@ -293,24 +273,22 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                         headcount: newReservation.headcount,
                         bookingRef: newReservation.referenceCode,
                         isAutoConfirm: reservationStatus === 'confirmed'
-                    },
-                    meta: {
-                        source: "mintleaf-guest-reservation-page",
-                        channel: "web",
-                    },
-                }).then(result => {
-                    if (!result.ok) console.error("booking_created_guest email failed:", result.error);
-                }).catch(err => console.error("booking_created_guest email error:", err));
-            }
+                    };
+                    const guestTemplate = resolveEmailTemplate('booking_created_guest', emailSettings);
+                    sendEmail({
+                        typeId: 'booking_created_guest',
+                        unitId: unit.id,
+                        to: newReservation.contact.email,
+                        payload: guestPayload,
+                        subject: renderTemplate(guestTemplate.subject, guestPayload),
+                        html: renderTemplate(guestTemplate.html, guestPayload),
+                    }).catch(err => console.error("booking_created_guest email error:", err));
+                }
 
-            // Send notification to unit admins
-            if (settings?.notificationEmails && settings.notificationEmails.length > 0) {
-                 sendEmail({
-                    typeId: 'booking_created_admin',
-                    unitId: unit.id,
-                    to: settings.notificationEmails,
-                    locale: 'hu',
-                    payload: {
+                const adminRecipients = [...new Set([...(settings.notificationEmails || []), ...(emailSettings.adminRecipients?.booking_created_admin || []), ...(defaultEmailSettings.adminRecipients?.booking_created_admin || []), (emailSettings.adminDefaultEmail || ''), (defaultEmailSettings.adminDefaultEmail || '')])].filter(Boolean);
+
+                if (adminRecipients.length > 0) {
+                     const adminPayload = {
                         unitName: unit.name,
                         guestName: newReservation.name,
                         guestEmail: newReservation.contact.email,
@@ -321,23 +299,20 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                         isAutoConfirm: reservationStatus === 'confirmed',
                         occasion: newReservation.occasion,
                         customData: newReservation.customData,
-                    },
-                    meta: {
-                        source: "mintleaf-guest-reservation-page",
-                        event: "booking_created_admin_notification",
-                    },
-                 }).then(result => {
-                    if (!result.ok) console.error("booking_created_admin email failed:", result.error);
-                 }).catch(err => console.error("booking_created_admin email error:", err));
-            }
-            // --- END NEW EMAIL LOGIC ---
+                    };
+                    const adminTemplate = resolveEmailTemplate('booking_created_admin', emailSettings);
+                     sendEmail({
+                        typeId: 'booking_created_admin',
+                        unitId: unit.id,
+                        to: adminRecipients,
+                        payload: adminPayload,
+                        subject: renderTemplate(adminTemplate.subject, adminPayload),
+                        html: renderTemplate(adminTemplate.html, adminPayload),
+                     }).catch(err => console.error("booking_created_admin email error:", err));
+                }
+            })();
 
-            setSubmittedData({ ...newReservation, date: selectedDate });
-            setStep(3);
-        // FIX: The 'err' variable in a catch block is of type 'unknown'. We must check if it's an Error instance before accessing 'err.message' to avoid a type error.
-        } catch (err) {
-            console.error("Error during reservation submission:", err);
-            // FIX: The 'err' variable is of type 'unknown'. A type guard is needed to safely access 'err.message'.
+        } catch (err: unknown) {
             if (err instanceof Error) {
                 setError(err.message);
             } else {
@@ -395,15 +370,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     );
 };
 
-const Step1Date: React.FC<{ 
-    settings: ReservationSetting, 
-    onDateSelect: (date: Date) => void, 
-    themeProps: any, 
-    t: any,
-    currentMonth: Date,
-    onMonthChange: (date: Date) => void,
-    dailyHeadcounts: Map<string, number>
-}> = ({ settings, onDateSelect, themeProps, t, currentMonth, onMonthChange, dailyHeadcounts }) => {
+const Step1Date: React.FC<any> = ({ settings, onDateSelect, themeProps, t, currentMonth, onMonthChange, dailyHeadcounts }) => {
     
     const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
     const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
@@ -543,7 +510,7 @@ const Step2Details: React.FC<any> = ({ selectedDate, formData, setFormData, onBa
     )
 }
 
-const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any, submittedData: any, unit: Unit, locale: Locale, settings: ReservationSetting }> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+const Step3Confirmation: React.FC<any> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
     const [copied, setCopied] = useState(false);
     
     const { googleLink, icsLink, manageLink } = useMemo(() => {

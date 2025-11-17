@@ -6,12 +6,7 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
     html: `
       <p>Szia!</p>
       <p><strong>{{userName}}</strong> ({{userEmail}}) új szabadságkérelmet nyújtott be a(z) <strong>{{unitName}}</strong> egységhez.</p>
-      <p><strong>Kért időszak(ok):</strong></p>
-      <ul>
-        {{#each dateRanges}}
-        <li>{{this.start}} - {{this.end}}</li>
-        {{/each}}
-      </ul>
+      <p><strong>Kért időszak(ok):</strong> {{dates}}</p>
       <p><strong>Megjegyzés:</strong> {{note}}</p>
       <p>A kérelem beérkezett: {{createdAt}}</p>
       <p>A kérelem elbírálásához kérjük, jelentkezz be a MintLeaf felületére.</p>
@@ -21,7 +16,7 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
     subject: 'Szabadságkérelmed jóváhagyva',
     html: `
       <p>Szia {{firstName}}!</p>
-      <p>Örömmel értesítünk, hogy a(z) <strong>{{startDate}} - {{endDate}}</strong> időszakra vonatkozó szabadságkérelmedet <strong>{{approverName}}</strong> jóváhagyta.</p>
+      <p>Örömmel értesítünk, hogy a(z) <strong>{{dates}}</strong> időszakra vonatkozó szabadságkérelmedet <strong>{{approverName}}</strong> jóváhagyta.</p>
       <p>Jó pihenést kívánunk!</p>
     `,
   },
@@ -29,7 +24,7 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
     subject: 'Szabadságkérelmed elutasítva',
     html: `
       <p>Szia {{firstName}}!</p>
-      <p>Sajnálattal értesítünk, hogy a(z) <strong>{{startDate}} - {{endDate}}</strong> időszakra vonatkozó szabadságkérelmedet <strong>{{approverName}}</strong> elutasította.</p>
+      <p>Sajnálattal értesítünk, hogy a(z) <strong>{{dates}}</strong> időszakra vonatkozó szabadságkérelmedet <strong>{{approverName}}</strong> elutasította.</p>
       <p>További információért keresd a felettesedet.</p>
     `,
   },

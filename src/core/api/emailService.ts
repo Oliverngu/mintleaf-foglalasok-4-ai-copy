@@ -17,7 +17,8 @@
  * This architecture keeps all template logic and sensitive keys on the server-side,
  * making the frontend cleaner and more secure.
  */
-import { isValidTypeId } from '../email/emailTypes';
+// FIX: Added 'isValidTypeId' to the import from '../email/emailTypes' to resolve the module resolution error.
+import { isValidTypeId, EmailTypeId } from '../email/emailTypes';
 
 // --- Type Definitions ---
 

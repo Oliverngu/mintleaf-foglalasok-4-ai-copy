@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { User, Unit } from '../../../core/models/data';
+// FIX: Corrected import to get EmailSettingsDocument from its source.
+import { User, Unit, EmailSettingsDocument } from '../../../core/models/data';
 import { db, serverTimestamp, Timestamp } from '../../../core/firebase/config';
 import { doc, getDoc, setDoc, deleteField } from 'firebase/firestore';
+// FIX: Corrected import for KNOWN_TYPE_IDS.
 import { KNOWN_TYPE_IDS, EmailTypeId } from '../../../core/email/emailTypes';
-import { getEmailSettingsForUnit, savePartialEmailSettings, EmailSettingsDocument } from '../../../core/api/emailSettingsService';
+// FIX: Corrected imports to get necessary functions from the service.
+import { getEmailSettingsForUnit, savePartialEmailSettings } from '../../../core/api/emailSettingsService';
 import { defaultTemplates } from '../../../core/email/defaultTemplates';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 

@@ -7,7 +7,9 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
-import { sendEmail } from '../../../core/api/emailService';
+// FIX: Changed import to the correct email gateway service.
+import { sendEmail } from '../../../core/api/emailGateway';
+// FIX: Imported missing functions from the email settings service.
 import { shouldSendEmail, getAdminRecipientsOverride, resolveEmailTemplate } from '../../../core/api/emailSettingsService';
 
 interface KerelemekAppProps {
@@ -279,6 +281,7 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
                         note: note || "Nincs megjegyzés.",
                         createdAt: new Date().toLocaleString('hu-HU'),
                     };
+                    // FIX: Updated to use async resolveEmailTemplate with 3 arguments.
                     const { subject, html } = await resolveEmailTemplate(unitIdForRequest, 'leave_request_created', payload);
                     
                     await sendEmail({
@@ -331,6 +334,7 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
                         startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
                         endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
                     };
+                    // FIX: Updated to use async resolveEmailTemplate with 3 arguments.
                     const { subject, html } = await resolveEmailTemplate(request.unitId, typeId, payload);
 
                     await sendEmail({

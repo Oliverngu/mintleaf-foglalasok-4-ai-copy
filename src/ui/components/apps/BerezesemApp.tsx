@@ -247,7 +247,7 @@ const EditTimeEntryModal: React.FC<EditTimeEntryModalProps> = ({ entry, onClose,
 };
 
 
-const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedule, activeUnitIds, timeEntries, allUnits }) => {
+export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedule, activeUnitIds, timeEntries, allUnits }) => {
     const [wages, setWages] = useState<Record<string, number | ''>>({});
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);

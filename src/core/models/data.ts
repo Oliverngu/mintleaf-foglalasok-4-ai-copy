@@ -1,4 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
+import { EmailTypeId } from '../email/emailTypes';
 
 // NEW: Define the structure for a single widget's configuration
 export interface WidgetConfig {
@@ -18,6 +19,7 @@ export interface ExportStyleSettings {
   // Header Coloring
   dayHeaderBgColor: string;
   categoryHeaderBgColor: string;
+  // FIX: Added missing property to store calculated text color.
   categoryHeaderTextColor: string;
   // Grid and Border
   gridThickness: number; // 1-2
@@ -304,6 +306,19 @@ export interface PollVote {
   userId: string;
   selectedOptionIds: string[];
   votedAt: Timestamp;
+}
+
+// --- EMAIL SETTINGS INTERFACE ---
+export interface EmailSettingsDocument {
+  enabledTypes: Record<string, boolean>;
+  adminRecipients: Record<string, string[]>;
+  templateOverrides?: {
+    [key in EmailTypeId]?: {
+      subject: string;
+      html: string;
+    }
+  };
+  adminDefaultEmail?: string;
 }
 
 // --- DEMO MODE DATA ---

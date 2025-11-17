@@ -15,6 +15,8 @@ import ArrowUpIcon from '../icons/ArrowUpIcon';
 import ArrowDownIcon from '../icons/ArrowDownIcon';
 import EyeSlashIcon from '../icons/EyeSlashIcon';
 import EyeIcon from '../icons/EyeIcon';
+import { sendEmail } from '../../core/api/emailGateway';
+import { getEmailSettingsForUnit, renderTemplate, resolveEmailTemplate } from '../../core/api/emailSettingsService';
 
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (shift: Shift, dailyClosingTime?: string | null): number => {
@@ -208,7 +210,6 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({ units, onClose, onConfirm
     const handleSubmit = async () => {
         setIsSubmitting(true);
         await onConfirm(selectedIds);
-        // The parent component will close the modal, no need to set state here.
     };
 
     return (
@@ -624,10 +625,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({ type, onClo
         setIsExporting(true);
         try {
             await onConfirm();
-            // On success, the parent will close the modal and show a toast.
         } catch (err) {
-            // Errors are typically handled inside the export functions with an alert.
-            setIsExporting(false); // Re-enable button on failure.
+            setIsExporting(false);
         }
     };
 
@@ -639,7 +638,6 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({ type, onClo
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
 
-    // A miniaturized version of the ExportSettingsPanel preview for the confirmation modal
     const Preview: FC<{ settings: ExportStyleSettings }> = ({ settings }) => {
         const altZebraColor = useMemo(() => adjustColor(settings.zebraColor, -(settings.zebraStrength / 2)), [settings.zebraColor, settings.zebraStrength]);
         const altNameColor = useMemo(() => adjustColor(settings.nameColumnColor, -(settings.zebraStrength / 2)), [settings.nameColumnColor, settings.zebraStrength]);
@@ -723,7 +721,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     const [weekSettings, setWeekSettings] = useState<ScheduleSettings | null>(null);
     const [showSettings, setShowSettings] = useState(false);
-    // NEW: state for settings modal tabs
     const [activeSettingsTab, setActiveSettingsTab] = useState<'opening' | 'export'>('opening');
 
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
@@ -740,7 +737,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>([]);
     const [savedHiddenUserIds, setSavedHiddenUserIds] = useState<string[]>([]);
     
-    // --- NEW: Export settings states ---
     const [exportSettings, setExportSettings] = useState<ExportStyleSettings>(DEFAULT_EXPORT_SETTINGS);
     const [initialExportSettings, setInitialExportSettings] = useState<ExportStyleSettings>(DEFAULT_EXPORT_SETTINGS);
     const [isSavingExportSettings, setIsSavingExportSettings] = useState(false);
@@ -830,11 +826,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         }
     }, [settingsDocId]);
 
-    // --- NEW/MODIFIED: Fetch Export Settings based on unit ---
     useEffect(() => {
-        // This effect loads the unit-specific export settings when an admin selects a single unit.
         if (!canManage || activeUnitIds.length !== 1) {
-            // Reset to default if multiple units are selected or user is not an admin
             setExportSettings(DEFAULT_EXPORT_SETTINGS);
             setInitialExportSettings(DEFAULT_EXPORT_SETTINGS);
             return;
@@ -860,26 +853,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         try {
             const settingsDocRef = doc(db, 'unit_export_settings', unitId);
             
-            const currentSettingsColors = [
-                exportSettings.zebraColor,
-                exportSettings.nameColumnColor,
-                exportSettings.dayHeaderBgColor,
-                exportSettings.categoryHeaderBgColor,
-            ].filter(c => c && c.startsWith('#'));
-
-            const docSnap = await getDoc(settingsDocRef);
-            const existingColors = docSnap.exists() ? docSnap.data().lastUsedColors || [] : [];
-            
-            const updatedLastUsedColors = [
-                ...new Set([...currentSettingsColors, ...existingColors])
-            ].slice(0, 12);
-
             const settingsToSave = {
                 ...exportSettings,
                 categoryHeaderTextColor: getContrastingTextColor(exportSettings.categoryHeaderBgColor), // Save calculated color
-                lastUsedColors: updatedLastUsedColors
             };
-
+            
             await setDoc(settingsDocRef, settingsToSave);
 
             alert("Exportálási beállítások mentve ehhez az egységhez!");
@@ -1041,12 +1019,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     };
 
     const handleConfirmPublish = async (selectedUnitIds: string[]) => {
-        if (selectedUnitIds.length === 0) return;
-
+        if (selectedUnitIds.length === 0) {
+            setIsPublishModalOpen(false);
+            return;
+        }
+    
         const weekStart = weekDays[0];
         const weekEnd = new Date(weekDays[6]);
         weekEnd.setHours(23, 59, 59, 999);
-
+    
         const shiftsToPublish = schedule.filter(s =>
             (s.status === 'draft' || !s.status) &&
             s.start &&
@@ -1055,12 +1036,55 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             s.unitId &&
             selectedUnitIds.includes(s.unitId)
         );
-
+    
         if (shiftsToPublish.length > 0) {
             const batch = writeBatch(db);
             shiftsToPublish.forEach(shift => batch.update(doc(db, 'shifts', shift.id), { status: 'published' }));
-            await batch.commit();
-            alert('A kiválasztott műszakok sikeresen publikálva!');
+            try {
+                await batch.commit();
+                alert('A kiválasztott műszakok sikeresen publikálva!');
+            } catch (err) {
+                console.error("Error publishing shifts:", err);
+                alert("Hiba a műszakok publikálása során.");
+                setIsPublishModalOpen(false);
+                return;
+            }
+    
+            (async () => {
+                try {
+                    const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
+                    const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})} - ${weekDays[6].toLocaleDateString('hu-HU', {month: 'short', day: 'numeric'})}`;
+            
+                    for (const userId of affectedUserIds) {
+                        try {
+                            const user = allAppUsers.find(u => u.id === userId);
+                            if (!user || !user.email || user.notifications?.newSchedule === false) continue;
+    
+                            const userPrimaryUnitId = user.unitIds?.[0] || null;
+                            if (!userPrimaryUnitId) continue;
+                            
+                            const settings = await getEmailSettingsForUnit(userPrimaryUnitId);
+                            if (settings.enabledTypes['new_schedule_published'] === false) continue;
+
+                            const payload = { firstName: user.firstName, weekLabel };
+                            const { subject, html } = resolveEmailTemplate('new_schedule_published', settings);
+    
+                            await sendEmail({
+                                typeId: 'new_schedule_published',
+                                unitId: userPrimaryUnitId,
+                                to: user.email,
+                                subject: renderTemplate(subject, payload),
+                                html: renderTemplate(html, payload),
+                                payload,
+                            });
+                        } catch (singleEmailError) {
+                             console.error(`Failed to send 'new_schedule_published' email to ${userId}:`, singleEmailError);
+                        }
+                    }
+                } catch (emailError) {
+                    console.error("An error occurred during the email notification process:", emailError);
+                }
+            })();
         }
         setIsPublishModalOpen(false);
     };

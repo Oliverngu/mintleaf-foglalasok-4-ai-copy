@@ -12,8 +12,8 @@ import AdminTodoApp from './apps/AdminTodoApp';
 import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
-// FIX: Module '"file:///src/ui/components/apps/BerezesemApp"' has no default export.
-import BerezesemApp from './apps/BerezesemApp';
+// FIX: Module '"file:///src/ui/components/apps/BerezesemApp"' has no default export. Changed to named import.
+import { BerezesemApp } from './apps/BerezesemApp';
 import AdminisztracioApp from './apps/AdminisztracioApp';
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
@@ -294,7 +294,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 activeUnitIds={activeUnitIds}
             />
         case 'kerelemek':
-            return <KerelemekApp requests={requests} loading={false} error={null} currentUser={currentUser} canManage={hasPermission('canManageLeaveRequests')} allUsers={allUsers} allUnits={allUnits} />;
+            return <KerelemekApp requests={requests} loading={false} error={null} currentUser={currentUser} canManage={hasPermission('canManageLeaveRequests')} />;
         case 'foglalasok':
             return <FoglalasokApp 
                         currentUser={currentUser} 
