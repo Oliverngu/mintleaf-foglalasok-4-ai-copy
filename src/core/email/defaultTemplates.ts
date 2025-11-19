@@ -29,23 +29,60 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
     `,
   },
   booking_created_guest: {
-    subject: 'Foglalásod részletei a(z) {{unitName}} egységben',
-    html: `
-      <p>Kedves {{bookingName}}!</p>
-      {{#if isAutoConfirm}}
-      <p>Köszönjük, foglalásodat sikeresen rögzítettük a(z) <strong>{{unitName}}</strong> egységünkben az alábbi adatokkal:</p>
-      {{else}}
-      <p>Köszönjük, foglalási kérelmedet megkaptuk a(z) <strong>{{unitName}}</strong> egységünkbe. Hamarosan felvesszük veled a kapcsolatot a megerősítéssel kapcsolatban. Kérésed adatai:</p>
-      {{/if}}
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTime}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Foglalási azonosító:</strong> {{bookingRef}}</li>
-      </ul>
-      <p>Várunk szeretettel!</p>
-    `,
-  },
+  subject: 'Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+  html: `
+    <h2>Kedves {{guestName}}!</h2>
+
+    <p>Köszönjük a foglalásodat a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
+
+    <h3>Foglalás részletei</h3>
+    <ul>
+      <li><strong>Dátum:</strong> {{bookingDate}}</li>
+      <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{#bookingTimeTo}} – {{bookingTimeTo}}{{/bookingTimeTo}}</li>
+      <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      {{#occasion}}
+        <li><strong>Alkalom:</strong> {{occasion}} {{occasionOther}}</li>
+      {{/occasion}}
+    </ul>
+
+    {{#comment}}
+      <h3>Megjegyzésed</h3>
+      <p>{{comment}}</p>
+    {{/comment}}
+
+    <h3>Elérhetőségeid</h3>
+    <ul>
+      <li><strong>Email:</strong> {{guestEmail}}</li>
+      {{#guestPhone}}
+        <li><strong>Telefon:</strong> {{guestPhone}}</li>
+      {{/guestPhone}}
+    </ul>
+
+    <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
+
+    <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
+  `,
+  text: `
+Kedves {{guestName}}!
+
+Köszönjük a foglalásodat a(z) {{unitName}} egységünkbe.
+
+Foglalás részletei:
+- Dátum: {{bookingDate}}
+- Időpont: {{bookingTimeFrom}}{{#bookingTimeTo}} – {{bookingTimeTo}}{{/bookingTimeTo}}
+- Létszám: {{headcount}} fő
+{{#occasion}}- Alkalom: {{occasion}} {{occasionOther}}{{/occasion}}
+
+Elérhetőségeid:
+- Email: {{guestEmail}}
+{{#guestPhone}}- Telefon: {{guestPhone}}{{/guestPhone}}
+
+Foglalási azonosító: {{bookingRef}}
+
+Üdvözlettel,
+{{unitName}} csapata
+  `,
+},
   booking_created_admin: {
     subject: 'Új foglalás érkezett: {{guestName}} ({{headcount}} fő)',
     html: `
