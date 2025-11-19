@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // FIX: Corrected import to get EmailSettingsDocument from its source.
 import { User, Unit, EmailSettingsDocument } from '../../../core/models/data';
-import { db, serverTimestamp, Timestamp } from '../../../core/firebase/config';
-import { doc, getDoc, setDoc, deleteField } from 'firebase/firestore';
+import { db } from '../../../core/firebase/config';
+import { doc, getDoc } from 'firebase/firestore';
 // FIX: Corrected import for KNOWN_TYPE_IDS.
 import { KNOWN_TYPE_IDS, EmailTypeId } from '../../../core/email/emailTypes';
 // FIX: Corrected imports to get necessary functions from the service.
-import { savePartialEmailSettings } from '../../../core/api/emailSettingsService';
+import { savePartialEmailSettings, renderTemplate } from '../../../core/api/emailSettingsService';
 import { defaultTemplates } from '../../../core/email/defaultTemplates';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 
@@ -29,6 +29,73 @@ const emailTypeGroups: Record<string, EmailTypeId[]> = {
 
 const ADMIN_RECIPIENT_TYPES: EmailTypeId[] = ['booking_created_admin', 'leave_request_created'];
 
+// Dummy payload-ok az élő előnézethez
+const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>> = {
+  booking_created_guest: {
+    unitName: 'Gin and Avocado',
+    bookingName: 'Minta vendég',
+    bookingDate: '2025. 11. 21.',
+    bookingTimeFrom: '18:00',
+    bookingTimeTo: '20:00',
+    headcount: 4,
+    guestName: 'Minta Vendég',
+    guestEmail: 'minta.vendeg@example.com',
+    guestPhone: '+36 30 123 4567',
+    occasion: 'Italozás',
+    occasionOther: '',
+    comment: 'Ez egy minta megjegyzés.',
+    bookingRef: 'ABC12345',
+    isAutoConfirm: false,
+  },
+  booking_created_admin: {
+    unitName: 'Gin and Avocado',
+    bookingName: 'Minta vendég',
+    bookingDate: '2025. 11. 21.',
+    bookingTimeFrom: '18:00',
+    bookingTimeTo: '20:00',
+    headcount: 4,
+    guestName: 'Minta Vendég',
+    guestEmail: 'minta.vendeg@example.com',
+    guestPhone: '+36 30 123 4567',
+    occasion: 'Italozás',
+    occasionOther: '',
+    comment: 'Ez egy minta megjegyzés.',
+    bookingRef: 'ABC12345',
+    isAutoConfirm: true,
+  },
+  leave_request_created: {
+    userName: 'Teszt Dolgozó',
+    userEmail: 'teszt.dolgozo@example.com',
+    unitName: 'Gin and Avocado',
+    dates: '2025. 12. 24. – 2025. 12. 31.',
+    note: 'Karácsonyi szabadság.',
+    createdAt: '2025. 11. 20. 10:00',
+  },
+  leave_request_approved: {
+    firstName: 'Teszt',
+    approverName: 'Olivér',
+    dates: '2025. 12. 24. – 2025. 12. 31.',
+  },
+  leave_request_rejected: {
+    firstName: 'Teszt',
+    approverName: 'Olivér',
+    dates: '2025. 12. 24. – 2025. 12. 31.',
+  },
+  new_schedule_published: {
+    firstName: 'Teszt',
+    weekLabel: '2025 / 48. hét',
+    unitName: 'Gin and Avocado',
+  },
+  user_registration_welcome: {
+    firstName: 'Teszt',
+  },
+};
+
+const DEFAULT_PREVIEW_PAYLOAD: Record<string, any> = {
+  guestName: 'Minta Vendég',
+  guestEmail: 'minta.vendeg@example.com',
+};
+
 const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUnits }) => {
   const [selectedUnitId, setSelectedUnitId] = useState<string>('');
   const [settings, setSettings] = useState<EmailSettingsDocument | null>(null);
@@ -46,41 +113,40 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
   }, [currentUser, allUnits]);
 
   const fetchSettings = useCallback(async () => {
-  if (!selectedUnitId) return;
-  setIsLoading(true);
-  setSavingState({ key: null, error: '', success: '' });
-  setSelectedType(null);
+    if (!selectedUnitId) return;
+    setIsLoading(true);
+    setSavingState({ key: null, error: '', success: '' });
+    setSelectedType(null);
 
-  try {
-    const docRef = doc(db, 'email_settings', selectedUnitId);
-    const snap = await getDoc(docRef);
+    try {
+      const docRef = doc(db, 'email_settings', selectedUnitId);
+      const snap = await getDoc(docRef);
 
-    if (!snap.exists()) {
+      if (!snap.exists()) {
+        setSettings({
+          enabledTypes: {},
+          adminRecipients: {},
+          templateOverrides: {},
+          adminDefaultEmail: '',
+        });
+        return;
+      }
+
+      const data = snap.data() as any;
+
       setSettings({
-        enabledTypes: {},
-        adminRecipients: {},
-        templateOverrides: {},
-        adminDefaultEmail: '',
+        enabledTypes: data.enabledTypes || {},
+        adminRecipients: data.adminRecipients || {},
+        templateOverrides: data.templateOverrides || {},
+        adminDefaultEmail: data.adminDefaultEmail || '',
       });
-      return;
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+      setSavingState((s) => ({ ...s, error: 'Hiba a beállítások betöltésekor.' }));
+    } finally {
+      setIsLoading(false);
     }
-
-    const data = snap.data() as any;
-
-    setSettings({
-      enabledTypes: data.enabledTypes || {},
-      adminRecipients: data.adminRecipients || {},
-      templateOverrides: data.templateOverrides || {},
-      adminDefaultEmail: data.adminDefaultEmail || '',
-    });
-  } catch (err) {
-    console.error('Error fetching settings:', err);
-    setSavingState((s) => ({ ...s, error: 'Hiba a beállítások betöltésekor.' }));
-  } finally {
-    setIsLoading(false);
-  }
-}, [selectedUnitId]);
-
+  }, [selectedUnitId]);
 
   useEffect(() => {
     if (availableUnits.length > 0 && !selectedUnitId) {
@@ -104,94 +170,105 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
       setEditorState(null);
     }
   }, [selectedType, settings]);
-  
-  const handleSave = useCallback(async (key: string, partialData: Record<string, any>) => {
-    if (!selectedUnitId) return;
-    setSavingState({ key, error: '', success: '' });
-    try {
+
+  const handleSave = useCallback(
+    async (key: string, partialData: Record<string, any>) => {
+      if (!selectedUnitId) return;
+      setSavingState({ key, error: '', success: '' });
+      try {
         await savePartialEmailSettings(selectedUnitId, partialData);
         setSavingState({ key, error: '', success: 'Mentve!' });
         await fetchSettings(); // Refetch to get the latest state
         setTimeout(() => setSavingState({ key: null, error: '', success: '' }), 2000);
-    } catch (err) {
+      } catch (err) {
         console.error(`Error saving ${key}:`, err);
         setSavingState({ key, error: 'Hiba a mentés során.', success: '' });
-    }
-  }, [selectedUnitId, fetchSettings]);
+      }
+    },
+    [selectedUnitId, fetchSettings]
+  );
 
   const handleToggle = async (typeId: EmailTypeId) => {
-  if (!settings) return;
+    if (!settings) return;
 
-  const isEnabled = settings.enabledTypes?.[typeId] ?? true;
-  const newEnabledState = !isEnabled;
+    const isEnabled = settings.enabledTypes?.[typeId] ?? true;
+    const newEnabledState = !isEnabled;
 
-  // Új enabledTypes objektum
-  const updatedEnabled = {
-    ...(settings.enabledTypes || {}),
-    [typeId]: newEnabledState,
+    const updatedEnabled = {
+      ...(settings.enabledTypes || {}),
+      [typeId]: newEnabledState,
+    };
+
+    setSettings(prev =>
+      prev ? { ...prev, enabledTypes: updatedEnabled } : prev
+    );
+
+    await handleSave('enabled-types', { enabledTypes: updatedEnabled });
   };
 
-  // Optimista UI frissítés
-  setSettings(prev =>
-    prev ? { ...prev, enabledTypes: updatedEnabled } : prev
-  );
-
-  // Firestore-ba NESTED objektumként mentjük
-  await handleSave('enabled-types', { enabledTypes: updatedEnabled });
-};
-  
   const handleSaveAdminSettings = async () => {
-  if (!settings) return;
+    if (!settings) return;
 
-  // 1) Építsünk rendes nested objektumot az adminRecipients-hez
-  const adminRecipientsToSave: Record<string, string[]> = {
-    ...(settings.adminRecipients || {}),
+    const adminRecipientsToSave: Record<string, string[]> = {
+      ...(settings.adminRecipients || {}),
+    };
+
+    ADMIN_RECIPIENT_TYPES.forEach((typeId) => {
+      adminRecipientsToSave[typeId] = settings.adminRecipients[typeId] || [];
+    });
+
+    const dataToSave: Record<string, any> = {
+      adminDefaultEmail: settings.adminDefaultEmail || '',
+      adminRecipients: adminRecipientsToSave,
+    };
+
+    await handleSave('admin-settings', dataToSave);
   };
 
-  ADMIN_RECIPIENT_TYPES.forEach((typeId) => {
-    adminRecipientsToSave[typeId] = settings.adminRecipients[typeId] || [];
-  });
+  const handleSaveTemplate = async () => {
+    if (!selectedType || !editorState || !settings) return;
 
-  // 2) Ezt mentjük el egyben
-  const dataToSave: Record<string, any> = {
-    adminDefaultEmail: settings.adminDefaultEmail || '',
-    adminRecipients: adminRecipientsToSave,
+    const updatedOverrides = {
+      ...(settings.templateOverrides || {}),
+      [selectedType]: { ...editorState },
+    };
+
+    setSettings(prev =>
+      prev ? { ...prev, templateOverrides: updatedOverrides } : prev
+    );
+
+    await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
   };
 
-  await handleSave('admin-settings', dataToSave);
-};
-const handleSaveTemplate = async () => {
-  if (!selectedType || !editorState || !settings) return;
+  const handleRestoreDefault = async () => {
+    if (!selectedType || !settings) return;
 
-  const updatedOverrides = {
-    ...(settings.templateOverrides || {}),
-    [selectedType]: { ...editorState },
+    const updatedOverrides = { ...(settings.templateOverrides || {}) };
+    delete updatedOverrides[selectedType];
+
+    setSettings(prev =>
+      prev ? { ...prev, templateOverrides: updatedOverrides } : prev
+    );
+
+    await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
   };
 
-  // Optimista UI update
-  setSettings(prev =>
-    prev ? { ...prev, templateOverrides: updatedOverrides } : prev
-  );
+  // ---> Élő HTML előnézet, dummy payload + renderTemplate
+  const previewHtml = useMemo(() => {
+    if (!selectedType || !editorState) return '';
 
-  await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
-};
+    const payload =
+      PREVIEW_PAYLOAD_BY_TYPE[selectedType] || DEFAULT_PREVIEW_PAYLOAD;
 
-const handleRestoreDefault = async () => {
-  if (!selectedType || !settings) return;
-
-  const updatedOverrides = { ...(settings.templateOverrides || {}) };
-  delete updatedOverrides[selectedType];
-
-  // UI frissítés
-  setSettings(prev =>
-    prev ? { ...prev, templateOverrides: updatedOverrides } : prev
-  );
-
-  await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
-};
+    return renderTemplate(editorState.html, payload);
+  }, [selectedType, editorState]);
 
   if (currentUser.role !== 'Admin' && currentUser.role !== 'Unit Admin') {
-    return <div className="p-4"><p>Nincs jogosultságod.</p></div>;
+    return (
+      <div className="p-4">
+        <p>Nincs jogosultságod.</p>
+      </div>
+    );
   }
 
   return (
@@ -199,55 +276,152 @@ const handleRestoreDefault = async () => {
       <h2 className="text-2xl font-bold text-gray-800 mb-4">Email sablonok és beállítások</h2>
 
       <div className="mb-6">
-        <label htmlFor="unit-select" className="block text-sm font-medium text-gray-700">Egység</label>
-        <select id="unit-select" value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 focus:ring-green-500 focus:border-green-500 rounded-md">
-          <option value="" disabled>Válassz egy egységet...</option>
-          {availableUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+        <label htmlFor="unit-select" className="block text.sm font-medium text-gray-700">
+          Egység
+        </label>
+        <select
+          id="unit-select"
+          value={selectedUnitId}
+          onChange={(e) => setSelectedUnitId(e.target.value)}
+          className="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 focus:ring-green-500 focus:border-green-500 rounded-md"
+        >
+          <option value="" disabled>
+            Válassz egy egységet...
+          </option>
+          {availableUnits.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.name}
+            </option>
+          ))}
         </select>
       </div>
 
-      {isLoading && <div className="relative h-64"><LoadingSpinner /></div>}
-      
+      {isLoading && (
+        <div className="relative h-64">
+          <LoadingSpinner />
+        </div>
+      )}
+
       {!isLoading && settings && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left Column: Settings & Type List */}
           <div className="space-y-6">
             <div className="p-4 border rounded-lg bg-gray-50">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Admin értesítések</h3>
-                <div>
-                  <label htmlFor="admin-email" className="block text-sm font-medium text-gray-700">Alapértelmezett admin email cím</label>
-                  <input id="admin-email" type="email" value={settings.adminDefaultEmail || ''} onChange={e => setSettings(s => s ? { ...s, adminDefaultEmail: e.target.value } : null)} className="mt-1 w-full p-2 border border-gray-300 rounded-md" placeholder="pl. info@etterem.hu" />
-                  <p className="text-xs text-gray-500 mt-1">Ez a cím lesz az alapértelmezett címzettje az admin értesítéseknek.</p>
-                </div>
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700">További címzettek (típusonként)</label>
-                  {ADMIN_RECIPIENT_TYPES.map(typeId => (
-                      <div key={typeId} className="mt-2">
-                        <label htmlFor={`recipients-${typeId}`} className="text-xs font-semibold text-gray-600">{typeId}</label>
-                        <input id={`recipients-${typeId}`} type="text" value={settings.adminRecipients[typeId]?.join(', ') || ''} onChange={e => setSettings(s => s ? { ...s, adminRecipients: { ...s.adminRecipients, [typeId]: e.target.value.split(',').map(em => em.trim()).filter(Boolean) } } : null)} className="w-full p-1 text-sm border border-gray-300 rounded-md" placeholder="email1@cim.hu, email2@cim.hu"/>
-                      </div>
-                  ))}
-                </div>
-                 <div className="text-right mt-3">
-                    <button onClick={handleSaveAdminSettings} disabled={savingState.key === 'admin-settings'} className="bg-blue-600 text-white text-sm font-semibold py-1.5 px-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
-                      {savingState.key === 'admin-settings' ? 'Mentés...' : 'Admin beállítások mentése'}
-                    </button>
-                 </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Admin értesítések</h3>
+              <div>
+                <label
+                  htmlFor="admin-email"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Alapértelmezett admin email cím
+                </label>
+                <input
+                  id="admin-email"
+                  type="email"
+                  value={settings.adminDefaultEmail || ''}
+                  onChange={(e) =>
+                    setSettings((s) =>
+                      s ? { ...s, adminDefaultEmail: e.target.value } : null
+                    )
+                  }
+                  className="mt-1 w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="pl. info@etterem.hu"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Ez a cím lesz az alapértelmezett címzettje az admin értesítéseknek.
+                </p>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700">
+                  További címzettek (típusonként)
+                </label>
+                {ADMIN_RECIPIENT_TYPES.map((typeId) => (
+                  <div key={typeId} className="mt-2">
+                    <label
+                      htmlFor={`recipients-${typeId}`}
+                      className="text-xs font-semibold text-gray-600"
+                    >
+                      {typeId}
+                    </label>
+                    <input
+                      id={`recipients-${typeId}`}
+                      type="text"
+                      value={settings.adminRecipients[typeId]?.join(', ') || ''}
+                      onChange={(e) =>
+                        setSettings((s) =>
+                          s
+                            ? {
+                                ...s,
+                                adminRecipients: {
+                                  ...s.adminRecipients,
+                                  [typeId]: e.target.value
+                                    .split(',')
+                                    .map((em) => em.trim())
+                                    .filter(Boolean),
+                                },
+                              }
+                            : null
+                        )
+                      }
+                      className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                      placeholder="email1@cim.hu, email2@cim.hu"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="text-right mt-3">
+                <button
+                  onClick={handleSaveAdminSettings}
+                  disabled={savingState.key === 'admin-settings'}
+                  className="bg-blue-600 text-white text-sm font-semibold py-1.5 px-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                >
+                  {savingState.key === 'admin-settings'
+                    ? 'Mentés...'
+                    : 'Admin beállítások mentése'}
+                </button>
+              </div>
             </div>
 
             {Object.entries(emailTypeGroups).map(([groupName, typeIds]) => (
               <div key={groupName}>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">{groupName}</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                  {groupName}
+                </h3>
                 <div className="space-y-2">
-                  {typeIds.map(typeId => (
-                    <div key={typeId} className={`p-3 border rounded-lg transition-colors ${selectedType === typeId ? 'bg-green-50 border-green-400' : 'hover:bg-gray-50'}`}>
+                  {typeIds.map((typeId) => (
+                    <div
+                      key={typeId}
+                      className={`p-3 border rounded-lg transition-colors ${
+                        selectedType === typeId
+                          ? 'bg-green-50 border-green-400'
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-700 cursor-pointer" onClick={() => setSelectedType(typeId)}>{typeId}</span>
+                        <span
+                          className="font-medium text-gray-700 cursor-pointer"
+                          onClick={() => setSelectedType(typeId)}
+                        >
+                          {typeId}
+                        </span>
                         <div className="flex items-center gap-4">
-                           <label className="flex items-center gap-2 cursor-pointer" title="Email küldés engedélyezése/tiltása">
-                                <input type="checkbox" checked={settings.enabledTypes[typeId] ?? true} onChange={() => handleToggle(typeId)} className="h-5 w-5 rounded text-green-600 focus:ring-green-500"/>
-                           </label>
-                           <button onClick={() => setSelectedType(typeId)} className="text-sm text-blue-600 hover:underline">Szerkesztés</button>
+                          <label
+                            className="flex items-center gap-2 cursor-pointer"
+                            title="Email küldés engedélyezése/tiltása"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={settings.enabledTypes[typeId] ?? true}
+                              onChange={() => handleToggle(typeId)}
+                              className="h-5 w-5 rounded text-green-600 focus:ring-green-500"
+                            />
+                          </label>
+                          <button
+                            onClick={() => setSelectedType(typeId)}
+                            className="text-sm text-blue-600 hover:underline"
+                          >
+                            Szerkesztés
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -261,30 +435,71 @@ const handleRestoreDefault = async () => {
           <div>
             {selectedType && editorState ? (
               <div className="sticky top-8 space-y-4">
-                <h3 className="text-xl font-bold">Sablon: <span className="text-green-700">{selectedType}</span></h3>
+                <h3 className="text-xl font-bold">
+                  Sablon: <span className="text-green-700">{selectedType}</span>
+                </h3>
                 <div>
                   <label className="block text-sm font-medium">Tárgy</label>
-                  <input type="text" value={editorState.subject} onChange={e => setEditorState({...editorState, subject: e.target.value})} className="w-full p-2 border rounded-md"/>
+                  <input
+                    type="text"
+                    value={editorState.subject}
+                    onChange={(e) =>
+                      setEditorState({ ...editorState, subject: e.target.value })
+                    }
+                    className="w-full p-2 border rounded-md"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium">HTML tartalom</label>
-                  <textarea rows={10} value={editorState.html} onChange={e => setEditorState({...editorState, html: e.target.value})} className="w-full p-2 border rounded-md font-mono text-sm"/>
+                  <textarea
+                    rows={10}
+                    value={editorState.html}
+                    onChange={(e) =>
+                      setEditorState({ ...editorState, html: e.target.value })
+                    }
+                    className="w-full p-2 border rounded-md font-mono text-sm"
+                  />
                 </div>
                 <div className="p-4 border rounded-lg bg-gray-100">
-                    <h4 className="font-semibold text-sm mb-2">Élő előnézet</h4>
-                    <div className="prose prose-sm max-w-none h-48 overflow-y-auto p-2 bg-white border" dangerouslySetInnerHTML={{ __html: editorState.html }} />
+                  <h4 className="font-semibold text-sm mb-2">Élő előnézet</h4>
+                  <div
+                    className="prose prose-sm max-w-none h-48 overflow-y-auto p-2 bg-white border"
+                    dangerouslySetInnerHTML={{ __html: previewHtml }}
+                  />
                 </div>
                 <div className="flex justify-between items-center">
-                    <div>
-                      {savingState.key === `template-${selectedType}` && savingState.success && <span className="text-green-600 font-semibold text-sm">{savingState.success}</span>}
-                      {savingState.key === `template-${selectedType}` && savingState.error && <span className="text-red-600 font-semibold text-sm">{savingState.error}</span>}
-                    </div>
-                    <div className="flex justify-end gap-3">
-                        <button onClick={handleRestoreDefault} disabled={savingState.key === `template-${selectedType}`} className="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300 disabled:bg-gray-400">Alapértelmezett</button>
-                        <button onClick={handleSaveTemplate} disabled={savingState.key === `template-${selectedType}`} className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 disabled:bg-gray-400">
-                            {savingState.key === `template-${selectedType}` ? 'Mentés...' : 'Sablon mentése'}
-                        </button>
-                    </div>
+                  <div>
+                    {savingState.key === `template-${selectedType}` &&
+                      savingState.success && (
+                        <span className="text-green-600 font-semibold text-sm">
+                          {savingState.success}
+                        </span>
+                      )}
+                    {savingState.key === `template-${selectedType}` &&
+                      savingState.error && (
+                        <span className="text-red-600 font-semibold text-sm">
+                          {savingState.error}
+                        </span>
+                      )}
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={handleRestoreDefault}
+                      disabled={savingState.key === `template-${selectedType}`}
+                      className="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300 disabled:bg-gray-400"
+                    >
+                      Alapértelmezett
+                    </button>
+                    <button
+                      onClick={handleSaveTemplate}
+                      disabled={savingState.key === `template-${selectedType}`}
+                      className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 disabled:bg-gray-400"
+                    >
+                      {savingState.key === `template-${selectedType}`
+                        ? 'Mentés...'
+                        : 'Sablon mentése'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
