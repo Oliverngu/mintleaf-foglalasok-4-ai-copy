@@ -48,6 +48,7 @@ import InvitationIcon from '../../../components/icons/InvitationIcon';
 import BuildingIcon from '../../../components/icons/BuildingIcon';
 import CalendarOffIcon from '../../../components/icons/CalendarOffIcon';
 import BellIcon from './icons/BellIcon';
+import EmailSettingsApp from './admin/EmailSettingsApp';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -468,17 +469,13 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'adminisztracio':
-        if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
-        return (
-          <AdminisztracioApp
-            currentUser={currentUser}
-            allUnits={allUnits}
-            unitPermissions={unitPermissions}
-            activeUnitId={activeUnitIds.length === 1 ? activeUnitIds[0] : null}
-            allPermissions={permissions}
-            canGenerateInvites={hasPermission('canGenerateInvites')}
-          />
-        );
+  if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
+  return (
+    <EmailSettingsApp
+      currentUser={currentUser}
+      allUnits={allUnits}
+    />
+  );
       default:
         return (
           <HomeDashboard
