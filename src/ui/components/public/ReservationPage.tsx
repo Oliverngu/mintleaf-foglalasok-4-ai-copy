@@ -405,10 +405,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         // 1) Guest email
         try {
           if (newReservation.contact.email) {
-            const canSendGuest = await shouldSendEmail(
-              'booking_created_guest',
-              unit.id
-            );
+            const canSendGuest = true
             if (canSendGuest) {
               const guestPayload = {
                 unitName: unit.name,
@@ -505,10 +502,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
         // 2) Admin email(ek)
         try {
-          const canSendAdmin = await shouldSendEmail(
-            'booking_created_admin',
-            unit.id
-          );
+          const canSendAdmin = true
           if (!canSendAdmin) return;
 
           let adminRecipients: string[] = [];
