@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Production-grade backend for the MintLeaf management app.",
   "main": "dist/server.js",
+  "type":"commonjs",
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
