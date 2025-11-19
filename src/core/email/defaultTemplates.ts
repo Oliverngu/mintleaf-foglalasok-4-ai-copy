@@ -38,32 +38,8 @@ export const defaultTemplates: Record<EmailTypeId, TemplateDef> = {
 
   // ============ VENDÉG FOGALALÁS EMAIL ============
 booking_created_guest: {
-  subject: 'Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
-  html: `
-    <h2>Kedves {{guestName}}!</h2>
-
-    <p>Köszönjük a foglalásodat a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
-
-    <h3>Foglalás részletei</h3>
-    <ul>
-      <li><strong>Dátum:</strong> {{bookingDate}}</li>
-      <li><strong>Időpont:</strong> {{bookingTimeFrom}} {{bookingTimeTo}}</li>
-      <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      <li><strong>Alkalom / szolgáltatás:</strong> {{occasion}} {{occasionOther}}</li>
-    </ul>
-
-    <h3>Elérhetőségeid</h3>
-    <ul>
-      <li><strong>Email:</strong> {{guestEmail}}</li>
-      <li><strong>Telefon:</strong> {{guestPhone}}</li>
-    </ul>
-
-    {{comment}}
-
-    <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
-
-    <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
-  `,
+  subject: '[DEFAULT TESZT] Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+  html: ` ... `
 },
 
   // ============ ADMIN FOGALALÁS EMAIL ============
