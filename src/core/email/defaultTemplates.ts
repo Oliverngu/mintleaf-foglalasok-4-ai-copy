@@ -1,6 +1,11 @@
 import { EmailTypeId } from './emailTypes';
 
-export const defaultTemplates: Record<EmailTypeId, { subject: string; html: string }> = {
+type TemplateDef = {
+  subject: string;
+  html: string;
+};
+
+export const defaultTemplates: Record<EmailTypeId, TemplateDef> = {
   leave_request_created: {
     subject: 'Új szabadságkérelem érkezett: {{userName}}',
     html: `
@@ -12,6 +17,7 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
       <p>A kérelem elbírálásához kérjük, jelentkezz be a MintLeaf felületére.</p>
     `,
   },
+
   leave_request_approved: {
     subject: 'Szabadságkérelmed jóváhagyva',
     html: `
@@ -20,6 +26,7 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
       <p>Jó pihenést kívánunk!</p>
     `,
   },
+
   leave_request_rejected: {
     subject: 'Szabadságkérelmed elutasítva',
     html: `
@@ -28,76 +35,53 @@ export const defaultTemplates: Record<EmailTypeId, { subject: string; html: stri
       <p>További információért keresd a felettesedet.</p>
     `,
   },
+
+  // ============ VENDÉG FOGALALÁS EMAIL ============
   booking_created_guest: {
-  subject: 'Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
-  html: `
-    <h2>Kedves {{guestName}}!</h2>
-
-    <p>Köszönjük a foglalásodat a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
-
-    <h3>Foglalás részletei</h3>
-    <ul>
-      <li><strong>Dátum:</strong> {{bookingDate}}</li>
-      <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{#bookingTimeTo}} – {{bookingTimeTo}}{{/bookingTimeTo}}</li>
-      <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      {{#occasion}}
-        <li><strong>Alkalom:</strong> {{occasion}} {{occasionOther}}</li>
-      {{/occasion}}
-    </ul>
-
-    {{#comment}}
-      <h3>Megjegyzésed</h3>
-      <p>{{comment}}</p>
-    {{/comment}}
-
-    <h3>Elérhetőségeid</h3>
-    <ul>
-      <li><strong>Email:</strong> {{guestEmail}}</li>
-      {{#guestPhone}}
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      {{/guestPhone}}
-    </ul>
-
-    <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
-
-    <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
-  `,
-  text: `
-Kedves {{guestName}}!
-
-Köszönjük a foglalásodat a(z) {{unitName}} egységünkbe.
-
-Foglalás részletei:
-- Dátum: {{bookingDate}}
-- Időpont: {{bookingTimeFrom}}{{#bookingTimeTo}} – {{bookingTimeTo}}{{/bookingTimeTo}}
-- Létszám: {{headcount}} fő
-{{#occasion}}- Alkalom: {{occasion}} {{occasionOther}}{{/occasion}}
-
-Elérhetőségeid:
-- Email: {{guestEmail}}
-{{#guestPhone}}- Telefon: {{guestPhone}}{{/guestPhone}}
-
-Foglalási azonosító: {{bookingRef}}
-
-Üdvözlettel,
-{{unitName}} csapata
-  `,
-},
-  booking_created_admin: {
-    subject: 'Új foglalás érkezett: {{guestName}} ({{headcount}} fő)',
+    subject: 'Foglalási kérésed megérkezett – {{bookingDate}} ({{headcount}} fő)',
     html: `
-      <p>Új foglalási kérelem érkezett a(z) <strong>{{unitName}}</strong> egységbe.</p>
+      <h2>Foglalási kérésed megérkezett</h2>
+
+      <p>Kedves {{guestName}}!</p>
+      <p>Köszönjük a foglalási kérelmedet a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
+
+      <h3>Foglalás röviden</h3>
       <ul>
-        <li><strong>Név:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}, {{bookingTime}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      </ul>
+
+      <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
+
+      <p>Az alábbi email alján egy részletes foglalási adatlapot is találsz.</p>
+
+      <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
+    `,
+  },
+
+  // ============ ADMIN FOGALALÁS EMAIL ============
+  booking_created_admin: {
+    subject: 'Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+    html: `
+      <h2>Új foglalás érkezett</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+
+      <h3>Foglalás röviden</h3>
+      <ul>
+        <li><strong>Vendég neve:</strong> {{guestName}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         <li><strong>Email:</strong> {{guestEmail}}</li>
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
         <li><strong>Alkalom:</strong> {{occasion}}</li>
       </ul>
-      <p>A foglalás státusza: <strong>{{#if isAutoConfirm}}Automatikusan megerősítve{{else}}Jóváhagyásra vár{{/if}}</strong>.</p>
+
+      <p>A levél alján egy részletes, fix adatlap blokk található a foglalásról.</p>
     `,
   },
+
   user_registration_welcome: {
     subject: 'Üdv a MintLeaf rendszerében, {{firstName}}!',
     html: `
@@ -106,6 +90,7 @@ Foglalási azonosító: {{bookingRef}}
       <p>Üdvözlettel,<br>A MintLeaf Csapata</p>
     `,
   },
+
   new_schedule_published: {
     subject: 'Új beosztás publikálva - {{weekLabel}}',
     html: `
