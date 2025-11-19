@@ -459,25 +459,91 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         }
 
         const detailsHtml = `
-          <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
-          <h3 style="font-size:16px;margin-bottom:8px;">Foglalásod adatai (fix blokk)</h3>
-          <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
-            <li><strong>Helyszín:</strong> ${guestPayload.unitName}</li>
-            <li><strong>Név:</strong> ${guestPayload.guestName}</li>
-            <li><strong>Dátum:</strong> ${bookingDate}</li>
-            <li><strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}</li>
-            <li><strong>Létszám:</strong> ${guestPayload.headcount} fő</li>
-            <li><strong>Email:</strong> ${guestPayload.guestEmail || '-'}</li>
-            <li><strong>Telefon:</strong> ${guestPayload.guestPhone || '-'}</li>
-            <li><strong>Foglalás azonosító:</strong> ${guestPayload.bookingRef || '-'}</li>
-          </ul>
-          ${customFieldsHtml}
-          ${
-            guestPayload.comment
-              ? `<p style="margin-top:12px;"><strong>Megjegyzésed:</strong><br>${guestPayload.comment}</p>`
-              : ''
-          }
-        `;
+  <div style="
+      margin-top: 32px;
+      padding: 24px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    ">
+      
+      <h2 style="
+          font-size: 20px;
+          font-weight: 600;
+          margin: 0 0 16px 0;
+          color: #111827;
+      ">Foglalás részletei</h2>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Helyszín:</strong> ${guestPayload.unitName}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Név:</strong> ${guestPayload.guestName}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Dátum:</strong> ${bookingDate}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Létszám:</strong> ${guestPayload.headcount} fő
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Email:</strong> ${guestPayload.guestEmail || '-'}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Telefon:</strong> ${guestPayload.guestPhone || '-'}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Foglalás azonosító:</strong> ${guestPayload.bookingRef || '-'}
+      </div>
+
+      ${
+        customFieldsHtml
+          ? `<div style="margin-top: 20px;">
+                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
+                <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <ul style="list-style:none; margin:0; padding:0; font-size:14px; line-height:1.6;">
+                      ${settings.guestForm.customSelects
+                        .map((field) => {
+                          const value = newReservation.customData?.[field.id];
+                          return value ? `<li><strong>${field.label}:</strong> ${value}</li>` : '';
+                        })
+                        .join('')}
+                    </ul>
+                </div>
+             </div>`
+          : ''
+      }
+
+      ${
+        guestPayload.comment
+          ? `<div style="margin-top: 20px;">
+                <strong>Megjegyzés:</strong>
+                <div style="
+                    margin-top: 6px;
+                    padding: 12px;
+                    background: white;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                ">${guestPayload.comment}</div>
+             </div>`
+          : ''
+      }
+      
+  </div>
+`;
 
         const finalHtml = `${baseHtml || ''}${detailsHtml}`;
 
@@ -542,7 +608,92 @@ try {
         adminPayload
       );
 
-      const detailsHtml = `...  // maradhat a mostani fix blokkod`;
+      const detailsHtml = `
+  <div style="
+      margin-top: 32px;
+      padding: 24px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    ">
+      
+      <h2 style="
+          font-size: 20px;
+          font-weight: 600;
+          margin: 0 0 16px 0;
+          color: #111827;
+      ">Foglalás részletei</h2>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Helyszín:</strong> ${guestPayload.unitName}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Név:</strong> ${guestPayload.guestName}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Dátum:</strong> ${bookingDate}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Létszám:</strong> ${guestPayload.headcount} fő
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Email:</strong> ${guestPayload.guestEmail || '-'}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Telefon:</strong> ${guestPayload.guestPhone || '-'}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <strong>Foglalás azonosító:</strong> ${guestPayload.bookingRef || '-'}
+      </div>
+
+      ${
+        customFieldsHtml
+          ? `<div style="margin-top: 20px;">
+                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
+                <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <ul style="list-style:none; margin:0; padding:0; font-size:14px; line-height:1.6;">
+                      ${settings.guestForm.customSelects
+                        .map((field) => {
+                          const value = newReservation.customData?.[field.id];
+                          return value ? `<li><strong>${field.label}:</strong> ${value}</li>` : '';
+                        })
+                        .join('')}
+                    </ul>
+                </div>
+             </div>`
+          : ''
+      }
+
+      ${
+        guestPayload.comment
+          ? `<div style="margin-top: 20px;">
+                <strong>Megjegyzés:</strong>
+                <div style="
+                    margin-top: 6px;
+                    padding: 12px;
+                    background: white;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                ">${guestPayload.comment}</div>
+             </div>`
+          : ''
+      }
+      
+  </div>
+`;
       const finalHtml = `${baseHtml || ''}${detailsHtml}`;
 
       for (const adminEmail of adminRecipients) {
