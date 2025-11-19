@@ -38,8 +38,11 @@ export const defaultTemplates: Record<EmailTypeId, TemplateDef> = {
 
   // ============ VENDÉG FOGALALÁS EMAIL ============
 booking_created_guest: {
-  subject: '[DEFAULT TESZT] Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
-  html: ` ... `
+  subject: '[DEFAULT TEMPLATE] Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+  html: `
+    <p>EZ A DEFAULT SABLON</p>
+    ...
+  `,
 },
 
   // ============ ADMIN FOGALALÁS EMAIL ============
