@@ -130,18 +130,9 @@ export async function getAdminRecipientsOverride(
 }
 
 // FIX: Added missing 'savePartialEmailSettings' export.
-export async function savePartialEmailSettings(
-  unitId: string,
-  data: Record<string, any>
-): Promise<void> {
+export async function savePartialEmailSettings(unitId: string, data: Record<string, any>): Promise<void> {
+  console.log('[savePartialEmailSettings] unitId =', unitId, 'data =', data);
   const docRef = doc(db, 'email_settings', unitId);
   await setDoc(docRef, data, { merge: true });
-
-  // Cache ürítése
-  settingsCache.delete(unitId);
-
-  // Ha a default egység módosult, azt is ürítjük
-  if (unitId === 'default') {
-    settingsCache.delete('default');
-  }
+  console.log('[savePartialEmailSettings] OK for', unitId);
 }
