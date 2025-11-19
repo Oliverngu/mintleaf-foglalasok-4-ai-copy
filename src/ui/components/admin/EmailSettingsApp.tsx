@@ -120,13 +120,25 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
   }, [selectedUnitId, fetchSettings]);
 
   const handleToggle = async (typeId: EmailTypeId) => {
-    if (!settings) return;
-    const isEnabled = settings.enabledTypes[typeId] ?? true;
-    const newEnabledState = !isEnabled;
-    // Optimistic UI update
-    setSettings(prev => prev ? { ...prev, enabledTypes: { ...prev.enabledTypes, [typeId]: newEnabledState } } : null);
-    await handleSave(`toggle-${typeId}`, { [`enabledTypes.${typeId}`]: newEnabledState });
+  if (!settings) return;
+
+  const isEnabled = settings.enabledTypes?.[typeId] ?? true;
+  const newEnabledState = !isEnabled;
+
+  // Új enabledTypes objektum
+  const updatedEnabled = {
+    ...(settings.enabledTypes || {}),
+    [typeId]: newEnabledState,
   };
+
+  // Optimista UI frissítés
+  setSettings(prev =>
+    prev ? { ...prev, enabledTypes: updatedEnabled } : prev
+  );
+
+  // Firestore-ba NESTED objektumként mentjük
+  await handleSave('enabled-types', { enabledTypes: updatedEnabled });
+};
   
   const handleSaveAdminSettings = async () => {
   if (!settings) return;
@@ -148,15 +160,35 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
 
   await handleSave('admin-settings', dataToSave);
 };
-  const handleSaveTemplate = async () => {
-    if (!selectedType || !editorState) return;
-    await handleSave(`template-${selectedType}`, { [`templateOverrides.${selectedType}`]: editorState });
+const handleSaveTemplate = async () => {
+  if (!selectedType || !editorState || !settings) return;
+
+  const updatedOverrides = {
+    ...(settings.templateOverrides || {}),
+    [selectedType]: { ...editorState },
   };
-  
-  const handleRestoreDefault = async () => {
-    if (!selectedType) return;
-    await handleSave(`template-${selectedType}`, { [`templateOverrides.${selectedType}`]: deleteField() });
-  };
+
+  // Optimista UI update
+  setSettings(prev =>
+    prev ? { ...prev, templateOverrides: updatedOverrides } : prev
+  );
+
+  await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
+};
+
+const handleRestoreDefault = async () => {
+  if (!selectedType || !settings) return;
+
+  const updatedOverrides = { ...(settings.templateOverrides || {}) };
+  delete updatedOverrides[selectedType];
+
+  // UI frissítés
+  setSettings(prev =>
+    prev ? { ...prev, templateOverrides: updatedOverrides } : prev
+  );
+
+  await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
+};
 
   if (currentUser.role !== 'Admin' && currentUser.role !== 'Unit Admin') {
     return <div className="p-4"><p>Nincs jogosultságod.</p></div>;
