@@ -7,13 +7,7 @@ import { EmailSettingsDocument } from '../models/data';
 // FIX: Re-export the type to satisfy imports from other modules.
 export type { EmailSettingsDocument } from '../models/data';
 
-const settingsCache = new Map<string, EmailSettingsDocument>();
-
 export async function getEmailSettingsForUnit(unitId: string): Promise<EmailSettingsDocument> {
-  if (settingsCache.has(unitId)) {
-    return settingsCache.get(unitId)!;
-  }
-
   const defaultSettings: EmailSettingsDocument = {
     enabledTypes: {},
     adminRecipients: {},
@@ -25,20 +19,19 @@ export async function getEmailSettingsForUnit(unitId: string): Promise<EmailSett
     const docRef = doc(db, 'email_settings', unitId);
     const docSnap = await getDoc(docRef);
 
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      const settings: EmailSettingsDocument = {
-        enabledTypes: data.enabledTypes || {},
-        adminRecipients: data.adminRecipients || {},
-        templateOverrides: data.templateOverrides || {},
-        adminDefaultEmail: data.adminDefaultEmail || '',
-      };
-      settingsCache.set(unitId, settings);
-      return settings;
-    } else {
-      settingsCache.set(unitId, defaultSettings);
+    if (!docSnap.exists()) {
       return defaultSettings;
     }
+
+    const data = docSnap.data();
+    const settings: EmailSettingsDocument = {
+      enabledTypes: data.enabledTypes || {},
+      adminRecipients: data.adminRecipients || {},
+      templateOverrides: data.templateOverrides || {},
+      adminDefaultEmail: data.adminDefaultEmail || '',
+    };
+
+    return settings;
   } catch (error) {
     console.error(`Failed to fetch settings for unit ${unitId}.`, error);
     return defaultSettings;
