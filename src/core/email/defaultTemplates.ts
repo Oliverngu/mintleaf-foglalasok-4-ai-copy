@@ -37,28 +37,34 @@ export const defaultTemplates: Record<EmailTypeId, TemplateDef> = {
   },
 
   // ============ VENDÉG FOGALALÁS EMAIL ============
-  booking_created_guest: {
-    subject: 'Foglalási kérésed megérkezett – {{bookingDate}} ({{headcount}} fő)',
-    html: `
-      <h2>Foglalási kérésed megérkezett</h2>
+booking_created_guest: {
+  subject: 'Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+  html: `
+    <h2>Kedves {{guestName}}!</h2>
 
-      <p>Kedves {{guestName}}!</p>
-      <p>Köszönjük a foglalási kérelmedet a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
+    <p>Köszönjük a foglalásodat a(z) <strong>{{unitName}}</strong> egységünkbe.</p>
 
-      <h3>Foglalás röviden</h3>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      </ul>
+    <h3>Foglalás részletei</h3>
+    <ul>
+      <li><strong>Dátum:</strong> {{bookingDate}}</li>
+      <li><strong>Időpont:</strong> {{bookingTimeFrom}} {{bookingTimeTo}}</li>
+      <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      <li><strong>Alkalom / szolgáltatás:</strong> {{occasion}} {{occasionOther}}</li>
+    </ul>
 
-      <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
+    <h3>Elérhetőségeid</h3>
+    <ul>
+      <li><strong>Email:</strong> {{guestEmail}}</li>
+      <li><strong>Telefon:</strong> {{guestPhone}}</li>
+    </ul>
 
-      <p>Az alábbi email alján egy részletes foglalási adatlapot is találsz.</p>
+    {{comment}}
 
-      <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
-    `,
-  },
+    <p>Foglalási azonosító: <strong>{{bookingRef}}</strong></p>
+
+    <p>Várunk szeretettel!<br/>{{unitName}} csapata</p>
+  `,
+},
 
   // ============ ADMIN FOGALALÁS EMAIL ============
   booking_created_admin: {
