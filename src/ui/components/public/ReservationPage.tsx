@@ -276,87 +276,133 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             setStep(3);
             
             // --- EMAIL LOGIC (fire-and-forget) ---
-            (async () => {
-                // Guest Email
-                try {
-                    if (newReservation.contact.email) {
-                        const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
-if (canSendAdmin) {
-    const adminPayload = {
-        unitName: unit.name,
+(async () => {
+    // 1) Vendég email
+    try {
+        if (newReservation.contact.email) {
+            const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
+            if (canSendGuest) {
+                const guestPayload = {
+                    unitName: unit.name,
+                    bookingName: newReservation.name,
+                    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+                    bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+                    headcount: newReservation.headcount,
+                    bookingRef: newReservation.referenceCode,
+                    isAutoConfirm: newReservation.status === 'confirmed',
+                };
 
-        // Foglalás alap
-        bookingName: newReservation.name,
-        bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
-        bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-        bookingTimeTo: endDateTime
-            ? endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
-            : '',
+                const { subject, html } = await resolveEmailTemplate(
+                    unit.id,
+                    'booking_created_guest',
+                    guestPayload
+                );
 
-        // Létszám
-        headcount: newReservation.headcount,
+                await sendEmail({
+                    typeId: 'booking_created_guest',
+                    unitId: unit.id,
+                    to: newReservation.contact.email,
+                    subject,
+                    html,
+                    payload: guestPayload,
+                });
+            }
+        }
+    } catch (emailError) {
+        console.error("Failed to send 'booking_created_guest' email:", emailError);
+    }
 
-        // Elérhetőségek
-        guestName: newReservation.name,
-        guestEmail: newReservation.contact.email,
-        guestPhone: newReservation.contact.phone || '',
+    // 2) Admin email(ek)
+    try {
+        const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
+        if (!canSendAdmin) return;
 
-        // Alkalom + egyéb
-        occasion: newReservation.occasion || '',
-        occasionOther: newReservation.occasionOther || '',
+        // 2/a – címzettek: override → notificationEmails → ha nincs, csak log
+        let adminRecipients = await getAdminRecipientsOverride(unit.id, 'booking_created_admin');
 
-        // Megjegyzés
-        comment: newReservation.comment || '',
+        if (!adminRecipients || adminRecipients.length === 0) {
+            if (settings.notificationEmails && settings.notificationEmails.length > 0) {
+                adminRecipients = settings.notificationEmails;
+            } else {
+                console.warn(
+                    "No admin recipients configured for 'booking_created_admin' for unit",
+                    unit.id
+                );
+                return;
+            }
+        }
 
-        // Azonosító
-        bookingRef: newReservation.referenceCode,
+        const adminPayload = {
+            unitName: unit.name,
 
-        // Auto-confirm infó
-        isAutoConfirm: newReservation.status === 'confirmed',
-    };
+            // Foglalás alap
+            bookingName: newReservation.name,
+            bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+            bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+            bookingTimeTo: endDateTime
+                ? endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
+                : '',
 
-    // 1) Sablon felső része (szerkeszthető)
-    const { subject, html: baseHtml } = await resolveEmailTemplate(
-        unit.id,
-        'booking_created_admin',
-        adminPayload
-    );
+            // Létszám
+            headcount: newReservation.headcount,
 
-    // 2) Fix adatblokk az alján – NEM sablonból, hanem itt rakjuk össze
-    const detailsHtml = `
-        <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
-        <h3 style="font-size:16px;margin-bottom:8px;">Foglalás adatlap (fix blokk)</h3>
-        <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
-            <li><strong>Egység:</strong> ${adminPayload.unitName}</li>
-            <li><strong>Vendég neve:</strong> ${adminPayload.guestName}</li>
-            <li><strong>Dátum:</strong> ${adminPayload.bookingDate}</li>
-            <li><strong>Időpont:</strong> ${adminPayload.bookingTimeFrom}${adminPayload.bookingTimeTo ? ' – ' + adminPayload.bookingTimeTo : ''}</li>
-            <li><strong>Létszám:</strong> ${adminPayload.headcount} fő</li>
-            <li><strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${adminPayload.occasionOther || ''}</li>
-            <li><strong>Email:</strong> ${adminPayload.guestEmail || '-'}</li>
-            <li><strong>Telefon:</strong> ${adminPayload.guestPhone || '-'}</li>
-            <li><strong>Foglalás azonosító:</strong> ${adminPayload.bookingRef || '-'}</li>
-            <li><strong>Auto-confirm:</strong> ${adminPayload.isAutoConfirm ? 'igen' : 'nem'}</li>
-        </ul>
-        ${adminPayload.comment ? `<p style="margin-top:12px;"><strong>Megjegyzés:</strong><br>${adminPayload.comment}</p>` : ''}
-    `;
+            // Elérhetőségek
+            guestName: newReservation.name,
+            guestEmail: newReservation.contact.email,
+            guestPhone: newReservation.contact.phoneE164 || '',
 
-    const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+            // Alkalom + egyéb (customData-ból szedjük vissza, ha ott vannak)
+            occasion: newReservation.occasion || '',
+            occasionOther: newReservation.customData?.occasionOther || '',
+            comment: newReservation.customData?.comment || '',
 
-    await sendEmail({
-        typeId: 'booking_created_admin',
-        unitId: unit.id,
-        to: adminEmailAddress, // ami eddig is volt nálad
-        subject,
-        html: finalHtml,
-        payload: adminPayload,
-    });
-}
-                    }
-                } catch (emailError) {
-                    console.error("Failed to send 'booking_created_admin' email:", emailError);
-                }
-            })();
+            // Azonosító
+            bookingRef: newReservation.referenceCode,
+
+            // Auto-confirm infó
+            isAutoConfirm: newReservation.status === 'confirmed',
+        };
+
+        const { subject, html: baseHtml } = await resolveEmailTemplate(
+            unit.id,
+            'booking_created_admin',
+            adminPayload
+        );
+
+        const detailsHtml = `
+            <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
+            <h3 style="font-size:16px;margin-bottom:8px;">Foglalás adatlap (fix blokk)</h3>
+            <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
+                <li><strong>Egység:</strong> ${adminPayload.unitName}</li>
+                <li><strong>Vendég neve:</strong> ${adminPayload.guestName}</li>
+                <li><strong>Dátum:</strong> ${adminPayload.bookingDate}</li>
+                <li><strong>Időpont:</strong> ${adminPayload.bookingTimeFrom}${adminPayload.bookingTimeTo ? ' – ' + adminPayload.bookingTimeTo : ''}</li>
+                <li><strong>Létszám:</strong> ${adminPayload.headcount} fő</li>
+                <li><strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${adminPayload.occasionOther || ''}</li>
+                <li><strong>Email:</strong> ${adminPayload.guestEmail || '-'}</li>
+                <li><strong>Telefon:</strong> ${adminPayload.guestPhone || '-'}</li>
+                <li><strong>Foglalás azonosító:</strong> ${adminPayload.bookingRef || '-'}</li>
+                <li><strong>Auto-confirm:</strong> ${adminPayload.isAutoConfirm ? 'igen' : 'nem'}</li>
+            </ul>
+            ${adminPayload.comment ? `<p style="margin-top:12px;"><strong>Megjegyzés:</strong><br>${adminPayload.comment}</p>` : ''}
+        `;
+
+        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+
+        for (const to of adminRecipients) {
+            await sendEmail({
+                typeId: 'booking_created_admin',
+                unitId: unit.id,
+                to,
+                subject,
+                html: finalHtml,
+                payload: adminPayload,
+            });
+        }
+    } catch (emailError) {
+        console.error("Failed to send 'booking_created_admin' email:", emailError);
+    }
+})();
         } catch (err: unknown) {
             console.error("Error during reservation submission:", err);
             // FIX: Safely handle the unknown error type by checking if it's an instance of Error before accessing the message property.
