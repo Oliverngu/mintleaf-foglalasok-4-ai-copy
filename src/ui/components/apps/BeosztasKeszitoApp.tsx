@@ -1741,6 +1741,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       exportContainer.appendChild(tableClone);
       document.body.appendChild(exportContainer);
 
+      // UI-only elemek eltávolítása exportnál (nyilak, óraszámok, stb.)
       tableClone
         .querySelectorAll('.export-hide')
         .forEach(el => el.remove());
@@ -2499,11 +2500,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 {user.fullName}
                               </div>
                               <div className="text-[11px] text-gray-500">
-                                {user.position || 'Nincs pozíció'} ·{' '}
-                                {workHours.userTotals[
-                                  user.id
-                                ]?.toFixed(1) || '0'}{' '}
-                                óra / hét
+                                {user.position || 'Nincs pozíció'}
+                                <span className="export-hide">
+                                  {' · '}
+                                  {workHours.userTotals[
+                                    user.id
+                                  ]?.toFixed(1) || '0'}{' '}
+                                  óra / hét
+                                </span>
                               </div>
                             </div>
                             {canManage && (
@@ -2584,7 +2588,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 .toDate()
                                 .toTimeString()
                                 .substring(0, 5);
-                              cellText = `${s}-?`;
+                              // Nincs végidő → csak kezdés jelenjen meg
+                              cellText = s;
                             }
                           }
 
@@ -2627,8 +2632,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               </React.Fragment>
             ))}
 
-            {/* Összesítő sor */}
-            <tr className="bg-slate-200 font-semibold">
+            {/* Összesítő sor – csak UI-ban, exportnál eltűnik */}
+            <tr className="bg-slate-200 font-semibold export-hide">
               <td className="border border-gray-300 px-2 py-2 text-right pr-4">
                 Összes óra:
               </td>
@@ -2669,8 +2674,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               setTimeout(() => setSuccessToast(''), 3000);
             } else {
               try {
-                // Ha a generateExcelExport-nak vannak paraméterei a te projektedben,
-                // itt add át őket (schedule, users, weekDays, stb.)
                 await generateExcelExport();
                 setSuccessToast(
                   'Excel export sikeres volt (letöltve).'
