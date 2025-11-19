@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// FIX: Corrected import to get EmailSettingsDocument from its source.
 import { User, Unit, EmailSettingsDocument } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
-// FIX: Corrected import for KNOWN_TYPE_IDS.
 import { KNOWN_TYPE_IDS, EmailTypeId } from '../../../core/email/emailTypes';
-// FIX: Corrected imports to get necessary functions from the service.
 import { savePartialEmailSettings, renderTemplate } from '../../../core/api/emailSettingsService';
 import { defaultTemplates } from '../../../core/email/defaultTemplates';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -29,7 +26,18 @@ const emailTypeGroups: Record<string, EmailTypeId[]> = {
 
 const ADMIN_RECIPIENT_TYPES: EmailTypeId[] = ['booking_created_admin', 'leave_request_created'];
 
-// Dummy payload-ok az élő előnézethez
+// Emberi, UI-barát címkék az email típusokra
+const EMAIL_TYPE_LABELS: Partial<Record<EmailTypeId, string>> = {
+  booking_created_guest: 'Foglalás – vendég visszaigazolás',
+  booking_created_admin: 'Foglalás – admin értesítés',
+  leave_request_created: 'Szabadságkérés – új kérelem (admin)',
+  leave_request_approved: 'Szabadságkérés – jóváhagyva (dolgozó)',
+  leave_request_rejected: 'Szabadságkérés – elutasítva (dolgozó)',
+  new_schedule_published: 'Beosztás – új beosztás publikálva',
+  user_registration_welcome: 'Felhasználó – üdvözlő email',
+};
+
+// Dummy payloadok az élő előnézethez
 const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>> = {
   booking_created_guest: {
     unitName: 'Gin and Avocado',
@@ -100,7 +108,11 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
   const [selectedUnitId, setSelectedUnitId] = useState<string>('');
   const [settings, setSettings] = useState<EmailSettingsDocument | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [savingState, setSavingState] = useState<{ key: string | null; error: string; success: string }>({ key: null, error: '', success: '' });
+  const [savingState, setSavingState] = useState<{ key: string | null; error: string; success: string }>({
+    key: null,
+    error: '',
+    success: '',
+  });
 
   const [selectedType, setSelectedType] = useState<EmailTypeId | null>(null);
   const [editorState, setEditorState] = useState<TemplateEditorState | null>(null);
@@ -109,7 +121,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
     if (currentUser.role === 'Admin') {
       return [{ id: 'default', name: 'Globális (alapértelmezett)' }, ...allUnits];
     }
-    return allUnits.filter(u => currentUser.unitIds?.includes(u.id));
+    return allUnits.filter((u) => currentUser.unitIds?.includes(u.id));
   }, [currentUser, allUnits]);
 
   const fetchSettings = useCallback(async () => {
@@ -178,7 +190,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
       try {
         await savePartialEmailSettings(selectedUnitId, partialData);
         setSavingState({ key, error: '', success: 'Mentve!' });
-        await fetchSettings(); // Refetch to get the latest state
+        await fetchSettings();
         setTimeout(() => setSavingState({ key: null, error: '', success: '' }), 2000);
       } catch (err) {
         console.error(`Error saving ${key}:`, err);
@@ -199,9 +211,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
       [typeId]: newEnabledState,
     };
 
-    setSettings(prev =>
-      prev ? { ...prev, enabledTypes: updatedEnabled } : prev
-    );
+    setSettings((prev) => (prev ? { ...prev, enabledTypes: updatedEnabled } : prev));
 
     await handleSave('enabled-types', { enabledTypes: updatedEnabled });
   };
@@ -233,9 +243,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
       [selectedType]: { ...editorState },
     };
 
-    setSettings(prev =>
-      prev ? { ...prev, templateOverrides: updatedOverrides } : prev
-    );
+    setSettings((prev) => (prev ? { ...prev, templateOverrides: updatedOverrides } : prev));
 
     await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
   };
@@ -246,20 +254,15 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
     const updatedOverrides = { ...(settings.templateOverrides || {}) };
     delete updatedOverrides[selectedType];
 
-    setSettings(prev =>
-      prev ? { ...prev, templateOverrides: updatedOverrides } : prev
-    );
+    setSettings((prev) => (prev ? { ...prev, templateOverrides: updatedOverrides } : prev));
 
     await handleSave(`template-${selectedType}`, { templateOverrides: updatedOverrides });
   };
 
-  // ---> Élő HTML előnézet, dummy payload + renderTemplate
+  // Élő HTML előnézet
   const previewHtml = useMemo(() => {
     if (!selectedType || !editorState) return '';
-
-    const payload =
-      PREVIEW_PAYLOAD_BY_TYPE[selectedType] || DEFAULT_PREVIEW_PAYLOAD;
-
+    const payload = PREVIEW_PAYLOAD_BY_TYPE[selectedType] || DEFAULT_PREVIEW_PAYLOAD;
     return renderTemplate(editorState.html, payload);
   }, [selectedType, editorState]);
 
@@ -276,7 +279,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
       <h2 className="text-2xl font-bold text-gray-800 mb-4">Email sablonok és beállítások</h2>
 
       <div className="mb-6">
-        <label htmlFor="unit-select" className="block text.sm font-medium text-gray-700">
+        <label htmlFor="unit-select" className="block text-sm font-medium text-gray-700">
           Egység
         </label>
         <select
@@ -304,15 +307,12 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
 
       {!isLoading && settings && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Settings & Type List */}
+          {/* Bal oszlop: admin címzettek + típuslista */}
           <div className="space-y-6">
             <div className="p-4 border rounded-lg bg-gray-50">
               <h3 className="text-lg font-semibold text-gray-800 mb-2">Admin értesítések</h3>
               <div>
-                <label
-                  htmlFor="admin-email"
-                  className="block text-sm font-medium text-gray-700"
-                >
+                <label htmlFor="admin-email" className="block text-sm font-medium text-gray-700">
                   Alapértelmezett admin email cím
                 </label>
                 <input
@@ -320,9 +320,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
                   type="email"
                   value={settings.adminDefaultEmail || ''}
                   onChange={(e) =>
-                    setSettings((s) =>
-                      s ? { ...s, adminDefaultEmail: e.target.value } : null
-                    )
+                    setSettings((s) => (s ? { ...s, adminDefaultEmail: e.target.value } : null))
                   }
                   className="mt-1 w-full p-2 border border-gray-300 rounded-md"
                   placeholder="pl. info@etterem.hu"
@@ -341,7 +339,7 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
                       htmlFor={`recipients-${typeId}`}
                       className="text-xs font-semibold text-gray-600"
                     >
-                      {typeId}
+                      {EMAIL_TYPE_LABELS[typeId] || typeId}
                     </label>
                     <input
                       id={`recipients-${typeId}`}
@@ -384,59 +382,65 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
 
             {Object.entries(emailTypeGroups).map(([groupName, typeIds]) => (
               <div key={groupName}>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  {groupName}
-                </h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">{groupName}</h3>
                 <div className="space-y-2">
-                  {typeIds.map((typeId) => (
-                    <div
-                      key={typeId}
-                      className={`p-3 border rounded-lg transition-colors ${
-                        selectedType === typeId
-                          ? 'bg-green-50 border-green-400'
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span
-                          className="font-medium text-gray-700 cursor-pointer"
-                          onClick={() => setSelectedType(typeId)}
-                        >
-                          {typeId}
-                        </span>
-                        <div className="flex items-center gap-4">
-                          <label
-                            className="flex items-center gap-2 cursor-pointer"
-                            title="Email küldés engedélyezése/tiltása"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={settings.enabledTypes[typeId] ?? true}
-                              onChange={() => handleToggle(typeId)}
-                              className="h-5 w-5 rounded text-green-600 focus:ring-green-500"
-                            />
-                          </label>
-                          <button
+                  {typeIds.map((typeId) => {
+                    const niceLabel = EMAIL_TYPE_LABELS[typeId] || typeId;
+                    return (
+                      <div
+                        key={typeId}
+                        className={`p-3 border rounded-lg transition-colors ${
+                          selectedType === typeId
+                            ? 'bg-green-50 border-green-400'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div
+                            className="cursor-pointer"
                             onClick={() => setSelectedType(typeId)}
-                            className="text-sm text-blue-600 hover:underline"
                           >
-                            Szerkesztés
-                          </button>
+                            <div className="font-medium text-gray-800">{niceLabel}</div>
+                            <div className="text-xs text-gray-400">{typeId}</div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <label
+                              className="flex items-center gap-2 cursor-pointer"
+                              title="Email küldés engedélyezése/tiltása"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={settings.enabledTypes[typeId] ?? true}
+                                onChange={() => handleToggle(typeId)}
+                                className="h-5 w-5 rounded text-green-600 focus:ring-green-500"
+                              />
+                            </label>
+                            <button
+                              onClick={() => setSelectedType(typeId)}
+                              className="text-sm text-blue-600 hover:underline"
+                            >
+                              Szerkesztés
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Right Column: Editor */}
+          {/* Jobb oszlop: szerkesztő + élő előnézet */}
           <div>
             {selectedType && editorState ? (
               <div className="sticky top-8 space-y-4">
-                <h3 className="text-xl font-bold">
-                  Sablon: <span className="text-green-700">{selectedType}</span>
+                <h3 className="text-xl font.bold">
+                  Sablon:{' '}
+                  <span className="text-green-700">
+                    {EMAIL_TYPE_LABELS[selectedType] || selectedType}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-2">({selectedType})</span>
                 </h3>
                 <div>
                   <label className="block text-sm font-medium">Tárgy</label>
