@@ -144,6 +144,11 @@ export async function savePartialEmailSettings(
   const docRef = doc(db, 'email_settings', unitId);
   await setDoc(docRef, data, { merge: true });
 
-  // következő lekérésnél friss adat jöjjön
+  // Cache ürítése
   settingsCache.delete(unitId);
+
+  // Ha a default egység módosult, azt is ürítjük
+  if (unitId === 'default') {
+    settingsCache.delete('default');
+  }
 }
