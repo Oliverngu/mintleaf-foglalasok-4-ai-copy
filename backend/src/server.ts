@@ -7,7 +7,7 @@ import { ApiError } from './utils/errors';
 
 // Import routes
 import shiftRoutes from './routes/shifts';
-import fileRoutes from './routes/files';
+// import fileRoutes from './routes/files'; // TEMP: kikapcsolva, amíg a files route-ot nem refaktoráljuk
 
 dotenv.config();
 
@@ -15,11 +15,8 @@ const app: Express = express();
 const PORT = process.env.PORT || 3001;
 
 // --- Core Middleware ---
-// Helmet helps secure Express apps by setting various HTTP headers
 app.use(helmet());
-// Enable CORS for all routes
 app.use(cors());
-// Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -28,21 +25,16 @@ app.get('/', (req: Request, res: Response) => {
   res.send('MintLeaf Backend is running!');
 });
 
-// Apply rate limiting to login routes (example)
 // app.use('/api/auth/login', loginLimiter);
 
-// App routes
 app.use('/api/shifts', shiftRoutes);
-app.use('/api/files', fileRoutes);
-// Add other routes here (e.g., users, requests, etc.)
+// app.use('/api/files', fileRoutes); // TEMP: kikapcsolva
 
 // --- Error Handling ---
-// Handle 404 Not Found
 app.use((req: Request, res: Response, next: NextFunction) => {
   next(new ApiError(404, 'Endpoint not found'));
 });
 
-// Global error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(err);
   if (err instanceof ApiError) {
