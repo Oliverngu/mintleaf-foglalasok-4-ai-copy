@@ -283,14 +283,41 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                         const canSend = await shouldSendEmail('booking_created_guest', unit.id);
                         if (canSend) {
                             const payload = { 
-                                unitName: unit.name,
-                                bookingName: newReservation.name,
-                                bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
-                                bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-                                headcount: newReservation.headcount,
-                                bookingRef: newReservation.referenceCode,
-                                isAutoConfirm: newReservation.status === 'confirmed'
-                            };
+    // EGYSÉG
+    unitName: unit.name,
+
+    // FOGLALÓ / ELÉRHETŐSÉG
+    bookingName: newReservation.name,
+    guestName: newReservation.name,
+    guestEmail: newReservation.contact.email,
+    guestPhone: newReservation.contact.phone || '',
+
+    // IDŐPONT / LÉTSZÁM
+    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+    bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+    bookingTimeTo: newReservation.endDateTime
+        ? newReservation.endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
+        : '',
+    bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+    headcount: newReservation.headcount,
+    people: newReservation.headcount,
+
+    // ALKALOM
+    occasion: newReservation.occasion || '',
+    occasionOther: newReservation.occasionOther || newReservation.occasionNote || '',
+
+    // MEGJEGYZÉS
+    comment: newReservation.comment || newReservation.notes || '',
+    notes: newReservation.comment || newReservation.notes || '',
+
+    // HOL HALLLOTT RÓLUNK
+    heardFrom: newReservation.heardFrom || '',
+    heardFromOther: newReservation.heardFromOther || '',
+
+    // TECHNIKAI
+    bookingRef: newReservation.referenceCode,
+    isAutoConfirm: newReservation.status === 'confirmed',
+};
                             const { subject, html } = await resolveEmailTemplate(unit.id, 'booking_created_guest', payload);
                             await sendEmail({
                                 typeId: 'booking_created_guest',
