@@ -168,27 +168,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // --- Cloud Run Email Test handler ---
-  const handleTestEmail = async () => {
-    try {
-      const result = await sendTestEmail({
-        serviceId: 'system',
-        templateKey: 'registration',
-        to: 'oliver@mintleaf.hu',
-        samplePayload: { firstName: 'Teszt' },
-      });
-
-      if (result.ok) {
-        alert('Teszt kérés sikeres (Cloud Run /email-test)');
-      } else {
-        alert('Hiba: ' + (result.message || 'Ismeretlen hiba'));
-      }
-    } catch (err) {
-      console.error('Teszt email hiba:', err);
-      alert('Váratlan hiba történt a Cloud Run teszt során.');
-    }
-  };
-
   const hasPermission = (permission: keyof Permissions | 'canManageAdminPage'): boolean => {
     if (currentUser.role === 'Admin') return true;
     if (currentUser.role === 'Demo User') {
