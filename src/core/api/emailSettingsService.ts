@@ -109,7 +109,11 @@ export async function shouldSendEmail(typeId: EmailTypeId, unitId: string | null
 }
 
 // FIX: Added missing 'getAdminRecipientsOverride' export.
-export async function getAdminRecipientsOverride(typeId: EmailTypeId, unitId: string, legacyRecipients: string[]): Promise<string[]> {
+export async function getAdminRecipientsOverride(
+  unitId: string,
+  typeId: EmailTypeId,
+  legacyRecipients: string[] = []
+): Promise<string[]> {
   const unitSettings = await getEmailSettingsForUnit(unitId);
   const defaultSettings = await getEmailSettingsForUnit('default');
 
@@ -126,8 +130,8 @@ export async function getAdminRecipientsOverride(typeId: EmailTypeId, unitId: st
   const recipients = new Set<string>();
   if (unitSettings.adminDefaultEmail) recipients.add(unitSettings.adminDefaultEmail);
   if (defaultSettings.adminDefaultEmail) recipients.add(defaultSettings.adminDefaultEmail);
-  
-  legacyRecipients.forEach(email => recipients.add(email));
+
+  (legacyRecipients || []).forEach((email) => recipients.add(email));
 
   return Array.from(recipients);
 }
