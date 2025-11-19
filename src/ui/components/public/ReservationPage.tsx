@@ -2,11 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 // FIX: Corrected import path to use the up-to-date data models from the core directory.
 import { Unit, ReservationSetting, User, ThemeSettings, GuestFormSettings, CustomSelectField } from '../../../core/models/data';
 import { db, Timestamp } from '../../../core/firebase/config';
-import { doc, getDoc, collection, addDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
-import CopyIcon from '../../../../components/icons/CopyIcon'; // Új import
-import { translations } from '../../../lib/i18n'; // Import a kiszervezett fájlból
+import CopyIcon from '../../../../components/icons/CopyIcon';
+import { translations } from '../../../lib/i18n';
 import { sendEmail } from '../../../core/api/emailGateway';
 import { shouldSendEmail, getAdminRecipientsOverride, resolveEmailTemplate } from '../../../core/api/emailSettingsService';
 
@@ -26,16 +26,24 @@ const toDateKey = (date: Date): string => {
 };
 
 const DEFAULT_THEME: ThemeSettings = {
-    primary: '#166534', surface: '#ffffff', background: '#f9fafb', textPrimary: '#1f2937', 
-    textSecondary: '#4b5563', accent: '#10b981', success: '#16a34a', danger: '#dc2626',
-    radius: 'lg', elevation: 'mid', typographyScale: 'M',
+    primary: '#166534',
+    surface: '#ffffff',
+    background: '#f9fafb',
+    textPrimary: '#1f2937',
+    textSecondary: '#4b5563',
+    accent: '#10b981',
+    success: '#16a34a',
+    danger: '#dc2626',
+    radius: 'lg',
+    elevation: 'mid',
+    typographyScale: 'M',
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
     customSelects: [],
 };
 
-const ProgressIndicator: React.FC<{ currentStep: number, t: typeof translations['hu'] }> = ({ currentStep, t }) => {
+const ProgressIndicator: React.FC<{ currentStep: number; t: typeof translations['hu'] }> = ({ currentStep, t }) => {
     const steps = [t.step1, t.step2, t.step3];
     return (
         <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
@@ -46,15 +54,31 @@ const ProgressIndicator: React.FC<{ currentStep: number, t: typeof translations[
                 return (
                     <React.Fragment key={stepNumber}>
                         <div className="flex flex-col items-center text-center">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
-                                isCompleted ? 'bg-[var(--color-primary)] text-white' : isActive ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]' : 'bg-gray-200 text-gray-500'
-                            }`}>
+                            <div
+                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
+                                    isCompleted
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : isActive
+                                        ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
+                                        : 'bg-gray-200 text-gray-500'
+                                }`}
+                            >
                                 {isCompleted ? '✓' : stepNumber}
                             </div>
-                            <p className={`mt-2 text-sm font-semibold transition-colors ${isActive || isCompleted ? 'text-[var(--color-text-primary)]' : 'text-gray-400'}`}>{label}</p>
+                            <p
+                                className={`mt-2 text-sm font-semibold transition-colors ${
+                                    isActive || isCompleted ? 'text-[var(--color-text-primary)]' : 'text-gray-400'
+                                }`}
+                            >
+                                {label}
+                            </p>
                         </div>
                         {index < steps.length - 1 && (
-                            <div className={`flex-1 h-1 mx-2 transition-colors ${isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'}`}></div>
+                            <div
+                                className={`flex-1 h-1 mx-2 transition-colors ${
+                                    isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
+                                }`}
+                            ></div>
                         )}
                     </React.Fragment>
                 );
@@ -63,32 +87,32 @@ const ProgressIndicator: React.FC<{ currentStep: number, t: typeof translations[
     );
 };
 
-const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, currentUser }) => {
+const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits }) => {
     const [step, setStep] = useState(1);
     const [unit, setUnit] = useState<Unit | null>(null);
     const [settings, setSettings] = useState<ReservationSetting | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [locale, setLocale] = useState<Locale>('hu');
-    
+
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-    const [formData, setFormData] = useState({ 
-        name: '', 
-        headcount: '2', 
-        startTime: '', 
-        endTime: '', 
-        phone: '', 
+    const [formData, setFormData] = useState({
+        name: '',
+        headcount: '2',
+        startTime: '',
+        endTime: '',
+        phone: '',
         email: '',
-        customData: {} as Record<string, string>
+        customData: {} as Record<string, string>,
     });
     const [submittedData, setSubmittedData] = useState<any>(null);
-    
+
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // State for calendar month and daily headcounts
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(new Map());
-    
+
     useEffect(() => {
         const browserLang = navigator.language.split('-')[0];
         if (browserLang === 'en') {
@@ -97,7 +121,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     }, []);
 
     useEffect(() => {
-        const currentUnit = allUnits.find(u => u.id === unitId);
+        const currentUnit = allUnits.find((u) => u.id === unitId);
         if (currentUnit) {
             setUnit(currentUnit);
             document.title = `Foglalás - ${currentUnit.name}`;
@@ -113,16 +137,24 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             try {
                 const docRef = doc(db, 'reservation_settings', unitId);
                 const docSnap = await getDoc(docRef);
-                const defaultSettings: ReservationSetting = { 
-                    id: unitId, blackoutDates: [], bookableWindow: { from: '11:00', to: '23:00'}, 
-                    kitchenStartTime: null, kitchenEndTime: null, barStartTime: null, barEndTime: null,
-                    guestForm: DEFAULT_GUEST_FORM, theme: DEFAULT_THEME,
-                    reservationMode: 'request', notificationEmails: [],
+                const defaultSettings: ReservationSetting = {
+                    id: unitId,
+                    blackoutDates: [],
+                    bookableWindow: { from: '11:00', to: '23:00' },
+                    kitchenStartTime: null,
+                    kitchenEndTime: null,
+                    barStartTime: null,
+                    barEndTime: null,
+                    guestForm: DEFAULT_GUEST_FORM,
+                    theme: DEFAULT_THEME,
+                    reservationMode: 'request',
+                    notificationEmails: [],
                 };
                 if (docSnap.exists()) {
                     const dbData = docSnap.data() as any;
-                    const finalSettings = { 
-                        ...defaultSettings, ...dbData,
+                    const finalSettings = {
+                        ...defaultSettings,
+                        ...dbData,
                         guestForm: { ...DEFAULT_GUEST_FORM, ...(dbData.guestForm || {}) },
                         theme: { ...DEFAULT_THEME, ...(dbData.theme || {}) },
                     };
@@ -131,7 +163,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                     setSettings(defaultSettings);
                 }
             } catch (err) {
-                console.error("Error fetching reservation settings:", err);
+                console.error('Error fetching reservation settings:', err);
                 setError('Hiba a foglalási beállítások betöltésekor.');
             } finally {
                 setLoading(false);
@@ -140,7 +172,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         fetchSettings();
     }, [unit, unitId]);
 
-     // Fetch headcounts for the visible month
+    // Fetch headcounts for the visible month
     useEffect(() => {
         if (!unitId || !settings?.dailyCapacity || settings.dailyCapacity <= 0) {
             setDailyHeadcounts(new Map()); // Clear if no capacity limit
@@ -161,39 +193,50 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             try {
                 const querySnapshot = await getDocs(q);
                 const headcounts = new Map<string, number>();
-                querySnapshot.docs.forEach(doc => {
-                    const booking = doc.data();
+                querySnapshot.docs.forEach((docSnap) => {
+                    const booking = docSnap.data();
                     const dateKey = toDateKey(booking.startTime.toDate());
                     const currentCount = headcounts.get(dateKey) || 0;
                     headcounts.set(dateKey, currentCount + (booking.headcount || 0));
                 });
                 setDailyHeadcounts(headcounts);
             } catch (err) {
-                console.error("Error fetching headcounts:", err);
+                console.error('Error fetching headcounts:', err);
             }
         };
 
         fetchHeadcounts();
     }, [unitId, currentMonth, settings?.dailyCapacity]);
 
-
     useEffect(() => {
         if (settings?.theme) {
             const root = document.documentElement;
             Object.entries(settings.theme).forEach(([key, value]) => {
-                if(key !== 'radius' && key !== 'elevation' && key !== 'typographyScale')
-                root.style.setProperty(`--color-${key}`, value);
+                if (key !== 'radius' && key !== 'elevation' && key !== 'typographyScale') {
+                    root.style.setProperty(`--color-${key}`, value);
+                }
             });
         }
     }, [settings?.theme]);
-    
+
     const resetFlow = () => {
         setSelectedDate(null);
-        setFormData({ name: '', headcount: '2', startTime: '', endTime: '', phone: '', email: '', customData: {} });
+        setFormData({
+            name: '',
+            headcount: '2',
+            startTime: '',
+            endTime: '',
+            phone: '',
+            email: '',
+            customData: {},
+        });
         setStep(1);
     };
 
-    const handleDateSelect = (day: Date) => { setSelectedDate(day); setStep(2); };
+    const handleDateSelect = (day: Date) => {
+        setSelectedDate(day);
+        setStep(2);
+    };
 
     const normalizePhone = (phone: string): string => {
         let cleaned = phone.replace(/[\s-()]/g, '');
@@ -208,11 +251,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedDate || !formData.startTime || !unit || !settings) return;
-        
+
         setIsSubmitting(true);
         setError('');
 
         let startDateTime: Date;
+        let endDateTime: Date;
         let newReservation: any;
 
         try {
@@ -221,11 +265,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             const requestedHeadcount = parseInt(formData.headcount, 10);
 
             // Time window validation
-            const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || { from: '00:00', to: '23:59' };
+            const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || {
+                from: '00:00',
+                to: '23:59',
+            };
             if (requestedStartTime < bookingStart || requestedStartTime > bookingEnd) {
-                throw new Error(t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd));
+                throw new Error(
+                    t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd)
+                );
             }
-            
+
             // Capacity validation
             if (settings.dailyCapacity && settings.dailyCapacity > 0) {
                 const dayStart = new Date(selectedDate);
@@ -241,224 +290,286 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 );
 
                 const querySnapshot = await getDocs(q);
-                const currentHeadcount = querySnapshot.docs.reduce((sum, doc) => sum + (doc.data().headcount || 0), 0);
-                
+                const currentHeadcount = querySnapshot.docs.reduce(
+                    (sum, docSnap) => sum + (docSnap.data().headcount || 0),
+                    0
+                );
+
                 if (currentHeadcount >= settings.dailyCapacity) throw new Error(t.errorCapacityFull);
                 if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-                    throw new Error(t.errorCapacityLimited.replace('{count}', String(settings.dailyCapacity - currentHeadcount)));
+                    throw new Error(
+                        t.errorCapacityLimited.replace(
+                            '{count}',
+                            String(settings.dailyCapacity - currentHeadcount)
+                        )
+                    );
                 }
             }
 
             // --- SUBMISSION LOGIC ---
             startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
-            let endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
+            endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
             if (formData.endTime) {
-                const potentialEndDateTime = new Date(`${toDateKey(selectedDate)}T${formData.endTime}`);
+                const potentialEndDateTime = new Date(
+                    `${toDateKey(selectedDate)}T${formData.endTime}`
+                );
                 if (potentialEndDateTime > startDateTime) endDateTime = potentialEndDateTime;
             }
-            
+
             const newReservationRef = doc(collection(db, 'units', unitId, 'reservations'));
             const referenceCode = newReservationRef.id;
-            const reservationStatus = settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
+            const reservationStatus: 'confirmed' | 'pending' =
+                settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
             newReservation = {
-                unitId, name: formData.name, headcount: parseInt(formData.headcount),
-                startTime: Timestamp.fromDate(startDateTime), endTime: Timestamp.fromDate(endDateTime),
-                contact: { phoneE164: normalizePhone(formData.phone), email: formData.email.trim().toLowerCase() },
-                locale, status: reservationStatus as 'confirmed' | 'pending', createdAt: Timestamp.now(), referenceCode,
+                unitId,
+                name: formData.name,
+                headcount: parseInt(formData.headcount),
+                startTime: Timestamp.fromDate(startDateTime),
+                endTime: Timestamp.fromDate(endDateTime),
+                contact: {
+                    phoneE164: normalizePhone(formData.phone),
+                    email: formData.email.trim().toLowerCase(),
+                },
+                locale,
+                status: reservationStatus,
+                createdAt: Timestamp.now(),
+                referenceCode,
                 occasion: formData.customData['occasion'] || '',
                 source: formData.customData['heardFrom'] || '',
                 customData: formData.customData,
             };
+
             await setDoc(newReservationRef, newReservation);
-            
+
             setSubmittedData({ ...newReservation, date: selectedDate });
             setStep(3);
-            
-          // --- EMAIL LOGIC (fire-and-forget) ---
-(async () => {
-    // Közös formázott mezők
-    const bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
-    const bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-    const bookingTimeTo = endDateTime
-        ? endDateTime.toLocaleTimeString(newReservation.locale, {
-              hour: '2-digit',
-              minute: '2-digit',
-          })
-        : '';
 
-    // 1) VENDÉG EMAIL
-    try {
-        if (newReservation.contact.email) {
-            const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
-            if (canSendGuest) {
-                const payload = { 
-    unitName: unit.name,
+            // =========================
+            //        EMAIL LOGIKA
+            // =========================
 
-    // Foglalás alap
-    bookingName: newReservation.name,
-    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
-    bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-    bookingTimeTo: endDateTime
-        ? endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
-        : '',
-
-    // Létszám
-    headcount: newReservation.headcount,
-
-    // Elérhetőségek
-    guestName: newReservation.name,
-    guestEmail: newReservation.contact.email,
-    guestPhone: newReservation.contact.phoneE164 || '',
-
-    // Azonosító
-    bookingRef: newReservation.referenceCode,
-
-    // Auto-confirm infó
-    isAutoConfirm: newReservation.status === 'confirmed',
-};
-
-                // 1) Szerkeszthető sablonrész (fejléc, szöveg, stb.)
-                const { subject, html: baseHtml } = await resolveEmailTemplate(
-                    unit.id,
-                    'booking_created_guest',
-                    guestPayload
-                );
-
-                // 2) Fix adatblokk a VENDÉG email alján
-                const detailsHtml = `
-                    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
-                    <h3 style="font-size:16px;margin-bottom:8px;">Foglalásod adatai</h3>
-                    <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
-                        <li><strong>Helyszín:</strong> ${guestPayload.unitName}</li>
-                        <li><strong>Név:</strong> ${guestPayload.guestName}</li>
-                        <li><strong>Dátum:</strong> ${bookingDate}</li>
-                        <li><strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}</li>
-                        <li><strong>Létszám:</strong> ${guestPayload.headcount} fő</li>
-                        <li><strong>Alkalom:</strong> ${guestPayload.occasion || '-'} ${guestPayload.occasionOther || ''}</li>
-                        <li><strong>Email:</strong> ${guestPayload.guestEmail || '-'}</li>
-                        <li><strong>Telefon:</strong> ${guestPayload.guestPhone || '-'}</li>
-                        <li><strong>Foglalás azonosító:</strong> ${guestPayload.bookingRef || '-'}</li>
-                        <li><strong>Automatikus visszaigazolás:</strong> ${
-                            guestPayload.isAutoConfirm ? 'igen' : 'nem'
-                        }</li>
-                    </ul>
-                    ${
-                        guestPayload.comment
-                            ? `<p style="margin-top:12px;"><strong>Megjegyzésed:</strong><br>${guestPayload.comment}</p>`
-                            : ''
-                    }
-                `;
-
-                const finalHtml = `${baseHtml || ''}${detailsHtml}`;
-
-                await sendEmail({
-                    typeId: 'booking_created_guest',
-                    unitId: unit.id,
-                    to: newReservation.contact.email,
-                    subject,
-                    html: finalHtml,
-                    payload: guestPayload,
-                });
-            }
-        }
-    } catch (emailError) {
-        console.error("Failed to send 'booking_created_guest' email:", emailError);
-    }
-
-    // 2) ADMIN EMAIL(ek)
-    try {
-        const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
-        if (!canSendAdmin) return;
-
-        // címzettek: override → reservation_settings.notificationEmails
-        let adminRecipients =
-            (await getAdminRecipientsOverride(unit.id, 'booking_created_admin')) || [];
-
-        if ((!adminRecipients || adminRecipients.length === 0) &&
-            settings.notificationEmails &&
-            settings.notificationEmails.length > 0
-        ) {
-            adminRecipients = settings.notificationEmails;
-        }
-
-        if (!adminRecipients || adminRecipients.length === 0) {
-            console.warn(
-                "No admin recipients configured for 'booking_created_admin' for unit",
-                unit.id
-            );
-            return;
-        }
-
-        const adminPayload = {
-            unitName: unit.name,
-            bookingName: newReservation.name,
-            bookingDate,
-            bookingTimeFrom,
-            bookingTimeTo,
-            bookingDateTime: `${bookingDate} ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}`,
-            headcount: newReservation.headcount,
-            guestName: newReservation.name,
-            guestEmail: newReservation.contact.email,
-            guestPhone: newReservation.contact.phoneE164 || '',
-            occasion: newReservation.occasion || '',
-            occasionOther: newReservation.customData?.occasionOther || '',
-            comment: newReservation.customData?.comment || '',
-            bookingRef: newReservation.referenceCode,
-            isAutoConfirm: newReservation.status === 'confirmed',
-        };
-
-        const { subject, html: baseHtml } = await resolveEmailTemplate(
-            unit.id,
-            'booking_created_admin',
-            adminPayload
-        );
-
-        const detailsHtml = `
-            <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
-            <h3 style="font-size:16px;margin-bottom:8px;">Foglalás adatlap (fix blokk)</h3>
-            <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
-                <li><strong>Egység:</strong> ${adminPayload.unitName}</li>
-                <li><strong>Vendég neve:</strong> ${adminPayload.guestName}</li>
-                <li><strong>Dátum:</strong> ${bookingDate}</li>
-                <li><strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}</li>
-                <li><strong>Létszám:</strong> ${adminPayload.headcount} fő</li>
-                <li><strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${adminPayload.occasionOther || ''}</li>
-                <li><strong>Email:</strong> ${adminPayload.guestEmail || '-'}</li>
-                <li><strong>Telefon:</strong> ${adminPayload.guestPhone || '-'}</li>
-                <li><strong>Foglalás azonosító:</strong> ${adminPayload.bookingRef || '-'}</li>
-                <li><strong>Auto-confirm:</strong> ${adminPayload.isAutoConfirm ? 'igen' : 'nem'}</li>
-            </ul>
-            ${
-                adminPayload.comment
-                    ? `<p style="margin-top:12px;"><strong>Megjegyzés:</strong><br>${adminPayload.comment}</p>`
-                    : ''
-            }
-        `;
-
-        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
-
-        for (const to of adminRecipients) {
-            await sendEmail({
-                typeId: 'booking_created_admin',
-                unitId: unit.id,
-                to,
-                subject,
-                html: finalHtml,
-                payload: adminPayload,
+            const bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
+            const bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
+                hour: '2-digit',
+                minute: '2-digit',
             });
-        }
-    } catch (emailError) {
-        console.error("Failed to send 'booking_created_admin' email:", emailError);
-    }
-})();
-})();
+            const bookingTimeTo = endDateTime
+                ? endDateTime.toLocaleTimeString(newReservation.locale, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                  })
+                : '';
+
+            // ---------- 1) VENDÉG EMAIL ----------
+            try {
+                if (newReservation.contact.email) {
+                    const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
+                    if (canSendGuest) {
+                        const guestPayload = {
+                            unitName: unit.name,
+
+                            // Foglalás alap
+                            bookingName: newReservation.name,
+                            bookingDate,
+                            bookingTimeFrom,
+                            bookingTimeTo,
+                            bookingDateTime: `${bookingDate} ${bookingTimeFrom}${
+                                bookingTimeTo ? ' – ' + bookingTimeTo : ''
+                            }`,
+
+                            // Létszám
+                            headcount: newReservation.headcount,
+
+                            // Elérhetőségek
+                            guestName: newReservation.name,
+                            guestEmail: newReservation.contact.email,
+                            guestPhone: newReservation.contact.phoneE164 || '',
+
+                            // Alkalom + extra
+                            occasion: newReservation.occasion || '',
+                            occasionOther: newReservation.customData?.occasionOther || '',
+                            comment: newReservation.customData?.comment || '',
+
+                            // Azonosító
+                            bookingRef: newReservation.referenceCode,
+
+                            // Auto-confirm infó
+                            isAutoConfirm: newReservation.status === 'confirmed',
+
+                            // alias kulcsok a régi sablonok kedvéért
+                            date: bookingDate,
+                            time: bookingTimeFrom,
+                        };
+
+                        const { subject, html: baseHtml } = await resolveEmailTemplate(
+                            unit.id,
+                            'booking_created_guest',
+                            guestPayload
+                        );
+
+                        const detailsHtml = `
+                            <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
+                            <h3 style="font-size:16px;margin-bottom:8px;">Foglalásod adatai</h3>
+                            <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
+                                <li><strong>Helyszín:</strong> ${guestPayload.unitName}</li>
+                                <li><strong>Név:</strong> ${guestPayload.guestName}</li>
+                                <li><strong>Dátum:</strong> ${guestPayload.bookingDate}</li>
+                                <li><strong>Időpont:</strong> ${guestPayload.bookingTimeFrom}${
+                            guestPayload.bookingTimeTo ? ' – ' + guestPayload.bookingTimeTo : ''
+                        }</li>
+                                <li><strong>Létszám:</strong> ${guestPayload.headcount} fő</li>
+                                <li><strong>Alkalom:</strong> ${
+                                    guestPayload.occasion || '-'
+                                } ${guestPayload.occasionOther || ''}</li>
+                                <li><strong>Email:</strong> ${guestPayload.guestEmail || '-'}</li>
+                                <li><strong>Telefon:</strong> ${
+                                    guestPayload.guestPhone || '-'
+                                }</li>
+                                <li><strong>Foglalás azonosító:</strong> ${
+                                    guestPayload.bookingRef || '-'
+                                }</li>
+                                <li><strong>Automatikus visszaigazolás:</strong> ${
+                                    guestPayload.isAutoConfirm ? 'igen' : 'nem'
+                                }</li>
+                            </ul>
+                            ${
+                                guestPayload.comment
+                                    ? `<p style="margin-top:12px;"><strong>Megjegyzésed:</strong><br>${guestPayload.comment}</p>`
+                                    : ''
+                            }
+                        `;
+
+                        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+
+                        await sendEmail({
+                            typeId: 'booking_created_guest',
+                            unitId: unit.id,
+                            to: newReservation.contact.email,
+                            subject,
+                            html: finalHtml,
+                            payload: guestPayload,
+                        });
+                    }
+                }
+            } catch (guestErr) {
+                console.error("Failed to send 'booking_created_guest' email:", guestErr);
+            }
+
+            // ---------- 2) ADMIN EMAIL(ek) ----------
+            try {
+                const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
+                if (canSendAdmin) {
+                    let adminRecipients: string[] = [];
+
+                    try {
+                        const override = await getAdminRecipientsOverride(
+                            unit.id,
+                            'booking_created_admin'
+                        );
+                        if (override && override.length > 0) {
+                            adminRecipients = override;
+                        }
+                    } catch (overrideErr) {
+                        console.warn(
+                            'getAdminRecipientsOverride failed, using fallback:',
+                            overrideErr
+                        );
+                    }
+
+                    if (
+                        (!adminRecipients || adminRecipients.length === 0) &&
+                        settings.notificationEmails &&
+                        settings.notificationEmails.length > 0
+                    ) {
+                        adminRecipients = settings.notificationEmails;
+                    }
+
+                    if (!adminRecipients || adminRecipients.length === 0) {
+                        console.warn(
+                            "No admin recipients configured for 'booking_created_admin' for unit:",
+                            unit.id
+                        );
+                    } else {
+                        const adminPayload = {
+                            unitName: unit.name,
+                            bookingName: newReservation.name,
+                            bookingDate,
+                            bookingTimeFrom,
+                            bookingTimeTo,
+                            bookingDateTime: `${bookingDate} ${bookingTimeFrom}${
+                                bookingTimeTo ? ' – ' + bookingTimeTo : ''
+                            }`,
+                            headcount: newReservation.headcount,
+                            guestName: newReservation.name,
+                            guestEmail: newReservation.contact.email,
+                            guestPhone: newReservation.contact.phoneE164 || '',
+                            occasion: newReservation.occasion || '',
+                            occasionOther: newReservation.customData?.occasionOther || '',
+                            comment: newReservation.customData?.comment || '',
+                            bookingRef: newReservation.referenceCode,
+                            isAutoConfirm: newReservation.status === 'confirmed',
+                            date: bookingDate,
+                            time: bookingTimeFrom,
+                        };
+
+                        const { subject, html: baseHtml } = await resolveEmailTemplate(
+                            unit.id,
+                            'booking_created_admin',
+                            adminPayload
+                        );
+
+                        const detailsHtml = `
+                            <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;" />
+                            <h3 style="font-size:16px;margin-bottom:8px;">Foglalás adatlap (fix blokk)</h3>
+                            <ul style="list-style:none;padding:0;margin:0;font-size:14px;line-height:1.5;">
+                                <li><strong>Egység:</strong> ${adminPayload.unitName}</li>
+                                <li><strong>Vendég neve:</strong> ${adminPayload.guestName}</li>
+                                <li><strong>Dátum:</strong> ${adminPayload.bookingDate}</li>
+                                <li><strong>Időpont:</strong> ${adminPayload.bookingTimeFrom}${
+                            adminPayload.bookingTimeTo ? ' – ' + adminPayload.bookingTimeTo : ''
+                        }</li>
+                                <li><strong>Létszám:</strong> ${adminPayload.headcount} fő</li>
+                                <li><strong>Alkalom:</strong> ${
+                                    adminPayload.occasion || '-'
+                                } ${adminPayload.occasionOther || ''}</li>
+                                <li><strong>Email:</strong> ${adminPayload.guestEmail || '-'}</li>
+                                <li><strong>Telefon:</strong> ${
+                                    adminPayload.guestPhone || '-'
+                                }</li>
+                                <li><strong>Foglalás azonosító:</strong> ${
+                                    adminPayload.bookingRef || '-'
+                                }</li>
+                                <li><strong>Auto-confirm:</strong> ${
+                                    adminPayload.isAutoConfirm ? 'igen' : 'nem'
+                                }</li>
+                            </ul>
+                            ${
+                                adminPayload.comment
+                                    ? `<p style="margin-top:12px;"><strong>Megjegyzés:</strong><br>${adminPayload.comment}</p>`
+                                    : ''
+                            }
+                        `;
+
+                        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+
+                        for (const adminEmail of adminRecipients) {
+                            await sendEmail({
+                                typeId: 'booking_created_admin',
+                                unitId: unit.id,
+                                to: adminEmail,
+                                subject,
+                                html: finalHtml,
+                                payload: adminPayload,
+                            });
+                        }
+                    }
+                }
+            } catch (adminErr) {
+                console.error("Failed to send 'booking_created_admin' email:", adminErr);
+            }
         } catch (err: unknown) {
-            console.error("Error during reservation submission:", err);
-            // FIX: Safely handle the unknown error type by checking if it's an instance of Error before accessing the message property.
+            console.error('Error during reservation submission:', err);
             if (err instanceof Error) {
                 setError(err.message);
             } else {
@@ -470,7 +581,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     };
 
     const themeClassProps = useMemo(() => {
-        if (!settings?.theme) return { radiusClass: 'rounded-lg', shadowClass: 'shadow-md', fontBaseClass: 'text-base' };
+        if (!settings?.theme)
+            return { radiusClass: 'rounded-lg', shadowClass: 'shadow-md', fontBaseClass: 'text-base' };
         const { radius, elevation, typographyScale } = settings.theme;
         return {
             radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[radius],
@@ -478,37 +590,96 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[typographyScale],
         };
     }, [settings?.theme]);
-    
-    if (error && step !== 2) return <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center"><div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md"><h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2><p className="text-[var(--color-text-primary)] mt-2">{error}</p></div></div>;
-    if (loading || !unit || !settings) return <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center"><LoadingSpinner /></div>;
-    
-    return (
-        <div className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8" style={{ color: 'var(--color-text-primary)' }}>
-            <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-                <button onClick={() => setLocale('hu')} className={locale === 'hu' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'}>Magyar</button>
-                <span className="text-gray-300">|</span>
-                <button onClick={() => setLocale('en')} className={locale === 'en' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'}>English</button>
+
+    if (error && step !== 2)
+        return (
+            <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
+                <div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md">
+                    <h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2>
+                    <p className="text-[var(--color-text-primary)] mt-2">{error}</p>
+                </div>
             </div>
-            
-            <header className="text-center mb-8 mt-8"><h1 className="text-4xl font-bold text-[var(--color-text-primary)]">{unit.name}</h1><p className="text-lg text-[var(--color-text-secondary)] mt-1">{t.title}</p></header>
-            
+        );
+    if (loading || !unit || !settings)
+        return (
+            <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center">
+                <LoadingSpinner />
+            </div>
+        );
+
+    return (
+        <div
+            className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
+            style={{ color: 'var(--color-text-primary)' }}
+        >
+            <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+                <button
+                    onClick={() => setLocale('hu')}
+                    className={locale === 'hu' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'}
+                >
+                    Magyar
+                </button>
+                <span className="text-gray-300">|</span>
+                <button
+                    onClick={() => setLocale('en')}
+                    className={locale === 'en' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'}
+                >
+                    English
+                </button>
+            </div>
+
+            <header className="text-center mb-8 mt-8">
+                <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">{unit.name}</h1>
+                <p className="text-lg text-[var(--color-text-secondary)] mt-1">{t.title}</p>
+            </header>
+
             <main className="w-full max-w-2xl">
                 <ProgressIndicator currentStep={step} t={t} />
                 <div className="relative overflow-hidden">
-                    <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${(step - 1) * 100}%)` }}>
+                    <div
+                        className="flex transition-transform duration-500 ease-in-out"
+                        style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+                    >
                         <div className="w-full flex-shrink-0">
-                            <Step1Date 
-                                settings={settings} 
-                                onDateSelect={handleDateSelect} 
-                                themeProps={themeClassProps} 
-                                t={t} 
+                            <Step1Date
+                                settings={settings}
+                                onDateSelect={handleDateSelect}
+                                themeProps={themeClassProps}
+                                t={t}
                                 currentMonth={currentMonth}
                                 onMonthChange={setCurrentMonth}
                                 dailyHeadcounts={dailyHeadcounts}
                             />
                         </div>
-                        <div className="w-full flex-shrink-0"><Step2Details selectedDate={selectedDate} formData={formData} setFormData={setFormData} onBack={() => { setStep(1); setError(''); }} onSubmit={handleSubmit} isSubmitting={isSubmitting} settings={settings} themeProps={themeClassProps} t={t} locale={locale} error={error} /></div>
-                        <div className="w-full flex-shrink-0"><Step3Confirmation onReset={resetFlow} themeProps={themeClassProps} t={t} submittedData={submittedData} unit={unit} locale={locale} settings={settings} /></div>
+                        <div className="w-full flex-shrink-0">
+                            <Step2Details
+                                selectedDate={selectedDate}
+                                formData={formData}
+                                setFormData={setFormData}
+                                onBack={() => {
+                                    setStep(1);
+                                    setError('');
+                                }}
+                                onSubmit={handleSubmit}
+                                isSubmitting={isSubmitting}
+                                settings={settings}
+                                themeProps={themeClassProps}
+                                t={t}
+                                locale={locale}
+                                error={error}
+                            />
+                        </div>
+                        <div className="w-full flex-shrink-0">
+                            <Step3Confirmation
+                                onReset={resetFlow}
+                                themeProps={themeClassProps}
+                                t={t}
+                                submittedData={submittedData}
+                                unit={unit}
+                                locale={locale}
+                                settings={settings}
+                            />
+                        </div>
                     </div>
                 </div>
             </main>
@@ -516,44 +687,74 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     );
 };
 
-// ... (Step1Date, Step2Details, Step3Confirmation components remain the same as in the original file, so they are omitted for brevity, assuming no changes are needed there based on the prompt.)
-// Keeping the components as they are, but they are already provided in the prompt.
-// ... (The rest of the file is unchanged)
-
-const Step1Date: React.FC<{ 
-    settings: ReservationSetting, 
-    onDateSelect: (date: Date) => void, 
-    themeProps: any, 
-    t: any,
-    currentMonth: Date,
-    onMonthChange: (date: Date) => void,
-    dailyHeadcounts: Map<string, number>
+const Step1Date: React.FC<{
+    settings: ReservationSetting;
+    onDateSelect: (date: Date) => void;
+    themeProps: any;
+    t: any;
+    currentMonth: Date;
+    onMonthChange: (date: Date) => void;
+    dailyHeadcounts: Map<string, number>;
 }> = ({ settings, onDateSelect, themeProps, t, currentMonth, onMonthChange, dailyHeadcounts }) => {
-    
     const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
     const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
     const days = [];
     const startDayOfWeek = (startOfMonth.getDay() + 6) % 7;
-    for (let i = 0; i < startDayOfWeek; i++) { days.push(null); }
-    for (let i = 1; i <= endOfMonth.getDate(); i++) { days.push(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i)); }
+    for (let i = 0; i < startDayOfWeek; i++) {
+        days.push(null);
+    }
+    for (let i = 1; i <= endOfMonth.getDate(); i++) {
+        days.push(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i));
+    }
 
     const blackoutSet = new Set(settings.blackoutDates || []);
-    const today = new Date(); today.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     return (
-        <div className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}>
-            <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">{t.step1Title}</h2>
+        <div
+            className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+        >
+            <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+                {t.step1Title}
+            </h2>
             <div className="flex justify-between items-center mb-4">
-                <button type="button" onClick={() => onMonthChange(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&lt;</button>
-                <h3 className="font-bold text-lg">{t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}</h3>
-                <button type="button" onClick={() => onMonthChange(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&gt;</button>
+                <button
+                    type="button"
+                    onClick={() =>
+                        onMonthChange(
+                            new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+                        )
+                    }
+                    className="p-2 rounded-full hover:bg-gray-100"
+                >
+                    &lt;
+                </button>
+                <h3 className="font-bold text-lg">
+                    {t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                </h3>
+                <button
+                    type="button"
+                    onClick={() =>
+                        onMonthChange(
+                            new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+                        )
+                    }
+                    className="p-2 rounded-full hover:bg-gray-100"
+                >
+                    &gt;
+                </button>
             </div>
-            <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">{t.dayNames.map((d: string) => <div key={d}>{d}</div>)}</div>
+            <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
+                {t.dayNames.map((d: string) => (
+                    <div key={d}>{d}</div>
+                ))}
+            </div>
             <div className="grid grid-cols-7 gap-1">
                 {days.map((day, i) => {
                     if (!day) return <div key={`empty-${i}`}></div>;
                     const dateKey = toDateKey(day);
-                    
+
                     const isBlackout = blackoutSet.has(dateKey);
                     const isPast = day < today;
                     let isFull = false;
@@ -576,12 +777,12 @@ const Step1Date: React.FC<{
                     } else {
                         buttonClass += ' hover:bg-green-100';
                     }
-                    
+
                     return (
                         <div key={dateKey}>
-                            <button 
-                                type="button" 
-                                onClick={() => onDateSelect(day)} 
+                            <button
+                                type="button"
+                                onClick={() => onDateSelect(day)}
                                 disabled={isDisabled}
                                 title={titleText}
                                 className={buttonClass}
@@ -594,11 +795,23 @@ const Step1Date: React.FC<{
             </div>
         </div>
     );
-}
+};
 
-const Step2Details: React.FC<any> = ({ selectedDate, formData, setFormData, onBack, onSubmit, isSubmitting, settings, themeProps, t, locale, error }) => {
+const Step2Details: React.FC<any> = ({
+    selectedDate,
+    formData,
+    setFormData,
+    onBack,
+    onSubmit,
+    isSubmitting,
+    settings,
+    themeProps,
+    t,
+    locale,
+    error,
+}) => {
     const [formErrors, setFormErrors] = useState({ name: '', phone: '', email: '' });
-    
+
     const validateField = (name: string, value: string) => {
         if (!value.trim()) return t.errorRequired;
         if (name === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return t.errorInvalidEmail;
@@ -606,14 +819,16 @@ const Step2Details: React.FC<any> = ({ selectedDate, formData, setFormData, onBa
         return '';
     };
 
-    const handleStandardChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const handleStandardChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    ) => {
         const { name, value } = e.target;
-        setFormData((prev: any) => ({...prev, [name]: value }));
+        setFormData((prev: any) => ({ ...prev, [name]: value }));
         if (['name', 'phone', 'email'].includes(name)) {
             setFormErrors((prev: any) => ({ ...prev, [name]: validateField(name, value) }));
         }
     };
-    
+
     const handleCustomFieldChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData((prev: any) => ({
@@ -623,54 +838,197 @@ const Step2Details: React.FC<any> = ({ selectedDate, formData, setFormData, onBa
     };
 
     const isFormValid = useMemo(() => {
-        return formData.name && formData.phone && formData.email && formData.startTime && 
-               !validateField('name', formData.name) && !validateField('phone', formData.phone) && !validateField('email', formData.email);
+        return (
+            formData.name &&
+            formData.phone &&
+            formData.email &&
+            formData.startTime &&
+            !validateField('name', formData.name) &&
+            !validateField('phone', formData.phone) &&
+            !validateField('email', formData.email)
+        );
     }, [formData, t]);
 
     if (!selectedDate) return null;
     return (
-        <div className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}>
-            <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">{t.step2Title}</h2>
-            {error && <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">{error}</div>}
+        <div
+            className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+        >
+            <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
+                {t.step2Title}
+            </h2>
+            {error && (
+                <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">
+                    {error}
+                </div>
+            )}
             {(settings.kitchenStartTime || settings.barStartTime) && (
-                <div className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-600`}>
-                    {settings.kitchenStartTime && <p><strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} - {settings.kitchenEndTime || 'Zárásig'}</p>}
-                    {settings.barStartTime && <p><strong>{t.barHours}:</strong> {settings.barStartTime} - {settings.barEndTime || 'Zárásig'}</p>}
+                <div
+                    className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-600`}
+                >
+                    {settings.kitchenStartTime && (
+                        <p>
+                            <strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} -{' '}
+                            {settings.kitchenEndTime || 'Zárásig'}
+                        </p>
+                    )}
+                    {settings.barStartTime && (
+                        <p>
+                            <strong>{t.barHours}:</strong> {settings.barStartTime} -{' '}
+                            {settings.barEndTime || 'Zárásig'}
+                        </p>
+                    )}
                 </div>
             )}
             <form onSubmit={onSubmit} className="space-y-4">
-                <input type="text" readOnly value={selectedDate.toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"/>
-                <div><label className="block text-sm font-medium">{t.name}</label><input type="text" name="name" value={formData.name} onChange={handleStandardChange} className="w-full mt-1 p-2 border rounded-lg" required />{formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}</div>
-                <div><label className="block text-sm font-medium">{t.headcount}</label><input type="number" name="headcount" value={formData.headcount} onChange={handleStandardChange} min="1" className="w-full mt-1 p-2 border rounded-lg" required /></div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium">{t.email}</label><input type="email" name="email" value={formData.email} onChange={handleStandardChange} className="w-full mt-1 p-2 border rounded-lg" required />{formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}</div>
-                    <div><label className="block text-sm font-medium">{t.phone}</label><input type="tel" name="phone" value={formData.phone} onChange={handleStandardChange} placeholder={t.phonePlaceholder} className="w-full mt-1 p-2 border rounded-lg" required />{formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}</div>
+                <input
+                    type="text"
+                    readOnly
+                    value={selectedDate.toLocaleDateString(locale, {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                    })}
+                    className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
+                />
+                <div>
+                    <label className="block text-sm font-medium">{t.name}</label>
+                    <input
+                        type="text"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleStandardChange}
+                        className="w-full mt-1 p-2 border rounded-lg"
+                        required
+                    />
+                    {formErrors.name && (
+                        <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">{t.headcount}</label>
+                    <input
+                        type="number"
+                        name="headcount"
+                        value={formData.headcount}
+                        onChange={handleStandardChange}
+                        min="1"
+                        className="w-full mt-1 p-2 border rounded-lg"
+                        required
+                    />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium">{t.startTime}</label><input type="time" name="startTime" value={formData.startTime} onChange={handleStandardChange} className="w-full mt-1 p-2 border rounded-lg" required min={settings.bookableWindow?.from} max={settings.bookableWindow?.to} /></div>
-                    <div><label className="block text-sm font-medium">{t.endTime}</label><input type="time" name="endTime" value={formData.endTime} onChange={handleStandardChange} className="w-full mt-1 p-2 border rounded-lg" min={formData.startTime} /></div>
+                    <div>
+                        <label className="block text-sm font-medium">{t.email}</label>
+                        <input
+                            type="email"
+                            name="email"
+                            value={formData.email}
+                            onChange={handleStandardChange}
+                            className="w-full mt-1 p-2 border rounded-lg"
+                            required
+                        />
+                        {formErrors.email && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
+                        )}
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">{t.phone}</label>
+                        <input
+                            type="tel"
+                            name="phone"
+                            value={formData.phone}
+                            onChange={handleStandardChange}
+                            placeholder={t.phonePlaceholder}
+                            className="w-full mt-1 p-2 border rounded-lg"
+                            required
+                        />
+                        {formErrors.phone && (
+                            <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
+                        )}
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">{t.startTime}</label>
+                        <input
+                            type="time"
+                            name="startTime"
+                            value={formData.startTime}
+                            onChange={handleStandardChange}
+                            className="w-full mt-1 p-2 border rounded-lg"
+                            required
+                            min={settings.bookableWindow?.from}
+                            max={settings.bookableWindow?.to}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">{t.endTime}</label>
+                        <input
+                            type="time"
+                            name="endTime"
+                            value={formData.endTime}
+                            onChange={handleStandardChange}
+                            className="w-full mt-1 p-2 border rounded-lg"
+                            min={formData.startTime}
+                        />
+                    </div>
                 </div>
                 {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
                     <div key={field.id}>
                         <label className="block text-sm font-medium">{field.label}</label>
-                        <select name={field.id} value={formData.customData[field.id] || ''} onChange={handleCustomFieldChange} className="w-full mt-1 p-2 border rounded-lg bg-white" required>
-                             <option value="" disabled>Válassz...</option>
-                            {field.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                        <select
+                            name={field.id}
+                            value={formData.customData[field.id] || ''}
+                            onChange={handleCustomFieldChange}
+                            className="w-full mt-1 p-2 border rounded-lg bg-white"
+                            required
+                        >
+                            <option value="" disabled>
+                                Válassz...
+                            </option>
+                            {field.options.map((o: string) => (
+                                <option key={o} value={o}>
+                                    {o}
+                                </option>
+                            ))}
                         </select>
                     </div>
                 ))}
                 <div className="flex justify-between items-center pt-4">
-                    <button type="button" onClick={onBack} className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}>{t.back}</button>
-                    <button type="submit" disabled={isSubmitting || !isFormValid} className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`} style={{ backgroundColor: 'var(--color-primary)' }}>{isSubmitting ? t.submitting : t.next}</button>
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+                    >
+                        {t.back}
+                    </button>
+                    <button
+                        type="submit"
+                        disabled={isSubmitting || !isFormValid}
+                        className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
+                        style={{ backgroundColor: 'var(--color-primary)' }}
+                    >
+                        {isSubmitting ? t.submitting : t.next}
+                    </button>
                 </div>
             </form>
         </div>
-    )
-}
+    );
+};
 
-const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any, submittedData: any, unit: Unit, locale: Locale, settings: ReservationSetting }> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+const Step3Confirmation: React.FC<{
+    onReset: () => void;
+    themeProps: any;
+    t: any;
+    submittedData: any;
+    unit: Unit;
+    locale: Locale;
+    settings: ReservationSetting;
+}> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
     const [copied, setCopied] = useState(false);
-    
+
     const { googleLink, icsLink, manageLink } = useMemo(() => {
         if (!submittedData) return { googleLink: '#', icsLink: '#', manageLink: '#' };
 
@@ -678,8 +1036,9 @@ const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any
         const startDate = startTime.toDate();
         const endDate = endTime.toDate();
 
-        const formatDate = (date: Date) => date.toISOString().replace(/-|:|\.\d\d\d/g, '');
-        
+        const formatDate = (date: Date) =>
+            date.toISOString().replace(/-|:|\.\d\d\d/g, '');
+
         const gCalParams = new URLSearchParams({
             action: 'TEMPLATE',
             text: `${unit.name} - ${t.title}`,
@@ -690,19 +1049,24 @@ const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any
         const gLink = `https://www.google.com/calendar/render?${gCalParams.toString()}`;
 
         const icsContent = [
-            'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT',
-            `DTSTART:${formatDate(startDate)}`, `DTEND:${formatDate(endDate)}`,
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'BEGIN:VEVENT',
+            `DTSTART:${formatDate(startDate)}`,
+            `DTEND:${formatDate(endDate)}`,
             `SUMMARY:${unit.name} - ${t.title}`,
             `DESCRIPTION:${t.name}: ${name}\\n${t.referenceCode}: ${referenceCode}`,
-            `LOCATION:${unit.name}`, 'END:VEVENT', 'END:VCALENDAR'
+            `LOCATION:${unit.name}`,
+            'END:VEVENT',
+            'END:VCALENDAR',
         ].join('\r\n');
         const iLink = `data:text/calendar;charset=utf8,${encodeURIComponent(icsContent)}`;
-        
+
         const mLink = `${window.location.origin}/manage?token=${referenceCode}`;
 
         return { googleLink: gLink, icsLink: iLink, manageLink: mLink };
     }, [submittedData, unit.name, t]);
-    
+
     const handleCopy = () => {
         navigator.clipboard.writeText(manageLink);
         setCopied(true);
@@ -719,58 +1083,119 @@ const Step3Confirmation: React.FC<{ onReset: () => void, themeProps: any, t: any
     const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
     const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
 
-
     return (
-        <div className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}>
-            <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>{titleText}</h2>
+        <div
+            className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
+        >
+            <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
+                {titleText}
+            </h2>
             <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
             <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
-            
+
             {submittedData && (
-                 <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
+                <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
                     <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
-                    <p><strong>{t.referenceCode}:</strong> <span className="font-mono bg-gray-200 px-2 py-1 rounded">{submittedData.referenceCode.substring(0, 8).toUpperCase()}</span></p>
-                    <p><strong>{t.name}:</strong> {submittedData.name}</p>
-                    <p><strong>{t.headcount}:</strong> {submittedData.headcount}</p>
-                    <p><strong>{t.date}:</strong> {submittedData.date.toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    <p><strong>{t.startTime}:</strong> {submittedData.startTime.toDate().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</p>
-                    <p><strong>{t.email}:</strong> {submittedData.contact.email}</p>
-                    <p><strong>{t.phone}:</strong> {submittedData.contact?.phoneE164 ? maskPhone(submittedData.contact.phoneE164) : 'N/A'}</p>
-                     {Object.entries(submittedData.customData || {}).map(([key, value]) => {
-                        const field = settings.guestForm?.customSelects?.find(f => f.id === key);
+                    <p>
+                        <strong>{t.referenceCode}:</strong>{' '}
+                        <span className="font-mono bg-gray-200 px-2 py-1 rounded">
+                            {submittedData.referenceCode.substring(0, 8).toUpperCase()}
+                        </span>
+                    </p>
+                    <p>
+                        <strong>{t.name}:</strong> {submittedData.name}
+                    </p>
+                    <p>
+                        <strong>{t.headcount}:</strong> {submittedData.headcount}
+                    </p>
+                    <p>
+                        <strong>{t.date}:</strong>{' '}
+                        {submittedData.date.toLocaleDateString(locale, {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                        })}
+                    </p>
+                    <p>
+                        <strong>{t.startTime}:</strong>{' '}
+                        {submittedData.startTime
+                            .toDate()
+                            .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p>
+                        <strong>{t.email}:</strong> {submittedData.contact.email}
+                    </p>
+                    <p>
+                        <strong>{t.phone}:</strong>{' '}
+                        {submittedData.contact?.phoneE164
+                            ? maskPhone(submittedData.contact.phoneE164)
+                            : 'N/A'}
+                    </p>
+                    {Object.entries(submittedData.customData || {}).map(([key, value]) => {
+                        const field = settings.guestForm?.customSelects?.find(
+                            (f) => f.id === key
+                        );
                         if (!field || !value) return null;
-                        return <p key={key}><strong>{field.label}:</strong> {value as string}</p>;
+                        return (
+                            <p key={key}>
+                                <strong>{field.label}:</strong> {value as string}
+                            </p>
+                        );
                     })}
-                 </div>
+                </div>
             )}
-            
+
             <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
                 <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
                 <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
-                   <input type="text" value={manageLink} readOnly className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"/>
-                   <button onClick={handleCopy} className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5">
-                        <CopyIcon className="h-4 w-4"/>
+                    <input
+                        type="text"
+                        value={manageLink}
+                        readOnly
+                        className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"
+                    />
+                    <button
+                        onClick={handleCopy}
+                        className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+                    >
+                        <CopyIcon className="h-4 w-4" />
                         {copied ? t.copied : t.copy}
-                   </button>
+                    </button>
                 </div>
             </div>
 
             <div className="mt-6">
                 <h3 className="font-semibold mb-3">{t.addToCalendar}</h3>
                 <div className="flex justify-center gap-4">
-                    <a href={googleLink} target="_blank" rel="noopener noreferrer" className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2">
-                        <CalendarIcon className="h-5 w-5"/> {t.googleCalendar}
+                    <a
+                        href={googleLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+                    >
+                        <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
                     </a>
-                     <a href={icsLink} download={`${unit.name}-reservation.ics`} className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2">
-                        <CalendarIcon className="h-5 w-5"/> {t.otherCalendar}
+                    <a
+                        href={icsLink}
+                        download={`${unit.name}-reservation.ics`}
+                        className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                    >
+                        <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
                     </a>
                 </div>
             </div>
 
-            <button onClick={onReset} className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`} style={{ backgroundColor: 'var(--color-primary)' }}>{t.newBooking}</button>
+            <button
+                onClick={onReset}
+                className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
+                style={{ backgroundColor: 'var(--color-primary)' }}
+            >
+                {t.newBooking}
+            </button>
         </div>
     );
-}
+};
 
 export default ReservationPage;
