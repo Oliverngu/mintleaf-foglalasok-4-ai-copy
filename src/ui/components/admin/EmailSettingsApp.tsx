@@ -129,16 +129,25 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
   };
   
   const handleSaveAdminSettings = async () => {
-    if (!settings) return;
-    const dataToSave: Record<string, any> = {
-      adminDefaultEmail: settings.adminDefaultEmail || '',
-    };
-     ADMIN_RECIPIENT_TYPES.forEach(typeId => {
-        dataToSave[`adminRecipients.${typeId}`] = settings.adminRecipients[typeId] || [];
-    });
-    await handleSave('admin-settings', dataToSave);
+  if (!settings) return;
+
+  // 1) Építsünk rendes nested objektumot az adminRecipients-hez
+  const adminRecipientsToSave: Record<string, string[]> = {
+    ...(settings.adminRecipients || {}),
   };
 
+  ADMIN_RECIPIENT_TYPES.forEach((typeId) => {
+    adminRecipientsToSave[typeId] = settings.adminRecipients[typeId] || [];
+  });
+
+  // 2) Ezt mentjük el egyben
+  const dataToSave: Record<string, any> = {
+    adminDefaultEmail: settings.adminDefaultEmail || '',
+    adminRecipients: adminRecipientsToSave,
+  };
+
+  await handleSave('admin-settings', dataToSave);
+};
   const handleSaveTemplate = async () => {
     if (!selectedType || !editorState) return;
     await handleSave(`template-${selectedType}`, { [`templateOverrides.${selectedType}`]: editorState });
