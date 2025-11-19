@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc, deleteField } from 'firebase/firestore';
 // FIX: Corrected import for KNOWN_TYPE_IDS.
 import { KNOWN_TYPE_IDS, EmailTypeId } from '../../../core/email/emailTypes';
 // FIX: Corrected imports to get necessary functions from the service.
-import { getEmailSettingsForUnit, savePartialEmailSettings } from '../../../core/api/emailSettingsService';
+import { savePartialEmailSettings } from '../../../core/api/emailSettingsService';
 import { defaultTemplates } from '../../../core/email/defaultTemplates';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 
@@ -46,20 +46,40 @@ const EmailSettingsApp: React.FC<EmailSettingsAppProps> = ({ currentUser, allUni
   }, [currentUser, allUnits]);
 
   const fetchSettings = useCallback(async () => {
-      if (!selectedUnitId) return;
-      setIsLoading(true);
-      setSavingState({ key: null, error: '', success: '' });
-      setSelectedType(null);
-      try {
-        const data = await getEmailSettingsForUnit(selectedUnitId);
-        setSettings(data);
-      } catch (err) {
-        console.error("Error fetching settings:", err);
-        setSavingState(s => ({ ...s, error: "Hiba a beállítások betöltésekor." }));
-      } finally {
-        setIsLoading(false);
-      }
-  }, [selectedUnitId]);
+  if (!selectedUnitId) return;
+  setIsLoading(true);
+  setSavingState({ key: null, error: '', success: '' });
+  setSelectedType(null);
+
+  try {
+    const docRef = doc(db, 'email_settings', selectedUnitId);
+    const snap = await getDoc(docRef);
+
+    if (!snap.exists()) {
+      setSettings({
+        enabledTypes: {},
+        adminRecipients: {},
+        templateOverrides: {},
+        adminDefaultEmail: '',
+      });
+      return;
+    }
+
+    const data = snap.data() as any;
+
+    setSettings({
+      enabledTypes: data.enabledTypes || {},
+      adminRecipients: data.adminRecipients || {},
+      templateOverrides: data.templateOverrides || {},
+      adminDefaultEmail: data.adminDefaultEmail || '',
+    });
+  } catch (err) {
+    console.error('Error fetching settings:', err);
+    setSavingState((s) => ({ ...s, error: 'Hiba a beállítások betöltésekor.' }));
+  } finally {
+    setIsLoading(false);
+  }
+}, [selectedUnitId]);
 
 
   useEffect(() => {
