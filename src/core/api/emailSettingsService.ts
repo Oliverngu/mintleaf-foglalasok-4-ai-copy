@@ -1,11 +1,13 @@
 import { db } from '../firebase/config';
-import { doc, getDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { EmailTypeId } from '../email/emailTypes';
 import { defaultTemplates } from '../email/defaultTemplates';
 import { EmailSettingsDocument } from '../models/data';
 
-// FIX: Re-export the type to satisfy imports from other modules.
 export type { EmailSettingsDocument } from '../models/data';
+
+// ⚠️: ezt most nem használjuk
+const settingsCache = new Map<string, EmailSettingsDocument>();
 
 export async function getEmailSettingsForUnit(unitId: string): Promise<EmailSettingsDocument> {
   const defaultSettings: EmailSettingsDocument = {
@@ -19,19 +21,18 @@ export async function getEmailSettingsForUnit(unitId: string): Promise<EmailSett
     const docRef = doc(db, 'email_settings', unitId);
     const docSnap = await getDoc(docRef);
 
-    if (!docSnap.exists()) {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const settings: EmailSettingsDocument = {
+        enabledTypes: data.enabledTypes || {},
+        adminRecipients: data.adminRecipients || {},
+        templateOverrides: data.templateOverrides || {},
+        adminDefaultEmail: data.adminDefaultEmail || '',
+      };
+      return settings;
+    } else {
       return defaultSettings;
     }
-
-    const data = docSnap.data();
-    const settings: EmailSettingsDocument = {
-      enabledTypes: data.enabledTypes || {},
-      adminRecipients: data.adminRecipients || {},
-      templateOverrides: data.templateOverrides || {},
-      adminDefaultEmail: data.adminDefaultEmail || '',
-    };
-
-    return settings;
   } catch (error) {
     console.error(`Failed to fetch settings for unit ${unitId}.`, error);
     return defaultSettings;
@@ -131,8 +132,9 @@ export async function getAdminRecipientsOverride(
 
 // FIX: Added missing 'savePartialEmailSettings' export.
 export async function savePartialEmailSettings(unitId: string, data: Record<string, any>): Promise<void> {
-  console.log('[savePartialEmailSettings] unitId =', unitId, 'data =', data);
   const docRef = doc(db, 'email_settings', unitId);
   await setDoc(docRef, data, { merge: true });
-  console.log('[savePartialEmailSettings] OK for', unitId);
+
+  // Ha később visszahozzuk a cache-t, itt lehetne:
+  // settingsCache.delete(unitId);
 }
