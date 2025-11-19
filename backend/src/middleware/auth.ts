@@ -23,12 +23,18 @@ export const protect = (req: Request, res: Response, next: NextFunction) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
-    req.user = {
-      id: decoded.id,
-      role: decoded.role,
-      unitIds: decoded.unitIds,
-    };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload & {
+  role: User["role"] | "Demo User";
+};
+
+const effectiveRole: User["role"] =
+  decoded.role === "Demo User" ? "Guest" : decoded.role;
+
+req.user = {
+  id: decoded.id,
+  role: effectiveRole,
+  unitIds: decoded.unitIds,
+};
     next();
   } catch (error) {
     return next(new ApiError(401, 'Unauthorized: Invalid token'));
