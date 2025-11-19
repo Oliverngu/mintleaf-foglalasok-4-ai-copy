@@ -295,23 +295,31 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
         if (newReservation.contact.email) {
             const canSendGuest = await shouldSendEmail('booking_created_guest', unit.id);
             if (canSendGuest) {
-                const guestPayload = {
-                    unitName: unit.name,
-                    bookingName: newReservation.name,
-                    bookingDate,
-                    bookingTimeFrom,
-                    bookingTimeTo,
-                    bookingDateTime: `${bookingDate} ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}`,
-                    headcount: newReservation.headcount,
-                    guestName: newReservation.name,
-                    guestEmail: newReservation.contact.email,
-                    guestPhone: newReservation.contact.phoneE164 || '',
-                    occasion: newReservation.occasion || '',
-                    occasionOther: newReservation.customData?.occasionOther || '',
-                    comment: newReservation.customData?.comment || '',
-                    bookingRef: newReservation.referenceCode,
-                    isAutoConfirm: newReservation.status === 'confirmed',
-                };
+                const payload = { 
+    unitName: unit.name,
+
+    // Foglalás alap
+    bookingName: newReservation.name,
+    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+    bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+    bookingTimeTo: endDateTime
+        ? endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
+        : '',
+
+    // Létszám
+    headcount: newReservation.headcount,
+
+    // Elérhetőségek
+    guestName: newReservation.name,
+    guestEmail: newReservation.contact.email,
+    guestPhone: newReservation.contact.phoneE164 || '',
+
+    // Azonosító
+    bookingRef: newReservation.referenceCode,
+
+    // Auto-confirm infó
+    isAutoConfirm: newReservation.status === 'confirmed',
+};
 
                 // 1) Szerkeszthető sablonrész (fejléc, szöveg, stb.)
                 const { subject, html: baseHtml } = await resolveEmailTemplate(
