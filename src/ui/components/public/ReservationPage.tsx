@@ -282,40 +282,36 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                     if (newReservation.contact.email) {
                         const canSend = await shouldSendEmail('booking_created_guest', unit.id);
                         if (canSend) {
-                            const payload = { 
-    // EGYSÉG
+                            const payload = {
     unitName: unit.name,
-
-    // FOGLALÓ / ELÉRHETŐSÉG
     bookingName: newReservation.name,
+
+    // Időpont
+    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
+    bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
+    bookingTimeTo: endDateTime
+        ? endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
+        : '',
+
+    // Létszám
+    headcount: newReservation.headcount,
+
+    // Elérhetőség
     guestName: newReservation.name,
     guestEmail: newReservation.contact.email,
     guestPhone: newReservation.contact.phone || '',
 
-    // IDŐPONT / LÉTSZÁM
-    bookingDate: startDateTime.toLocaleDateString(newReservation.locale),
-    bookingTimeFrom: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-    bookingTimeTo: newReservation.endDateTime
-        ? newReservation.endDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' })
-        : '',
-    bookingTime: startDateTime.toLocaleTimeString(newReservation.locale, { hour: '2-digit', minute: '2-digit' }),
-    headcount: newReservation.headcount,
-    people: newReservation.headcount,
-
-    // ALKALOM
+    // Alkalom + egyéb
     occasion: newReservation.occasion || '',
-    occasionOther: newReservation.occasionOther || newReservation.occasionNote || '',
+    occasionOther: newReservation.occasionOther || '',
 
-    // MEGJEGYZÉS
-    comment: newReservation.comment || newReservation.notes || '',
-    notes: newReservation.comment || newReservation.notes || '',
+    // Megjegyzés
+    comment: newReservation.comment || '',
 
-    // HOL HALLLOTT RÓLUNK
-    heardFrom: newReservation.heardFrom || '',
-    heardFromOther: newReservation.heardFromOther || '',
-
-    // TECHNIKAI
+    // Foglalás azonosító
     bookingRef: newReservation.referenceCode,
+
+    // Auto-confirm flag
     isAutoConfirm: newReservation.status === 'confirmed',
 };
                             const { subject, html } = await resolveEmailTemplate(unit.id, 'booking_created_guest', payload);
