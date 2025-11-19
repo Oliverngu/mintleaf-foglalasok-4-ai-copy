@@ -1,6 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { User, Request, Booking, Shift, Todo, Contact, ContactCategory, Position, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll } from '../../core/models/data';
-import { db } from '../../core/firebase/config';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  User,
+  Request,
+  Shift,
+  Todo,
+  Unit,
+  RolePermissions,
+  Permissions,
+  TimeEntry,
+  Feedback,
+  Poll,
+} from '../../core/models/data';
 
 // Import App Components
 import { KerelemekApp } from './apps/KerelemekApp';
@@ -12,15 +22,11 @@ import AdminTodoApp from './apps/AdminTodoApp';
 import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
-// FIX: Module '"file:///src/ui/components/apps/BerezesemApp"' has no default export. Changed to named import.
 import { BerezesemApp } from './apps/BerezesemApp';
 import AdminisztracioApp from './apps/AdminisztracioApp';
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
-
-// Email admin teszt – Cloud Run endpoint hívása
-import { sendTestEmail } from '../../core/api/emailAdminService';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -42,13 +48,7 @@ import AdminIcon from '../../../components/icons/AdminIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import ChatIcon from '../../../components/icons/ChatIcon';
 import { useUnitContext } from '../context/UnitContext';
-import UserIcon from '../../../components/icons/UserIcon';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
-import InvitationIcon from '../../../components/icons/InvitationIcon';
-import BuildingIcon from '../../../components/icons/BuildingIcon';
-import CalendarOffIcon from '../../../components/icons/CalendarOffIcon';
-import BellIcon from './icons/BellIcon';
-import EmailSettingsApp from './admin/EmailSettingsApp';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -127,7 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         if (savedState) {
           setOpenCategories(JSON.parse(savedState));
         } else {
-          // Expand all by default on first load
+          // alap: minden nyitva
           setOpenCategories({
             altalanos: true,
             feladatok: true,
@@ -156,10 +156,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
   // --- End Accordion Menu State ---
 
-  const { selectedUnits: activeUnitIds, setSelectedUnits: setActiveUnitIds, allUnits: contextAllUnits } =
-    useUnitContext();
+  const {
+    selectedUnits: activeUnitIds,
+    setSelectedUnits: setActiveUnitIds,
+    allUnits: contextAllUnits,
+  } = useUnitContext();
 
-  // The check for currentUser is handled in App.tsx, so it's safe to assume it's not null here.
   if (!currentUser) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -170,12 +172,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const hasPermission = (permission: keyof Permissions | 'canManageAdminPage'): boolean => {
     if (currentUser.role === 'Admin') return true;
+
     if (currentUser.role === 'Demo User') {
       if (typeof permission === 'string') {
         return permission.startsWith('canView') || permission === 'canSubmitLeaveRequests';
       }
       return false;
     }
+
     if (permission === 'canManageAdminPage') {
       return (
         currentUser.role === 'Unit Admin' ||
@@ -214,13 +218,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
         );
       } else {
-        // For non-admins, allow toggling single selection
         setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
       }
     };
 
     if (!userUnits || userUnits.length <= 1) {
-      // If user has 0 or 1 unit, just display the name, no selection needed.
       return (
         <div className="text-white font-semibold px-3">
           {userUnits[0]?.name || 'Nincs egység'}
@@ -448,13 +450,17 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'adminisztracio':
-  if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
-  return (
-    <EmailSettingsApp
-      currentUser={currentUser}
-      allUnits={allUnits}
-    />
-  );
+        if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
+        return (
+          <AdminisztracioApp
+            currentUser={currentUser}
+            allUnits={allUnits}
+            unitPermissions={unitPermissions}
+            activeUnitId={activeUnitIds.length === 1 ? activeUnitIds[0] : null}
+            allPermissions={permissions}
+            canGenerateInvites={hasPermission('canManageUsers')}
+          />
+        );
       default:
         return (
           <HomeDashboard
@@ -567,16 +573,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             <UnitSelector />
           </div>
           <div className="flex items-center gap-4">
-            {/* Admin-only debug button */}
-            {currentUser.role === 'Admin' && (
-              <button
-                onClick={handleTestEmail}
-                className="px-3 py-1.5 rounded-lg text-sm bg-white/10 hover:bg-white/20 border border-white/20"
-                title="Teszt Cloud Run /email-test hívás"
-              >
-                Email teszt (Cloud Run)
-              </button>
-            )}
             <div className="text-right">
               <div className="font-semibold">{currentUser.fullName}</div>
               <div className="text-sm text-green-200">{currentUser.role}</div>
