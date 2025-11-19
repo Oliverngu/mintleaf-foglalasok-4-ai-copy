@@ -730,7 +730,7 @@ const ExportSettingsPanel: FC<{
                       border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
-                      textAlign: 'center'
+                      textAlign: 'left'
                     }}
                   >
                     Munkatárs
@@ -774,7 +774,7 @@ const ExportSettingsPanel: FC<{
                       color: categoryTextColor,
                       fontSize: '1.1em',
                       verticalAlign: 'middle',
-                      textAlign: 'center'
+                      textAlign: 'left'
                     }}
                   >
                     Pultos
@@ -794,7 +794,7 @@ const ExportSettingsPanel: FC<{
                       color: nameColumnTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
-                      textAlign: 'center'
+                      textAlign: 'left'
                     }}
                   >
                     Minta János
@@ -836,7 +836,7 @@ const ExportSettingsPanel: FC<{
                       color: altNameTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
-                      textAlign: 'center'
+                      textAlign: 'left'
                     }}
                   >
                     Teszt Eszter
@@ -884,6 +884,8 @@ interface ExportConfirmationModalProps {
   onConfirm: () => Promise<void>;
   exportSettings: ExportStyleSettings;
   unitName: string;
+  hideEmptyUsersOnExport: boolean;
+  onToggleHideEmptyUsers: (value: boolean) => void;
 }
 
 const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
@@ -891,7 +893,9 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
   onClose,
   onConfirm,
   exportSettings,
-  unitName
+  unitName,
+  hideEmptyUsersOnExport,
+  onToggleHideEmptyUsers
 }) => {
   const [isExporting, setIsExporting] = useState(false);
 
@@ -952,7 +956,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   background: settings.nameColumnColor,
                   color: getContrastingTextColor(settings.nameColumnColor),
                   padding: '4px',
-                  border: `${settings.gridThickness}px solid ${settings.gridColor}`
+                  border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                  textAlign: 'left'
                 }}
               >
                 Név
@@ -962,7 +967,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   background: settings.dayHeaderBgColor,
                   color: getContrastingTextColor(settings.dayHeaderBgColor),
                   padding: '4px',
-                  border: `${settings.gridThickness}px solid ${settings.gridColor}`
+                  border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                  textAlign: 'center'
                 }}
               >
                 H
@@ -977,7 +983,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   padding: '6px',
                   border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                   fontWeight: 'bold',
-                  color: categoryTextColor
+                  color: categoryTextColor,
+                  textAlign: 'left'
                 }}
               >
                 Pultos
@@ -994,7 +1001,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   padding: '4px',
                   border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                   background: settings.nameColumnColor,
-                  color: getContrastingTextColor(settings.nameColumnColor)
+                  color: getContrastingTextColor(settings.nameColumnColor),
+                  textAlign: 'left'
                 }}
               >
                 Minta J.
@@ -1002,7 +1010,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
               <td
                 style={{
                   padding: '4px',
-                  border: `${settings.gridThickness}px solid ${settings.gridColor}`
+                  border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                  textAlign: 'center'
                 }}
               >
                 08-16
@@ -1019,7 +1028,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   padding: '4px',
                   border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                   background: altNameColor,
-                  color: getContrastingTextColor(altNameColor)
+                  color: getContrastingTextColor(altNameColor),
+                  textAlign: 'left'
                 }}
               >
                 Teszt E.
@@ -1027,7 +1037,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
               <td
                 style={{
                   padding: '4px',
-                  border: `${settings.gridThickness}px solid ${settings.gridColor}`
+                  border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                  textAlign: 'center'
                 }}
               >
                 X
@@ -1071,6 +1082,24 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
               <br />
               <span className="font-semibold">Formátum:</span> {type}
             </div>
+            {type === 'PNG' && (
+              <div className="mt-1">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded"
+                    checked={hideEmptyUsersOnExport}
+                    onChange={e =>
+                      onToggleHideEmptyUsers(e.target.checked)
+                    }
+                  />
+                  <span>
+                    Csak azok a munkatársak jelenjenek meg, akiknek van
+                    beosztott órájuk ezen a héten.
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
         </div>
         <div className="p-4 bg-gray-50 flex justify-end gap-3 rounded-b-2xl">
@@ -1185,6 +1214,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     type: 'PNG' | 'Excel';
   } | null>(null);
   const [successToast, setSuccessToast] = useState('');
+  const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
+    useState(false);
 
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
@@ -1713,7 +1744,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
-  const handlePngExport = (): Promise<void> => {
+  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
     return new Promise((resolve, reject) => {
       if (!tableRef.current) {
         reject(new Error('Table ref not found'));
@@ -1732,7 +1763,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         borderRadius: exportSettings.useRoundedCorners
           ? `${exportSettings.borderRadius}px`
           : '0px',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
       });
 
       const tableClone = tableRef.current.cloneNode(
@@ -1741,11 +1774,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       exportContainer.appendChild(tableClone);
       document.body.appendChild(exportContainer);
 
-      // UI-only elemek eltávolítása exportnál (nyilak, óraszámok, stb.)
+      // Remove editor-only UI
       tableClone
         .querySelectorAll('.export-hide')
         .forEach(el => el.remove());
 
+      // Optionally hide users with 0 óra / hét (no-shifts-week rows)
+      if (hideEmptyUsers) {
+        tableClone.querySelectorAll('tbody tr').forEach(row => {
+          const isCategoryRow = row.querySelector('td[colSpan]');
+          const isSummaryRow = row.classList.contains('summary-row');
+          if (isCategoryRow || isSummaryRow) return;
+          if (row.classList.contains('no-shifts-week')) {
+            row.remove();
+          }
+        });
+      }
+
+      // Expand pozíció header colspan to full width (name + 7 nap)
       tableClone.querySelectorAll('tr').forEach(row => {
         const positionHeader = row.querySelector('td[colSpan]');
         if (positionHeader) {
@@ -1802,8 +1848,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           c.style.padding = '8px';
           c.style.wordBreak = 'break-word';
           c.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
+          c.style.fontFamily =
+            '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
         });
 
+      // Headerek
       tableClone
         .querySelectorAll('thead th')
         .forEach((th, index) => {
@@ -1817,6 +1866,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           c.style.fontSize = `${exportSettings.fontSizeHeader}px`;
         });
 
+      // Nyitás/Zárás sorok fejlécek színezése
       tableClone
         .querySelectorAll('thead tr')
         .forEach(row => {
@@ -1840,14 +1890,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         'thead tr:first-child th:first-child'
       );
       if (nameHeader) {
-        (nameHeader as HTMLElement).style.width = '200px';
+        const h = nameHeader as HTMLElement;
+        h.style.width = '220px';
+        h.style.textAlign = 'left';
+        h.style.paddingLeft = '12px';
       }
 
+      // Zebra-színezés + kategória sorok
       let userRowIdx = 0;
       tableClone.querySelectorAll('tbody tr').forEach(row => {
-        const isCategoryRow = row.querySelector('td[colSpan]');
-        if (isCategoryRow) {
-          const c = isCategoryRow as HTMLElement;
+        const categoryCell = row.querySelector('td[colSpan]');
+        if (categoryCell) {
+          const c = categoryCell as HTMLElement;
           const bgColor = exportSettings.categoryHeaderBgColor;
           c.style.backgroundColor = bgColor;
           c.style.color = getContrastingTextColor(bgColor);
@@ -1855,6 +1909,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             exportSettings.fontSizeHeader + 2
           }px`;
           c.style.padding = '12px 8px';
+          c.style.textAlign = 'left';
+          c.style.paddingLeft = '12px';
           userRowIdx = 0;
         } else {
           userRowIdx++;
@@ -1876,16 +1932,28 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           row
             .querySelectorAll('td')
             .forEach((td, colIndex) => {
-              td.style.fontSize = `${exportSettings.fontSizeCell}px`;
+              const cell = td as HTMLElement;
+              cell.style.fontSize = `${exportSettings.fontSizeCell}px`;
               let bgColor;
               if (colIndex === 0) {
                 bgColor = nameZebraColor;
+                cell.style.textAlign = 'left';
+                cell.style.paddingLeft = '12px';
               } else {
                 bgColor = rowZebraColor;
+                cell.style.textAlign = 'center';
               }
-              td.style.backgroundColor = bgColor;
-              td.style.color = getContrastingTextColor(bgColor);
+              cell.style.backgroundColor = bgColor;
+              cell.style.color = getContrastingTextColor(bgColor);
             });
+        }
+      });
+
+      // Szabadnap jelölések (X / SZ / SZABI) törlése exportban – maradjon csak a színezés
+      tableClone.querySelectorAll('td').forEach(td => {
+        const txt = (td.textContent || '').trim().toUpperCase();
+        if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+          td.textContent = '';
         }
       });
 
@@ -2409,25 +2477,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               : 'Sorrend szerkesztése: KI'}
           </button>
           <span className="text-xs text-gray-500">
-            Edit módban: nyilakkal mozgatás, szem ikonnal elrejtés.
+            Edit módban: a nyilakkal mozgathatod a dolgozókat / pozíció
+            blokkokat, a szem ikonnal elrejtheted őket a táblázatból.
           </span>
         </div>
       )}
 
-      <div className="overflow-x-auto bg-white rounded-2xl shadow border border-gray-200">
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
         <table
           ref={tableRef}
-          className="min-w-full text-xs md:text-sm border-collapse"
+          className="min-w-full text-sm"
+          style={{
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+          }}
         >
-          <thead>
+          <thead className="bg-slate-100">
             <tr>
-              <th className="sticky left-0 z-20 bg-slate-200 border border-gray-300 px-2 py-2 text-left">
+              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
                 Munkatárs
               </th>
               {weekDays.map((day, idx) => (
                 <th
                   key={idx}
-                  className="border border-gray-300 px-2 py-2 text-center bg-slate-100"
+                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
                 >
                   {day.toLocaleDateString('hu-HU', {
                     weekday: 'short'
@@ -2440,112 +2513,139 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </th>
               ))}
             </tr>
-          </thead>
-          <tbody>
-            {visiblePositionOrder.map(positionName => (
-              <React.Fragment key={positionName}>
-                {/* Pozíció header */}
-                <tr className="bg-slate-100">
-                  <td
-                    colSpan={weekDays.length + 1}
-                    className="border border-gray-300 px-3 py-2 font-semibold text-gray-800"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span>{positionName}</span>
-                      {canManage && (
-                        <div className="flex items-center gap-1 export-hide">
-                          <button
-                            onClick={() =>
-                              handleMoveGroup(
-                                positionName,
-                                'up'
-                              )
-                            }
-                            className="p-1 rounded hover:bg-gray-200"
-                          >
-                            <ArrowUpIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleMoveGroup(
-                                positionName,
-                                'down'
-                              )
-                            }
-                            className="p-1 rounded hover:bg-gray-200"
-                          >
-                            <ArrowDownIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
 
-                {visibleUsersByPosition[positionName].map(
-                  user => {
-                    userRowIndex++;
-                    const rowEven = userRowIndex % 2 === 0;
-                    const rowBg = rowEven
-                      ? 'bg-slate-50'
-                      : 'bg-white';
+            {weekSettings &&
+              (weekSettings.showOpeningTime ||
+                weekSettings.showClosingTime) && (
+                <>
+                  {weekSettings.showOpeningTime && (
+                    <tr>
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                        Nyitás
+                      </td>
+                      {weekDays.map((_, i) => (
+                        <td
+                          key={i}
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                        >
+                          {weekSettings.dailySettings[i]?.openingTime || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                  {weekSettings.showClosingTime && (
+                    <tr>
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                        Zárás
+                      </td>
+                      {weekDays.map((_, i) => (
+                        <td
+                          key={i}
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                        >
+                          {weekSettings.dailySettings[i]?.closingTime || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                </>
+              )}
+          </thead>
+
+          <tbody>
+            {visiblePositionOrder.map(positionName => {
+              const usersInPos = visibleUsersByPosition[positionName] || [];
+              if (usersInPos.length === 0) return null;
+
+              return (
+                <React.Fragment key={positionName}>
+                  {/* Pozíció fejléce */}
+                  <tr>
+                    <td
+                      colSpan={1 + weekDays.length}
+                      className="sticky left-0 z-[5] bg-slate-200 px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700 border-t border-b border-slate-300"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{positionName}</span>
+                        {isEditMode && (
+                          <span className="flex items-center gap-1 export-hide">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMoveGroup(positionName, 'up')
+                              }
+                              className="rounded-full p-1 hover:bg-slate-300"
+                              title="Pozíció blokk feljebb"
+                            >
+                              <ArrowUpIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMoveGroup(positionName, 'down')
+                              }
+                              className="rounded-full p-1 hover:bg-slate-300"
+                              title="Pozíció blokk lejjebb"
+                            >
+                              <ArrowDownIcon className="h-4 w-4" />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Dolgozók */}
+                  {usersInPos.map(user => {
+                    const weeklyHours = workHours.userTotals[user.id] || 0;
+                    const isEmptyWeek = weeklyHours === 0;
 
                     return (
-                      <tr key={user.id} className={rowBg}>
-                        {/* Név + kontrollok */}
-                        <td className="border border-gray-200 px-2 py-2 sticky left-0 bg-inherit z-10">
+                      <tr
+                        key={user.id}
+                        className={isEmptyWeek ? 'no-shifts-week' : ''}
+                      >
+                        {/* Név oszlop */}
+                        <td className="sticky left-0 z-[3] bg-white border-t border-slate-200 px-4 py-2 text-left align-middle">
                           <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <div className="font-semibold text-gray-800">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-slate-800 leading-tight">
                                 {user.fullName}
-                              </div>
-                              <div className="text-[11px] text-gray-500">
-                                {user.position || 'Nincs pozíció'}
-                                <span className="export-hide">
-                                  {' · '}
-                                  {workHours.userTotals[
-                                    user.id
-                                  ]?.toFixed(1) || '0'}{' '}
-                                  óra / hét
-                                </span>
-                              </div>
+                              </span>
+                              <span className="export-hide text-[11px] text-slate-400">
+                                {weeklyHours.toFixed(1)} óra / hét
+                              </span>
                             </div>
-                            {canManage && (
+                            {isEditMode && (
                               <div className="flex items-center gap-1 export-hide">
-                                {isEditMode && (
-                                  <>
-                                    <button
-                                      onClick={() =>
-                                        handleMoveUser(
-                                          user.id,
-                                          'up'
-                                        )
-                                      }
-                                      className="p-1 rounded hover:bg-gray-200"
-                                    >
-                                      <ArrowUpIcon className="h-4 w-4" />
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleMoveUser(
-                                          user.id,
-                                          'down'
-                                        )
-                                      }
-                                      className="p-1 rounded hover:bg-gray-200"
-                                    >
-                                      <ArrowDownIcon className="h-4 w-4" />
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleHideUser(user.id)
-                                      }
-                                      className="p-1 rounded hover:bg-red-50 text-red-600"
-                                    >
-                                      <EyeSlashIcon className="h-4 w-4" />
-                                    </button>
-                                  </>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleMoveUser(user.id, 'up')
+                                  }
+                                  className="rounded-full p-1 hover:bg-slate-100"
+                                  title="Feljebb"
+                                >
+                                  <ArrowUpIcon className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleMoveUser(user.id, 'down')
+                                  }
+                                  className="rounded-full p-1 hover:bg-slate-100"
+                                  title="Lejjebb"
+                                >
+                                  <ArrowDownIcon className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleHideUser(user.id)}
+                                  className="rounded-full p-1 hover:bg-slate-100"
+                                  title="Elrejtés"
+                                >
+                                  <EyeSlashIcon className="h-4 w-4" />
+                                </button>
                               </div>
                             )}
                           </div>
@@ -2554,97 +2654,100 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                         {/* Napok */}
                         {weekDays.map((day, dayIndex) => {
                           const dayKey = toDateString(day);
-                          const dayShifts =
-                            shiftsByUserDay
-                              .get(user.id)
-                              ?.get(dayKey) || [];
-                          const hasRequest =
+                          const userDayShifts =
+                            shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+                          const hasApprovedRequest =
                             requestsByUserDay
                               .get(user.id)
                               ?.has(dayKey) || false;
 
-                          let cellText = '';
-                          if (dayShifts.length === 0) {
-                            cellText = hasRequest ? 'SZABI' : '';
-                          } else {
-                            const shift = dayShifts[0];
-                            if (shift.isDayOff) {
-                              cellText = 'X';
-                            } else if (
-                              shift.start &&
-                              shift.end
-                            ) {
-                              const s = shift.start
-                                .toDate()
-                                .toTimeString()
-                                .substring(0, 5);
-                              const e = shift.end
-                                .toDate()
-                                .toTimeString()
-                                .substring(0, 5);
-                              cellText = `${s}-${e}`;
-                            } else if (shift.start) {
-                              const s = shift.start
-                                .toDate()
-                                .toTimeString()
-                                .substring(0, 5);
-                              // Nincs végidő → csak kezdés jelenjen meg
-                              cellText = s;
+                          let display = '';
+                          let isDayOff = false;
+                          let isLeave = false;
+
+                          if (userDayShifts.length > 0) {
+                            const dayOffShift = userDayShifts.find(
+                              s => s.isDayOff
+                            );
+                            if (dayOffShift) {
+                              display = 'X';
+                              isDayOff = true;
+                            } else {
+                              display = userDayShifts
+                                .map(s => {
+                                  if (!s.start) return '';
+                                  const startStr =
+                                    s.start
+                                      .toDate()
+                                      .toTimeString()
+                                      .substring(0, 5) || '';
+                                  if (!s.end) return startStr;
+                                  const endStr =
+                                    s.end
+                                      .toDate()
+                                      .toTimeString()
+                                      .substring(0, 5) || '';
+                                  return `${startStr}-${endStr}`;
+                                })
+                                .filter(Boolean)
+                                .join('\n');
                             }
+                          } else if (hasApprovedRequest) {
+                            display = 'SZ';
+                            isLeave = true;
                           }
 
-                          const baseClasses =
-                            'border border-gray-200 px-1 py-2 text-center align-middle cursor-pointer';
-                          const reqClass = hasRequest
-                            ? ' bg-blue-50 text-blue-800'
-                            : '';
+                          const canEditCell = canManage;
+
+                          let cellClasses =
+                            'whitespace-pre-wrap align-middle text-center border-t border-slate-200 text-[13px] cursor-pointer transition-colors';
+                          if (isDayOff) {
+                            cellClasses +=
+                              ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
+                          } else if (isLeave) {
+                            cellClasses +=
+                              ' bg-amber-50 text-amber-600 font-semibold leave-cell';
+                          } else if (display) {
+                            cellClasses += ' text-slate-800';
+                          } else {
+                            cellClasses += ' text-slate-400';
+                          }
 
                           return (
                             <td
                               key={dayIndex}
-                              className={baseClasses + reqClass}
-                              onClick={() => {
-                                if (!canManage) return;
-                                const shiftToEdit =
-                                  dayShifts[0] || null;
+                              className={cellClasses}
+                              onClick={() =>
+                                canEditCell &&
                                 handleOpenShiftModal(
-                                  shiftToEdit,
+                                  userDayShifts[0] || null,
                                   user.id,
                                   day
-                                );
-                              }}
+                                )
+                              }
                             >
-                              <span className="text-[11px] md:text-xs">
-                                {cellText}
-                              </span>
-                              {hasRequest && (
-                                <div className="text-[9px] text-blue-500">
-                                  SZ
-                                </div>
-                              )}
+                              {display || ''}
                             </td>
                           );
                         })}
                       </tr>
                     );
-                  }
-                )}
-              </React.Fragment>
-            ))}
+                  })}
+                </React.Fragment>
+              );
+            })}
 
-            {/* Összesítő sor – csak UI-ban, exportnál eltűnik */}
-            <tr className="bg-slate-200 font-semibold export-hide">
-              <td className="border border-gray-300 px-2 py-2 text-right pr-4">
-                Összes óra:
+            {/* Összesített sor (napi órák) */}
+            <tr className="summary-row bg-slate-50 border-t border-slate-300">
+              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left text-xs font-semibold text-slate-700">
+                Napi összes (óra)
               </td>
-              {weekDays.map((_, idx) => (
+              {weekDays.map((_, i) => (
                 <td
-                  key={idx}
-                  className="border border-gray-300 px-2 py-2 text-center"
+                  key={i}
+                  className="px-3 py-2 text-center text-xs font-semibold text-slate-700"
                 >
-                  {workHours.dayTotals[idx]
-                    ? workHours.dayTotals[idx].toFixed(1)
-                    : '0'}
+                  {workHours.dayTotals[i].toFixed(1)}
                 </td>
               ))}
             </tr>
@@ -2660,40 +2763,49 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           exportSettings={exportSettings}
           unitName={
             activeUnitIds.length === 1
-              ? allUnits.find(
-                  u => u.id === activeUnitIds[0]
-                )?.name || 'Ismeretlen egység'
+              ? allUnits.find(u => u.id === activeUnitIds[0])?.name ||
+                'Ismeretlen egység'
               : 'Több egység'
           }
+          hideEmptyUsersOnExport={hideEmptyUsersOnExport}
+          onToggleHideEmptyUsers={value =>
+            setHideEmptyUsersOnExport(value)
+          }
           onConfirm={async () => {
-            if (exportConfirmation.type === 'PNG') {
-              await handlePngExport();
-              setSuccessToast(
-                'PNG export sikeres volt (letöltve).'
-              );
-              setTimeout(() => setSuccessToast(''), 3000);
-            } else {
-              try {
-                await generateExcelExport();
-                setSuccessToast(
-                  'Excel export sikeres volt (letöltve).'
-                );
-                setTimeout(
-                  () => setSuccessToast(''),
-                  3000
-                );
-              } catch (e) {
-                console.error('Excel export error:', e);
-                alert(
-                  'Hiba történt az Excel export során.'
-                );
+            try {
+              if (exportConfirmation.type === 'PNG') {
+                await handlePngExport(hideEmptyUsersOnExport);
+                setSuccessToast('PNG export sikeres!');
+              } else {
+                // Excel export
+                try {
+                  await generateExcelExport({
+                    weekDays,
+                    orderedUsers,
+                    visiblePositionOrder,
+                    shiftsByUserDay,
+                    weekSettings,
+                    requestsByUserDay
+                  });
+                  setSuccessToast('Excel export sikeres!');
+                } catch (err) {
+                  console.error('Excel export failed:', err);
+                  alert('Hiba történt az Excel exportálás során.');
+                }
               }
+            } finally {
+              setExportConfirmation(null);
             }
           }}
         />
       )}
+
+      {/* Siker üzenet eltüntetése pár másodperc után */}
+      {successToast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg">
+          {successToast}
+        </div>
+      )}
     </div>
   );
 };
-
-export default BeosztasApp;
