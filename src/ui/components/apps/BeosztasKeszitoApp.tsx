@@ -536,6 +536,24 @@ const ExportSettingsPanel: FC<{
   settings: ExportStyleSettings;
   setSettings: React.Dispatch<React.SetStateAction<ExportStyleSettings>>;
 }> = ({ settings, setSettings }) => {
+  // minden színre legyen biztos fallback a DEFAULT_EXPORT_SETTINGS-ből
+  const safeColor = <K extends keyof ExportStyleSettings>(
+    key: K
+  ): string => {
+    const value = settings[key];
+    if (typeof value === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(value)) {
+      return value;
+    }
+    const def = DEFAULT_EXPORT_SETTINGS[key];
+    return typeof def === 'string' ? def : '#FFFFFF';
+  };
+
+  const zebraColor = safeColor('zebraColor');
+  const nameColumnColor = safeColor('nameColumnColor');
+  const dayHeaderBgColor = safeColor('dayHeaderBgColor');
+  const categoryHeaderBgColor = safeColor('categoryHeaderBgColor');
+  const gridColor = safeColor('gridColor');
+
   const handleColorChange = (
     key: keyof ExportStyleSettings,
     value: string
@@ -558,34 +576,37 @@ const ExportSettingsPanel: FC<{
   };
 
   const categoryTextColor = useMemo(
-    () => getContrastingTextColor(settings.categoryHeaderBgColor),
-    [settings.categoryHeaderBgColor]
+    () => getContrastingTextColor(categoryHeaderBgColor),
+    [categoryHeaderBgColor]
   );
   const dayHeaderTextColor = useMemo(
-    () => getContrastingTextColor(settings.dayHeaderBgColor),
-    [settings.dayHeaderBgColor]
+    () => getContrastingTextColor(dayHeaderBgColor),
+    [dayHeaderBgColor]
   );
   const nameColumnTextColor = useMemo(
-    () => getContrastingTextColor(settings.nameColumnColor),
-    [settings.nameColumnColor]
+    () => getContrastingTextColor(nameColumnColor),
+    [nameColumnColor]
   );
   const zebraTextColor = useMemo(
-    () => getContrastingTextColor(settings.zebraColor),
-    [settings.zebraColor]
+    () => getContrastingTextColor(zebraColor),
+    [zebraColor]
   );
 
   const contrastWarning = useMemo(() => {
     const checks = [
-      getContrastRatio(settings.categoryHeaderBgColor, categoryTextColor),
-      getContrastRatio(settings.dayHeaderBgColor, dayHeaderTextColor),
-      getContrastRatio(settings.nameColumnColor, nameColumnTextColor),
-      getContrastRatio(settings.zebraColor, zebraTextColor)
+      getContrastRatio(categoryHeaderBgColor, categoryTextColor),
+      getContrastRatio(dayHeaderBgColor, dayHeaderTextColor),
+      getContrastRatio(nameColumnColor, nameColumnTextColor),
+      getContrastRatio(zebraColor, zebraTextColor)
     ];
     return checks.some(ratio => ratio < 3.0)
       ? 'Alacsony kontraszt – válassz világosabb vagy sötétebb árnyalatot.'
       : null;
   }, [
-    settings,
+    categoryHeaderBgColor,
+    dayHeaderBgColor,
+    nameColumnColor,
+    zebraColor,
     categoryTextColor,
     dayHeaderTextColor,
     nameColumnTextColor,
@@ -593,12 +614,12 @@ const ExportSettingsPanel: FC<{
   ]);
 
   const altZebraColor = useMemo(
-    () => adjustColor(settings.zebraColor, -(settings.zebraStrength / 2)),
-    [settings.zebraColor, settings.zebraStrength]
+    () => adjustColor(zebraColor, -(settings.zebraStrength / 2)),
+    [zebraColor, settings.zebraStrength]
   );
   const altNameColor = useMemo(
-    () => adjustColor(settings.nameColumnColor, -(settings.zebraStrength / 2)),
-    [settings.nameColumnColor, settings.zebraStrength]
+    () => adjustColor(nameColumnColor, -(settings.zebraStrength / 2)),
+    [nameColumnColor, settings.zebraStrength]
   );
   const altZebraTextColor = useMemo(
     () => getContrastingTextColor(altZebraColor),
@@ -618,7 +639,7 @@ const ExportSettingsPanel: FC<{
         {label}
       </label>
       <ColorPicker
-        value={settings[id] as string}
+        value={safeColor(id)}
         onChange={newColor => handleColorChange(id, newColor)}
       />
     </div>
@@ -627,7 +648,7 @@ const ExportSettingsPanel: FC<{
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        {/* Left: Controls */}
+        {/* Bal oldal: kontrollok */}
         <div className="space-y-6">
           <div>
             <h4 className="font-semibold mb-2">Sorok színezése</h4>
@@ -646,10 +667,12 @@ const ExportSettingsPanel: FC<{
             />
             <ColorInput id="zebraColor" label="Alapszín" />
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Név oszlop</h4>
             <ColorInput id="nameColumnColor" label="Alapszín" />
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Fejlécek</h4>
             <ColorInput id="dayHeaderBgColor" label="Napok fejléce" />
@@ -658,6 +681,7 @@ const ExportSettingsPanel: FC<{
               label="Kategória háttér"
             />
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Rács és Keret</h4>
             <ColorInput id="gridColor" label="Rácsvonal színe" />
@@ -674,17 +698,18 @@ const ExportSettingsPanel: FC<{
               }
               className="w-full"
             />
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 mt-1">
               <input
                 type="checkbox"
                 checked={settings.useRoundedCorners}
                 onChange={e =>
                   handleCheckboxChange('useRoundedCorners', e.target.checked)
                 }
-              />{' '}
+              />
               Lekerekített sarkok
             </label>
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Tipográfia</h4>
             <label className="block text-sm">Napok formátuma</label>
@@ -703,7 +728,8 @@ const ExportSettingsPanel: FC<{
             </select>
           </div>
         </div>
-        {/* Right: Preview */}
+
+        {/* Jobb oldal: előnézet */}
         <div className="sticky top-0">
           <h4 className="font-semibold mb-2">Előnézet</h4>
           <div
@@ -717,17 +743,17 @@ const ExportSettingsPanel: FC<{
             <table
               className="w-full text-xs border-collapse"
               style={{
-                border: `${settings.gridThickness}px solid ${settings.gridColor}`
+                border: `1px solid ${gridColor}`
               }}
             >
               <thead>
                 <tr>
                   <th
                     style={{
-                      background: settings.nameColumnColor,
+                      background: nameColumnColor,
                       color: nameColumnTextColor,
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'left'
@@ -737,10 +763,10 @@ const ExportSettingsPanel: FC<{
                   </th>
                   <th
                     style={{
-                      background: settings.dayHeaderBgColor,
+                      background: dayHeaderBgColor,
                       color: dayHeaderTextColor,
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -750,10 +776,10 @@ const ExportSettingsPanel: FC<{
                   </th>
                   <th
                     style={{
-                      background: settings.dayHeaderBgColor,
+                      background: dayHeaderBgColor,
                       color: dayHeaderTextColor,
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -764,12 +790,12 @@ const ExportSettingsPanel: FC<{
                 </tr>
               </thead>
               <tbody>
-                <tr style={{ background: settings.categoryHeaderBgColor }}>
+                <tr style={{ background: categoryHeaderBgColor }}>
                   <td
                     colSpan={3}
                     style={{
                       padding: '6px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontWeight: 'bold',
                       color: categoryTextColor,
                       fontSize: '1.1em',
@@ -782,15 +808,15 @@ const ExportSettingsPanel: FC<{
                 </tr>
                 <tr
                   style={{
-                    background: settings.zebraColor,
+                    background: zebraColor,
                     color: zebraTextColor
                   }}
                 >
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
-                      background: settings.nameColumnColor,
+                      border: `1px solid ${gridColor}`,
+                      background: nameColumnColor,
                       color: nameColumnTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
@@ -802,7 +828,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -813,7 +839,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -831,7 +857,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       background: altNameColor,
                       color: altNameTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
@@ -844,7 +870,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -855,7 +881,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      border: `1px solid ${gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
