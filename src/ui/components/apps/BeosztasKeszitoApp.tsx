@@ -536,24 +536,6 @@ const ExportSettingsPanel: FC<{
   settings: ExportStyleSettings;
   setSettings: React.Dispatch<React.SetStateAction<ExportStyleSettings>>;
 }> = ({ settings, setSettings }) => {
-  // minden színre legyen biztos fallback a DEFAULT_EXPORT_SETTINGS-ből
-  const safeColor = <K extends keyof ExportStyleSettings>(
-    key: K
-  ): string => {
-    const value = settings[key];
-    if (typeof value === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(value)) {
-      return value;
-    }
-    const def = DEFAULT_EXPORT_SETTINGS[key];
-    return typeof def === 'string' ? def : '#FFFFFF';
-  };
-
-  const zebraColor = safeColor('zebraColor');
-  const nameColumnColor = safeColor('nameColumnColor');
-  const dayHeaderBgColor = safeColor('dayHeaderBgColor');
-  const categoryHeaderBgColor = safeColor('categoryHeaderBgColor');
-  const gridColor = safeColor('gridColor');
-
   const handleColorChange = (
     key: keyof ExportStyleSettings,
     value: string
@@ -576,37 +558,34 @@ const ExportSettingsPanel: FC<{
   };
 
   const categoryTextColor = useMemo(
-    () => getContrastingTextColor(categoryHeaderBgColor),
-    [categoryHeaderBgColor]
+    () => getContrastingTextColor(settings.categoryHeaderBgColor),
+    [settings.categoryHeaderBgColor]
   );
   const dayHeaderTextColor = useMemo(
-    () => getContrastingTextColor(dayHeaderBgColor),
-    [dayHeaderBgColor]
+    () => getContrastingTextColor(settings.dayHeaderBgColor),
+    [settings.dayHeaderBgColor]
   );
   const nameColumnTextColor = useMemo(
-    () => getContrastingTextColor(nameColumnColor),
-    [nameColumnColor]
+    () => getContrastingTextColor(settings.nameColumnColor),
+    [settings.nameColumnColor]
   );
   const zebraTextColor = useMemo(
-    () => getContrastingTextColor(zebraColor),
-    [zebraColor]
+    () => getContrastingTextColor(settings.zebraColor),
+    [settings.zebraColor]
   );
 
   const contrastWarning = useMemo(() => {
     const checks = [
-      getContrastRatio(categoryHeaderBgColor, categoryTextColor),
-      getContrastRatio(dayHeaderBgColor, dayHeaderTextColor),
-      getContrastRatio(nameColumnColor, nameColumnTextColor),
-      getContrastRatio(zebraColor, zebraTextColor)
+      getContrastRatio(settings.categoryHeaderBgColor, categoryTextColor),
+      getContrastRatio(settings.dayHeaderBgColor, dayHeaderTextColor),
+      getContrastRatio(settings.nameColumnColor, nameColumnTextColor),
+      getContrastRatio(settings.zebraColor, zebraTextColor)
     ];
     return checks.some(ratio => ratio < 3.0)
       ? 'Alacsony kontraszt – válassz világosabb vagy sötétebb árnyalatot.'
       : null;
   }, [
-    categoryHeaderBgColor,
-    dayHeaderBgColor,
-    nameColumnColor,
-    zebraColor,
+    settings,
     categoryTextColor,
     dayHeaderTextColor,
     nameColumnTextColor,
@@ -614,12 +593,12 @@ const ExportSettingsPanel: FC<{
   ]);
 
   const altZebraColor = useMemo(
-    () => adjustColor(zebraColor, -(settings.zebraStrength / 2)),
-    [zebraColor, settings.zebraStrength]
+    () => adjustColor(settings.zebraColor, -(settings.zebraStrength / 2)),
+    [settings.zebraColor, settings.zebraStrength]
   );
   const altNameColor = useMemo(
-    () => adjustColor(nameColumnColor, -(settings.zebraStrength / 2)),
-    [nameColumnColor, settings.zebraStrength]
+    () => adjustColor(settings.nameColumnColor, -(settings.zebraStrength / 2)),
+    [settings.nameColumnColor, settings.zebraStrength]
   );
   const altZebraTextColor = useMemo(
     () => getContrastingTextColor(altZebraColor),
@@ -639,7 +618,7 @@ const ExportSettingsPanel: FC<{
         {label}
       </label>
       <ColorPicker
-        value={safeColor(id)}
+        value={settings[id] as string}
         onChange={newColor => handleColorChange(id, newColor)}
       />
     </div>
@@ -648,7 +627,7 @@ const ExportSettingsPanel: FC<{
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        {/* Bal oldal: kontrollok */}
+        {/* Left: Controls */}
         <div className="space-y-6">
           <div>
             <h4 className="font-semibold mb-2">Sorok színezése</h4>
@@ -667,12 +646,10 @@ const ExportSettingsPanel: FC<{
             />
             <ColorInput id="zebraColor" label="Alapszín" />
           </div>
-
           <div>
             <h4 className="font-semibold mb-2">Név oszlop</h4>
             <ColorInput id="nameColumnColor" label="Alapszín" />
           </div>
-
           <div>
             <h4 className="font-semibold mb-2">Fejlécek</h4>
             <ColorInput id="dayHeaderBgColor" label="Napok fejléce" />
@@ -681,7 +658,6 @@ const ExportSettingsPanel: FC<{
               label="Kategória háttér"
             />
           </div>
-
           <div>
             <h4 className="font-semibold mb-2">Rács és Keret</h4>
             <ColorInput id="gridColor" label="Rácsvonal színe" />
@@ -698,18 +674,17 @@ const ExportSettingsPanel: FC<{
               }
               className="w-full"
             />
-            <label className="flex items-center gap-2 mt-1">
+            <label className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={settings.useRoundedCorners}
                 onChange={e =>
                   handleCheckboxChange('useRoundedCorners', e.target.checked)
                 }
-              />
+              />{' '}
               Lekerekített sarkok
             </label>
           </div>
-
           <div>
             <h4 className="font-semibold mb-2">Tipográfia</h4>
             <label className="block text-sm">Napok formátuma</label>
@@ -728,8 +703,7 @@ const ExportSettingsPanel: FC<{
             </select>
           </div>
         </div>
-
-        {/* Jobb oldal: előnézet */}
+        {/* Right: Preview */}
         <div className="sticky top-0">
           <h4 className="font-semibold mb-2">Előnézet</h4>
           <div
@@ -743,17 +717,17 @@ const ExportSettingsPanel: FC<{
             <table
               className="w-full text-xs border-collapse"
               style={{
-                border: `1px solid ${gridColor}`
+                border: `${settings.gridThickness}px solid ${settings.gridColor}`
               }}
             >
               <thead>
                 <tr>
                   <th
                     style={{
-                      background: nameColumnColor,
+                      background: settings.nameColumnColor,
                       color: nameColumnTextColor,
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'left'
@@ -763,10 +737,10 @@ const ExportSettingsPanel: FC<{
                   </th>
                   <th
                     style={{
-                      background: dayHeaderBgColor,
+                      background: settings.dayHeaderBgColor,
                       color: dayHeaderTextColor,
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -776,10 +750,10 @@ const ExportSettingsPanel: FC<{
                   </th>
                   <th
                     style={{
-                      background: dayHeaderBgColor,
+                      background: settings.dayHeaderBgColor,
                       color: dayHeaderTextColor,
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeHeader}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -790,12 +764,12 @@ const ExportSettingsPanel: FC<{
                 </tr>
               </thead>
               <tbody>
-                <tr style={{ background: categoryHeaderBgColor }}>
+                <tr style={{ background: settings.categoryHeaderBgColor }}>
                   <td
                     colSpan={3}
                     style={{
                       padding: '6px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontWeight: 'bold',
                       color: categoryTextColor,
                       fontSize: '1.1em',
@@ -808,15 +782,15 @@ const ExportSettingsPanel: FC<{
                 </tr>
                 <tr
                   style={{
-                    background: zebraColor,
+                    background: settings.zebraColor,
                     color: zebraTextColor
                   }}
                 >
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
-                      background: nameColumnColor,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
+                      background: settings.nameColumnColor,
                       color: nameColumnTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
@@ -828,7 +802,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -839,7 +813,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -857,7 +831,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       background: altNameColor,
                       color: altNameTextColor,
                       fontSize: `${settings.fontSizeCell}px`,
@@ -870,7 +844,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -881,7 +855,7 @@ const ExportSettingsPanel: FC<{
                   <td
                     style={{
                       padding: '4px',
-                      border: `1px solid ${gridColor}`,
+                      border: `${settings.gridThickness}px solid ${settings.gridColor}`,
                       fontSize: `${settings.fontSizeCell}px`,
                       verticalAlign: 'middle',
                       textAlign: 'center'
@@ -1795,7 +1769,6 @@ const tightenTableForExport = (table: HTMLElement) => {
 const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
-      console.error('PNG export failed: Table ref not found');
       reject(new Error('Table ref not found'));
       return;
     }
@@ -1808,137 +1781,18 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       position: 'absolute',
       left: '-9999px',
       top: '0',
-      backgroundColor: '#ffffff', // A beállított háttérszín
+      backgroundColor: '#ffffff',
       padding: '20px',
       display: 'inline-block',
-      overflow: 'hidden',
-      // Fontos: állítsunk be egy fix szélességet, hogy a táblázat ne nyúljon végtelenbe
-      // vagy limitáljuk a szélességét, ha valamilyen flex/grid miatt túl nagy lenne
-      // width: 'max-content' vagy egy konkrét pixelérték
-      width: `${tableRef.current.offsetWidth + 40}px` // Tábla szélessége + padding
+      overflow: 'hidden'
     });
 
     // teljes tábla klónozása
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
-
-    // Apply export styles to the cloned table
-    // It's crucial to apply these *before* appending to the container for correct layout calculation
-    // and before html2canvas processes it.
-    Object.assign(tableClone.style, {
-      borderCollapse: 'collapse',
-      borderRadius: exportSettings.useRoundedCorners ? `${exportSettings.borderRadius}px` : '0px',
-      overflow: 'hidden' // Ensures rounded corners are visible
-    });
-
-    // Font size adjustments for export
-    tableClone.querySelectorAll<HTMLElement>('td, th').forEach(cell => {
-      cell.style.fontSize = `${exportSettings.fontSizeCell}px`;
-      // Ensure header font sizes are correct too
-      if (cell.tagName === 'TH' || cell.parentElement?.tagName === 'THEAD') {
-        cell.style.fontSize = `${exportSettings.fontSizeHeader}px`;
-      }
-    });
-
-
-    // Apply custom export styles (colors, grid) to the cloned table
-    // This is the most complex part, ensuring all cells/rows/headers reflect settings
-    const applyExportStyles = (clonedTable: HTMLTableElement) => {
-      // General grid and border styles
-      clonedTable.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-
-      // Headers (thead)
-      clonedTable.querySelectorAll('thead th').forEach(th => {
-        th.style.backgroundColor = exportSettings.dayHeaderBgColor;
-        th.style.color = getContrastingTextColor(exportSettings.dayHeaderBgColor);
-        th.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-        th.style.verticalAlign = 'middle';
-        th.style.textAlign = 'center';
-      });
-
-      // "Munkatárs" header
-      const nameHeader = clonedTable.querySelector('thead th:first-child') as HTMLTableCellElement;
-      if (nameHeader) {
-        nameHeader.style.backgroundColor = exportSettings.nameColumnColor;
-        nameHeader.style.color = getContrastingTextColor(exportSettings.nameColumnColor);
-        nameHeader.style.textAlign = 'left';
-      }
-
-      // Opening/Closing time headers and cells
-      clonedTable.querySelectorAll('thead tr').forEach(tr => {
-          if (tr.querySelector('.sticky.left-0.z-10.bg-slate-50')) { // Check for the specific header rows
-              tr.querySelectorAll('td').forEach(td => {
-                  td.style.backgroundColor = adjustColor(exportSettings.dayHeaderBgColor, -10); // Slightly darker than day header
-                  td.style.color = getContrastingTextColor(td.style.backgroundColor);
-                  td.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-              });
-              const firstCell = tr.querySelector('td:first-child') as HTMLTableCellElement;
-              if (firstCell) {
-                  firstCell.style.backgroundColor = adjustColor(exportSettings.nameColumnColor, -10); // Slightly darker than name column
-                  firstCell.style.color = getContrastingTextColor(firstCell.style.backgroundColor);
-              }
-          }
-      });
-
-
-      // Category rows (Position headers)
-      clonedTable.querySelectorAll('tbody tr').forEach(row => {
-        const categoryCell = row.querySelector('td[colspan]');
-        if (categoryCell) {
-          categoryCell.style.backgroundColor = exportSettings.categoryHeaderBgColor;
-          categoryCell.style.color = exportSettings.categoryHeaderTextColor; // This is pre-calculated
-          categoryCell.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-        }
-      });
-
-      // User rows (zebra stripping, name column, and day cells)
-      clonedTable.querySelectorAll('tbody tr').forEach((row, rowIndex) => {
-          const isCategoryRow = row.querySelector('td[colspan]');
-          const isSummaryRow = row.classList.contains('summary-row'); // Assuming this class exists
-          if (isCategoryRow || isSummaryRow) return; // Skip category and summary rows for zebra
-
-          // Determine zebra colors
-          const rowBgColor = (userRowIndex % 2 === 0)
-              ? exportSettings.zebraColor
-              : adjustColor(exportSettings.zebraColor, -(exportSettings.zebraStrength / 2));
-          const rowTextColor = (userRowIndex % 2 === 0)
-              ? getContrastingTextColor(exportSettings.zebraColor)
-              : getContrastingTextColor(adjustColor(exportSettings.zebraColor, -(exportSettings.zebraStrength / 2)));
-
-          row.style.backgroundColor = rowBgColor;
-          row.style.color = rowTextColor;
-
-          row.querySelectorAll('td').forEach((td, cellIndex) => {
-              td.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-              td.style.verticalAlign = 'middle';
-              td.style.textAlign = 'center';
-
-              if (cellIndex === 0) { // Name column
-                  td.style.backgroundColor = (userRowIndex % 2 === 0)
-                      ? exportSettings.nameColumnColor
-                      : adjustColor(exportSettings.nameColumnColor, -(exportSettings.zebraStrength / 2));
-                  td.style.color = (userRowIndex % 2 === 0)
-                      ? getContrastingTextColor(exportSettings.nameColumnColor)
-                      : getContrastingTextColor(adjustColor(exportSettings.nameColumnColor, -(exportSettings.zebraStrength / 2)));
-                  td.style.textAlign = 'left';
-              }
-          });
-          userRowIndex++; // Increment for zebra stripping
-      });
-
-      // Summary row
-      const summaryRow = clonedTable.querySelector('tr.summary-row') as HTMLTableRowElement;
-      if (summaryRow) {
-        summaryRow.style.backgroundColor = exportSettings.dayHeaderBgColor; // Or a specific summary color
-        summaryRow.style.color = getContrastingTextColor(exportSettings.dayHeaderBgColor);
-        summaryRow.querySelectorAll('td').forEach(td => {
-          td.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-        });
-      }
-    };
-
-    applyExportStyles(tableClone); // Apply custom styles before appending and processing
-
     exportContainer.appendChild(tableClone);
+
+    // sorok finom összehúzása exporthoz
+    tightenTableForExport(tableClone);
 
     // ténylegesen tegyük ki a DOM-ba
     document.body.appendChild(exportContainer);
@@ -1948,17 +1802,14 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
     if (hideEmptyUsers) {
-      // Iterálunk visszafelé, hogy a remove ne befolyásolja az indexelést
-      const tbodyRows = tableClone.querySelectorAll('tbody tr');
-      for (let i = tbodyRows.length - 1; i >= 0; i--) {
-        const row = tbodyRows[i];
+      tableClone.querySelectorAll('tbody tr').forEach(row => {
         const isCategoryRow = row.querySelector('td[colSpan]');
         const isSummaryRow = row.classList.contains('summary-row');
-        // Check for the "no-shifts-week" class (which you apply) and ensure it's not a category or summary row
-        if (!isCategoryRow && !isSummaryRow && row.classList.contains('no-shifts-week')) {
+        if (isCategoryRow || isSummaryRow) return;
+        if (row.classList.contains('no-shifts-week')) {
           row.remove();
         }
-      }
+      });
     }
 
     // 3) Sticky oszlopok kikapcsolása
@@ -1967,8 +1818,6 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       el.style.position = '';
       el.style.left = '';
       el.style.zIndex = '';
-      // A sticky elemeknek gyakran van külön háttérszínük, ezt is visszaállítjuk
-      el.style.backgroundColor = '';
     });
 
     // 4) X / SZ / SZABI szöveg elrejtése – szín megmarad
@@ -1979,50 +1828,38 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       }
     });
 
-    // 5) Összesítő sorok kiszedése (ha nincsenek elrejtve a CSS-ben)
-    // Megjegyzés: Ha a summary-row már van a CSS-ben 'export-hide'-ként, akkor a 1. pont már eltávolítja.
-    // Ha nem, akkor itt kell eltávolítani. Az eredeti kódban nem volt export-hide class rajta,
-    // így valószínűleg itt kell.
+    // 5) Összesítő sorok kiszedése
     tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
-
-    // sorok finom összehúzása exporthoz - ezt ide mozgatva biztos, hogy már a végső DOM-ra hat
-    tightenTableForExport(tableClone);
-
-    // Fontos: html2canvas előtt várjunk egy pillanatot, ha a DOM manipulációk lassúak lennének
-    // setTimeout(() => {
-        html2canvas(exportContainer, {
-          useCORS: true,
-          scale: 1.5, // Kicsit csökkentve a felbontást, hogy stabilabb legyen, de még mindig jó minőség
-          backgroundColor: '#ffffff', // Ensure a solid background
-          logging: true, // Hibakereséshez hasznos
-          // foreignObjectRendering: true // Kísérletezhetsz vele, hátha segít komplexebb DOM esetén
-        })
-          .then(canvas => {
-            const link = document.createElement('a');
-            const weekStart = weekDays[0]
-              .toLocaleDateString('hu-HU', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-              })
-              .replace(/\.\s/g, '-')
-              .replace('.', '');
-            link.download = `beosztas_${weekStart}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            resolve();
+    html2canvas(exportContainer, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: '#ffffff'
+    })
+      .then(canvas => {
+        const link = document.createElement('a');
+        const weekStart = weekDays[0]
+          .toLocaleDateString('hu-HU', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
           })
-          .catch(err => {
-            console.error('PNG export failed:', err);
-            alert(`Hiba történt a PNG exportálás során: ${err.message || err}`);
-            reject(err);
-          })
-          .finally(() => {
-            document.body.removeChild(exportContainer);
-            setIsPngExporting(false);
-          });
-    // }, 50); // Rövid késleltetés, hogy a böngésző "felkészüljön"
+          .replace(/\.\s/g, '-')
+          .replace('.', '');
+        link.download = `beosztas_${weekStart}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        resolve();
+      })
+      .catch(err => {
+        console.error('PNG export failed:', err);
+        alert('Hiba történt a PNG exportálás során.');
+        reject(err);
+      })
+      .finally(() => {
+        document.body.removeChild(exportContainer);
+        setIsPngExporting(false);
+      });
   });
 };
 
