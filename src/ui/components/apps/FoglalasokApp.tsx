@@ -20,27 +20,26 @@ import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 
+// --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
+type BookingLogType = 'created' | 'cancelled' | 'updated' | 'guest_created' | 'guest_cancelled';
+
+interface BookingLog {
+  id: string;
+  bookingId: string;
+  unitId: string;
+  type: BookingLogType;
+  createdAt: Timestamp | null;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  source?: 'internal' | 'guest';
+  message: string;
+}
+
 interface FoglalasokAppProps {
   currentUser: User;
   canAddBookings: boolean;
   allUnits: Unit[];
   activeUnitIds: string[];
-}
-
-interface BookingLog {
-  id: string;
-  bookingId: string;
-  type: 'created' | 'updated' | 'cancelled' | 'deleted';
-  source?: 'guest' | 'user' | 'system' | string;
-  createdAt: Timestamp;
-  reason?: string;
-  meta?: {
-    name?: string;
-    headcount?: number;
-    date?: string;
-    time?: string;
-    status?: string;
-  };
 }
 
 const DeleteConfirmationModal: React.FC<{
@@ -56,16 +55,15 @@ const DeleteConfirmationModal: React.FC<{
     >
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-md"
-        onClick={(e) => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
           <h2 className="text-xl font-bold text-gray-800">Foglalás törlése</h2>
         </div>
         <div className="p-6 space-y-4">
           <p>
-            Biztosan törlöd a(z){' '}
-            <span className="font-bold">{booking.name}</span> nevű foglalást erre a
-            napra:{' '}
+            Biztosan törlöd a(z) <span className="font-bold">{booking.name}</span> nevű
+            foglalást erre a napra:{' '}
             <span className="font-bold">
               {booking.startTime.toDate().toLocaleDateString('hu-HU')}
             </span>
@@ -81,7 +79,7 @@ const DeleteConfirmationModal: React.FC<{
             <textarea
               id="cancelReason"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={e => setReason(e.target.value)}
               rows={3}
               className="w-full mt-1 p-2 border rounded-lg"
               placeholder="Pl. vendég lemondta, dupla foglalás..."
@@ -123,7 +121,7 @@ const BookingDetailsModal: React.FC<{
     >
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800">
@@ -158,7 +156,7 @@ const BookingDetailsModal: React.FC<{
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
-              .map((booking) => (
+              .map(booking => (
                 <div
                   key={booking.id}
                   className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
@@ -174,12 +172,10 @@ const BookingDetailsModal: React.FC<{
                         minute: '2-digit',
                       })}{' '}
                     -{' '}
-                    {booking.endTime
-                      .toDate()
-                      .toLocaleTimeString('hu-HU', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                    {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
                     Alkalom: {booking.occasion}
@@ -209,6 +205,53 @@ const BookingDetailsModal: React.FC<{
   );
 };
 
+// --- LOG LISTA KOMPONENS ---
+const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
+  if (!logs.length) {
+    return (
+      <div className="mt-6 bg-white rounded-2xl shadow border border-gray-100 p-4 text-sm text-gray-500">
+        Nincsenek még naplóbejegyzések.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6 bg-white rounded-2xl shadow border border-gray-100 p-4">
+      <h2 className="text-lg font-bold text-gray-800 mb-3">Foglalási napló</h2>
+      <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
+        {logs.map(log => {
+          const created =
+            log.createdAt?.toDate().toLocaleString('hu-HU', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            }) ?? 'ismeretlen időpont';
+          return (
+            <div
+              key={log.id}
+              className="flex flex-col border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
+            >
+              <div className="flex justify-between gap-2">
+                <span className="font-medium text-gray-800">{log.message}</span>
+                <span className="text-[11px] text-gray-400 shrink-0">
+                  {created}
+                </span>
+              </div>
+              {log.createdByName && (
+                <span className="text-[11px] text-gray-500">
+                  {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   currentUser,
   canAddBookings,
@@ -216,7 +259,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   activeUnitIds,
 }) => {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [logs, setLogs] = useState<BookingLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logsLoading, setLogsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -224,15 +269,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
 
-  // LOG STATE
-  const [logs, setLogs] = useState<BookingLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState<boolean>(true);
-  const [logsError, setLogsError] = useState<string | null>(null);
-
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
-  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+  const isAdmin =
+    currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
 
-  // BOOKING LIST
   useEffect(() => {
     if (!activeUnitId) {
       setBookings([]);
@@ -252,72 +292,60 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       0
     );
 
-    const q = query(
+    const qBookings = query(
       collection(db, 'units', activeUnitId, 'reservations'),
       where('startTime', '>=', Timestamp.fromDate(startOfMonth)),
       where('startTime', '<=', Timestamp.fromDate(endOfMonth)),
       orderBy('startTime', 'asc')
     );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
+    const unsubscribeBookings = onSnapshot(
+      qBookings,
+      snapshot => {
         const fetchedBookings = snapshot.docs.map(
-          (docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Booking)
+          d => ({ id: d.id, ...d.data() } as Booking)
         );
         setBookings(fetchedBookings);
         setLoading(false);
       },
-      (err) => {
+      err => {
         console.error('Error fetching bookings:', err);
         setError('Hiba a foglalások lekérésekor.');
         setLoading(false);
       }
     );
 
-    return () => unsubscribe();
+    return () => unsubscribeBookings();
   }, [activeUnitId, currentDate]);
 
-  // LOG SUBSCRIPTION
+  // --- LOGOK FELIRATKOZÁS ---
   useEffect(() => {
     if (!activeUnitId) {
       setLogs([]);
       setLogsLoading(false);
       return;
     }
-
     setLogsLoading(true);
-    setLogsError(null);
 
-    const logsCol = collection(db, 'units', activeUnitId, 'reservation_logs');
-    const q = query(logsCol, orderBy('createdAt', 'desc'), limit(50));
+    const logsRef = collection(db, 'units', activeUnitId, 'reservation_logs');
+    const qLogs = query(logsRef, orderBy('createdAt', 'desc'), limit(50));
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const items: BookingLog[] = snap.docs.map((d) => {
-          const data = d.data() as any;
-          return {
-            id: d.id,
-            bookingId: data.bookingId,
-            type: data.type || 'created',
-            source: data.source,
-            createdAt: data.createdAt as Timestamp,
-            reason: data.reason,
-            meta: data.meta || {},
-          };
-        });
-        setLogs(items);
+    const unsubLogs = onSnapshot(
+      qLogs,
+      snapshot => {
+        const fetchedLogs = snapshot.docs.map(
+          d => ({ id: d.id, ...d.data() } as BookingLog)
+        );
+        setLogs(fetchedLogs);
         setLogsLoading(false);
       },
-      (err) => {
-        console.error('Error fetching logs:', err);
-        setLogsError('Hiba a foglalási napló lekérésekor.');
+      err => {
+        console.error('Error fetching reservation logs:', err);
         setLogsLoading(false);
       }
     );
 
-    return () => unsub();
+    return () => unsubLogs();
   }, [activeUnitId]);
 
   const toLocalDateKey = (date: Date) => {
@@ -330,8 +358,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
     bookings
-      .filter((b) => b.status !== 'cancelled')
-      .forEach((booking) => {
+      .filter(b => b.status !== 'cancelled')
+      .forEach(booking => {
         const key = toLocalDateKey(booking.startTime.toDate());
         if (!map.has(key)) {
           map.set(key, []);
@@ -358,78 +386,103 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
   }
 
-  const writeLog = async (bookingId: string, type: BookingLog['type'], opts?: {
-    booking?: Booking | Omit<Booking, 'id'>;
-    reason?: string;
-  }) => {
-    try {
-      const logsCol = collection(db, 'units', activeUnitId, 'reservation_logs');
+  const writeLog = async (
+    unitId: string,
+    booking: { id: string; name: string; headcount?: number; startTime?: Timestamp },
+    type: BookingLogType,
+    extraMessage?: string
+  ) => {
+    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
 
-      let meta: BookingLog['meta'] = {};
-      if (opts?.booking) {
-        const b: any = opts.booking;
-        if (b.startTime && typeof b.startTime.toDate === 'function') {
-          const d: Date = b.startTime.toDate();
-          meta = {
-            name: b.name,
-            headcount: b.headcount,
-            date: d.toLocaleDateString('hu-HU'),
-            time: d.toLocaleTimeString('hu-HU', {
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-            status: b.status,
-          };
-        }
-      }
+    let baseMessage = '';
+    const dateStr = booking.startTime
+      ? booking.startTime
+          .toDate()
+          .toLocaleString('hu-HU', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+      : '';
 
-      await addDoc(logsCol, {
-        bookingId,
-        type,
-        source: 'user',
-        createdAt: serverTimestamp(),
-        reason: opts?.reason || '',
-        meta,
-      });
-    } catch (err) {
-      console.error('Failed to write booking log:', err);
+    switch (type) {
+      case 'created':
+        baseMessage = `Új foglalás létrehozva: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
+        break;
+      case 'cancelled':
+        baseMessage = `Foglalás lemondva/törölve: ${booking.name} (${dateStr})`;
+        break;
+      case 'updated':
+        baseMessage = `Foglalás módosítva: ${booking.name}`;
+        break;
+      case 'guest_created':
+        baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
+        break;
+      case 'guest_cancelled':
+        baseMessage = `Vendég lemondta a foglalást: ${booking.name} (${dateStr})`;
+        break;
     }
+
+    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
+
+    await addDoc(logsRef, {
+      bookingId: booking.id,
+      unitId,
+      type,
+      createdAt: serverTimestamp(),
+      createdByUserId: currentUser.id ?? null,
+      createdByName: currentUser.displayName ?? currentUser.name ?? null,
+      source: 'internal',
+      message,
+    });
   };
 
   const handleAddBooking = async (bookingData: Omit<Booking, 'id'>) => {
-    try {
-      const ref = await addDoc(
-        collection(db, 'units', activeUnitId, 'reservations'),
-        bookingData
-      );
-      await writeLog(ref.id, 'created', { booking: bookingData });
-      setIsAddModalOpen(false);
-    } catch (err) {
-      console.error('Error adding booking:', err);
-      alert('Hiba az új foglalás rögzítésekor.');
-    }
+    if (!activeUnitId) return;
+    const ref = await addDoc(
+      collection(db, 'units', activeUnitId, 'reservations'),
+      bookingData
+    );
+    // LOG: user által létrehozott foglalás
+    await writeLog(
+      activeUnitId,
+      {
+        id: ref.id,
+        name: bookingData.name,
+        headcount: bookingData.headcount,
+        startTime: bookingData.startTime,
+      },
+      'created'
+    );
+    setIsAddModalOpen(false);
   };
 
   const handleConfirmDelete = async (reason: string) => {
-    if (!bookingToDelete) return;
+    if (!bookingToDelete || !activeUnitId) return;
     try {
-      const bookingRef = doc(
-        db,
-        'units',
-        activeUnitId,
-        'reservations',
-        bookingToDelete.id
+      await updateDoc(
+        doc(db, 'units', activeUnitId, 'reservations', bookingToDelete.id),
+        {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelReason: reason || '',
+        }
       );
-      await updateDoc(bookingRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelReason: reason || '',
-      });
 
-      await writeLog(bookingToDelete.id, 'cancelled', {
-        booking: bookingToDelete,
-        reason,
-      });
+      // LOG: foglalás törlés
+      await writeLog(
+        activeUnitId,
+        {
+          id: bookingToDelete.id,
+          name: bookingToDelete.name,
+          headcount: bookingToDelete.headcount,
+          startTime: bookingToDelete.startTime,
+        },
+        'cancelled',
+        reason ? `Indoklás: ${reason}` : undefined
+      );
 
       setBookingToDelete(null);
     } catch (err) {
@@ -462,11 +515,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       days.push({ date: day, isCurrentMonth: false });
     }
     for (let i = 1; i <= endOfMonth.getDate(); i++) {
-      const day = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth(),
-        i
-      );
+      const day = new Date(currentDate.getFullYear(), currentDate.getMonth(), i);
       days.push({ date: day, isCurrentMonth: true });
     }
     const totalDays = days.length;
@@ -485,11 +534,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           <button
             onClick={() =>
               setCurrentDate(
-                new Date(
-                  currentDate.getFullYear(),
-                  currentDate.getMonth() - 1,
-                  1
-                )
+                new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
               )
             }
             className="p-2 rounded-full hover:bg-gray-100"
@@ -506,11 +551,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           <button
             onClick={() =>
               setCurrentDate(
-                new Date(
-                  currentDate.getFullYear(),
-                  currentDate.getMonth() + 1,
-                  1
-                )
+                new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
               )
             }
             className="p-2 rounded-full hover:bg-gray-100"
@@ -520,7 +561,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           </button>
         </div>
         <div className="grid grid-cols-7 gap-1 text-center font-semibold text-gray-500 text-sm mb-2">
-          {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map((day) => (
+          {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => (
             <div key={day}>{day}</div>
           ))}
         </div>
@@ -536,7 +577,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 onClick={() => isCurrentMonth && setSelectedDate(date)}
                 className={`
                   h-24 p-2 flex flex-col items-start rounded-lg transition-colors
-                  ${isCurrentMonth ? 'cursor-pointer hover:bg-gray-100' : 'text-gray-300'}
+                  ${
+                    isCurrentMonth
+                      ? 'cursor-pointer hover:bg-gray-100'
+                      : 'text-gray-300'
+                  }
                   ${isToday ? 'border-2 border-green-500' : 'border border-gray-200'}
                 `}
               >
@@ -558,120 +603,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             );
           })}
         </div>
-      </div>
-    );
-  };
-
-  const renderLogs = () => {
-    return (
-      <div className="mt-4 bg-white p-4 rounded-2xl shadow border border-gray-100">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold text-gray-800">Foglalási napló</h2>
-          <span className="text-xs text-gray-400">
-            {logsLoading
-              ? 'Betöltés...'
-              : `${logs.length} bejegyzés (utolsó események)`}
-          </span>
-        </div>
-
-        {logsError && (
-          <p className="text-sm text-red-600 mb-2">
-            {logsError} Próbáld újra később.
-          </p>
-        )}
-
-        {!logsLoading && !logsError && logs.length === 0 && (
-          <p className="text-sm text-gray-500">
-            Még nincs naplózott foglalási esemény ennél az egységnél.
-          </p>
-        )}
-
-        {!logsLoading && logs.length > 0 && (
-          <ul className="max-h-56 overflow-y-auto space-y-1 text-sm">
-            {logs.map((log) => {
-              const createdAt = log.createdAt?.toDate
-                ? log.createdAt.toDate()
-                : new Date();
-              const timeStr = createdAt.toLocaleString('hu-HU', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-              });
-
-              const typeInfo: Record<
-                BookingLog['type'],
-                { label: string; className: string }
-              > = {
-                created: {
-                  label: 'Új foglalás',
-                  className: 'text-green-700',
-                },
-                updated: {
-                  label: 'Módosítva',
-                  className: 'text-blue-700',
-                },
-                cancelled: {
-                  label: 'Lemondva',
-                  className: 'text-yellow-700',
-                },
-                deleted: {
-                  label: 'Törölve',
-                  className: 'text-red-700',
-                },
-              };
-
-              const info = typeInfo[log.type] || typeInfo.created;
-
-              const sourceLabel =
-                log.source === 'guest'
-                  ? 'vendég'
-                  : log.source === 'user'
-                  ? 'munkatárs'
-                  : log.source || '-';
-
-              return (
-                <li
-                  key={log.id}
-                  className="flex items-start justify-between gap-2 px-2 py-1 rounded-md bg-gray-50"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-semibold ${info.className}`}>
-                        {info.label}
-                      </span>
-                      <span className="text-[11px] text-gray-400">{timeStr}</span>
-                    </div>
-                    <div className="text-[12px] text-gray-700">
-                      {log.meta?.name && (
-                        <span className="mr-2">
-                          {log.meta.name}
-                          {log.meta.headcount
-                            ? ` · ${log.meta.headcount} fő`
-                            : ''}
-                        </span>
-                      )}
-                      {log.meta?.date && log.meta?.time && (
-                        <span className="mr-2">
-                          {log.meta.date} {log.meta.time}
-                        </span>
-                      )}
-                      <span className="text-gray-400">
-                        Forrás: {sourceLabel}
-                        {log.reason
-                          ? ` · Indok: ${log.reason.slice(0, 80)}${
-                              log.reason.length > 80 ? '…' : ''
-                            }`
-                          : ''}
-                      </span>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </div>
     );
   };
@@ -726,7 +657,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {!loading && !error && (
         <>
           {renderCalendar()}
-          {renderLogs()}
+          {logsLoading ? (
+            <div className="mt-6">
+              <LoadingSpinner />
+            </div>
+          ) : (
+            <LogsPanel logs={logs} />
+          )}
         </>
       )}
 
