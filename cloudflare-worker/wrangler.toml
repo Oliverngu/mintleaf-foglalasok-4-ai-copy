@@ -1,0 +1,7 @@
+name = "mintleaf-email-gateway"
+main = "index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+RESEND_API_KEY = "re_K1mTKmtn_4HszfREKX3uZVsiFwJKk1N5J"
+ALLOWED_ORIGINS = "*"
