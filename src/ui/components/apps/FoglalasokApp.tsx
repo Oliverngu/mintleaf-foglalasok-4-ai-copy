@@ -215,6 +215,19 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
     );
   }
 
+  const getDotClass = (log: BookingLog) => {
+    if (log.type === 'cancelled' || log.type === 'guest_cancelled') {
+      // piros – törlés / lemondás
+      return 'bg-red-500';
+    }
+    if (log.type === 'guest_created') {
+      // zöld – vendég foglalta
+      return 'bg-green-500';
+    }
+    // kék – admin / belső
+    return 'bg-blue-500';
+  };
+
   return (
     <div className="mt-6 bg-white rounded-2xl shadow border border-gray-100 p-4">
       <h2 className="text-lg font-bold text-gray-800 mb-3">Foglalási napló</h2>
@@ -228,13 +241,23 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
               hour: '2-digit',
               minute: '2-digit',
             }) ?? 'ismeretlen időpont';
+
+          const dotClass = getDotClass(log);
+
           return (
             <div
               key={log.id}
               className="flex flex-col border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
             >
               <div className="flex justify-between gap-2">
-                <span className="font-medium text-gray-800">{log.message}</span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`}
+                  />
+                  <span className="font-medium text-gray-800">
+                    {log.message}
+                  </span>
+                </div>
                 <span className="text-[11px] text-gray-400 shrink-0">
                   {created}
                 </span>
