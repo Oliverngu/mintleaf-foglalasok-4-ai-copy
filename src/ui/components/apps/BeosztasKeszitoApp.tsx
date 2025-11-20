@@ -1747,22 +1747,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
     },
     [canManage, activeUnitIds]
-  );
-
-const handleSettingsChange = useCallback(
-  async (newSettings: ScheduleSettings) => {
-    setWeekSettings(newSettings);
-    if (!canManage || activeUnitIds.length !== 1) return;
-    try {
-      await setDoc(
-        doc(db, 'schedule_settings', newSettings.id),
-        newSettings
-      );
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-    }
-  },
-  [canManage, activeUnitIds]
 );
 
 // --- SOROK ÖSSZEHÚZÁSA EXPORTKOR ---
