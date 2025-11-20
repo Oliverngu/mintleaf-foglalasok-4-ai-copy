@@ -16,6 +16,9 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -34,6 +37,22 @@ interface ReservationPageProps {
   unitId: string;
   allUnits: Unit[];
   currentUser: User | null;
+}
+
+interface ReservationLog {
+  id: string;
+  unitId: string;
+  reservationId: string;
+  type: 'created' | 'updated' | 'cancelled' | 'deleted';
+  source?: string; // 'guest' | 'user' | 'system' | stb.
+  createdAt: Timestamp;
+  meta?: {
+    name?: string;
+    headcount?: number;
+    date?: string;
+    time?: string;
+    status?: string;
+  };
 }
 
 const toDateKey = (date: Date): string => {
@@ -113,6 +132,7 @@ const ProgressIndicator: React.FC<{
 const ReservationPage: React.FC<ReservationPageProps> = ({
   unitId,
   allUnits,
+  currentUser,
 }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -139,6 +159,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [dailyHeadcounts, setDailyHeadcounts] = useState<
     Map<string, number>
   >(new Map());
+
+  // LOG STATE
+  const [logs, setLogs] = useState<ReservationLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [logsError, setLogsError] = useState('');
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -205,6 +230,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     fetchSettings();
   }, [unit, unitId]);
 
+  // NAPI KAPACITÁS LEKÉRÉS
   useEffect(() => {
     if (!unitId || !settings?.dailyCapacity || settings.dailyCapacity <= 0) {
       setDailyHeadcounts(new Map());
@@ -251,6 +277,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     fetchHeadcounts();
   }, [unitId, currentMonth, settings?.dailyCapacity]);
 
+  // THEME CSS VARS
   useEffect(() => {
     if (settings?.theme) {
       const root = document.documentElement;
@@ -261,6 +288,48 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       });
     }
   }, [settings?.theme]);
+
+  // LOGOK REALTIME FELIRATKOZÁS
+  useEffect(() => {
+    if (!unitId) return;
+
+    setLogsLoading(true);
+    setLogsError('');
+
+    const q = query(
+      collection(db, 'reservation_logs'),
+      where('unitId', '==', unitId),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ReservationLog[] = snapshot.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            id: d.id,
+            unitId: data.unitId,
+            reservationId: data.reservationId,
+            type: data.type || 'created',
+            source: data.source,
+            createdAt: data.createdAt,
+            meta: data.meta || {},
+          };
+        });
+        setLogs(items);
+        setLogsLoading(false);
+      },
+      (err) => {
+        console.error('Error subscribing reservation logs:', err);
+        setLogsError('Nem sikerült betölteni a naplót.');
+        setLogsLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [unitId]);
 
   const resetFlow = () => {
     setSelectedDate(null);
@@ -302,9 +371,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     let startDateTime: Date;
     let endDateTime: Date;
     let newReservation: any;
-    let bookingDate: string;
-    let bookingTimeFrom: string;
-    let bookingTimeTo: string;
 
     try {
       const requestedStartTime = formData.startTime;
@@ -385,12 +451,39 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       await setDoc(newReservationRef, newReservation);
 
-      bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
-      bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
+      // LOG ÍRÁSA – ÚJ FOGLALÁS
+      try {
+        const logRef = doc(collection(db, 'reservation_logs'));
+        const logDate = startDateTime.toLocaleDateString(newReservation.locale);
+        const logTime = startDateTime.toLocaleTimeString(newReservation.locale, {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+        await setDoc(logRef, {
+          unitId,
+          reservationId: newReservationRef.id,
+          type: 'created',
+          source: currentUser ? 'user' : 'guest',
+          createdAt: Timestamp.now(),
+          meta: {
+            name: newReservation.name,
+            headcount: newReservation.headcount,
+            date: logDate,
+            time: logTime,
+            status: newReservation.status,
+          },
+        });
+      } catch (logErr) {
+        console.error('Failed to write reservation log:', logErr);
+      }
+
+      const bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
+      const bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
         hour: '2-digit',
         minute: '2-digit',
       });
-      bookingTimeTo = endDateTime
+      const bookingTimeTo = endDateTime
         ? endDateTime.toLocaleTimeString(newReservation.locale, {
             hour: '2-digit',
             minute: '2-digit',
@@ -401,70 +494,73 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       setStep(3);
 
       // ---- EMAIL LOGIC (fire-and-forget) ----
-(async () => {
-  // 0) Közös formázott dátum/idő
-  const bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
-  const bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const bookingTimeTo = endDateTime
-    ? endDateTime.toLocaleTimeString(newReservation.locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '';
-
-  // ---------------------------------------------------------------------------
-  // 1) VENDÉG EMAIL
-  // ---------------------------------------------------------------------------
-  try {
-    if (newReservation.contact.email) {
-      // MOST: fixen engedjük, amíg az email_settings UI nincs kész
-      const canSendGuest = true;
-
-      if (canSendGuest) {
-        const guestPayload = {
-          unitName: unit.name,
-
-          bookingName: newReservation.name,
-          bookingDate,
-          bookingTimeFrom,
-          bookingTimeTo,
-          headcount: newReservation.headcount,
-
-          guestName: newReservation.name,
-          guestEmail: newReservation.contact.email,
-          guestPhone: newReservation.contact.phoneE164 || '',
-
-          occasion: newReservation.occasion || '',
-          occasionOther: newReservation.customData?.occasionOther || '',
-          comment: newReservation.customData?.comment || '',
-
-          bookingRef: newReservation.referenceCode,
-          isAutoConfirm: newReservation.status === 'confirmed',
-        };
-
-        const { subject, html: baseHtml } = await resolveEmailTemplate(
-          unit.id,
-          'booking_created_guest',
-          guestPayload
+      (async () => {
+        // 0) Közös formázott dátum/idő
+        const bookingDateInner = startDateTime.toLocaleDateString(newReservation.locale);
+        const bookingTimeFromInner = startDateTime.toLocaleTimeString(
+          newReservation.locale,
+          {
+            hour: '2-digit',
+            minute: '2-digit',
+          }
         );
-
-        // Dinamikus custom mezők blokk (vendég emailhez)
-        let customFieldsHtml = '';
-        if (settings.guestForm?.customSelects?.length) {
-          const lines = settings.guestForm.customSelects
-            .map((field) => {
-              const value = newReservation.customData?.[field.id];
-              if (!value) return '';
-              return `<li><strong>${field.label}:</strong> ${value}</li>`;
+        const bookingTimeToInner = endDateTime
+          ? endDateTime.toLocaleTimeString(newReservation.locale, {
+              hour: '2-digit',
+              minute: '2-digit',
             })
-            .filter(Boolean)
-            .join('');
+          : '';
 
-          if (lines) {
-            customFieldsHtml = `
+        // ---------------------------------------------------------------------------
+        // 1) VENDÉG EMAIL
+        // ---------------------------------------------------------------------------
+        try {
+          if (newReservation.contact.email) {
+            // MOST: fixen engedjük, amíg az email_settings UI nincs kész
+            const canSendGuest = true;
+
+            if (canSendGuest) {
+              const guestPayload = {
+                unitName: unit.name,
+
+                bookingName: newReservation.name,
+                bookingDate: bookingDateInner,
+                bookingTimeFrom: bookingTimeFromInner,
+                bookingTimeTo: bookingTimeToInner,
+                headcount: newReservation.headcount,
+
+                guestName: newReservation.name,
+                guestEmail: newReservation.contact.email,
+                guestPhone: newReservation.contact.phoneE164 || '',
+
+                occasion: newReservation.occasion || '',
+                occasionOther: newReservation.customData?.occasionOther || '',
+                comment: newReservation.customData?.comment || '',
+
+                bookingRef: newReservation.referenceCode,
+                isAutoConfirm: newReservation.status === 'confirmed',
+              };
+
+              const { subject, html: baseHtml } = await resolveEmailTemplate(
+                unit.id,
+                'booking_created_guest',
+                guestPayload
+              );
+
+              // Dinamikus custom mezők blokk (vendég emailhez)
+              let customFieldsHtml = '';
+              if (settings.guestForm?.customSelects?.length) {
+                const lines = settings.guestForm.customSelects
+                  .map((field) => {
+                    const value = newReservation.customData?.[field.id];
+                    if (!value) return '';
+                    return `<li><strong>${field.label}:</strong> ${value}</li>`;
+                  })
+                  .filter(Boolean)
+                  .join('');
+
+                if (lines) {
+                  customFieldsHtml = `
               <div style="margin-top: 20px;">
                 <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
                 <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -474,10 +570,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 </div>
               </div>
             `;
-          }
-        }
+                }
+              }
 
-        const detailsHtml = `
+              const detailsHtml = `
           <div style="
             margin-top: 32px;
             padding: 24px;
@@ -502,11 +598,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             </div>
 
             <div style="margin-bottom: 12px;">
-              <strong>Dátum:</strong> ${bookingDate}
+              <strong>Dátum:</strong> ${bookingDateInner}
             </div>
 
             <div style="margin-bottom: 12px;">
-              <strong>Időpont:</strong> ${bookingTimeFrom}${bookingTimeTo ? ' – ' + bookingTimeTo : ''}
+              <strong>Időpont:</strong> ${bookingTimeFromInner}${
+                bookingTimeToInner ? ' – ' + bookingTimeToInner : ''
+              }
             </div>
 
             <div style="margin-bottom: 12px;">
@@ -546,84 +644,84 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </div>
         `;
 
-        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+              const finalHtml = `${baseHtml || ''}${detailsHtml}`;
 
-        await sendEmail({
-          typeId: 'booking_created_guest',
-          unitId: unit.id,
-          to: newReservation.contact.email,
-          subject,
-          html: finalHtml,
-          payload: guestPayload,
-        });
-      }
-    }
-  } catch (emailError) {
-    console.error("Failed to send 'booking_created_guest' email:", emailError);
-  }
+              await sendEmail({
+                typeId: 'booking_created_guest',
+                unitId: unit.id,
+                to: newReservation.contact.email,
+                subject,
+                html: finalHtml,
+                payload: guestPayload,
+              });
+            }
+          }
+        } catch (emailError) {
+          console.error("Failed to send 'booking_created_guest' email:", emailError);
+        }
 
-  // ---------------------------------------------------------------------------
-  // 2) ADMIN EMAIL(ek)
-  // ---------------------------------------------------------------------------
-  try {
-    const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
-    if (canSendAdmin) {
-      const legacyRecipients = settings.notificationEmails || [];
+        // ---------------------------------------------------------------------------
+        // 2) ADMIN EMAIL(ek)
+        // ---------------------------------------------------------------------------
+        try {
+          const canSendAdmin = await shouldSendEmail('booking_created_admin', unit.id);
+          if (canSendAdmin) {
+            const legacyRecipients = settings.notificationEmails || [];
 
-      const adminRecipients = await getAdminRecipientsOverride(
-        unit.id,
-        'booking_created_admin',
-        legacyRecipients
-      );
+            const adminRecipients = await getAdminRecipientsOverride(
+              unit.id,
+              'booking_created_admin',
+              legacyRecipients
+            );
 
-      if (!adminRecipients || adminRecipients.length === 0) {
-        console.warn(
-          "No admin recipients configured for 'booking_created_admin' for unit:",
-          unit.id
-        );
-      } else {
-        const adminPayload = {
-          unitName: unit.name,
-          bookingName: newReservation.name,
-          bookingDate,
-          bookingTimeFrom,
-          bookingTimeTo,
-          bookingDateTime: `${bookingDate} ${bookingTimeFrom}${
-            bookingTimeTo ? ' – ' + bookingTimeTo : ''
-          }`,
-          headcount: newReservation.headcount,
-          guestName: newReservation.name,
-          guestEmail: newReservation.contact.email,
-          guestPhone: newReservation.contact.phoneE164 || '',
-          occasion: newReservation.occasion || '',
-          occasionOther: newReservation.customData?.occasionOther || '',
-          comment: newReservation.customData?.comment || '',
-          bookingRef: newReservation.referenceCode,
-          isAutoConfirm: newReservation.status === 'confirmed',
-          date: bookingDate,
-          time: bookingTimeFrom,
-        };
+            if (!adminRecipients || adminRecipients.length === 0) {
+              console.warn(
+                "No admin recipients configured for 'booking_created_admin' for unit:",
+                unit.id
+              );
+            } else {
+              const adminPayload = {
+                unitName: unit.name,
+                bookingName: newReservation.name,
+                bookingDate: bookingDateInner,
+                bookingTimeFrom: bookingTimeFromInner,
+                bookingTimeTo: bookingTimeToInner,
+                bookingDateTime: `${bookingDateInner} ${bookingTimeFromInner}${
+                  bookingTimeToInner ? ' – ' + bookingTimeToInner : ''
+                }`,
+                headcount: newReservation.headcount,
+                guestName: newReservation.name,
+                guestEmail: newReservation.contact.email,
+                guestPhone: newReservation.contact.phoneE164 || '',
+                occasion: newReservation.occasion || '',
+                occasionOther: newReservation.customData?.occasionOther || '',
+                comment: newReservation.customData?.comment || '',
+                bookingRef: newReservation.referenceCode,
+                isAutoConfirm: newReservation.status === 'confirmed',
+                date: bookingDateInner,
+                time: bookingTimeFromInner,
+              };
 
-        const { subject, html: baseHtml } = await resolveEmailTemplate(
-          unit.id,
-          'booking_created_admin',
-          adminPayload
-        );
+              const { subject, html: baseHtml } = await resolveEmailTemplate(
+                unit.id,
+                'booking_created_admin',
+                adminPayload
+              );
 
-        // Külön custom mező blokk admin emailhez
-        let customFieldsHtmlAdmin = '';
-        if (settings.guestForm?.customSelects?.length) {
-          const lines = settings.guestForm.customSelects
-            .map((field) => {
-              const value = newReservation.customData?.[field.id];
-              if (!value) return '';
-              return `<li><strong>${field.label}:</strong> ${value}</li>`;
-            })
-            .filter(Boolean)
-            .join('');
+              // Külön custom mező blokk admin emailhez
+              let customFieldsHtmlAdmin = '';
+              if (settings.guestForm?.customSelects?.length) {
+                const lines = settings.guestForm.customSelects
+                  .map((field) => {
+                    const value = newReservation.customData?.[field.id];
+                    if (!value) return '';
+                    return `<li><strong>${field.label}:</strong> ${value}</li>`;
+                  })
+                  .filter(Boolean)
+                  .join('');
 
-          if (lines) {
-            customFieldsHtmlAdmin = `
+                if (lines) {
+                  customFieldsHtmlAdmin = `
               <div style="margin-top: 20px;">
                 <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
                 <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -633,10 +731,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 </div>
               </div>
             `;
-          }
-        }
+                }
+              }
 
-        const detailsHtml = `
+              const detailsHtml = `
           <div style="
             margin-top: 32px;
             padding: 24px;
@@ -675,7 +773,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             </div>
 
             <div style="margin-bottom: 12px;">
-              <strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${adminPayload.occasionOther || ''}
+              <strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${
+                adminPayload.occasionOther || ''
+              }
             </div>
 
             <div style="margin-bottom: 12px;">
@@ -715,24 +815,24 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </div>
         `;
 
-        const finalHtml = `${baseHtml || ''}${detailsHtml}`;
+              const finalHtml = `${baseHtml || ''}${detailsHtml}`;
 
-        for (const adminEmail of adminRecipients) {
-          await sendEmail({
-            typeId: 'booking_created_admin',
-            unitId: unit.id,
-            to: adminEmail,
-            subject,
-            html: finalHtml,
-            payload: adminPayload,
-          });
+              for (const adminEmail of adminRecipients) {
+                await sendEmail({
+                  typeId: 'booking_created_admin',
+                  unitId: unit.id,
+                  to: adminEmail,
+                  subject,
+                  html: finalHtml,
+                  payload: adminPayload,
+                });
+              }
+            }
+          }
+        } catch (adminErr) {
+          console.error("Failed to send 'booking_created_admin' email:", adminErr);
         }
-      }
-    }
-  } catch (adminErr) {
-    console.error("Failed to send 'booking_created_admin' email:", adminErr);
-  }
-})();
+      })();
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
       if (err instanceof Error) {
@@ -828,6 +928,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 currentMonth={currentMonth}
                 onMonthChange={setCurrentMonth}
                 dailyHeadcounts={dailyHeadcounts}
+                logs={logs}
+                logsLoading={logsLoading}
+                logsError={logsError}
+                locale={locale}
               />
             </div>
             <div className="w-full flex-shrink-0">
@@ -874,7 +978,23 @@ const Step1Date: React.FC<{
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
   dailyHeadcounts: Map<string, number>;
-}> = ({ settings, onDateSelect, themeProps, t, currentMonth, onMonthChange, dailyHeadcounts }) => {
+  logs: ReservationLog[];
+  logsLoading: boolean;
+  logsError: string;
+  locale: Locale;
+}> = ({
+  settings,
+  onDateSelect,
+  themeProps,
+  t,
+  currentMonth,
+  onMonthChange,
+  dailyHeadcounts,
+  logs,
+  logsLoading,
+  logsError,
+  locale,
+}) => {
   const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
   const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
   const days: (Date | null)[] = [];
@@ -890,6 +1010,17 @@ const Step1Date: React.FC<{
   const blackoutSet = new Set(settings.blackoutDates || []);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  const logsTitle = locale === 'hu' ? 'Foglalási napló' : 'Reservation log';
+  const loadingText = locale === 'hu' ? 'Betöltés...' : 'Loading...';
+  const emptyText =
+    locale === 'hu'
+      ? 'Még nincs foglalási esemény ehhez az egységhez.'
+      : 'No reservation events for this unit yet.';
+  const errorText =
+    locale === 'hu'
+      ? 'Hiba a napló betöltésekor.'
+      : 'Failed to load reservation log.';
 
   return (
     <div
@@ -972,6 +1103,119 @@ const Step1Date: React.FC<{
             </div>
           );
         })}
+      </div>
+
+      {/* LOGOK A NAPTÁR ALATT */}
+      <div className="mt-6 border-t pt-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-[var(--color-text-secondary)]">
+            {logsTitle}
+          </h3>
+          <span className="text-[10px] text-gray-400">
+            {logsLoading
+              ? loadingText
+              : `${logs.length} ${
+                  locale === 'hu' ? 'bejegyzés' : 'entries'
+                }`}
+          </span>
+        </div>
+
+        {logsError && (
+          <p className="text-xs text-red-500 mb-2">{errorText}</p>
+        )}
+
+        {!logsLoading && !logsError && logs.length === 0 && (
+          <p className="text-xs text-gray-400">{emptyText}</p>
+        )}
+
+        {!logsLoading && logs.length > 0 && (
+          <ul className="max-h-48 overflow-y-auto space-y-1 text-xs text-left">
+            {logs.map((log) => {
+              const createdAtDate = log.createdAt.toDate();
+              const timeStr = createdAtDate.toLocaleString(locale);
+
+              const typeInfo: Record<
+                ReservationLog['type'],
+                { hu: string; en: string; className: string }
+              > = {
+                created: {
+                  hu: 'új foglalás',
+                  en: 'created',
+                  className: 'text-green-700',
+                },
+                updated: {
+                  hu: 'módosítva',
+                  en: 'updated',
+                  className: 'text-blue-700',
+                },
+                cancelled: {
+                  hu: 'lemondva',
+                  en: 'cancelled',
+                  className: 'text-yellow-700',
+                },
+                deleted: {
+                  hu: 'törölve',
+                  en: 'deleted',
+                  className: 'text-red-700',
+                },
+              };
+
+              const info = typeInfo[log.type] || typeInfo.created;
+
+              const sourceLabel =
+                log.source === 'guest'
+                  ? locale === 'hu'
+                    ? 'vendég'
+                    : 'guest'
+                  : log.source === 'user'
+                  ? locale === 'hu'
+                    ? 'munkatárs'
+                    : 'staff'
+                  : log.source || '-';
+
+              return (
+                <li
+                  key={log.id}
+                  className="flex items-start justify-between gap-2 px-2 py-1 rounded-md bg-gray-50"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold ${info.className}`}>
+                        {locale === 'hu' ? info.hu : info.en}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        {timeStr}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-600">
+                      {log.meta?.name && (
+                        <span className="mr-2">
+                          {log.meta.name}
+                          {log.meta.headcount
+                            ? ` · ${log.meta.headcount} ${
+                                locale === 'hu' ? 'fő' : 'pax'
+                              }`
+                            : ''}
+                        </span>
+                      )}
+                      {log.meta?.date && log.meta?.time && (
+                        <span className="mr-2">
+                          {log.meta.date} {log.meta.time}
+                        </span>
+                      )}
+                      {sourceLabel && (
+                        <span className="text-gray-400">
+                          {locale === 'hu' ? 'Forrás: ' : 'Source: '}
+                          {sourceLabel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );
