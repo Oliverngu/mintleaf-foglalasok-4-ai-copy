@@ -1756,39 +1756,71 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       reject(new Error('Table ref not found'));
       return;
     }
+
     setIsPngExporting(true);
 
+    // Offscreen konténer
     const exportContainer = document.createElement('div');
     Object.assign(exportContainer.style, {
       position: 'absolute',
       left: '-9999px',
       top: '0',
       backgroundColor: '#ffffff',
-      padding: '32px',
-      display: 'block',
+      padding: '20px',
+      display: 'inline-block',
       overflow: 'hidden',
       fontFamily:
-        '-apple-system, BlinkMacSystemFont, \"SF Pro Text\", system-ui, sans-serif'
+        '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
     } as CSSStyleDeclaration);
 
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     exportContainer.appendChild(tableClone);
     document.body.appendChild(exportContainer);
 
-    // Ensure consistent table layout
+    // --- Alap táblastílus, hogy szimmetrikus legyen ---
     tableClone.style.borderCollapse = 'collapse';
     tableClone.style.tableLayout = 'fixed';
     tableClone.style.width = '100%';
 
-    // 1) UI-only elements removal (buttons, hour text etc.)
-    tableClone
-      .querySelectorAll('.export-hide')
-      .forEach(el => el.remove());
+    const allCells = tableClone.querySelectorAll<HTMLTableCellElement>('th, td');
+    allCells.forEach(cell => {
+      cell.style.padding = '6px 10px';
+      cell.style.fontSize = '11px';
+      cell.style.lineHeight = '1.3';
+      cell.style.verticalAlign = 'middle';
+      cell.style.border = '1px solid #E5E7EB';
+    });
 
-    // 2) Optionally hide workers with completely empty week
+    // Fejléc igazítás: első oszlop balra, többi középre
+    const headerRows = tableClone.querySelectorAll('thead tr');
+    headerRows.forEach(row => {
+      const ths = row.querySelectorAll<HTMLTableCellElement>('th');
+      ths.forEach((th, idx) => {
+        th.style.textAlign = idx === 0 ? 'left' : 'center';
+      });
+    });
+
+    // Név oszlop: minden tbody-sor első cellája balra
+    const firstColTds = tableClone.querySelectorAll<HTMLTableCellElement>('tbody tr td:first-child');
+    firstColTds.forEach(td => {
+      td.style.textAlign = 'left';
+    });
+
+    // Minden más cella középre
+    const otherTds = tableClone.querySelectorAll<HTMLTableCellElement>(
+      'tbody tr td:not(:first-child)'
+    );
+    otherTds.forEach(td => {
+      td.style.textAlign = 'center';
+    });
+
+    // --- UI-only elemek eltávolítása ---
+    tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+    // Üres dolgozók kiszedése (ha kérve)
     if (hideEmptyUsers) {
       tableClone.querySelectorAll('tbody tr').forEach(row => {
-        const isCategoryRow = (row as HTMLTableRowElement).querySelector('td[colSpan]');
+        const isCategoryRow = row.querySelector('td[colSpan]');
         const isSummaryRow = row.classList.contains('summary-row');
         if (isCategoryRow || isSummaryRow) return;
         if (row.classList.contains('no-shifts-week')) {
@@ -1797,77 +1829,24 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       });
     }
 
-    // 3) Remove sticky columns on clone
-    tableClone.querySelectorAll('.sticky').forEach(el => {
+    // Sticky oszlopok kikapcsolása
+    tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
       el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]', 'z-[2]');
-      (el as HTMLElement).style.position = 'static';
+      el.style.position = '';
+      el.style.left = '';
+      el.style.zIndex = '';
     });
 
-    // 4) Remove X/SZ/SZABI text, keep only background color
-    tableClone.querySelectorAll('td').forEach(td => {
+    // X / SZ / SZABI szöveg elrejtése – szín, háttér maradhat
+    tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
       const txt = (td.textContent || '').trim().toUpperCase();
       if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
         td.textContent = '';
       }
     });
 
-    // 5) Remove daily / weekly summary rows from export
-    tableClone
-      .querySelectorAll('tr.summary-row')
-      .forEach(row => row.remove());
-
-    // 6) Normalize cell styles for better alignment
-    const headerBg = '#E5EDF5';
-    const positionBg = '#EDF2F7';
-
-    // Header row
-    const headerRows = tableClone.tHead?.rows || [];
-    for (let i = 0; i < headerRows.length; i++) {
-      const row = headerRows[i];
-      for (let j = 0; j < row.cells.length; j++) {
-        const cell = row.cells[j] as HTMLTableCellElement;
-        cell.style.padding = '8px 10px';
-        cell.style.fontSize = '11px';
-        cell.style.fontWeight = '600';
-        cell.style.border = '1px solid #CBD5E1';
-        cell.style.backgroundColor = headerBg;
-        cell.style.color = '#475569';
-        cell.style.textAlign = j === 0 ? 'left' : 'center';
-        cell.style.verticalAlign = 'middle';
-        cell.style.whiteSpace = 'nowrap';
-      }
-    }
-
-    // Body rows
-    const bodyRows = tableClone.tBodies[0]?.rows || [];
-    for (let i = 0; i < bodyRows.length; i++) {
-      const row = bodyRows[i] as HTMLTableRowElement;
-      const isPositionRow = row.cells.length === 1 + weekDays.length && row.cells[0].colSpan === 1 + weekDays.length;
-      for (let j = 0; j < row.cells.length; j++) {
-        const cell = row.cells[j] as HTMLTableCellElement;
-        cell.style.padding = isPositionRow ? '6px 10px' : '10px 10px';
-        cell.style.fontSize = isPositionRow ? '11px' : '12px';
-        cell.style.border = '1px solid #E2E8F0';
-        cell.style.verticalAlign = 'middle';
-        cell.style.whiteSpace = 'nowrap';
-
-        if (isPositionRow) {
-          cell.style.backgroundColor = positionBg;
-          cell.style.fontWeight = '600';
-          cell.style.textAlign = 'left';
-          cell.style.textTransform = 'uppercase';
-          cell.style.letterSpacing = '0.03em';
-          cell.style.color = '#4A5568';
-        } else if (j === 0) {
-          // Name column
-          cell.style.textAlign = 'left';
-          cell.style.fontWeight = '500';
-        } else {
-          // Shift cells
-          cell.style.textAlign = 'center';
-        }
-      }
-    }
+    // Összesítő sorok elrejtése
+    tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
     html2canvas(exportContainer, {
       useCORS: true,
@@ -1882,7 +1861,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
             month: '2-digit',
             day: '2-digit'
           })
-          .replace(/\.\\s/g, '-')
+          .replace(/\.\s/g, '-')
           .replace('.', '');
         link.download = `beosztas_${weekStart}.png`;
         link.href = canvas.toDataURL('image/png');
@@ -1891,7 +1870,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       })
       .catch(err => {
         console.error('PNG export failed:', err);
-        alert('Hiba tĂśrtĂŠnt a PNG exportĂĄlĂĄs sorĂĄn.');
+        alert('Hiba történt a PNG exportálás során.');
         reject(err);
       })
       .finally(() => {
