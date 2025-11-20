@@ -2554,6 +2554,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           }
 
                           const canEditCell = canManage;
+                          const hasContent = !!display;
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -2563,7 +2564,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           } else if (isLeave) {
                             cellClasses +=
                               ' bg-amber-50 text-amber-600 font-semibold leave-cell';
-                          } else if (display) {
+                          } else if (hasContent) {
                             cellClasses += ' text-slate-800';
                           } else {
                             cellClasses += ' text-slate-400';
@@ -2582,24 +2583,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 )
                               }
                             >
-                              <div className="flex flex-col items-center gap-1">
-                                <span>{display || ''}</span>
-                                {canEditCell && (
-                                  <button
-                                    type="button"
-                                    className="mt-1 inline-flex items-center justify-center w-5 h-5 rounded-full border border-slate-300 text-slate-400 text-xs hover:bg-slate-100 hover:text-slate-700 export-hide"
-                                    title="Új műszak hozzáadása"
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      handleOpenShiftModal(
-                                        null,
-                                        user.id,
-                                        day
-                                      );
-                                    }}
-                                  >
+                              <div className="relative flex items-center justify-center px-1 py-2 min-h-[40px]">
+                                {hasContent && (
+                                  <span className="whitespace-pre-wrap leading-tight">
+                                    {display}
+                                  </span>
+                                )}
+                                {!hasContent && canEditCell && (
+                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
                                     +
-                                  </button>
+                                  </span>
                                 )}
                               </div>
                             </td>
