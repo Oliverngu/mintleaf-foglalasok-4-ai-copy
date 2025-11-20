@@ -1217,6 +1217,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
 
+  const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
+
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
     return activeUnitIds.sort().join('_');
@@ -1695,6 +1697,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     userId: string,
     date: Date
   ) => {
+    if (clickGuardUntil && Date.now() < clickGuardUntil) {
+      return;
+    }
     setEditingShift({ shift, userId, date });
     setIsShiftModalOpen(true);
   };
@@ -1744,99 +1749,104 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
-const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (!tableRef.current) {
-      reject(new Error('Table ref not found'));
-      return;
-    }
-    setIsPngExporting(true);
+  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (!tableRef.current) {
+        reject(new Error('Table ref not found'));
+        return;
+      }
+      setIsPngExporting(true);
 
-    const exportContainer = document.createElement('div');
-    Object.assign(exportContainer.style, {
-      position: 'absolute',
-      left: '-9999px',
-      top: '0',
-      backgroundColor: '#ffffff',
-      padding: '20px',
-      display: 'inline-block',
-      overflow: 'hidden',
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
-    });
+      const exportContainer = document.createElement('div');
+      Object.assign(exportContainer.style, {
+        position: 'absolute',
+        left: '-9999px',
+        top: '0',
+        backgroundColor: '#ffffff',
+        padding: '20px',
+        display: 'inline-block',
+        overflow: 'hidden',
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+      });
 
-    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
-    exportContainer.appendChild(tableClone);
-    document.body.appendChild(exportContainer);
+      const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
+      exportContainer.appendChild(tableClone);
+      document.body.appendChild(exportContainer);
 
-    // 1) UI-only elemek eltávolítása (gombok, óraszám, stb.)
-    tableClone
-      .querySelectorAll('.export-hide')
-      .forEach(el => el.remove());
+      // 1) UI-only elemek eltávolítása (gombok, óraszám, stb.)
+      tableClone
+        .querySelectorAll('.export-hide')
+        .forEach(el => el.remove());
 
-    // 2) Opciós: teljesen üres hét esetén dolgozó elrejtése
-    if (hideEmptyUsers) {
-      tableClone.querySelectorAll('tbody tr').forEach(row => {
-        const isCategoryRow = row.querySelector('td[colSpan]');
-        const isSummaryRow = row.classList.contains('summary-row');
-        if (isCategoryRow || isSummaryRow) return;
-        if (row.classList.contains('no-shifts-week')) {
-          row.remove();
+      // 2) Opciós: teljesen üres hét esetén dolgozó elrejtése
+      if (hideEmptyUsers) {
+        tableClone.querySelectorAll('tbody tr').forEach(row => {
+          const isCategoryRow = row.querySelector('td[colSpan]');
+          const isSummaryRow = row.classList.contains('summary-row');
+          if (isCategoryRow || isSummaryRow) return;
+          if (row.classList.contains('no-shifts-week')) {
+            row.remove();
+          }
+        });
+      }
+
+      // 3) Sticky oszlopok kikapcsolása a klónon (PNG-ben nincs szükség rá)
+      tableClone.querySelectorAll('.sticky').forEach(el => {
+        el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]');
+      });
+
+      // 4) Szabadnap szöveg törlése, de a színezés marad
+      tableClone.querySelectorAll('td').forEach(td => {
+        const txt = (td.textContent || '').trim().toUpperCase();
+        if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+          td.textContent = '';
         }
       });
-    }
 
-    // 3) Sticky oszlopok kikapcsolása a klónon (PNG-ben nincs szükség rá)
-    tableClone.querySelectorAll('.sticky').forEach(el => {
-      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]');
-    });
+      // 5) Napi / heti összesítő sorok elrejtése az exportból
+      tableClone
+        .querySelectorAll('tr.summary-row')
+        .forEach(row => row.remove());
 
-    // 4) Szabadnap szöveg törlése, de a színezés marad
-    tableClone.querySelectorAll('td').forEach(td => {
-      const txt = (td.textContent || '').trim().toUpperCase();
-      if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
-        td.textContent = '';
-      }
-    });
-
-    // 5) Napi / heti összesítő sorok elrejtése az exportból
-    tableClone
-      .querySelectorAll('tr.summary-row')
-      .forEach(row => row.remove());
-
-    html2canvas(exportContainer, {
-      useCORS: true,
-      scale: 2,
-      backgroundColor: '#ffffff'
-    })
-      .then(canvas => {
-        const link = document.createElement('a');
-        const weekStart = weekDays[0]
-          .toLocaleDateString('hu-HU', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-          })
-          .replace(/\.\s/g, '-')
-          .replace('.', '');
-        link.download = `beosztas_${weekStart}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        resolve();
+      html2canvas(exportContainer, {
+        useCORS: true,
+        scale: 2,
+        backgroundColor: '#ffffff'
       })
-      .catch(err => {
-        console.error('PNG export failed:', err);
-        alert('Hiba történt a PNG exportálás során.');
-        reject(err);
-      })
-      .finally(() => {
-        document.body.removeChild(exportContainer);
-        setIsPngExporting(false);
-      });
-  });
-};
+        .then(canvas => {
+          const link = document.createElement('a');
+          const weekStart = weekDays[0]
+            .toLocaleDateString('hu-HU', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            })
+            .replace(/\.\s/g, '-')
+            .replace('.', '');
+          link.download = `beosztas_${weekStart}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          resolve();
+        })
+        .catch(err => {
+          console.error('PNG export failed:', err);
+          alert('Hiba történt a PNG exportálás során.');
+          reject(err);
+        })
+        .finally(() => {
+          document.body.removeChild(exportContainer);
+          setIsPngExporting(false);
+        });
+    });
+  };
 
-      const handleMoveUser = (
+  const closeExportWithGuard = () => {
+    setExportConfirmation(null);
+    setClickGuardUntil(Date.now() + 500);
+  };
+
+  const handleMoveUser = (
     userIdToMove: string,
     direction: 'up' | 'down'
   ) => {
@@ -2033,7 +2043,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                     {hiddenUsers.map(user => (
                       <div
                         key={user.id}
-                        className="flex items-center justify-between p-2 hover:bg-gray-100 rounded"
+                        className="flex items-center justify_between p-2 hover:bg-gray-100 rounded"
                       >
                         <span className="text-sm text-gray-800">
                           {user.fullName}
@@ -2265,7 +2275,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                 />
               )}
             </div>
-            <div className="p-4 bg-gray-50 flex justify-between items-center rounded-b-2xl">
+            <div className="p-4 bg-gray-50 flex justify-between items_center rounded-b-2xl">
               <button
                 onClick={() =>
                   setExportSettings(DEFAULT_EXPORT_SETTINGS)
@@ -2572,7 +2582,26 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                                 )
                               }
                             >
-                              {display || ''}
+                              <div className="flex flex-col items-center gap-1">
+                                <span>{display || ''}</span>
+                                {canEditCell && (
+                                  <button
+                                    type="button"
+                                    className="mt-1 inline-flex items-center justify-center w-5 h-5 rounded-full border border-slate-300 text-slate-400 text-xs hover:bg-slate-100 hover:text-slate-700 export-hide"
+                                    title="Új műszak hozzáadása"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleOpenShiftModal(
+                                        null,
+                                        user.id,
+                                        day
+                                      );
+                                    }}
+                                  >
+                                    +
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           );
                         })}
@@ -2605,7 +2634,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       {exportConfirmation && (
         <ExportConfirmationModal
           type={exportConfirmation.type}
-          onClose={() => setExportConfirmation(null)}
+          onClose={closeExportWithGuard}
           exportSettings={exportSettings}
           unitName={
             activeUnitIds.length === 1
@@ -2640,7 +2669,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                 }
               }
             } finally {
-              setExportConfirmation(null);
+              closeExportWithGuard();
             }
           }}
         />
