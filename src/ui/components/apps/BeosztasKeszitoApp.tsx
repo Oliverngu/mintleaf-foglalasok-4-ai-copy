@@ -1763,16 +1763,76 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         left: '-9999px',
         top: '0',
         backgroundColor: '#ffffff',
-        padding: '20px',
+        padding: '24px',
         display: 'inline-block',
         overflow: 'hidden',
         fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
-      });
+          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+        boxSizing: 'border-box'
+      } as CSSStyleDeclaration);
 
       const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
       exportContainer.appendChild(tableClone);
       document.body.appendChild(exportContainer);
+
+      // --- SZÉPÍTÉS: egységes, nyomtatóbarát stílusok a klónon ---
+      tableClone.style.borderCollapse = 'collapse';
+      tableClone.style.tableLayout = 'fixed';
+      tableClone.style.backgroundColor = '#ffffff';
+      tableClone.style.fontSize = '12px';
+      tableClone.style.minWidth = '900px';
+
+      // th styling (fejléc)
+      tableClone.querySelectorAll('th').forEach(th => {
+        const el = th as HTMLElement;
+        el.style.padding = '6px 8px';
+        el.style.border = '1px solid #cbd5e1';
+        el.style.backgroundColor = '#f1f5f9';
+        el.style.color = '#0f172a';
+        el.style.fontWeight = '600';
+        el.style.textAlign = 'center';
+        el.style.verticalAlign = 'middle';
+        el.style.whiteSpace = 'nowrap';
+      });
+
+      // td styling (cellák)
+      tableClone.querySelectorAll('td').forEach((td, idx) => {
+        const el = td as HTMLElement;
+        el.style.padding = '4px 6px';
+        el.style.border = '1px solid #e2e8f0';
+        el.style.verticalAlign = 'middle';
+        el.style.textAlign = 'center';
+        el.style.whiteSpace = 'pre-wrap';
+        el.style.lineHeight = '1.25';
+        // első oszlop: szélesebb név
+        if ((td as HTMLTableCellElement).cellIndex === 0) {
+          el.style.textAlign = 'left';
+          el.style.minWidth = '160px';
+        }
+      });
+
+      // kategória sorok enyhén színezve
+      tableClone.querySelectorAll('tr').forEach(tr => {
+        const el = tr as HTMLElement;
+        const firstCell = tr.querySelector('td');
+        if (firstCell && (firstCell as HTMLTableCellElement).colSpan > 1) {
+          el.style.backgroundColor = '#e5e7eb';
+          el.style.fontWeight = '600';
+        }
+      });
+
+      // zebra csíkozás a body-n (a meglévő színezést nem bántjuk, csak ahol nincs)
+      const bodyRows = tableClone.querySelectorAll('tbody tr');
+      bodyRows.forEach((tr, rowIndex) => {
+        const el = tr as HTMLElement;
+        if (!el.style.backgroundColor) {
+          if (rowIndex % 2 === 0) {
+            el.style.backgroundColor = '#f9fafb';
+          } else {
+            el.style.backgroundColor = '#ffffff';
+          }
+        }
+      });
 
       // 1) UI-only elemek eltávolítása (gombok, óraszám, stb.)
       tableClone
@@ -1793,14 +1853,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       // 3) Sticky oszlopok kikapcsolása a klónon (PNG-ben nincs szükség rá)
       tableClone.querySelectorAll('.sticky').forEach(el => {
-        el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]');
+        (el as HTMLElement).classList.remove(
+          'sticky',
+          'left-0',
+          'z-10',
+          'z-[3]',
+          'z-[5]'
+        );
+        (el as HTMLElement).style.position = 'static';
       });
 
       // 4) Szabadnap szöveg törlése, de a színezés marad
       tableClone.querySelectorAll('td').forEach(td => {
-        const txt = (td.textContent || '').trim().toUpperCase();
+        const el = td as HTMLElement;
+        const txt = (el.textContent || '').trim().toUpperCase();
         if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
-          td.textContent = '';
+          el.textContent = '';
         }
       });
 
