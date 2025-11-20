@@ -1744,52 +1744,92 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
-  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (!tableRef.current) {
-        reject(new Error('Table ref not found'));
-        return;
-      }
-      setIsPngExporting(true);
+const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (!tableRef.current) {
+      reject(new Error('Table ref not found'));
+      return;
+    }
+    setIsPngExporting(true);
 
-      const exportContainer = document.createElement('div');
-      Object.assign(exportContainer.style, {
-        position: 'absolute',
-        left: '-9999px',
-        top: '0',
-        backgroundColor: '#ffffff',
-        padding: '20px',
-        display: 'inline-block',
-        borderRadius: exportSettings.useRoundedCorners
-          ? `${exportSettings.borderRadius}px`
-          : '0px',
-        overflow: 'hidden',
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+    const exportContainer = document.createElement('div');
+    Object.assign(exportContainer.style, {
+      position: 'absolute',
+      left: '-9999px',
+      top: '0',
+      backgroundColor: '#ffffff',
+      padding: '20px',
+      display: 'inline-block',
+      overflow: 'hidden',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+    });
+
+    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
+    exportContainer.appendChild(tableClone);
+    document.body.appendChild(exportContainer);
+
+    // 1) UI-only elemek eltávolítása (gombok, óraszám, stb.)
+    tableClone
+      .querySelectorAll('.export-hide')
+      .forEach(el => el.remove());
+
+    // 2) Opciós: teljesen üres hét esetén dolgozó elrejtése
+    if (hideEmptyUsers) {
+      tableClone.querySelectorAll('tbody tr').forEach(row => {
+        const isCategoryRow = row.querySelector('td[colSpan]');
+        const isSummaryRow = row.classList.contains('summary-row');
+        if (isCategoryRow || isSummaryRow) return;
+        if (row.classList.contains('no-shifts-week')) {
+          row.remove();
+        }
       });
+    }
 
-      const tableClone = tableRef.current.cloneNode(
-        true
-      ) as HTMLTableElement;
-      exportContainer.appendChild(tableClone);
-      document.body.appendChild(exportContainer);
+    // 3) Sticky oszlopok kikapcsolása a klónon (PNG-ben nincs szükség rá)
+    tableClone.querySelectorAll('.sticky').forEach(el => {
+      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]');
+    });
 
-      // Remove editor-only UI
-      tableClone
-        .querySelectorAll('.export-hide')
-        .forEach(el => el.remove());
-
-      // Optionally hide users with 0 óra / hét (no-shifts-week rows)
-      if (hideEmptyUsers) {
-        tableClone.querySelectorAll('tbody tr').forEach(row => {
-          const isCategoryRow = row.querySelector('td[colSpan]');
-          const isSummaryRow = row.classList.contains('summary-row');
-          if (isCategoryRow || isSummaryRow) return;
-          if (row.classList.contains('no-shifts-week')) {
-            row.remove();
-          }
-        });
+    // 4) Szabadnap szöveg törlése, de a színezés marad
+    tableClone.querySelectorAll('td').forEach(td => {
+      const txt = (td.textContent || '').trim().toUpperCase();
+      if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+        td.textContent = '';
       }
+    });
+
+    html2canvas(exportContainer, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: '#ffffff'
+    })
+      .then(canvas => {
+        const link = document.createElement('a');
+        const weekStart = weekDays[0]
+          .toLocaleDateString('hu-HU', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          })
+          .replace(/\.\s/g, '-')
+          .replace('.', '');
+        link.download = `beosztas_${weekStart}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        resolve();
+      })
+      .catch(err => {
+        console.error('PNG export failed:', err);
+        alert('Hiba történt a PNG exportálás során.');
+        reject(err);
+      })
+      .finally(() => {
+        document.body.removeChild(exportContainer);
+        setIsPngExporting(false);
+      });
+  });
+};
 
       // Expand pozíció header colspan to full width (name + 7 nap)
       tableClone.querySelectorAll('tr').forEach(row => {
