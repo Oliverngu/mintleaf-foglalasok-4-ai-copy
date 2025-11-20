@@ -2526,7 +2526,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
         <table
           ref={tableRef}
-          className="min-w-full text-sm"
+          className="min-w-full text-sm border border-slate-300 border-collapse"
           style={{
             fontFamily:
               '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
@@ -2534,13 +2534,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
         >
           <thead className="bg-slate-100">
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
+              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600 border border-slate-300">
                 Munkatárs
               </th>
               {weekDays.map((day, idx) => (
                 <th
                   key={idx}
-                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
+                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600 border border-slate-300"
                 >
                   {day.toLocaleDateString('hu-HU', {
                     weekday: 'short'
@@ -2560,13 +2560,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                 <>
                   {weekSettings.showOpeningTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-300">
                         Nyitás
                       </td>
                       {weekDays.map((_, i) => (
                         <td
                           key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-300"
                         >
                           {weekSettings.dailySettings[i]?.openingTime || '-'}
                         </td>
@@ -2575,13 +2575,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                   )}
                   {weekSettings.showClosingTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-300">
                         Zárás
                       </td>
                       {weekDays.map((_, i) => (
                         <td
                           key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-300"
                         >
                           {weekSettings.dailySettings[i]?.closingTime || '-'}
                         </td>
@@ -2646,7 +2646,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                         className={isEmptyWeek ? 'no-shifts-week' : ''}
                       >
                         {/* Név oszlop */}
-                        <td className="sticky left-0 z-[3] bg-white border-t border-slate-200 px-4 py-2 text-left align-middle">
+                        <td className="sticky left-0 z-[3] bg-white border border-slate-300 px-4 py-2 text-left align-middle">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-slate-800 leading-tight">
@@ -2740,7 +2740,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           const canEditCell = canManage;
 
                           let cellClasses =
-                            'whitespace-pre-wrap align-middle text-center border-t border-slate-200 text-[13px] cursor-pointer transition-colors';
+                            'whitespace-pre-wrap align-middle text-center border border-slate-300 text-[13px] cursor-pointer transition-colors';
                           if (isDayOff) {
                             cellClasses +=
                               ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
@@ -2778,7 +2778,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
             })}
 
             {/* Összesített sor (napi órák) */}
-            <tr className="summary-row bg-slate-50 border-t border-slate-300">
+            <tr className="summary-row export-hide bg-slate-50 border-t border-slate-300">
               <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left text-xs font-semibold text-slate-700">
                 Napi összes (óra)
               </td>
