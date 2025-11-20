@@ -1749,165 +1749,157 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
-  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (!tableRef.current) {
-        reject(new Error('Table ref not found'));
-        return;
-      }
-      setIsPngExporting(true);
+  // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
+const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (!tableRef.current) {
+      reject(new Error('Table ref not found'));
+      return;
+    }
+    setIsPngExporting(true);
 
-      const exportContainer = document.createElement('div');
-      Object.assign(exportContainer.style, {
-        position: 'absolute',
-        left: '-9999px',
-        top: '0',
-        backgroundColor: '#ffffff',
-        padding: '24px',
-        display: 'inline-block',
-        overflow: 'hidden',
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-        boxSizing: 'border-box'
-      } as CSSStyleDeclaration);
+    const exportContainer = document.createElement('div');
+    Object.assign(exportContainer.style, {
+      position: 'absolute',
+      left: '-9999px',
+      top: '0',
+      backgroundColor: '#ffffff',
+      padding: '32px',
+      display: 'block',
+      overflow: 'hidden',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, \"SF Pro Text\", system-ui, sans-serif'
+    } as CSSStyleDeclaration);
 
-      const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
-      exportContainer.appendChild(tableClone);
-      document.body.appendChild(exportContainer);
+    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
+    exportContainer.appendChild(tableClone);
+    document.body.appendChild(exportContainer);
 
-      // --- SZÉPÍTÉS: egységes, nyomtatóbarát stílusok a klónon ---
-      tableClone.style.borderCollapse = 'collapse';
-      tableClone.style.tableLayout = 'fixed';
-      tableClone.style.backgroundColor = '#ffffff';
-      tableClone.style.fontSize = '12px';
-      tableClone.style.minWidth = '900px';
+    // Ensure consistent table layout
+    tableClone.style.borderCollapse = 'collapse';
+    tableClone.style.tableLayout = 'fixed';
+    tableClone.style.width = '100%';
 
-      // th styling (fejléc)
-      tableClone.querySelectorAll('th').forEach(th => {
-        const el = th as HTMLElement;
-        el.style.padding = '6px 8px';
-        el.style.border = '1px solid #cbd5e1';
-        el.style.backgroundColor = '#f1f5f9';
-        el.style.color = '#0f172a';
-        el.style.fontWeight = '600';
-        el.style.textAlign = 'center';
-        el.style.verticalAlign = 'middle';
-        el.style.whiteSpace = 'nowrap';
-      });
+    // 1) UI-only elements removal (buttons, hour text etc.)
+    tableClone
+      .querySelectorAll('.export-hide')
+      .forEach(el => el.remove());
 
-      // td styling (cellák)
-      tableClone.querySelectorAll('td').forEach((td, idx) => {
-        const el = td as HTMLElement;
-        el.style.padding = '4px 6px';
-        el.style.border = '1px solid #e2e8f0';
-        el.style.verticalAlign = 'middle';
-        el.style.textAlign = 'center';
-        el.style.whiteSpace = 'pre-wrap';
-        el.style.lineHeight = '1.25';
-        // első oszlop: szélesebb név
-        if ((td as HTMLTableCellElement).cellIndex === 0) {
-          el.style.textAlign = 'left';
-          el.style.minWidth = '160px';
+    // 2) Optionally hide workers with completely empty week
+    if (hideEmptyUsers) {
+      tableClone.querySelectorAll('tbody tr').forEach(row => {
+        const isCategoryRow = (row as HTMLTableRowElement).querySelector('td[colSpan]');
+        const isSummaryRow = row.classList.contains('summary-row');
+        if (isCategoryRow || isSummaryRow) return;
+        if (row.classList.contains('no-shifts-week')) {
+          row.remove();
         }
       });
+    }
 
-      // kategória sorok enyhén színezve
-      tableClone.querySelectorAll('tr').forEach(tr => {
-        const el = tr as HTMLElement;
-        const firstCell = tr.querySelector('td');
-        if (firstCell && (firstCell as HTMLTableCellElement).colSpan > 1) {
-          el.style.backgroundColor = '#e5e7eb';
-          el.style.fontWeight = '600';
-        }
-      });
-
-      // zebra csíkozás a body-n (a meglévő színezést nem bántjuk, csak ahol nincs)
-      const bodyRows = tableClone.querySelectorAll('tbody tr');
-      bodyRows.forEach((tr, rowIndex) => {
-        const el = tr as HTMLElement;
-        if (!el.style.backgroundColor) {
-          if (rowIndex % 2 === 0) {
-            el.style.backgroundColor = '#f9fafb';
-          } else {
-            el.style.backgroundColor = '#ffffff';
-          }
-        }
-      });
-
-      // 1) UI-only elemek eltávolítása (gombok, óraszám, stb.)
-      tableClone
-        .querySelectorAll('.export-hide')
-        .forEach(el => el.remove());
-
-      // 2) Opciós: teljesen üres hét esetén dolgozó elrejtése
-      if (hideEmptyUsers) {
-        tableClone.querySelectorAll('tbody tr').forEach(row => {
-          const isCategoryRow = row.querySelector('td[colSpan]');
-          const isSummaryRow = row.classList.contains('summary-row');
-          if (isCategoryRow || isSummaryRow) return;
-          if (row.classList.contains('no-shifts-week')) {
-            row.remove();
-          }
-        });
-      }
-
-      // 3) Sticky oszlopok kikapcsolása a klónon (PNG-ben nincs szükség rá)
-      tableClone.querySelectorAll('.sticky').forEach(el => {
-        (el as HTMLElement).classList.remove(
-          'sticky',
-          'left-0',
-          'z-10',
-          'z-[3]',
-          'z-[5]'
-        );
-        (el as HTMLElement).style.position = 'static';
-      });
-
-      // 4) Szabadnap szöveg törlése, de a színezés marad
-      tableClone.querySelectorAll('td').forEach(td => {
-        const el = td as HTMLElement;
-        const txt = (el.textContent || '').trim().toUpperCase();
-        if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
-          el.textContent = '';
-        }
-      });
-
-      // 5) Napi / heti összesítő sorok elrejtése az exportból
-      tableClone
-        .querySelectorAll('tr.summary-row')
-        .forEach(row => row.remove());
-
-      html2canvas(exportContainer, {
-        useCORS: true,
-        scale: 2,
-        backgroundColor: '#ffffff'
-      })
-        .then(canvas => {
-          const link = document.createElement('a');
-          const weekStart = weekDays[0]
-            .toLocaleDateString('hu-HU', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit'
-            })
-            .replace(/\.\s/g, '-')
-            .replace('.', '');
-          link.download = `beosztas_${weekStart}.png`;
-          link.href = canvas.toDataURL('image/png');
-          link.click();
-          resolve();
-        })
-        .catch(err => {
-          console.error('PNG export failed:', err);
-          alert('Hiba történt a PNG exportálás során.');
-          reject(err);
-        })
-        .finally(() => {
-          document.body.removeChild(exportContainer);
-          setIsPngExporting(false);
-        });
+    // 3) Remove sticky columns on clone
+    tableClone.querySelectorAll('.sticky').forEach(el => {
+      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]', 'z-[2]');
+      (el as HTMLElement).style.position = 'static';
     });
-  };
+
+    // 4) Remove X/SZ/SZABI text, keep only background color
+    tableClone.querySelectorAll('td').forEach(td => {
+      const txt = (td.textContent || '').trim().toUpperCase();
+      if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+        td.textContent = '';
+      }
+    });
+
+    // 5) Remove daily / weekly summary rows from export
+    tableClone
+      .querySelectorAll('tr.summary-row')
+      .forEach(row => row.remove());
+
+    // 6) Normalize cell styles for better alignment
+    const headerBg = '#E5EDF5';
+    const positionBg = '#EDF2F7';
+
+    // Header row
+    const headerRows = tableClone.tHead?.rows || [];
+    for (let i = 0; i < headerRows.length; i++) {
+      const row = headerRows[i];
+      for (let j = 0; j < row.cells.length; j++) {
+        const cell = row.cells[j] as HTMLTableCellElement;
+        cell.style.padding = '8px 10px';
+        cell.style.fontSize = '11px';
+        cell.style.fontWeight = '600';
+        cell.style.border = '1px solid #CBD5E1';
+        cell.style.backgroundColor = headerBg;
+        cell.style.color = '#475569';
+        cell.style.textAlign = j === 0 ? 'left' : 'center';
+        cell.style.verticalAlign = 'middle';
+        cell.style.whiteSpace = 'nowrap';
+      }
+    }
+
+    // Body rows
+    const bodyRows = tableClone.tBodies[0]?.rows || [];
+    for (let i = 0; i < bodyRows.length; i++) {
+      const row = bodyRows[i] as HTMLTableRowElement;
+      const isPositionRow = row.cells.length === 1 + weekDays.length && row.cells[0].colSpan === 1 + weekDays.length;
+      for (let j = 0; j < row.cells.length; j++) {
+        const cell = row.cells[j] as HTMLTableCellElement;
+        cell.style.padding = isPositionRow ? '6px 10px' : '10px 10px';
+        cell.style.fontSize = isPositionRow ? '11px' : '12px';
+        cell.style.border = '1px solid #E2E8F0';
+        cell.style.verticalAlign = 'middle';
+        cell.style.whiteSpace = 'nowrap';
+
+        if (isPositionRow) {
+          cell.style.backgroundColor = positionBg;
+          cell.style.fontWeight = '600';
+          cell.style.textAlign = 'left';
+          cell.style.textTransform = 'uppercase';
+          cell.style.letterSpacing = '0.03em';
+          cell.style.color = '#4A5568';
+        } else if (j === 0) {
+          // Name column
+          cell.style.textAlign = 'left';
+          cell.style.fontWeight = '500';
+        } else {
+          // Shift cells
+          cell.style.textAlign = 'center';
+        }
+      }
+    }
+
+    html2canvas(exportContainer, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: '#ffffff'
+    })
+      .then(canvas => {
+        const link = document.createElement('a');
+        const weekStart = weekDays[0]
+          .toLocaleDateString('hu-HU', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          })
+          .replace(/\.\\s/g, '-')
+          .replace('.', '');
+        link.download = `beosztas_${weekStart}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        resolve();
+      })
+      .catch(err => {
+        console.error('PNG export failed:', err);
+        alert('Hiba tĂśrtĂŠnt a PNG exportĂĄlĂĄs sorĂĄn.');
+        reject(err);
+      })
+      .finally(() => {
+        document.body.removeChild(exportContainer);
+        setIsPngExporting(false);
+      });
+  });
+};
 
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
