@@ -1749,6 +1749,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
+const handleSettingsChange = useCallback(
+  async (newSettings: ScheduleSettings) => {
+    setWeekSettings(newSettings);
+    if (!canManage || activeUnitIds.length !== 1) return;
+    try {
+      await setDoc(
+        doc(db, 'schedule_settings', newSettings.id),
+        newSettings
+      );
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
+  },
+  [canManage, activeUnitIds]
+);
+
 // --- SOROK ÖSSZEHÚZÁSA EXPORTKOR ---
 const tightenTableForExport = (table: HTMLElement) => {
   table.querySelectorAll<HTMLElement>('td, th').forEach(cell => {
@@ -1766,7 +1782,6 @@ const tightenTableForExport = (table: HTMLElement) => {
 };
 
 // --- PNG EXPORT -------------------------------------------------------
-
 const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
@@ -1792,10 +1807,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     exportContainer.appendChild(tableClone);
 
-    // új: sorok finom összehúzása exporthoz
+    // sorok finom összehúzása exporthoz
     tightenTableForExport(tableClone);
 
-    // exportContainer-t ténylegesen ki kell tenni a DOM-ba
+    // ténylegesen tegyük ki a DOM-ba
     document.body.appendChild(exportContainer);
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
@@ -1864,10 +1879,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   });
 };
 
-  const handleMoveGroup = (
-    positionToMove: string,
-    direction: 'up' | 'down'
-  ) => {
+const handleMoveGroup = (
+  positionToMove: string,
+  direction: 'up' | 'down'
+) => {
     const allUsersByPos = orderedUsers.reduce(
       (acc, user) => {
         const pos = user.position || 'Nincs pozíció';
