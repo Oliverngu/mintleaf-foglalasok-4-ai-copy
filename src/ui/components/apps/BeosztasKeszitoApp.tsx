@@ -1799,6 +1799,11 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       }
     });
 
+    // 5) Napi / heti összesítő sorok elrejtése az exportból
+    tableClone
+      .querySelectorAll('tr.summary-row')
+      .forEach(row => row.remove());
+
     html2canvas(exportContainer, {
       useCORS: true,
       scale: 2,
@@ -2361,13 +2366,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                 <>
                   {weekSettings.showOpeningTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
                         Nyitás
                       </td>
                       {weekDays.map((_, i) => (
                         <td
                           key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
                           {weekSettings.dailySettings[i]?.openingTime || '-'}
                         </td>
@@ -2376,13 +2381,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                   )}
                   {weekSettings.showClosingTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border-t border-slate-200">
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
                         Zárás
                       </td>
                       {weekDays.map((_, i) => (
                         <td
                           key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border-t border-slate-200"
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
                           {weekSettings.dailySettings[i]?.closingTime || '-'}
                         </td>
@@ -2404,7 +2409,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[5] bg-slate-200 px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700 border-t border-b border-slate-300"
+                      className="sticky left-0 z-[5] bg-slate-200 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-700 border-t border-b border-slate-300"
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
@@ -2447,7 +2452,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                         className={isEmptyWeek ? 'no-shifts-week' : ''}
                       >
                         {/* Név oszlop */}
-                        <td className="sticky left-0 z-[3] bg-white border-t border-slate-200 px-4 py-2 text-left align-middle">
+                        <td className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-slate-800 leading-tight">
@@ -2541,7 +2546,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           const canEditCell = canManage;
 
                           let cellClasses =
-                            'whitespace-pre-wrap align-middle text-center border-t border-slate-200 text-[13px] cursor-pointer transition-colors';
+                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
                           if (isDayOff) {
                             cellClasses +=
                               ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
@@ -2580,7 +2585,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
             {/* Összesített sor (napi órák) */}
             <tr className="summary-row bg-slate-50 border-t border-slate-300">
-              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left text-xs font-semibold text-slate-700">
+              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
                 Napi összes (óra)
               </td>
               {weekDays.map((_, i) => (
