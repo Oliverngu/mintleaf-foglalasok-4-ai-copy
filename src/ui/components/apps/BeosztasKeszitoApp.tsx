@@ -1749,7 +1749,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds]
   );
 
-  // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
+// --- SOROK ÖSSZEHÚZÁSA EXPORTKOR ---
+const tightenTableForExport = (table: HTMLElement) => {
+  table.querySelectorAll<HTMLElement>('td, th').forEach(cell => {
+    cell.style.paddingTop = '4px';
+    cell.style.paddingBottom = '4px';
+    cell.style.lineHeight = '1.15';
+    cell.style.minHeight = '0';
+    cell.style.height = 'auto';
+  });
+
+  // kategória / pozíció sorok összezárása
+  table.querySelectorAll<HTMLElement>('tr').forEach(row => {
+    row.style.lineHeight = '1.2';
+  });
+};
+
+// --- PNG EXPORT -------------------------------------------------------
+
 const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
@@ -1769,11 +1786,16 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       padding: '20px',
       display: 'inline-block',
       overflow: 'hidden'
-    } as CSSStyleDeclaration);
+    });
 
-    // Teljes tábla klónozása – minden Tailwind osztály megmarad
+    // teljes tábla klónozása
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     exportContainer.appendChild(tableClone);
+
+    // új: sorok finom összehúzása exporthoz
+    tightenTableForExport(tableClone);
+
+    // exportContainer-t ténylegesen ki kell tenni a DOM-ba
     document.body.appendChild(exportContainer);
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
@@ -1791,7 +1813,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       });
     }
 
-    // 3) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
+    // 3) Sticky oszlopok kikapcsolása
     tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
       el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
       el.style.position = '';
@@ -1799,7 +1821,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       el.style.zIndex = '';
     });
 
-    // 4) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
+    // 4) X / SZ / SZABI szöveg elrejtése – szín megmarad
     tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
       const txt = (td.textContent || '').trim().toUpperCase();
       if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
@@ -1807,10 +1829,8 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       }
     });
 
-    // 5) Összesítő sor (Napi összes) kiszedése
+    // 5) Összesítő sorok kiszedése
     tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
-
-    // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
 
     html2canvas(exportContainer, {
       useCORS: true,
@@ -1843,49 +1863,6 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       });
   });
 };
-
-  const closeExportWithGuard = () => {
-    setExportConfirmation(null);
-    setClickGuardUntil(Date.now() + 500);
-  };
-
-  const handleMoveUser = (
-    userIdToMove: string,
-    direction: 'up' | 'down'
-  ) => {
-    const currentIndex = orderedUsers.findIndex(
-      u => u.id === userIdToMove
-    );
-    if (currentIndex === -1) return;
-
-    const targetIndex =
-      direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= orderedUsers.length)
-      return;
-
-    const currentUser = orderedUsers[currentIndex];
-    const targetUser = orderedUsers[targetIndex];
-
-    if (
-      targetUser &&
-      (currentUser.position || 'Nincs pozíció') ===
-        (targetUser.position || 'Nincs pozíció')
-    ) {
-      const newOrderedUsers = [...orderedUsers];
-      [
-        newOrderedUsers[currentIndex],
-        newOrderedUsers[targetIndex]
-      ] = [
-        newOrderedUsers[targetIndex],
-        newOrderedUsers[currentIndex]
-      ];
-      setOrderedUsers(newOrderedUsers);
-      saveDisplaySettings(
-        newOrderedUsers.map(u => u.id),
-        Array.from(hiddenUserIds)
-      );
-    }
-  };
 
   const handleMoveGroup = (
     positionToMove: string,
