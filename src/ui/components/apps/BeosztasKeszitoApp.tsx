@@ -1759,7 +1759,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     setIsPngExporting(true);
 
-    // Offscreen konténer
+    // Offscreen konténer – csak háttér + padding
     const exportContainer = document.createElement('div');
     Object.assign(exportContainer.style, {
       position: 'absolute',
@@ -1768,47 +1768,18 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       backgroundColor: '#ffffff',
       padding: '20px',
       display: 'inline-block',
-      overflow: 'hidden',
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+      overflow: 'hidden'
     } as CSSStyleDeclaration);
 
+    // Teljes tábla klónozása – minden Tailwind osztály megmarad
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     exportContainer.appendChild(tableClone);
     document.body.appendChild(exportContainer);
 
-    // --- Csak igazítás, NEM piszkáljuk a paddinget / fontméretet ---
-
-    // Fejlécek: első oszlop balra, többi középre, mind középre függőlegesen
-    const headerRows = tableClone.querySelectorAll('thead tr');
-    headerRows.forEach(row => {
-      const ths = row.querySelectorAll<HTMLTableCellElement>('th');
-      ths.forEach((th, idx) => {
-        th.style.verticalAlign = 'middle';
-        th.style.textAlign = idx === 0 ? 'left' : 'center';
-      });
-    });
-
-    // Törzs sorok: első oszlop (név / pozíció blokk) balra, a többi középre
-    const bodyRows = tableClone.querySelectorAll('tbody tr');
-    bodyRows.forEach(row => {
-      const tds = row.querySelectorAll<HTMLTableCellElement>('td');
-      tds.forEach((td, idx) => {
-        td.style.verticalAlign = 'middle';
-
-        const isCategoryRow = td.colSpan && td.colSpan > 1;
-        if (idx === 0 || isCategoryRow) {
-          td.style.textAlign = 'left';
-        } else {
-          td.style.textAlign = 'center';
-        }
-      });
-    });
-
-    // --- UI-only elemek eltávolítása ---
+    // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
     tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
-    // Üres dolgozók kiszedése (ha kérve)
+    // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
     if (hideEmptyUsers) {
       tableClone.querySelectorAll('tbody tr').forEach(row => {
         const isCategoryRow = row.querySelector('td[colSpan]');
@@ -1820,15 +1791,15 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       });
     }
 
-    // Sticky oszlopok kikapcsolása
+    // 3) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
     tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[3]', 'z-[5]', 'z-[2]');
+      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
       el.style.position = '';
       el.style.left = '';
       el.style.zIndex = '';
     });
 
-    // X / SZ / SZABI szöveg elrejtése – színezés marad
+    // 4) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
     tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
       const txt = (td.textContent || '').trim().toUpperCase();
       if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
@@ -1836,8 +1807,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       }
     });
 
-    // Összesítő sorok elrejtése
+    // 5) Összesítő sor (Napi összes) kiszedése
     tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+
+    // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
 
     html2canvas(exportContainer, {
       useCORS: true,
