@@ -1,0 +1,7 @@
+name = "mintleaf-foglalasok-4"
+# ide azt írd ami a projekt neve a CF Pages-ben, ha más
+
+pages_build_output_dir = "dist"
+
+[build]
+command = "npm run build"
