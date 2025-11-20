@@ -1777,41 +1777,32 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
     exportContainer.appendChild(tableClone);
     document.body.appendChild(exportContainer);
 
-    // --- Alap táblastílus, hogy szimmetrikus legyen ---
-    tableClone.style.borderCollapse = 'collapse';
-    tableClone.style.tableLayout = 'fixed';
-    tableClone.style.width = '100%';
+    // --- Csak igazítás, NEM piszkáljuk a paddinget / fontméretet ---
 
-    const allCells = tableClone.querySelectorAll<HTMLTableCellElement>('th, td');
-    allCells.forEach(cell => {
-      cell.style.padding = '6px 10px';
-      cell.style.fontSize = '11px';
-      cell.style.lineHeight = '1.3';
-      cell.style.verticalAlign = 'middle';
-      cell.style.border = '1px solid #E5E7EB';
-    });
-
-    // Fejléc igazítás: első oszlop balra, többi középre
+    // Fejlécek: első oszlop balra, többi középre, mind középre függőlegesen
     const headerRows = tableClone.querySelectorAll('thead tr');
     headerRows.forEach(row => {
       const ths = row.querySelectorAll<HTMLTableCellElement>('th');
       ths.forEach((th, idx) => {
+        th.style.verticalAlign = 'middle';
         th.style.textAlign = idx === 0 ? 'left' : 'center';
       });
     });
 
-    // Név oszlop: minden tbody-sor első cellája balra
-    const firstColTds = tableClone.querySelectorAll<HTMLTableCellElement>('tbody tr td:first-child');
-    firstColTds.forEach(td => {
-      td.style.textAlign = 'left';
-    });
+    // Törzs sorok: első oszlop (név / pozíció blokk) balra, a többi középre
+    const bodyRows = tableClone.querySelectorAll('tbody tr');
+    bodyRows.forEach(row => {
+      const tds = row.querySelectorAll<HTMLTableCellElement>('td');
+      tds.forEach((td, idx) => {
+        td.style.verticalAlign = 'middle';
 
-    // Minden más cella középre
-    const otherTds = tableClone.querySelectorAll<HTMLTableCellElement>(
-      'tbody tr td:not(:first-child)'
-    );
-    otherTds.forEach(td => {
-      td.style.textAlign = 'center';
+        const isCategoryRow = td.colSpan && td.colSpan > 1;
+        if (idx === 0 || isCategoryRow) {
+          td.style.textAlign = 'left';
+        } else {
+          td.style.textAlign = 'center';
+        }
+      });
     });
 
     // --- UI-only elemek eltávolítása ---
@@ -1837,7 +1828,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
       el.style.zIndex = '';
     });
 
-    // X / SZ / SZABI szöveg elrejtése – szín, háttér maradhat
+    // X / SZ / SZABI szöveg elrejtése – színezés marad
     tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
       const txt = (td.textContent || '').trim().toUpperCase();
       if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
