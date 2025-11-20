@@ -1,4 +1,3 @@
-
 import React, {
   useState,
   useMemo,
@@ -1748,7 +1747,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
     },
     [canManage, activeUnitIds]
-);
+  );
 
 // --- SOROK ÖSSZEHÚZÁSA EXPORTKOR ---
 const tightenTableForExport = (table: HTMLElement) => {
@@ -1767,6 +1766,7 @@ const tightenTableForExport = (table: HTMLElement) => {
 };
 
 // --- PNG EXPORT -------------------------------------------------------
+
 const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
@@ -1792,10 +1792,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     exportContainer.appendChild(tableClone);
 
-    // sorok finom összehúzása exporthoz
+    // új: sorok finom összehúzása exporthoz
     tightenTableForExport(tableClone);
 
-    // ténylegesen tegyük ki a DOM-ba
+    // exportContainer-t ténylegesen ki kell tenni a DOM-ba
     document.body.appendChild(exportContainer);
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
@@ -1864,10 +1864,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   });
 };
 
-const handleMoveGroup = (
-  positionToMove: string,
-  direction: 'up' | 'down'
-) => {
+  const handleMoveGroup = (
+    positionToMove: string,
+    direction: 'up' | 'down'
+  ) => {
     const allUsersByPos = orderedUsers.reduce(
       (acc, user) => {
         const pos = user.position || 'Nincs pozíció';
