@@ -7,7 +7,7 @@ import {
   GuestFormSettings,
   CustomSelectField,
 } from '../../../core/models/data';
-import { db, Timestamp } from '../../../core/firebase/config';
+import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   doc,
   getDoc,
@@ -16,6 +16,7 @@ import {
   query,
   where,
   getDocs,
+  addDoc,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -59,6 +60,57 @@ const DEFAULT_THEME: ThemeSettings = {
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
   customSelects: [],
+};
+
+// ===== GUEST LOG HELPER =====
+const writeGuestLog = async (
+  unitId: string,
+  booking: {
+    id: string;
+    name: string;
+    headcount?: number;
+    startTime?: Timestamp;
+  },
+  type: 'guest_created' | 'guest_cancelled',
+  extraMessage?: string
+) => {
+  try {
+    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
+
+    let dateStr = '';
+    if (booking.startTime && typeof booking.startTime.toDate === 'function') {
+      dateStr = booking.startTime.toDate().toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    let baseMessage = '';
+    if (type === 'guest_created') {
+      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${dateStr ? `, ${dateStr}` : ''})`;
+    }
+    if (type === 'guest_cancelled') {
+      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${dateStr ? ` (${dateStr})` : ''}`;
+    }
+
+    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
+
+    await addDoc(logsRef, {
+      bookingId: booking.id,
+      unitId,
+      type,
+      createdAt: serverTimestamp(),
+      source: 'guest',
+      createdByUserId: null,
+      createdByName: booking.name,
+      message,
+    });
+  } catch (logErr) {
+    console.error('Failed to write reservation log from guest page:', logErr);
+  }
 };
 
 const ProgressIndicator: React.FC<{
@@ -384,6 +436,18 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       };
 
       await setDoc(newReservationRef, newReservation);
+
+      // ---- GUEST LOG: booking created ----
+      await writeGuestLog(
+        unitId,
+        {
+          id: referenceCode,
+          name: newReservation.name,
+          headcount: newReservation.headcount,
+          startTime: newReservation.startTime,
+        },
+        'guest_created'
+      );
 
       bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
       bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
