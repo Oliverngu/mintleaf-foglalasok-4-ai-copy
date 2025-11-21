@@ -39,6 +39,65 @@ interface EmailRequestPayload {
   html?: string;
 }
 
+// --- Template Selector ---
+// Centralized template lookup. If client doesn't provide subject/html, we fall back to this.
+const getTemplate = (typeId: string, payload: any = {}) => {
+  switch (typeId) {
+    case "booking_created_guest":
+      return {
+        subject: `Foglalásod részletei: ${payload.bookingName || "Ismeretlen"}`,
+        html: `<strong>Szia ${payload.bookingName || "Vendég"}!</strong><p>Köszönjük a foglalásod ${payload.headcount || "?"} főre.</p>`,
+      };
+
+    case "leave_request_created":
+      return {
+        subject: "Új szabadságkérelem érkezett",
+        html: `<strong>Szabadságkérelem</strong><p>${payload.userName || "Egyik munkatárs"} szabadságot kért.</p>`,
+      };
+
+    case "leave_request_approved":
+      return {
+        subject: "Szabadságkérelmed jóváhagyva",
+        html: `
+          <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111827;">
+            <h1 style="font-size: 20px; margin-bottom: 8px;">Szabadságkérelmed jóváhagyva</h1>
+            <p style="margin: 0 0 12px 0;">Kedves ${payload.userName || "Kolléga"}!</p>
+            <p style="margin: 0 0 8px 0;">A következő időszak(ok)ra beadott szabadságkérelmed jóváhagyásra került:</p>
+            <p style="margin: 0 0 8px 0;"><strong>${payload.dates || "-"}</strong></p>
+            <p style="font-size: 12px; color: #6B7280; margin-top: 16px;">
+              Jó pihenést kívánunk!
+            </p>
+          </div>
+        `,
+      };
+
+    case "leave_request_rejected":
+      return {
+        subject: "Szabadságkérelmed elutasításra került",
+        html: `
+          <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111827;">
+            <h1 style="font-size: 20px; margin-bottom: 8px;">Szabadságkérelmed elutasításra került</h1>
+            <p style="margin: 0 0 12px 0;">Kedves ${payload.userName || "Kolléga"}!</p>
+            <p style="margin: 0 0 8px 0;">
+              A következő időszak(ok)ra beadott szabadságkérelmed <strong>elutasításra került</strong>:
+            </p>
+            <p style="margin: 0 0 8px 0;"><strong>${payload.dates || "-"}</strong></p>
+            <p style="margin: 0 0 8px 0;"><strong>Megjegyzés:</strong> ${payload.note || "-"}</p>
+            <p style="font-size: 12px; color: #6B7280; margin-top: 16px;">
+              Ha kérdésed van, keresd a vezetőséget vagy a HR-t.
+            </p>
+          </div>
+        `,
+      };
+
+    default:
+      return {
+        subject: "MintLeaf Értesítés",
+        html: `<p>Automatikus értesítés. Típus: ${typeId}</p>`,
+      };
+  }
+};
+
 // --- CORS Helper ---
 
 /**
