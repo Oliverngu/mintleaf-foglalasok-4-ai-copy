@@ -1812,15 +1812,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 6) Zebra csíkozás alkalmazása az exportált táblára
     const zebraBase = exportSettings.zebraColor;
-    const zebraAlt = adjustColor(
-      exportSettings.zebraColor,
-      -(exportSettings.zebraStrength / 2)
-    );
+    const zebraDelta = exportSettings.zebraStrength / 3;
+    const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
     const nameBase = exportSettings.nameColumnColor;
-    const nameAlt = adjustColor(
-      exportSettings.nameColumnColor,
-      -(exportSettings.zebraStrength / 2)
-    );
+    const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
 
     let dataRowIndex = 0;
     tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
