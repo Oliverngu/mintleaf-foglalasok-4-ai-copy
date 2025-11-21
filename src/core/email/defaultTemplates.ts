@@ -75,6 +75,41 @@ booking_created_guest: {
     `,
   },
 
+  booking_status_updated_guest: {
+    subject: 'Foglalás frissítés: {{bookingDate}} {{bookingTimeFrom}} – {{decisionLabel}}',
+    html: `
+      <h2>Foglalás frissítése</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
+      <ul>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Döntés:</strong> {{decisionLabel}}</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <p>Köszönjük a türelmedet!</p>
+    `,
+  },
+
+  booking_cancelled_admin: {
+    subject: 'Foglalás lemondva: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+    html: `
+      <h2>Vendég lemondta a foglalást</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+      <ul>
+        <li><strong>Vendég neve:</strong> {{guestName}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Email:</strong> {{guestEmail}}</li>
+        <li><strong>Telefon:</strong> {{guestPhone}}</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <p>A foglalás le lett mondva a vendég oldaláról.</p>
+    `,
+  },
+
   user_registration_welcome: {
     subject: 'Üdv a MintLeaf rendszerében, {{firstName}}!',
     html: `

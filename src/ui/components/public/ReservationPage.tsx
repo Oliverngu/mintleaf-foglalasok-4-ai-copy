@@ -655,9 +655,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               legacyRecipients
             );
 
-            const adminActionBaseUrl = newReservation.adminActionToken
-              ? `${window.location.origin}/manage?token=${referenceCode}&adminToken=${newReservation.adminActionToken}`
-              : '';
+            const adminActionBaseUrl =
+              settings.reservationMode === 'request' && newReservation.adminActionToken
+                ? `${window.location.origin}/manage?token=${referenceCode}&adminToken=${newReservation.adminActionToken}`
+                : '';
             const adminApproveUrl =
               adminActionBaseUrl && `${adminActionBaseUrl}&action=approve`;
             const adminRejectUrl =
@@ -1145,11 +1146,6 @@ const Step2Details: React.FC<any> = ({
 
   if (!selectedDate) return null;
 
-  const reservationModeLabel =
-    settings.reservationMode === 'auto'
-      ? t.reservationModeAuto
-      : t.reservationModeRequest;
-
   const bookingWindowText = settings.bookableWindow
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
@@ -1191,9 +1187,6 @@ const Step2Details: React.FC<any> = ({
               {settings.barEndTime || t.untilClose}
             </p>
           )}
-          <p>
-            <strong>{t.reservationModeLabel}:</strong> {reservationModeLabel}
-          </p>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">

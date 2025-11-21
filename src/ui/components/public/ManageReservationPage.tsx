@@ -5,6 +5,12 @@ import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
+import { sendEmail } from '../../../core/api/emailGateway';
+import {
+    getAdminRecipientsOverride,
+    resolveEmailTemplate,
+    shouldSendEmail,
+} from '../../../core/api/emailSettingsService';
 
 type Locale = 'hu' | 'en';
 
@@ -25,6 +31,107 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     const [actionMessage, setActionMessage] = useState('');
     const [actionError, setActionError] = useState('');
     const [isProcessingAction, setIsProcessingAction] = useState(false);
+
+    const formatBookingDate = (date: Date, loc: Locale) =>
+        date.toLocaleDateString(loc, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    const formatBookingTime = (date: Date, loc: Locale) =>
+        date.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+
+    const buildCommonEmailPayload = () => {
+        if (!booking || !unit) return null;
+        const start = booking.startTime.toDate();
+        const end = booking.endTime?.toDate ? booking.endTime.toDate() : null;
+        const bookingDate = formatBookingDate(start, locale);
+        const bookingTimeFrom = formatBookingTime(start, locale);
+        const bookingTimeTo = end ? ` – ${formatBookingTime(end, locale)}` : '';
+
+        return {
+            unitName: unit.name,
+            guestName: booking.name,
+            bookingDate,
+            bookingTimeFrom,
+            bookingTimeTo,
+            headcount: booking.headcount,
+            guestEmail: booking.contact?.email,
+            guestPhone: booking.contact?.phoneE164 || '',
+            bookingRef: booking.referenceCode?.substring(0, 8).toUpperCase() || '',
+        };
+    };
+
+    const sendGuestDecisionEmail = async (decision: 'approve' | 'reject') => {
+        if (!booking || !unit || !booking.contact?.email) return;
+        try {
+            const canSend = await shouldSendEmail('booking_status_updated_guest', unit.id);
+            if (!canSend) return;
+
+            const basePayload = buildCommonEmailPayload();
+            if (!basePayload) return;
+
+            const decisionLabel =
+                decision === 'approve' ? translations[locale].decisionApprovedLabel : translations[locale].decisionRejectedLabel;
+
+            const payload = {
+                ...basePayload,
+                decisionLabel,
+            };
+
+            const { subject, html } = await resolveEmailTemplate(
+                unit.id,
+                'booking_status_updated_guest',
+                payload
+            );
+
+            await sendEmail({
+                typeId: 'booking_status_updated_guest',
+                unitId: unit.id,
+                to: booking.contact.email,
+                subject,
+                html,
+                payload,
+            });
+        } catch (err) {
+            console.error('Failed to send guest decision email:', err);
+        }
+    };
+
+    const notifyAdminCancellation = async () => {
+        if (!booking || !unit) return;
+        try {
+            const canSend = await shouldSendEmail('booking_cancelled_admin', unit.id);
+            if (!canSend) return;
+
+            const adminRecipients = await getAdminRecipientsOverride(
+                unit.id,
+                'booking_cancelled_admin'
+            );
+            if (!adminRecipients || adminRecipients.length === 0) return;
+
+            const payload = buildCommonEmailPayload();
+            if (!payload) return;
+
+            const { subject, html } = await resolveEmailTemplate(
+                unit.id,
+                'booking_cancelled_admin',
+                payload
+            );
+
+            await Promise.all(
+                adminRecipients.map((to) =>
+                    sendEmail({
+                        typeId: 'booking_cancelled_admin',
+                        unitId: unit.id,
+                        to,
+                        subject,
+                        html,
+                        payload,
+                    })
+                )
+            );
+        } catch (err) {
+            console.error('Failed to notify admin about cancellation:', err);
+        }
+    };
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -90,6 +197,25 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                 status: 'cancelled',
                 cancelledAt: serverTimestamp(),
             });
+
+            try {
+                const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
+                await addDoc(logsRef, {
+                    bookingId: booking.id,
+                    unitId: unit.id,
+                    type: 'cancelled',
+                    createdAt: serverTimestamp(),
+                    createdByUserId: null,
+                    createdByName: booking.name,
+                    source: 'guest',
+                    message: 'Vendég lemondta a foglalást a vendégportálon.',
+                });
+            } catch (logErr) {
+                console.error('Failed to log guest cancellation', logErr);
+            }
+
+            await notifyAdminCancellation();
+
             setBooking(prev => prev ? ({ ...prev, status: 'cancelled' }) : null);
             setIsCancelModalOpen(false);
         } catch(err) {
@@ -139,6 +265,9 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                 adminActionSource: 'email',
             });
             await writeDecisionLog(nextStatus);
+
+            await sendGuestDecisionEmail(decision);
+
             setBooking(prev => (prev ? { ...prev, status: nextStatus } : null));
             setActionMessage(
                 decision === 'approve' ? t.reservationApproved : t.reservationRejected

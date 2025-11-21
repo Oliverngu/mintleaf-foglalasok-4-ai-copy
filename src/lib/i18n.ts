@@ -76,6 +76,8 @@ export const translations = {
         reservationApproved: "A foglalás jóváhagyva és megerősítve.",
         reservationRejected: "A foglalás elutasításra került.",
         actionFailed: "A művelet nem sikerült, kérjük próbáld meg újra.",
+        decisionApprovedLabel: "Elfogadva",
+        decisionRejectedLabel: "Elutasítva",
     },
     en: {
         title: "Table Reservation",
@@ -154,5 +156,7 @@ export const translations = {
         reservationApproved: "The reservation has been approved and confirmed.",
         reservationRejected: "The reservation has been rejected.",
         actionFailed: "The action failed, please try again.",
+        decisionApprovedLabel: "Approved",
+        decisionRejectedLabel: "Rejected",
     },
 };
