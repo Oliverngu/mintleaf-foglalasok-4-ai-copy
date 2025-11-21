@@ -39,6 +39,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     const formatBookingTime = (date: Date, loc: Locale) =>
         date.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
 
+    const ensureReservationSettings = async (): Promise<ReservationSetting | null> => {
+        if (reservationSettings || !unit) return reservationSettings || null;
+
+        try {
+            const settingsSnap = await getDoc(doc(db, 'reservation_settings', unit.id));
+            if (settingsSnap.exists()) {
+                const loaded = { id: unit.id, ...(settingsSnap.data() as ReservationSetting) };
+                setReservationSettings(loaded);
+                return loaded;
+            }
+        } catch (err) {
+            console.error('Failed to fetch reservation settings on demand', err);
+        }
+
+        return null;
+    };
+
     const buildCommonEmailPayload = () => {
         if (!booking || !unit) return null;
         const start = booking.startTime.toDate();
@@ -47,6 +64,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
         const bookingTimeFrom = formatBookingTime(start, locale);
         const bookingTimeTo = end ? ` – ${formatBookingTime(end, locale)}` : '';
 
+        const guestEmail = booking.contact?.email || (booking as any).email || '';
+
         return {
             unitName: unit.name,
             guestName: booking.name,
@@ -54,15 +73,19 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
             bookingTimeFrom,
             bookingTimeTo,
             headcount: booking.headcount,
-            guestEmail: booking.contact?.email,
+            guestEmail,
             guestPhone: booking.contact?.phoneE164 || '',
             bookingRef: booking.referenceCode?.substring(0, 8).toUpperCase() || '',
         };
     };
 
     const sendGuestDecisionEmail = async (decision: 'approve' | 'reject') => {
-        const guestEmail = booking?.contact?.email || booking?.email;
-        if (!booking || !unit || !guestEmail) return;
+        if (!booking || !unit) return;
+        const guestEmail = booking?.contact?.email || (booking as any)?.email;
+        if (!guestEmail) {
+            console.warn('Skipping guest decision email: missing guest email on booking', booking?.id);
+            return;
+        }
         try {
             const canSend = await shouldSendEmail('booking_status_updated_guest', unit.id);
             if (!canSend) return;
@@ -100,13 +123,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     const notifyAdminCancellation = async () => {
         if (!booking || !unit) return;
         try {
+            const loadedSettings = await ensureReservationSettings();
             const canSend = await shouldSendEmail('booking_cancelled_admin', unit.id);
             if (!canSend) return;
 
             const adminRecipients = await getAdminRecipientsOverride(
                 unit.id,
                 'booking_cancelled_admin',
-                reservationSettings?.notificationEmails || []
+                loadedSettings?.notificationEmails || []
             );
             if (!adminRecipients || adminRecipients.length === 0) return;
 
