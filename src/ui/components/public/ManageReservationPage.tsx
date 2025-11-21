@@ -131,13 +131,18 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                 console.warn('Email type disabled, but sending admin cancellation alert as critical flow');
             }
 
-            const adminRecipients = await getAdminRecipientsOverride(
+            const fallbackLegacy = loadedSettings?.notificationEmails || [];
+            const cancellationRecipients = await getAdminRecipientsOverride(
                 unit.id,
                 'booking_cancelled_admin',
-                loadedSettings?.notificationEmails || []
+                fallbackLegacy
             );
-            const fallbackLegacy = loadedSettings?.notificationEmails || [];
-            const recipients = adminRecipients && adminRecipients.length > 0 ? adminRecipients : fallbackLegacy;
+            const bookingCreatedRecipients = await getAdminRecipientsOverride(
+                unit.id,
+                'booking_created_admin',
+                fallbackLegacy
+            );
+            const recipients = Array.from(new Set([...(cancellationRecipients || []), ...(bookingCreatedRecipients || [])]));
             if (!recipients || recipients.length === 0) {
                 console.warn('Skipping admin cancellation alert: no admin recipients configured');
                 return;
