@@ -1232,6 +1232,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
 
+  // Subtle zebra palette for the UI table, mirroring export defaults
+  const tableZebraDelta = useMemo(
+    () => exportSettings.zebraStrength / 4,
+    [exportSettings.zebraStrength]
+  );
+  const tableBaseZebraColor = exportSettings.zebraColor;
+  const tableBaseNameColor = exportSettings.nameColumnColor;
+  const tableAltZebraColor = useMemo(
+    () => adjustColor(exportSettings.zebraColor, -tableZebraDelta),
+    [exportSettings.zebraColor, tableZebraDelta]
+  );
+  const tableAltNameColor = useMemo(
+    () => adjustColor(exportSettings.nameColumnColor, -tableZebraDelta),
+    [exportSettings.nameColumnColor, tableZebraDelta]
+  );
+
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
     return activeUnitIds.sort().join('_');
@@ -2516,10 +2532,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                     const isAltRow = zebraRowIndex % 2 === 1;
                     const rowBg = isAltRow
                       ? tableAltZebraColor
-                      : settings.zebraColor;
+                      : tableBaseZebraColor;
                     const nameBg = isAltRow
                       ? tableAltNameColor
-                      : settings.nameColumnColor;
+                      : tableBaseNameColor;
                     const nameTextColor = getContrastingTextColor(nameBg);
                     const rowTextColor = getContrastingTextColor(rowBg);
                     zebraRowIndex += 1;
