@@ -1843,10 +1843,16 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 6) Zebra csíkozás alkalmazása az exportált táblára
     const zebraBase = exportSettings.zebraColor;
-    const zebraDelta = exportSettings.zebraStrength / 3;
+    const zebraDelta = exportSettings.zebraStrength / 5;
     const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
     const nameBase = exportSettings.nameColumnColor;
     const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('th, td')
+      .forEach(cell => {
+        cell.style.borderWidth = '0.5px';
+      });
 
     let dataRowIndex = 0;
     tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
@@ -2492,7 +2498,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[5] bg-slate-200 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-700 border-t border-b border-slate-300"
+                      className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
