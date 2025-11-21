@@ -220,10 +220,11 @@ async function handlePostRequest(
 
     // Respect subject/html sent from the client.
     // If not provided, fallback to template selector.
-    const template =
-      body.subject && body.html
-        ? { subject: body.subject, html: body.html }
-        : getTemplate(body.typeId, body.payload);
+    const fallback = getTemplate(body.typeId, body.payload);
+    const template = {
+      subject: body.subject ?? fallback.subject,
+      html: body.html ?? fallback.html,
+    };
 
     const resendPayload = {
       from: env.DEFAULT_SENDER || "MintLeaf <noreply@mintleaf.hu>",
