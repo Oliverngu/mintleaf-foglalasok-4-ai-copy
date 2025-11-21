@@ -30,11 +30,13 @@ interface Env {
 }
 
 interface EmailRequestPayload {
-	typeId: string;
-	to: string | string[];
-	unitId?: string | null;
-	locale?: 'hu' | 'en';
-	payload?: Record<string, any>;
+        typeId: string;
+        to: string | string[];
+        unitId?: string | null;
+        locale?: 'hu' | 'en';
+        payload?: Record<string, any>;
+        subject?: string;
+        html?: string;
 }
 
 // --- CORS Helper ---
@@ -136,12 +138,37 @@ async function handlePostRequest(request: Request, env: Env): Promise<Response> 
 		}
 		
 		// This is a simplified template selector. A real implementation would fetch from a DB.
-const getTemplate = (typeId: string, payload: any = {}) => {
+const getTemplate = (typeId: string, payload: any = {}, overrides?: { subject?: string; html?: string }) => {
+        if (overrides?.subject || overrides?.html) {
+                return {
+                        subject: overrides.subject || 'MintLeaf Értesítés',
+                        html: overrides.html || `<p>Automatikus értesítés. Típus: ${typeId}</p>`,
+                };
+        }
+
         switch (typeId) {
             case 'booking_created_guest':
                 return {
                     subject: `Foglalásod részletei: ${payload.bookingName || 'Ismeretlen'}`,
                     html: `<strong>Szia ${payload.bookingName || 'Vendég'}!</strong><p>Köszönjük a foglalásod ${payload.headcount || '?'} főre.</p>`,
+                };
+
+            case 'booking_status_updated_guest':
+                return {
+                        subject: payload?.subject || `Foglalás frissítése: ${payload?.bookingDate || ''} ${payload?.bookingTimeFrom || ''}`,
+                        html:
+                                payload?.html ||
+                                `<h2>Foglalás frissítése</h2><p>Kedves ${payload?.guestName || 'Vendég'}!</p><p>A(z) ${payload?.unitName || 'egység'} foglalásod státusza frissült: ${payload?.decisionLabel || ''}.</p><p>Hivatkozási kód: <strong>${payload?.bookingRef || ''}</strong></p>`,
+                };
+
+            case 'booking_cancelled_admin':
+                return {
+                        subject:
+                                payload?.subject ||
+                                `Foglalás lemondva: ${payload?.bookingDate || ''} ${payload?.bookingTimeFrom || ''} (${payload?.headcount || '?'} fő)`,
+                        html:
+                                payload?.html ||
+                                `<h2>Vendég lemondta a foglalást</h2><p>Egység: <strong>${payload?.unitName || ''}</strong></p><p>Vendég neve: ${payload?.guestName || ''}</p><p>Dátum: ${payload?.bookingDate || ''}</p><p>Időpont: ${payload?.bookingTimeFrom || ''}${payload?.bookingTimeTo || ''}</p><p>Létszám: ${payload?.headcount || ''} fő</p><p>Hivatkozási kód: <strong>${payload?.bookingRef || ''}</strong></p>`,
                 };
 
             case 'leave_request_created':
@@ -193,7 +220,7 @@ const getTemplate = (typeId: string, payload: any = {}) => {
         }
     };
         
-        const template = getTemplate(body.typeId, body.payload);
+        const template = getTemplate(body.typeId, body.payload, { subject: body.subject, html: body.html });
 
 		const resendPayload = {
 			from: env.DEFAULT_SENDER || 'Mintleaf <noreply@mintleaf.hu>',
