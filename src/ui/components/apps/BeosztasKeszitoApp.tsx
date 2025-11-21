@@ -609,6 +609,19 @@ const ExportSettingsPanel: FC<{
     [altNameColor]
   );
 
+  const tableZebraDelta = useMemo(
+    () => settings.zebraStrength / 4,
+    [settings.zebraStrength]
+  );
+  const tableAltZebraColor = useMemo(
+    () => adjustColor(settings.zebraColor, -tableZebraDelta),
+    [settings.zebraColor, tableZebraDelta]
+  );
+  const tableAltNameColor = useMemo(
+    () => adjustColor(settings.nameColumnColor, -tableZebraDelta),
+    [settings.nameColumnColor, tableZebraDelta]
+  );
+
   const ColorInput: FC<{ id: keyof ExportStyleSettings; label: string }> = ({
     id,
     label
@@ -1518,6 +1531,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       allAppUsers.filter(u => hiddenUserIds.has(u.id)),
     [allAppUsers, hiddenUserIds]
   );
+
+  let zebraRowIndex = 0;
 
   const handlePrevWeek = () =>
     setCurrentDate(d => {
@@ -2498,13 +2513,28 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                     const weeklyHours = workHours.userTotals[user.id] || 0;
                     const isEmptyWeek = weeklyHours === 0;
 
+                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const rowBg = isAltRow
+                      ? tableAltZebraColor
+                      : settings.zebraColor;
+                    const nameBg = isAltRow
+                      ? tableAltNameColor
+                      : settings.nameColumnColor;
+                    const nameTextColor = getContrastingTextColor(nameBg);
+                    const rowTextColor = getContrastingTextColor(rowBg);
+                    zebraRowIndex += 1;
+
                     return (
                       <tr
                         key={user.id}
                         className={isEmptyWeek ? 'no-shifts-week' : ''}
+                        style={{ background: rowBg }}
                       >
                         {/* Név oszlop */}
-                        <td className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle">
+                        <td
+                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          style={{ background: nameBg, color: nameTextColor }}
+                        >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-slate-800 leading-tight">
@@ -2616,6 +2646,11 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                             <td
                               key={dayIndex}
                               className={cellClasses}
+                              style={
+                                !isDayOff && !isLeave
+                                  ? { background: rowBg, color: rowTextColor }
+                                  : undefined
+                              }
                               onClick={() =>
                                 canEditCell &&
                                 handleOpenShiftModal(
