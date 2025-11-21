@@ -88,7 +88,9 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
         }
         try {
             const canSend = await shouldSendEmail('booking_status_updated_guest', unit.id);
-            if (!canSend) return;
+            if (!canSend) {
+                console.warn('Email type disabled, but sending guest decision email as critical flow');
+            }
 
             const basePayload = buildCommonEmailPayload();
             if (!basePayload) return;
@@ -125,14 +127,21 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
         try {
             const loadedSettings = await ensureReservationSettings();
             const canSend = await shouldSendEmail('booking_cancelled_admin', unit.id);
-            if (!canSend) return;
+            if (!canSend) {
+                console.warn('Email type disabled, but sending admin cancellation alert as critical flow');
+            }
 
             const adminRecipients = await getAdminRecipientsOverride(
                 unit.id,
                 'booking_cancelled_admin',
                 loadedSettings?.notificationEmails || []
             );
-            if (!adminRecipients || adminRecipients.length === 0) return;
+            const fallbackLegacy = loadedSettings?.notificationEmails || [];
+            const recipients = adminRecipients && adminRecipients.length > 0 ? adminRecipients : fallbackLegacy;
+            if (!recipients || recipients.length === 0) {
+                console.warn('Skipping admin cancellation alert: no admin recipients configured');
+                return;
+            }
 
             const payload = buildCommonEmailPayload();
             if (!payload) return;
@@ -144,7 +153,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
             );
 
             await Promise.all(
-                adminRecipients.map((to) =>
+                recipients.map((to) =>
                     sendEmail({
                         typeId: 'booking_cancelled_admin',
                         unitId: unit.id,
