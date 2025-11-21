@@ -1810,6 +1810,50 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
     // 5) Összesítő sor (Napi összes) kiszedése
     tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
+    // 6) Zebra csíkozás alkalmazása az exportált táblára
+    const zebraBase = exportSettings.zebraColor;
+    const zebraAlt = adjustColor(
+      exportSettings.zebraColor,
+      -(exportSettings.zebraStrength / 2)
+    );
+    const nameBase = exportSettings.nameColumnColor;
+    const nameAlt = adjustColor(
+      exportSettings.nameColumnColor,
+      -(exportSettings.zebraStrength / 2)
+    );
+
+    let dataRowIndex = 0;
+    tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
+      const isCategoryRow = row.querySelector('td[colSpan]');
+      const isSummaryRow = row.classList.contains('summary-row');
+      if (isCategoryRow || isSummaryRow) return;
+
+      const isAltRow = dataRowIndex % 2 === 1;
+      const rowBg = isAltRow ? zebraAlt : zebraBase;
+      const rowText = getContrastingTextColor(rowBg);
+      row.style.background = rowBg;
+      row.style.color = rowText;
+
+      const nameCell = row.querySelector('td');
+      if (nameCell) {
+        const nameBg = isAltRow ? nameAlt : nameBase;
+        nameCell.style.background = nameBg;
+        nameCell.style.color = getContrastingTextColor(nameBg);
+      }
+
+      row.querySelectorAll<HTMLTableCellElement>('td:not(:first-child)').forEach(td => {
+        if (
+          !td.classList.contains('day-off-cell') &&
+          !td.classList.contains('leave-cell')
+        ) {
+          td.style.background = rowBg;
+          td.style.color = rowText;
+        }
+      });
+
+      dataRowIndex += 1;
+    });
+
     // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
 
     html2canvas(exportContainer, {
