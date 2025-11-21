@@ -65,6 +65,7 @@ const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>>
     comment: 'Ez egy minta megjegyzés.',
     bookingRef: 'ABC12345',
     isAutoConfirm: false,
+    isRequestMode: true,
   },
   booking_created_admin: {
     unitName: 'Gin and Avocado',
@@ -81,6 +82,7 @@ const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>>
     comment: 'Ez egy minta megjegyzés.',
     bookingRef: 'ABC12345',
     isAutoConfirm: false,
+    isRequestMode: true,
     reservationModeLabel: 'Foglalási kérelem',
     adminApproveUrl: 'https://mintleaf.example.com/manage?token=ABC&adminToken=XYZ&action=approve',
     adminRejectUrl: 'https://mintleaf.example.com/manage?token=ABC&adminToken=XYZ&action=reject',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Booking } from '../../../core/models/data';
+import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
 import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -31,6 +31,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     const [actionMessage, setActionMessage] = useState('');
     const [actionError, setActionError] = useState('');
     const [isProcessingAction, setIsProcessingAction] = useState(false);
+    const [reservationSettings, setReservationSettings] = useState<ReservationSetting | null>(null);
 
     const formatBookingDate = (date: Date, loc: Locale) =>
         date.toLocaleDateString(loc, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -60,7 +61,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     };
 
     const sendGuestDecisionEmail = async (decision: 'approve' | 'reject') => {
-        if (!booking || !unit || !booking.contact?.email) return;
+        const guestEmail = booking?.contact?.email || booking?.email;
+        if (!booking || !unit || !guestEmail) return;
         try {
             const canSend = await shouldSendEmail('booking_status_updated_guest', unit.id);
             if (!canSend) return;
@@ -85,7 +87,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
             await sendEmail({
                 typeId: 'booking_status_updated_guest',
                 unitId: unit.id,
-                to: booking.contact.email,
+                to: guestEmail,
                 subject,
                 html,
                 payload,
@@ -103,7 +105,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
 
             const adminRecipients = await getAdminRecipientsOverride(
                 unit.id,
-                'booking_cancelled_admin'
+                'booking_cancelled_admin',
+                reservationSettings?.notificationEmails || []
             );
             if (!adminRecipients || adminRecipients.length === 0) return;
 
@@ -148,6 +151,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     useEffect(() => {
         const fetchBooking = async () => {
             setLoading(true);
+            setReservationSettings(null);
             try {
                 let foundBooking: Booking | null = null;
                 let foundUnit: Unit | null = null;
@@ -158,6 +162,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                     if (bookingSnap.exists()) {
                         foundBooking = { id: bookingSnap.id, ...bookingSnap.data() } as Booking;
                         foundUnit = unit;
+
+                        const settingsSnap = await getDoc(doc(db, 'reservation_settings', unit.id));
+                        if (settingsSnap.exists()) {
+                            setReservationSettings({ id: unit.id, ...(settingsSnap.data() as ReservationSetting) });
+                        }
                         break;
                     }
                 }

@@ -517,6 +517,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
                 bookingRef: newReservation.referenceCode,
                 isAutoConfirm: newReservation.status === 'confirmed',
+                isRequestMode: newReservation.status === 'pending',
               };
 
               const { subject, html: baseHtml } = await resolveEmailTemplate(
@@ -707,6 +708,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 comment: newReservation.customData?.comment || '',
                 bookingRef: newReservation.referenceCode,
                 isAutoConfirm: newReservation.status === 'confirmed',
+                isRequestMode: settings.reservationMode === 'request',
                 date: bookingDate,
                 time: bookingTimeFrom,
                 reservationModeLabel,
