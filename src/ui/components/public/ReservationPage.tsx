@@ -62,6 +62,9 @@ const DEFAULT_GUEST_FORM: GuestFormSettings = {
   customSelects: [],
 };
 
+const generateAdminActionToken = () =>
+  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+
 // ===== GUEST LOG HELPER =====
 const writeGuestLog = async (
   unitId: string,
@@ -413,6 +416,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       const newReservationRef = doc(collection(db, 'units', unitId, 'reservations'));
       const referenceCode = newReservationRef.id;
+      const adminActionToken =
+        settings.reservationMode === 'request' ? generateAdminActionToken() : null;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -430,6 +435,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         status: reservationStatus,
         createdAt: Timestamp.now(),
         referenceCode,
+        reservationMode: settings.reservationMode,
+        adminActionToken: adminActionToken || undefined,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
         customData: formData.customData,
@@ -648,6 +655,18 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               legacyRecipients
             );
 
+            const adminActionBaseUrl = newReservation.adminActionToken
+              ? `${window.location.origin}/manage?token=${referenceCode}&adminToken=${newReservation.adminActionToken}`
+              : '';
+            const adminApproveUrl =
+              adminActionBaseUrl && `${adminActionBaseUrl}&action=approve`;
+            const adminRejectUrl =
+              adminActionBaseUrl && `${adminActionBaseUrl}&action=reject`;
+            const reservationModeLabel =
+              settings.reservationMode === 'auto'
+                ? 'Automatikus megerősítés'
+                : 'Foglalási kérelem';
+
             if (!adminRecipients || adminRecipients.length === 0) {
               console.warn(
                 "No admin recipients configured for 'booking_created_admin' for unit:",
@@ -674,6 +693,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 isAutoConfirm: newReservation.status === 'confirmed',
                 date: bookingDate,
                 time: bookingTimeFrom,
+                reservationModeLabel,
+                adminApproveUrl,
+                adminRejectUrl,
               };
 
               const { subject, html: baseHtml } = await resolveEmailTemplate(
@@ -1123,6 +1145,15 @@ const Step2Details: React.FC<any> = ({
 
   if (!selectedDate) return null;
 
+  const reservationModeLabel =
+    settings.reservationMode === 'auto'
+      ? t.reservationModeAuto
+      : t.reservationModeRequest;
+
+  const bookingWindowText = settings.bookableWindow
+    ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
+    : null;
+
   return (
     <div
       className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
@@ -1135,22 +1166,34 @@ const Step2Details: React.FC<any> = ({
           {error}
         </div>
       )}
-      {(settings.kitchenStartTime || settings.barStartTime) && (
+      {(bookingWindowText || settings.kitchenStartTime || settings.barStartTime) && (
         <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-600`}
+          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
         >
+          {bookingWindowText && (
+            <p className="flex items-start gap-2">
+              <span className="font-semibold whitespace-nowrap">{t.bookableWindowLabel}:</span>
+              <span>
+                {bookingWindowText}
+                <span className="block text-xs text-gray-500">{t.bookableWindowHint}</span>
+              </span>
+            </p>
+          )}
           {settings.kitchenStartTime && (
             <p>
               <strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} -{' '}
-              {settings.kitchenEndTime || 'Zárásig'}
+              {settings.kitchenEndTime || t.untilClose}
             </p>
           )}
           {settings.barStartTime && (
             <p>
               <strong>{t.barHours}:</strong> {settings.barStartTime} -{' '}
-              {settings.barEndTime || 'Zárásig'}
+              {settings.barEndTime || t.untilClose}
             </p>
           )}
+          <p>
+            <strong>{t.reservationModeLabel}:</strong> {reservationModeLabel}
+          </p>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">

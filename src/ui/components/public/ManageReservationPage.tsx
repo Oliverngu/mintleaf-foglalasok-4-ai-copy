@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -20,6 +20,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
     const [error, setError] = useState('');
     const [locale, setLocale] = useState<Locale>('hu');
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [adminToken, setAdminToken] = useState<string | null>(null);
+    const [adminAction, setAdminAction] = useState<'approve' | 'reject' | null>(null);
+    const [actionMessage, setActionMessage] = useState('');
+    const [actionError, setActionError] = useState('');
+    const [isProcessingAction, setIsProcessingAction] = useState(false);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const tokenParam = params.get('adminToken');
+        const actionParam = params.get('action');
+        if (tokenParam) {
+            setAdminToken(tokenParam);
+        }
+        if (actionParam === 'approve' || actionParam === 'reject') {
+            setAdminAction(actionParam);
+        }
+    }, []);
 
     useEffect(() => {
         const fetchBooking = async () => {
@@ -81,7 +98,72 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
         }
     };
 
+    const writeDecisionLog = async (
+        status: 'confirmed' | 'cancelled'
+    ) => {
+        if (!booking || !unit) return;
+        try {
+            const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
+            await addDoc(logsRef, {
+                bookingId: booking.id,
+                unitId: unit.id,
+                type: status === 'confirmed' ? 'updated' : 'cancelled',
+                createdAt: serverTimestamp(),
+                createdByUserId: null,
+                createdByName: 'Email jóváhagyás',
+                source: 'internal',
+                message:
+                    status === 'confirmed'
+                        ? 'Foglalás jóváhagyva e-mailből'
+                        : 'Foglalás elutasítva e-mailből',
+            });
+        } catch (logErr) {
+            console.error('Failed to write admin decision log', logErr);
+        }
+    };
+
+    const handleAdminDecision = async (decision: 'approve' | 'reject') => {
+        if (!booking || !unit) return;
+        if (!adminToken || booking.adminActionToken !== adminToken) {
+            setActionError(t.invalidAdminToken);
+            return;
+        }
+        setIsProcessingAction(true);
+        setActionError('');
+        try {
+            const nextStatus = decision === 'approve' ? 'confirmed' : 'cancelled';
+            const reservationRef = doc(db, 'units', unit.id, 'reservations', booking.id);
+            await updateDoc(reservationRef, {
+                status: nextStatus,
+                adminActionHandledAt: serverTimestamp(),
+                adminActionSource: 'email',
+            });
+            await writeDecisionLog(nextStatus);
+            setBooking(prev => (prev ? { ...prev, status: nextStatus } : null));
+            setActionMessage(
+                decision === 'approve' ? t.reservationApproved : t.reservationRejected
+            );
+        } catch (actionErr) {
+            console.error('Error handling admin decision:', actionErr);
+            setActionError(t.actionFailed);
+        } finally {
+            setIsProcessingAction(false);
+        }
+    };
+
     const t = translations[locale];
+
+    useEffect(() => {
+        if (
+            booking &&
+            booking.status === 'pending' &&
+            adminAction &&
+            adminToken &&
+            booking.adminActionToken === adminToken
+        ) {
+            handleAdminDecision(adminAction);
+        }
+    }, [booking, adminAction, adminToken]);
     
     if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><LoadingSpinner /></div>;
     if (error) return <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 text-center"><div className="bg-white p-8 rounded-lg shadow-md"><h2 className="text-xl font-bold text-red-600">Hiba</h2><p className="text-gray-800 mt-2">{error}</p></div></div>;
@@ -126,6 +208,49 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                     <p><strong>{t.email}:</strong> {booking.contact?.email}</p>
                     <p><strong>{t.phone}:</strong> {booking.contact?.phoneE164 ? maskPhone(booking.contact.phoneE164) : 'N/A'}</p>
                 </div>
+
+                {booking.status === 'pending' && (
+                    <div className="mt-6 p-4 border rounded-xl bg-yellow-50 text-yellow-900">
+                        <p className="font-semibold">{t.pendingApproval}</p>
+                        <p className="text-sm mt-1">{t.pendingApprovalHint}</p>
+                    </div>
+                )}
+
+                {booking.status === 'pending' && adminToken && booking.adminActionToken !== adminToken && (
+                    <div className="mt-4 p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
+                        {t.invalidAdminToken}
+                    </div>
+                )}
+
+                {booking.status === 'pending' && adminToken && booking.adminActionToken === adminToken && (
+                    <div className="mt-6 p-4 border rounded-xl bg-green-50 text-green-900 space-y-3">
+                        <p className="font-semibold">{t.adminActionTitle}</p>
+                        {actionMessage && (
+                            <p className="text-sm text-green-800 bg-white/60 p-2 rounded-md border border-green-200">{actionMessage}</p>
+                        )}
+                        {actionError && (
+                            <p className="text-sm text-red-700 bg-white/60 p-2 rounded-md border border-red-200">{actionError}</p>
+                        )}
+                        {!actionMessage && (
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <button
+                                    onClick={() => handleAdminDecision('approve')}
+                                    className="flex-1 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-60"
+                                    disabled={isProcessingAction}
+                                >
+                                    {t.adminApprove}
+                                </button>
+                                <button
+                                    onClick={() => handleAdminDecision('reject')}
+                                    className="flex-1 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                                    disabled={isProcessingAction}
+                                >
+                                    {t.adminReject}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 
                 {booking.status !== 'cancelled' ? (
                     <div className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4">

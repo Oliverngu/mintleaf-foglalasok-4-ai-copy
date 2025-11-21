@@ -93,6 +93,10 @@ export interface Booking {
   cancelReason?: string;
   referenceCode?: string;
   customData?: Record<string, string>;
+  reservationMode?: 'auto' | 'request';
+  adminActionToken?: string;
+  adminActionHandledAt?: Timestamp;
+  adminActionSource?: 'email' | 'manual';
 }
 
 export interface ThemeSettings {

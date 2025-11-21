@@ -61,9 +61,17 @@ booking_created_guest: {
         <li><strong>Email:</strong> {{guestEmail}}</li>
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
         <li><strong>Alkalom:</strong> {{occasion}}</li>
+        <li><strong>Foglalás módja:</strong> {{reservationModeLabel}}</li>
       </ul>
 
       <p>A levél alján egy részletes, fix adatlap blokk található a foglalásról.</p>
+
+      {{#if adminApproveUrl}}
+      <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
+        <a href="{{adminApproveUrl}}" style="background:#16a34a;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELFOGADÁS</a>
+        <a href="{{adminRejectUrl}}" style="background:#dc2626;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELUTASÍTÁS</a>
+      </div>
+      {{/if}}
     `,
   },
 
