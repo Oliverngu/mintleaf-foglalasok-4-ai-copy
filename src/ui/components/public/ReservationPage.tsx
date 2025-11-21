@@ -668,6 +668,21 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 ? 'Automatikus megerősítés'
                 : 'Foglalási kérelem';
 
+            const adminActionButtonsHtml =
+              settings.reservationMode === 'request' && adminApproveUrl && adminRejectUrl
+                ? `
+            <div style="
+              margin: 0 0 16px 0;
+              display: flex;
+              gap: 12px;
+              flex-wrap: wrap;
+            ">
+              <a href="${adminApproveUrl}" style="background:#16a34a;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELFOGADÁS</a>
+              <a href="${adminRejectUrl}" style="background:#dc2626;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELUTASÍTÁS</a>
+            </div>
+          `
+                : '';
+
             if (!adminRecipients || adminRecipients.length === 0) {
               console.warn(
                 "No admin recipients configured for 'booking_created_admin' for unit:",
@@ -732,6 +747,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               }
 
               const detailsHtml = `
+          ${adminActionButtonsHtml}
           <div style="
             margin-top: 32px;
             padding: 24px;
