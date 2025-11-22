@@ -117,7 +117,7 @@ const FileUploadModal: FC<{
         contentType: file.type,
         uploadedBy: currentUser.fullName,
         uploadedByUid: currentUser.id,
-        uploadedAt: serverTimestamp() as Timestamp,
+        uploadedAt: serverTimestamp(),
         unitId: unitId,
         categoryId,
         subcategory: subcategory || undefined,
@@ -125,6 +125,7 @@ const FileUploadModal: FC<{
 
       console.log('WRITE FILE METADATA', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
       await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
+      console.log('UPLOAD COMPLETE', { unitId, fileName: file.name });
 
       try {
         await onSubcategoryCapture(categoryId, subcategory || undefined);
@@ -134,9 +135,11 @@ const FileUploadModal: FC<{
 
       onClose();
     } catch (err: any) {
-      console.error('Error uploading file:', err);
+      console.error('Error uploading file:', { code: err?.code, message: err?.message, err });
       if (err?.code === 'storage/unauthorized' || err?.code === 'storage/permission-denied') {
         setError('Nincs jogosultság a feltöltéshez. Ellenőrizd az egységre vonatkozó tárhelyszabályokat.');
+      } else if (err?.code === 'permission-denied') {
+        setError('Nincs jogosultság a dokumentum mentéséhez. Ellenőrizd a Firestore jogosultságokat.');
       } else {
         setError(err?.message || 'Hiba a fájl feltöltése során.');
       }
