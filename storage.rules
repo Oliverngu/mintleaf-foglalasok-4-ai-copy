@@ -1,17 +1,9 @@
 rules_version = '2';
 
-service cloud.firestore {
-  match /databases/{database}/documents {
+service firebase.storage {
+  match /b/{bucket}/o {
     function isSignedIn() {
       return request.auth != null;
-    }
-
-    function canManageKnowledgeGlobal() {
-      return isSignedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.canManageKnowledgeBase == true ||
-        request.auth.token.canManageKnowledgeCategories == true
-      );
     }
 
     function canManageKnowledgeBase(unitId) {
@@ -30,25 +22,9 @@ service cloud.firestore {
       );
     }
 
-    // Tudástár: file meta (new), legacy knowledge_base docs, shared categories/notes
-    match /knowledgeCategories/{docId} {
-      allow read, write: if canManageKnowledgeGlobal();
-    }
-
-    match /knowledgeNotes/{docId} {
-      allow read, write: if canManageKnowledgeGlobal();
-    }
-
-    match /units/{unitId}/files/{fileId} {
+    // Tudástár: Storage objects per unit
+    match /units/{unitId}/knowledge_base/{allPaths=**} {
       allow read, write: if canManageKnowledgeBase(unitId);
-    }
-
-    match /units/{unitId}/knowledge_base/{document=**} {
-      allow read, write: if canManageKnowledgeBase(unitId);
-    }
-
-    match /{document=**} {
-      allow read, write: if isSignedIn();
     }
   }
 }
