@@ -566,21 +566,6 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
     }
   }, [selectedUnitId]);
 
-  if (!selectedUnitId) {
-    const message =
-      selectionState === 'multi'
-        ? 'Egyszerre csak egy egység tudástárát tudjuk megjeleníteni. Kérlek, válaszd ki pontosan az egyiket a felső (zöld) egységválasztóban.'
-        : 'A tudástár eléréséhez válassz ki egy egységet a felső (zöld) egységválasztó sávban.';
-
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-        <BookIcon className="h-16 w-16 text-green-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-800">Válassz egységet</h2>
-        <p className="mt-2 text-gray-600 max-w-xl">{message}</p>
-      </div>
-    );
-  }
-
   const ensureDefaultsForUnit = useCallback(
     async (unitId: string) => {
       if (!canManage || !unitId) return;
@@ -771,6 +756,21 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
       .replace(/\n/g, '<br />');
     return <div className="text-gray-800" dangerouslySetInnerHTML={{ __html: formatted }} />;
   };
+
+  if (!selectedUnitId) {
+    const message =
+      selectionState === 'multi'
+        ? 'Egyszerre csak egy egység tudástárát tudjuk megjeleníteni. Kérlek, válaszd ki pontosan az egyiket a felső (zöld) egységválasztóban.'
+        : 'A tudástár eléréséhez válassz ki egy egységet a felső (zöld) egységválasztó sávban.';
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+        <BookIcon className="h-16 w-16 text-green-500 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-800">Válassz egységet</h2>
+        <p className="mt-2 text-gray-600 max-w-xl">{message}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8 space-y-6">
