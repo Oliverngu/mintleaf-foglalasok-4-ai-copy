@@ -645,43 +645,74 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
 
   useEffect(() => {
     if (!selectedUnitId) return;
-    const notesQuery = query(collection(db, 'knowledgeNotes'), where('unitId', '==', selectedUnitId));
-    const unsubscribe = onSnapshot(
-      notesQuery,
-      snapshot => {
-        const fetchedNotes = snapshot.docs
-          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
-          .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-        setNotes(fetchedNotes);
-      },
-      err => {
-        console.error('Error fetching notes:', err);
-        setError('Hiba a jegyzetek betöltésekor.');
-      }
-    );
-    return () => unsubscribe();
+
+    let unsubscribe: (() => void) | undefined;
+    let isStale = false;
+
+    try {
+      const notesQuery = query(collection(db, 'knowledgeNotes'), where('unitId', '==', selectedUnitId));
+      unsubscribe = onSnapshot(
+        notesQuery,
+        snapshot => {
+          if (isStale) return;
+          const fetchedNotes = snapshot.docs
+            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
+            .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+          setNotes(fetchedNotes);
+        },
+        err => {
+          if (isStale) return;
+          console.error('Error fetching notes:', err);
+          setError('Hiba a jegyzetek betöltésekor.');
+        }
+      );
+    } catch (err) {
+      console.error('Error initializing notes listener:', err);
+      setError('Hiba a jegyzetek betöltésekor.');
+    }
+
+    return () => {
+      isStale = true;
+      if (unsubscribe) unsubscribe();
+    };
   }, [selectedUnitId]);
 
   useEffect(() => {
     if (!selectedUnitId) return;
     setLoading(true);
-    const filesQuery = query(collection(db, 'files'), where('unitId', '==', selectedUnitId));
-    const unsubscribe = onSnapshot(
-      filesQuery,
-      snapshot => {
-        const fetchedFiles = snapshot.docs
-          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata))
-          .sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
-        setFiles(fetchedFiles);
-        setLoading(false);
-      },
-      err => {
-        console.error('Error fetching files:', err);
-        setError('Hiba a dokumentumok betöltésekor.');
-        setLoading(false);
-      }
-    );
-    return () => unsubscribe();
+
+    let unsubscribe: (() => void) | undefined;
+    let isStale = false;
+
+    try {
+      const filesQuery = query(collection(db, 'files'), where('unitId', '==', selectedUnitId));
+      unsubscribe = onSnapshot(
+        filesQuery,
+        snapshot => {
+          if (isStale) return;
+          const fetchedFiles = snapshot.docs
+            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata))
+            .sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
+          setFiles(fetchedFiles);
+          setLoading(false);
+        },
+        err => {
+          if (isStale) return;
+          console.error('Error fetching files:', err);
+          setError('Hiba a dokumentumok betöltésekor.');
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      console.error('Error initializing files listener:', err);
+      setError('Hiba a dokumentumok betöltésekor.');
+      setLoading(false);
+    }
+
+    return () => {
+      isStale = true;
+      if (unsubscribe) unsubscribe();
+    };
   }, [selectedUnitId]);
 
   const handleDeleteFile = async (file: FileMetadata) => {
