@@ -117,7 +117,13 @@ const FileUploadModal: FC<{
       };
 
       await addDoc(collection(db, 'files'), fileMetadata);
-      await onSubcategoryCapture(categoryId, subcategory || undefined);
+
+      try {
+        await onSubcategoryCapture(categoryId, subcategory || undefined);
+      } catch (captureErr) {
+        console.warn('Failed to capture subcategory metadata after upload', captureErr);
+      }
+
       onClose();
     } catch (err: any) {
       console.error('Error uploading file:', err);

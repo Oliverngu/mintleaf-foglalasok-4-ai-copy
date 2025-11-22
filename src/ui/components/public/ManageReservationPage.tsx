@@ -102,12 +102,29 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
                 ...basePayload,
                 decisionLabel,
             };
+            let subject = '';
+            let html = '';
 
-            const { subject, html } = await resolveEmailTemplate(
-                unit.id,
-                'booking_status_updated_guest',
-                payload
-            );
+            try {
+                const rendered = await resolveEmailTemplate(unit.id, 'booking_status_updated_guest', payload);
+                subject = rendered.subject;
+                html = rendered.html;
+            } catch (templateErr) {
+                console.warn('Falling back to inline template for guest decision email', templateErr);
+                subject = `Foglalás frissítve: ${payload.bookingDate} ${payload.bookingTimeFrom}${payload.bookingTimeTo}`;
+                html = `
+                    <h2>Foglalás frissítése</h2>
+                    <p>Kedves ${payload.guestName || 'Vendég'}!</p>
+                    <p>A(z) <strong>${payload.unitName}</strong> egységnél leadott foglalásod státusza frissült.</p>
+                    <ul>
+                        <li><strong>Dátum:</strong> ${payload.bookingDate}</li>
+                        <li><strong>Időpont:</strong> ${payload.bookingTimeFrom}${payload.bookingTimeTo}</li>
+                        <li><strong>Létszám:</strong> ${payload.headcount} fő</li>
+                        <li><strong>Döntés:</strong> ${payload.decisionLabel}</li>
+                    </ul>
+                    <p>Hivatkozási kód: <strong>${payload.bookingRef || ''}</strong></p>
+                `;
+            }
 
             await sendEmail({
                 typeId: 'booking_status_updated_guest',
@@ -150,12 +167,30 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
 
             const payload = buildCommonEmailPayload();
             if (!payload) return;
+            let subject = '';
+            let html = '';
 
-            const { subject, html } = await resolveEmailTemplate(
-                unit.id,
-                'booking_cancelled_admin',
-                payload
-            );
+            try {
+                const rendered = await resolveEmailTemplate(unit.id, 'booking_cancelled_admin', payload);
+                subject = rendered.subject;
+                html = rendered.html;
+            } catch (templateErr) {
+                console.warn('Falling back to inline template for admin cancellation alert', templateErr);
+                subject = `Foglalás lemondva: ${payload.bookingDate} ${payload.bookingTimeFrom}${payload.bookingTimeTo}`;
+                html = `
+                    <h2>Vendég lemondta a foglalást</h2>
+                    <p>Egység: <strong>${payload.unitName}</strong></p>
+                    <ul>
+                        <li><strong>Vendég neve:</strong> ${payload.guestName}</li>
+                        <li><strong>Dátum:</strong> ${payload.bookingDate}</li>
+                        <li><strong>Időpont:</strong> ${payload.bookingTimeFrom}${payload.bookingTimeTo}</li>
+                        <li><strong>Létszám:</strong> ${payload.headcount} fő</li>
+                        <li><strong>Email:</strong> ${payload.guestEmail}</li>
+                        <li><strong>Telefon:</strong> ${payload.guestPhone}</li>
+                    </ul>
+                    <p>Hivatkozási kód: <strong>${payload.bookingRef || ''}</strong></p>
+                `;
+            }
 
             await Promise.all(
                 recipients.map((to) =>
