@@ -221,7 +221,7 @@ const getEmailSettingsForUnit = async (
       adminDefaultEmail: data.adminDefaultEmail || '',
     };
   } catch (err) {
-    functions.logger.error('Failed to fetch email settings', { unitId, err });
+    logger.error('Failed to fetch email settings', { unitId, err });
     return defaultSettings;
   }
 };
@@ -389,7 +389,7 @@ const getUnitName = async (unitId: string) => {
     const snap = await db.doc(`units/${unitId}`).get();
     return (snap.data()?.name as string) || 'MintLeaf egység';
   } catch (err) {
-    functions.logger.error('Failed to load unit', { unitId, err });
+    logger.error('Failed to load unit', { unitId, err });
     return 'MintLeaf egység';
   }
 };
@@ -402,7 +402,7 @@ const getReservationSettings = async (
     if (!snap.exists) return {};
     return snap.data() as ReservationSettings;
   } catch (err) {
-    functions.logger.error('Failed to fetch reservation settings', {
+    logger.error('Failed to fetch reservation settings', {
       unitId,
       err,
     });
