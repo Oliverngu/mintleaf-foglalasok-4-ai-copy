@@ -1,5 +1,6 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { logger } from "firebase-functions/v2";
+import * as admin from "firebase-admin";
 
 admin.initializeApp();
 
@@ -663,12 +664,44 @@ export const onReservationCreated = functions
     await Promise.all(tasks);
   });
 
-export const onReservationStatusChange = functions
-  .region(REGION)
-  .firestore.document('units/{unitId}/reservations/{bookingId}')
-  .onUpdate(async (change, context) => {
-    const before = change.before.data() as BookingRecord | undefined;
-    const after = change.after.data() as BookingRecord | undefined;
+export const onReservationCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "units/{unitId}/reservations/{bookingId}",
+  },
+  async (event) => {
+    const booking = event.data?.data() as BookingRecord | undefined;
+    if (!booking) return;
+
+    const unitId = event.params.unitId as string;
+    const unitName = await getUnitName(unitId);
+
+    const tasks: Promise<void>[] = [];
+
+    tasks.push(
+      sendGuestCreatedEmail(unitId, booking, unitName).catch(err =>
+        logger.error("Failed to send guest created email", { unitId, err })
+      )
+    );
+
+    tasks.push(
+      sendAdminCreatedEmail(unitId, booking, unitName).catch(err =>
+        logger.error("Failed to send admin created email", { unitId, err })
+      )
+    );
+
+    await Promise.all(tasks);
+  }
+);
+
+export const onReservationStatusChange = onDocumentUpdated(
+  {
+    region: REGION,
+    document: "units/{unitId}/reservations/{bookingId}",
+  },
+  async (event) => {
+    const before = event.data?.before.data() as BookingRecord | undefined;
+    const after = event.data?.after.data() as BookingRecord | undefined;
     if (!before || !after) return;
 
     const statusChanged = before.status !== after.status;
@@ -679,10 +712,10 @@ export const onReservationStatusChange = functions
 
     if (!statusOrCancelChanged && !edited) return;
 
-    const unitId = context.params.unitId as string;
-    const bookingId = context.params.bookingId as string;
+    const unitId = event.params.unitId as string;
+    const bookingId = event.params.bookingId as string;
 
-    functions.logger.info('TRIGGER FIRED', {
+    logger.info("TRIGGER FIRED", {
       unitId,
       bookingId,
       beforeStatus: before.status,
@@ -696,23 +729,20 @@ export const onReservationStatusChange = functions
 
     const adminDecision =
       statusChanged &&
-      before.status === 'pending' &&
-      (after.status === 'confirmed' || after.status === 'cancelled');
+      before.status === "pending" &&
+      (after.status === "confirmed" || after.status === "cancelled");
 
     const guestCancelled =
       statusChanged &&
-      after.status === 'cancelled' &&
-      after.cancelledBy === 'guest';
+      after.status === "cancelled" &&
+      after.cancelledBy === "guest";
 
     const tasks: Promise<void>[] = [];
 
     if (adminDecision) {
       tasks.push(
         sendGuestStatusEmail(unitId, after, unitName).catch(err =>
-          functions.logger.error('Failed to send guest status email', {
-            unitId,
-            err,
-          })
+          logger.error("Failed to send guest status email", { unitId, err })
         )
       );
     }
@@ -720,10 +750,7 @@ export const onReservationStatusChange = functions
     if (guestCancelled) {
       tasks.push(
         sendAdminCancellationEmail(unitId, after, unitName).catch(err =>
-          functions.logger.error(
-            'Failed to send admin cancellation email',
-            { unitId, err }
-          )
+          logger.error("Failed to send admin cancellation email", { unitId, err })
         )
       );
     }
@@ -731,21 +758,16 @@ export const onReservationStatusChange = functions
     if (edited && !statusChanged) {
       tasks.push(
         sendGuestModifiedEmail(unitId, after, unitName).catch(err =>
-          functions.logger.error('Failed to send guest modified email', {
-            unitId,
-            err,
-          })
+          logger.error("Failed to send guest modified email", { unitId, err })
         )
       );
       tasks.push(
         sendAdminModifiedEmail(unitId, after, unitName).catch(err =>
-          functions.logger.error('Failed to send admin modified email', {
-            unitId,
-            err,
-          })
+          logger.error("Failed to send admin modified email", { unitId, err })
         )
       );
     }
 
     await Promise.all(tasks);
-  });
+  }
+);
