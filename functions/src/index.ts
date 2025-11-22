@@ -299,15 +299,41 @@ const sendEmail = async (params: {
   html: string;
   payload?: Record<string, any>;
 }) => {
-  const response = await fetch(EMAIL_GATEWAY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
+  try {
+    const response = await fetch(EMAIL_GATEWAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => 'unknown_error');
-    throw new Error(`Email gateway error ${response.status}: ${text}`);
+    const text = await response.text().catch(() => "");
+
+    if (!response.ok) {
+      logger.error("EMAIL GATEWAY ERROR", {
+        status: response.status,
+        body: text,
+        typeId: params.typeId,
+        unitId: params.unitId,
+        to: params.to,
+      });
+      throw new Error(`Email gateway error ${response.status}: ${text}`);
+    }
+
+    logger.info("EMAIL GATEWAY OK", {
+      status: response.status,
+      typeId: params.typeId,
+      unitId: params.unitId,
+      to: params.to,
+    });
+  } catch (err: any) {
+    logger.error("sendEmail() FAILED", {
+      typeId: params.typeId,
+      unitId: params.unitId,
+      to: params.to,
+      message: err?.message,
+      stack: err?.stack,
+    });
+    throw err;
   }
 };
 
