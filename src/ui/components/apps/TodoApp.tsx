@@ -84,14 +84,13 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
   const [viewingSeenBy, setViewingSeenBy] = useState<Todo | null>(null);
 
   const filteredTodos = useMemo(() => {
-    if (currentUser.role === 'Admin' && (!activeUnitIds || activeUnitIds.length === 0)) {
-      return todos;
-    }
     if (!activeUnitIds || activeUnitIds.length === 0) {
-      return todos;
+      return [] as Todo[];
     }
     return todos.filter(t => t.unitId && activeUnitIds.includes(t.unitId));
-  }, [todos, activeUnitIds, currentUser.role]);
+  }, [todos, activeUnitIds]);
+
+  const hasActiveUnit = activeUnitIds && activeUnitIds.length > 0;
 
   // AUTO "LÁTTAM" JELÖLÉS
   useEffect(() => {
@@ -198,8 +197,12 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
   const handleAddNewTodo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newTodoText.trim() === '') return;
-    if (activeUnitIds.length === 0) {
+    if (!hasActiveUnit) {
       alert("Kérlek, válassz ki egy egységet a fejlécben a teendő hozzáadásához.");
+      return;
+    }
+    if (activeUnitIds.length !== 1) {
+      alert("Egyszerre csak egy egység teendőit tudod szerkeszteni. Válassz ki egyet a fejlécben.");
       return;
     }
 
@@ -346,6 +349,16 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
       </div>
     );
   };
+
+  if (!hasActiveUnit) {
+    return (
+      <div className="p-4 md:p-8">
+        <div className="bg-white border border-gray-100 rounded-2xl shadow p-6 text-center text-gray-700">
+          <p className="font-semibold">Válassz ki egy egységet a felső sávban a teendők megtekintéséhez.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8">

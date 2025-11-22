@@ -655,15 +655,13 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   useEffect(() => {
     if (!selectedUnitId) return;
     setLoading(true);
-    const filesQuery = query(
-      collection(db, 'files'),
-      where('unitId', '==', selectedUnitId),
-      orderBy('uploadedAt', 'desc')
-    );
+    const filesQuery = query(collection(db, 'files'), where('unitId', '==', selectedUnitId));
     const unsubscribe = onSnapshot(
       filesQuery,
       snapshot => {
-        const fetchedFiles = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata));
+        const fetchedFiles = snapshot.docs
+          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata))
+          .sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
         setFiles(fetchedFiles);
         setLoading(false);
       },
