@@ -160,7 +160,6 @@ const FileUploadModal: FC<{
             err: fallbackErr,
           });
           setError('A fájl feltöltése sikerült, de a metaadatok mentése nem; ellenőrizd a jogosultságokat.');
-          throw fallbackErr;
         }
       }
 
@@ -174,6 +173,8 @@ const FileUploadModal: FC<{
         }
 
         onClose();
+      } else {
+        throw new Error('A fájl metaadatainak mentése sikertelen (primary és fallback útvonal is).');
       }
     } catch (err: any) {
       console.error('Error uploading file:', { code: err?.code, message: err?.message, err });
