@@ -107,7 +107,7 @@ const FileUploadModal: FC<{
       const safeSubcategorySegment = subcategory ? subcategory.replace(/\//g, '_') : '';
       const storagePath = `units/${unitId}/knowledge_base/${safeCategorySegment}${safeSubcategorySegment ? `/${safeSubcategorySegment}` : ''}/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storagePath);
-      console.log('START STORAGE UPLOAD', { storagePath });
+      console.log('START STORAGE UPLOAD', { storagePath, unitId });
       const uploadResult = await uploadBytes(storageRef, file, {
         contentType: file.type,
       });
@@ -130,14 +130,19 @@ const FileUploadModal: FC<{
       };
 
       let metadataSaved = false;
+      let primarySaved = false;
 
       try {
         console.log('WRITE FILE METADATA primary', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
         await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
         metadataSaved = true;
+        primarySaved = true;
         console.log('METADATA WRITE primary success');
       } catch (primaryErr: any) {
         console.error('Primary metadata write failed', { code: primaryErr?.code, message: primaryErr?.message, err: primaryErr });
+      }
+
+      if (!metadataSaved) {
         try {
           console.log('WRITE FILE METADATA fallback', {
             unitId,
@@ -159,7 +164,24 @@ const FileUploadModal: FC<{
         }
       }
 
-      if (metadataSaved) {
+      if (metadataSaved && primarySaved) {
+        try {
+          console.log('WRITE FILE METADATA mirror legacy', {
+            unitId,
+            categoryId,
+            subcategory,
+            path: `units/${unitId}/knowledge_base`,
+          });
+          await addDoc(collection(db, 'units', unitId, 'knowledge_base'), fileMetadata);
+          console.log('METADATA WRITE mirror legacy success');
+        } catch (mirrorErr: any) {
+          console.warn('Non-blocking legacy metadata mirror failed', {
+            code: mirrorErr?.code,
+            message: mirrorErr?.message,
+            err: mirrorErr,
+          });
+        }
+
         console.log('UPLOAD COMPLETE', { unitId, fileName: file.name });
 
         try {
