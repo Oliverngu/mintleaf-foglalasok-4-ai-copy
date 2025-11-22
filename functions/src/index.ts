@@ -95,6 +95,37 @@ const defaultTemplates = {
   },
 };
 
+booking_modified_guest: {
+  subject: "Foglalás módosítva: {{bookingDate}} {{bookingTimeFrom}}",
+  html: `
+    <h2>Foglalás módosítva</h2>
+    <p>Kedves {{guestName}}!</p>
+    <p>A(z) <strong>{{unitName}}</strong> egységnél a foglalásod adatai módosultak.</p>
+    <ul>
+      <li><strong>Dátum:</strong> {{bookingDate}}</li>
+      <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+      <li><strong>Létszám:</strong> {{headcount}} fő</li>
+    </ul>
+    <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+  `,
+},
+booking_modified_admin: {
+  subject: "Foglalás módosítva (admin): {{bookingDate}} {{bookingTimeFrom}} – {{guestName}}",
+  html: `
+    <h2>Foglalás módosítva</h2>
+    <p>Egység: <strong>{{unitName}}</strong></p>
+    <ul>
+      <li><strong>Vendég neve:</strong> {{guestName}}</li>
+      <li><strong>Dátum:</strong> {{bookingDate}}</li>
+      <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+      <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      <li><strong>Email:</strong> {{guestEmail}}</li>
+      <li><strong>Telefon:</strong> {{guestPhone}}</li>
+    </ul>
+    <p>Ref: <strong>{{bookingRef}}</strong></p>
+  `,
+},
+
 const renderTemplate = (template: string, payload: Record<string, any> = {}) => {
   let rendered = template;
 
@@ -111,6 +142,48 @@ const renderTemplate = (template: string, payload: Record<string, any> = {}) => 
   });
 
   return rendered;
+};
+
+const sendGuestModifiedEmail = async (unitId: string, booking: BookingRecord, unitName: string) => {
+  const locale = booking.locale || "hu";
+  const guestEmail = booking.contact?.email || booking.email;
+  if (!guestEmail) return;
+
+  const payload = buildPayload(booking, unitName, locale, "");
+  const { subject, html } = await resolveEmailTemplate(unitId, "booking_modified_guest", payload);
+
+  await sendEmail({
+    typeId: "booking_modified_guest",
+    unitId,
+    to: guestEmail,
+    subject,
+    html,
+    payload,
+  });
+};
+
+const sendAdminModifiedEmail = async (unitId: string, booking: BookingRecord, unitName: string) => {
+  const settings = await getReservationSettings(unitId);
+  const legacyRecipients = settings.notificationEmails || [];
+  const recipients = await getAdminRecipientsOverride(unitId, "booking_modified_admin", legacyRecipients);
+  if (!recipients.length) return;
+
+  const locale = booking.locale || "hu";
+  const payload = buildPayload(booking, unitName, locale, "");
+  const { subject, html } = await resolveEmailTemplate(unitId, "booking_modified_admin", payload);
+
+  await Promise.all(
+    recipients.map(to =>
+      sendEmail({
+        typeId: "booking_modified_admin",
+        unitId,
+        to,
+        subject,
+        html,
+        payload,
+      })
+    )
+  );
 };
 
 const getEmailSettingsForUnit = async (unitId: string): Promise<EmailSettingsDocument> => {
@@ -350,6 +423,30 @@ const sendAdminCancellationEmail = async (unitId: string, booking: BookingRecord
   );
 };
 
+const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
+  const fields: (keyof BookingRecord)[] = [
+    "name",
+    "headcount",
+    "occasion",
+    "startTime",
+    "endTime",
+    "notes",
+    "phone",
+    "email",
+    "reservationMode",
+  ];
+
+  return fields.some(f => {
+    const b: any = (before as any)[f];
+    const a: any = (after as any)[f];
+
+    const bVal = b?.toMillis ? b.toMillis() : b;
+    const aVal = a?.toMillis ? a.toMillis() : a;
+
+    return bVal !== aVal;
+  });
+};
+
 export const onReservationStatusChange = functions
   .region(REGION)
   .firestore.document('units/{unitId}/reservations/{bookingId}')
@@ -358,9 +455,12 @@ export const onReservationStatusChange = functions
     const after = change.after.data() as BookingRecord | undefined;
     if (!before || !after) return;
 
-    if (before.status === after.status && before.cancelledBy === after.cancelledBy) {
-      return;
-    }
+   const statusOrCancelChanged =
+  before.status !== after.status || before.cancelledBy !== after.cancelledBy;
+
+const edited = hasMeaningfulEdit(before, after);
+
+if (!statusOrCancelChanged && !edited) return;
 
     const unitId = context.params.unitId as string;
     functions.logger.info('TRIGGER FIRED', {
