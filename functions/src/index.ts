@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin';
 admin.initializeApp();
 
 const db = admin.firestore();
-const REGION = 'europe-central2';
+const REGION = 'europe-west3';
 
 const EMAIL_GATEWAY_URL =
   process.env.EMAIL_GATEWAY_URL || 'https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send';
