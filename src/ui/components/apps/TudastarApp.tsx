@@ -11,6 +11,7 @@ import {
   collection,
   onSnapshot,
   query,
+  collectionGroup,
   where,
   addDoc,
   doc,
@@ -797,20 +798,37 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
     if (!selectedUnitId) return;
     setLoading(true);
 
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeNew: (() => void) | undefined;
+    let unsubscribeLegacy: (() => void) | undefined;
     let isStale = false;
+    let newFiles: FileMetadata[] = [];
+    let legacyFiles: FileMetadata[] = [];
+
+    const mergeFiles = (currentNew: FileMetadata[], currentLegacy: FileMetadata[]) => {
+      const mergedMap = new Map<string, FileMetadata>();
+      [...currentNew, ...currentLegacy].forEach((file, index) => {
+        const id = file.id || `legacy_${index}`;
+        if (!mergedMap.has(id)) {
+          mergedMap.set(id, { ...file, id });
+        }
+      });
+      const merged = Array.from(mergedMap.values()).sort(
+        (a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0)
+      );
+      if (!isStale) {
+        setFiles(merged);
+        setLoading(false);
+      }
+    };
 
     try {
       const filesQuery = collection(db, 'units', selectedUnitId, 'files');
-      unsubscribe = onSnapshot(
+      unsubscribeNew = onSnapshot(
         filesQuery,
         snapshot => {
           if (isStale) return;
-          const fetchedFiles = snapshot.docs
-            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata))
-            .sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
-          setFiles(fetchedFiles);
-          setLoading(false);
+          newFiles = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as FileMetadata));
+          mergeFiles(newFiles, legacyFiles);
         },
         err => {
           if (isStale) return;
@@ -825,9 +843,40 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
       setLoading(false);
     }
 
+    try {
+      const legacyQuery = collectionGroup(db, 'knowledge_base');
+      unsubscribeLegacy = onSnapshot(
+        legacyQuery,
+        snapshot => {
+          if (isStale) return;
+          const mapped = snapshot.docs
+            .map((docSnap, index) => {
+              const data = docSnap.data() as FileMetadata & { unitId?: string };
+              if (data.unitId !== selectedUnitId) return null;
+              const id = data.id || docSnap.id || `legacy_${index}`;
+              return { ...data, id } as FileMetadata;
+            })
+            .filter((item): item is FileMetadata => Boolean(item));
+          legacyFiles = mapped;
+          mergeFiles(newFiles, legacyFiles);
+        },
+        err => {
+          if (isStale) return;
+          console.error('Error fetching legacy files:', err);
+          setError('Hiba a dokumentumok betöltésekor.');
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      console.error('Error initializing legacy files listener:', err);
+      setError('Hiba a dokumentumok betöltésekor.');
+      setLoading(false);
+    }
+
     return () => {
       isStale = true;
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeNew) unsubscribeNew();
+      if (unsubscribeLegacy) unsubscribeLegacy();
     };
   }, [selectedUnitId]);
 
