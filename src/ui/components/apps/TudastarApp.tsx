@@ -12,7 +12,6 @@ import {
   onSnapshot,
   query,
   where,
-  orderBy,
   addDoc,
   doc,
   deleteDoc,
@@ -552,17 +551,18 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   useEffect(() => {
     setSelectedCategoryId(null);
     setSelectedSubcategory(null);
+    setError(null);
 
     if (!selectedUnitId) {
       setCategories([]);
       setNotes([]);
       setFiles([]);
-      setSelectedCategoryId(null);
-      setSelectedSubcategory(null);
       setIsUploadModalOpen(false);
       setIsNoteModalOpen(false);
       setIsCategoryModalOpen(false);
       setLoading(false);
+    } else {
+      setLoading(true);
     }
   }, [selectedUnitId]);
 
@@ -604,31 +604,41 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
     if (!selectedUnitId) return;
 
     let unsubscribe: (() => void) | undefined;
+    let isStale = false;
+
     const loadCategories = async () => {
-      setLoading(true);
-      await ensureDefaultsForUnit(selectedUnitId);
-      const categoryQuery = query(collection(db, 'knowledgeCategories'), where('unitId', '==', selectedUnitId));
-      unsubscribe = onSnapshot(
-        categoryQuery,
-        snapshot => {
-          const fetched = snapshot.docs
-            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeCategory))
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          setCategories(fetched);
-          setLoading(false);
-          if (!selectedCategoryId && fetched.length > 0) {
-            setSelectedCategoryId(fetched[0].id);
+      try {
+        await ensureDefaultsForUnit(selectedUnitId);
+        const categoryQuery = query(collection(db, 'knowledgeCategories'), where('unitId', '==', selectedUnitId));
+        unsubscribe = onSnapshot(
+          categoryQuery,
+          snapshot => {
+            if (isStale) return;
+            const fetched = snapshot.docs
+              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeCategory))
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            setCategories(fetched);
+            setLoading(false);
+            if (!selectedCategoryId && fetched.length > 0) {
+              setSelectedCategoryId(fetched[0].id);
+            }
+          },
+          err => {
+            console.error('Error fetching categories:', err);
+            setError('Hiba a kategóriák betöltésekor.');
+            setLoading(false);
           }
-        },
-        err => {
-          console.error('Error fetching categories:', err);
-          setError('Hiba a kategóriák betöltésekor.');
-          setLoading(false);
-        }
-      );
+        );
+      } catch (err) {
+        console.error('Error preparing categories:', err);
+        setError('Hiba a kategóriák betöltésekor.');
+        setLoading(false);
+      }
     };
+
     loadCategories();
     return () => {
+      isStale = true;
       if (unsubscribe) unsubscribe();
     };
   }, [selectedUnitId, ensureDefaultsForUnit, selectedCategoryId]);
