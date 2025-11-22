@@ -13,9 +13,13 @@ const firebaseConfig = {
   measurementId: "G-2Y86CZ0633"
 };
 
+const bucket = "gs://mintleaf-74d27.firebasestorage.app"; 
+// ha a console tetején gs://mintleaf-74d27.firebasestorage.app van, akkor AZT írd ide
+
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export { Timestamp, serverTimestamp };
+export const storage = getStorage(app, "gs://mintleaf-74d27.firebasestorage.app");

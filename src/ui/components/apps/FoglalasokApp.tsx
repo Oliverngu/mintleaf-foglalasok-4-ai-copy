@@ -491,6 +491,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           status: 'cancelled',
           cancelledAt: serverTimestamp(),
           cancelReason: reason || '',
+          cancelledBy: 'admin',
         }
       );
 

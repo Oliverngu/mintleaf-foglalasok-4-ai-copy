@@ -1,0 +1,20 @@
+{
+  "name": "mintleaf-functions",
+  "version": "1.0.0",
+  "private": true,
+  "main": "lib/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.5.0",
+    "firebase-functions": "^6.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
