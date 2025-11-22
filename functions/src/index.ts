@@ -631,24 +631,23 @@ const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
 
 // ---------- TRIGGERS ----------
 
-export const onReservationCreated = functions
-  .region(REGION)
-  .firestore.document('units/{unitId}/reservations/{bookingId}')
-  .onCreate(async (snap, context) => {
-    const booking = snap.data() as BookingRecord | undefined;
+export const onReservationCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "units/{unitId}/reservations/{bookingId}",
+  },
+  async (event) => {
+    const booking = event.data?.data() as BookingRecord | undefined;
     if (!booking) return;
 
-    const unitId = context.params.unitId as string;
+    const unitId = event.params.unitId as string;
     const unitName = await getUnitName(unitId);
 
     const tasks: Promise<void>[] = [];
 
     tasks.push(
       sendGuestCreatedEmail(unitId, booking, unitName).catch(err =>
-        functions.logger.error('Failed to send guest created email', {
-          unitId,
-          err,
-        })
+        logger.error("Failed to send guest created email", { unitId, err })
       )
     );
 
