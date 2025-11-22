@@ -93,14 +93,18 @@ const FileUploadModal: FC<{
 
     setIsUploading(true);
     setError('');
+    console.log('UPLOAD CLICK', { unitId, fileName: file?.name, categoryId, subcategory });
 
     try {
       const storagePath = `tudastar/${unitId}/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storagePath);
+      console.log('START STORAGE UPLOAD', { storagePath });
       const uploadResult = await uploadBytes(storageRef, file, {
         contentType: file.type,
       });
+      console.log('STORAGE UPLOAD DONE', { fullPath: uploadResult.metadata.fullPath });
       const downloadURL = await getDownloadURL(uploadResult.ref);
+      console.log('GOT DOWNLOAD URL', { downloadURL });
 
       const fileMetadata: Omit<FileMetadata, 'id'> = {
         name: file.name,
@@ -116,6 +120,7 @@ const FileUploadModal: FC<{
         subcategory: subcategory || undefined,
       };
 
+      console.log('WRITE FILE METADATA', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
       await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
 
       try {

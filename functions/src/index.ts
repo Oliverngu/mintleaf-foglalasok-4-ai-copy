@@ -4,6 +4,7 @@ import * as admin from 'firebase-admin';
 admin.initializeApp();
 
 const db = admin.firestore();
+const REGION = 'europe-central2';
 
 const EMAIL_GATEWAY_URL =
   process.env.EMAIL_GATEWAY_URL || 'https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send';
@@ -296,6 +297,13 @@ const sendGuestStatusEmail = async (unitId: string, booking: BookingRecord, unit
   const payload = buildPayload(booking, unitName, locale, decisionLabel);
   const { subject, html } = await resolveEmailTemplate(unitId, 'booking_status_updated_guest', payload);
 
+  functions.logger.info('SENDING GUEST STATUS EMAIL', {
+    unitId,
+    email: guestEmail,
+    bookingRef: payload.bookingRef,
+    decisionLabel,
+  });
+
   await sendEmail({
     typeId: 'booking_status_updated_guest',
     unitId,
@@ -322,6 +330,12 @@ const sendAdminCancellationEmail = async (unitId: string, booking: BookingRecord
   const payload = buildPayload(booking, unitName, locale, decisionLabels[locale].cancelled);
   const { subject, html } = await resolveEmailTemplate(unitId, 'booking_cancelled_admin', payload);
 
+  functions.logger.info('SENDING ADMIN CANCELLATION EMAIL', {
+    unitId,
+    recipients,
+    bookingRef: payload.bookingRef,
+  });
+
   await Promise.all(
     recipients.map(to =>
       sendEmail({
@@ -336,8 +350,9 @@ const sendAdminCancellationEmail = async (unitId: string, booking: BookingRecord
   );
 };
 
-export const onReservationStatusChange = functions.firestore
-  .document('units/{unitId}/reservations/{bookingId}')
+export const onReservationStatusChange = functions
+  .region(REGION)
+  .firestore.document('units/{unitId}/reservations/{bookingId}')
   .onUpdate(async (change, context) => {
     const before = change.before.data() as BookingRecord | undefined;
     const after = change.after.data() as BookingRecord | undefined;
@@ -348,6 +363,14 @@ export const onReservationStatusChange = functions.firestore
     }
 
     const unitId = context.params.unitId as string;
+    functions.logger.info('TRIGGER FIRED', {
+      unitId,
+      bookingId: context.params.bookingId,
+      beforeStatus: before.status,
+      afterStatus: after.status,
+      beforeCancelledBy: before.cancelledBy,
+      afterCancelledBy: after.cancelledBy,
+    });
     const unitName = await getUnitName(unitId);
 
     const statusChanged = before.status !== after.status;
@@ -363,6 +386,12 @@ export const onReservationStatusChange = functions.firestore
     const tasks: Promise<void>[] = [];
 
     if (adminDecision) {
+      functions.logger.info('ADMIN DECISION DETECTED', {
+        unitId,
+        bookingId: context.params.bookingId,
+        from: before.status,
+        to: after.status,
+      });
       tasks.push(
         sendGuestStatusEmail(unitId, after, unitName).catch(err =>
           functions.logger.error('Failed to send guest status email', { unitId, err })
@@ -371,6 +400,13 @@ export const onReservationStatusChange = functions.firestore
     }
 
     if (guestCancelled) {
+      functions.logger.info('GUEST CANCELLATION DETECTED', {
+        unitId,
+        bookingId: context.params.bookingId,
+        from: before.status,
+        to: after.status,
+        cancelledBy: after.cancelledBy,
+      });
       tasks.push(
         sendAdminCancellationEmail(unitId, after, unitName).catch(err =>
           functions.logger.error('Failed to send admin cancellation email', { unitId, err })
