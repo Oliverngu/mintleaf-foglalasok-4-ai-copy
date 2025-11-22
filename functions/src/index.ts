@@ -653,38 +653,6 @@ export const onReservationCreated = onDocumentCreated(
 
     tasks.push(
       sendAdminCreatedEmail(unitId, booking, unitName).catch(err =>
-        functions.logger.error('Failed to send admin created email', {
-          unitId,
-          err,
-        })
-      )
-    );
-
-    await Promise.all(tasks);
-  });
-
-export const onReservationCreated = onDocumentCreated(
-  {
-    region: REGION,
-    document: "units/{unitId}/reservations/{bookingId}",
-  },
-  async (event) => {
-    const booking = event.data?.data() as BookingRecord | undefined;
-    if (!booking) return;
-
-    const unitId = event.params.unitId as string;
-    const unitName = await getUnitName(unitId);
-
-    const tasks: Promise<void>[] = [];
-
-    tasks.push(
-      sendGuestCreatedEmail(unitId, booking, unitName).catch(err =>
-        logger.error("Failed to send guest created email", { unitId, err })
-      )
-    );
-
-    tasks.push(
-      sendAdminCreatedEmail(unitId, booking, unitName).catch(err =>
         logger.error("Failed to send admin created email", { unitId, err })
       )
     );
