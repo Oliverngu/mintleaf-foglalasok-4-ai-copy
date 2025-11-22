@@ -454,6 +454,23 @@ export const onReservationStatusChange = functions
     const before = change.before.data() as BookingRecord | undefined;
     const after = change.after.data() as BookingRecord | undefined;
     if (!before || !after) return;
+    if (edited && !statusChanged) {
+  functions.logger.info("MEANINGFUL EDIT DETECTED", {
+    unitId,
+    bookingId: context.params.bookingId,
+  });
+
+  tasks.push(
+    sendGuestModifiedEmail(unitId, after, unitName).catch(err =>
+      functions.logger.error("Failed to send guest modified email", { unitId, err })
+    )
+  );
+  tasks.push(
+    sendAdminModifiedEmail(unitId, after, unitName).catch(err =>
+      functions.logger.error("Failed to send admin modified email", { unitId, err })
+    )
+  );
+}
 
    const statusOrCancelChanged =
   before.status !== after.status || before.cancelledBy !== after.cancelledBy;
