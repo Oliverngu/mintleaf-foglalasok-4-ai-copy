@@ -231,6 +231,28 @@ export interface FileMetadata {
   uploadedByUid: string;
   uploadedAt: Timestamp;
   unitId: string; // 'central' for shared documents
+  categoryId?: string;
+  subcategory?: string;
+}
+
+export interface KnowledgeCategory {
+  id: string;
+  title: string;
+  order: number;
+  unitId: string;
+  subcategories?: string[];
+}
+
+export interface KnowledgeNote {
+  id: string;
+  title: string;
+  content: string;
+  categoryId: string;
+  subcategory?: string;
+  unitId: string;
+  createdAt: Timestamp;
+  createdBy: string;
+  createdByUid: string;
 }
 
 export interface Unit {
