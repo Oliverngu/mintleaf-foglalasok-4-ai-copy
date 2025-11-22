@@ -20,6 +20,7 @@ import {
   limit,
   updateDoc,
   arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -32,6 +33,8 @@ interface TudastarAppProps {
   currentUser: User;
   allUnits: Unit[];
   activeUnitIds: string[];
+  canManageContent?: boolean;
+  canManageCategories?: boolean;
 }
 
 const DEFAULT_CATEGORY_SEED: { title: string; subcategories?: string[] }[] = [
@@ -431,6 +434,78 @@ const CategoryManagerModal: FC<{
     setDraftSubcategories(prev => ({ ...prev, [categoryId]: '' }));
   };
 
+  const handleDeleteSubcategory = async (categoryId: string, subcategory: string) => {
+    if (!subcategory) return;
+    if (!window.confirm(`Biztosan törlöd a(z) "${subcategory}" alkategóriát?`)) return;
+
+    try {
+      await updateDoc(doc(db, 'knowledgeCategories', categoryId), {
+        subcategories: arrayRemove(subcategory),
+      });
+
+      const affectedNotes = await getDocs(
+        query(
+          collection(db, 'knowledgeNotes'),
+          where('unitId', '==', selectedUnitId),
+          where('categoryId', '==', categoryId),
+          where('subcategory', '==', subcategory)
+        )
+      );
+      await Promise.all(
+        affectedNotes.docs.map(noteSnap => updateDoc(doc(db, 'knowledgeNotes', noteSnap.id), { subcategory: null }))
+      );
+
+      const affectedFiles = await getDocs(
+        query(
+          collection(db, 'files'),
+          where('unitId', '==', selectedUnitId),
+          where('categoryId', '==', categoryId),
+          where('subcategory', '==', subcategory)
+        )
+      );
+      await Promise.all(
+        affectedFiles.docs.map(fileSnap => updateDoc(doc(db, 'files', fileSnap.id), { subcategory: null }))
+      );
+    } catch (err) {
+      console.error('Error deleting subcategory:', err);
+      alert('Hiba az alkategória törlésekor.');
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    if (!window.confirm('Biztosan törlöd a teljes kategóriát és a hozzá tartozó tartalmakat?')) return;
+
+    try {
+      const relatedNotes = await getDocs(
+        query(collection(db, 'knowledgeNotes'), where('unitId', '==', selectedUnitId), where('categoryId', '==', categoryId))
+      );
+      await Promise.all(relatedNotes.docs.map(noteSnap => deleteDoc(doc(db, 'knowledgeNotes', noteSnap.id))));
+
+      const relatedFiles = await getDocs(
+        query(collection(db, 'files'), where('unitId', '==', selectedUnitId), where('categoryId', '==', categoryId))
+      );
+      await Promise.all(
+        relatedFiles.docs.map(async fileSnap => {
+          const data = fileSnap.data() as FileMetadata;
+          if (data.storagePath) {
+            try {
+              await deleteObject(ref(storage, data.storagePath));
+            } catch (err) {
+              console.error('Error removing storage file:', err);
+            }
+          }
+          await deleteDoc(doc(db, 'files', fileSnap.id));
+        })
+      );
+
+      await deleteDoc(doc(db, 'knowledgeCategories', categoryId));
+      setLocalCategories(prev => prev.filter(c => c.id !== categoryId));
+    } catch (err) {
+      console.error('Error deleting category:', err);
+      alert('Hiba a kategória törlésekor.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
@@ -452,6 +527,15 @@ const CategoryManagerModal: FC<{
                     onBlur={e => handleRename(category, e.target.value)}
                     className="w-full mt-1 p-2 border rounded-lg"
                   />
+                </div>
+                <div className="flex items-center gap-2 self-start md:self-end">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCategory(category.id)}
+                    className="px-3 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-100"
+                  >
+                    Kategória törlése
+                  </button>
                 </div>
                 <div className="flex-1">
                   <label className="text-xs text-gray-500">Új alkategória</label>
@@ -484,8 +568,16 @@ const CategoryManagerModal: FC<{
                   {category.subcategories && category.subcategories.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-600">
                       {category.subcategories.map(sub => (
-                        <span key={sub} className="px-2 py-1 bg-gray-100 rounded-full">
+                        <span key={sub} className="px-2 py-1 bg-gray-100 rounded-full flex items-center gap-1">
                           {sub}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubcategory(category.id, sub)}
+                            className="text-red-600 hover:text-red-800"
+                            title="Alkategória törlése"
+                          >
+                            <TrashIcon className="h-3 w-3" />
+                          </button>
                         </span>
                       ))}
                     </div>
@@ -515,7 +607,13 @@ const CategoryManagerModal: FC<{
   );
 };
 
-const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, activeUnitIds }) => {
+const TudastarApp: React.FC<TudastarAppProps> = ({
+  currentUser,
+  allUnits,
+  activeUnitIds,
+  canManageContent,
+  canManageCategories,
+}) => {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const [categories, setCategories] = useState<KnowledgeCategory[]>([]);
@@ -527,7 +625,10 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
-  const canManage = currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+  const canManageContentResolved =
+    canManageContent ?? (currentUser.role === 'Admin' || currentUser.role === 'Unit Admin');
+  const canManageCategoriesResolved =
+    canManageCategories ?? (currentUser.role === 'Admin' || currentUser.role === 'Unit Admin');
 
   const selectedUnitId = useMemo(() => {
     if (activeUnitIds.length === 1) return activeUnitIds[0];
@@ -568,7 +669,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
 
   const ensureDefaultsForUnit = useCallback(
     async (unitId: string) => {
-      if (!canManage || !unitId) return;
+      if (!canManageCategoriesResolved || !unitId) return;
       const existing = await getDocs(query(collection(db, 'knowledgeCategories'), where('unitId', '==', unitId), limit(1)));
       if (!existing.empty) return;
       await Promise.all(
@@ -582,7 +683,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
         )
       );
     },
-    [canManage]
+    [canManageCategoriesResolved]
   );
 
   useEffect(() => {
@@ -604,9 +705,21 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             setCategories(fetched);
             setLoading(false);
-            if (!selectedCategoryId && fetched.length > 0) {
-              setSelectedCategoryId(fetched[0].id);
-            }
+            let nextCategoryId: string | null = null;
+            setSelectedCategoryId(prev => {
+              if (prev && fetched.some(c => c.id === prev)) {
+                nextCategoryId = prev;
+                return prev;
+              }
+              nextCategoryId = fetched[0]?.id || null;
+              return nextCategoryId;
+            });
+            setSelectedSubcategory(prev => {
+              if (!nextCategoryId) return null;
+              const nextCategory = fetched.find(c => c.id === nextCategoryId);
+              if (nextCategory && prev && nextCategory.subcategories?.includes(prev)) return prev;
+              return null;
+            });
           },
           err => {
             console.error('Error fetching categories:', err);
@@ -701,6 +814,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   }, [selectedUnitId]);
 
   const handleDeleteFile = async (file: FileMetadata) => {
+    if (!canManageContentResolved) return;
     if (window.confirm(`Biztosan törölni szeretnéd a(z) "${file.name}" fájlt?`)) {
       try {
         const storageRef = ref(storage, file.storagePath);
@@ -710,6 +824,18 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
         console.error('Error deleting file:', err);
         alert('Hiba a fájl törlése során.');
       }
+    }
+  };
+
+  const handleDeleteNote = async (note: KnowledgeNote) => {
+    if (!canManageContentResolved) return;
+    if (!window.confirm(`Biztosan törölni szeretnéd a(z) "${note.title}" jegyzetet?`)) return;
+
+    try {
+      await deleteDoc(doc(db, 'knowledgeNotes', note.id));
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      alert('Hiba a jegyzet törlése során.');
     }
   };
 
@@ -815,28 +941,34 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
             <span className="rounded bg-white px-2 py-1 text-green-900 shadow-sm">{selectedUnitName}</span>
           </div>
           <span className="text-xs text-gray-500">Egységváltáshoz használd a fejléc zöld sávját.</span>
-          {canManage && (
+          {(canManageCategoriesResolved || canManageContentResolved) && (
             <>
-              <button
-                onClick={() => setIsCategoryModalOpen(true)}
-                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700"
-              >
-                Kategóriák
-              </button>
-              <button
-                onClick={() => setIsNoteModalOpen(true)}
-                className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-700 flex items-center gap-2"
-              >
-                <PlusIcon className="h-5 w-5" />
-                Jegyzet
-              </button>
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
-              >
-                <PlusIcon className="h-5 w-5" />
-                Új feltöltése
-              </button>
+              {canManageCategoriesResolved && (
+                <button
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700"
+                >
+                  Kategóriák
+                </button>
+              )}
+              {canManageContentResolved && (
+                <>
+                  <button
+                    onClick={() => setIsNoteModalOpen(true)}
+                    className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                    Jegyzet
+                  </button>
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                    Új feltöltése
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -903,7 +1035,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
               <BookIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-gray-700">Nincs tartalom ebben a nézetben</h3>
               <p className="text-gray-500 mt-1">
-                {canManage ? 'Adj hozzá jegyzetet vagy tölts fel dokumentumot.' : 'Nincsenek elérhető elemek.'}
+                {canManageContentResolved ? 'Adj hozzá jegyzetet vagy tölts fel dokumentumot.' : 'Nincsenek elérhető elemek.'}
               </p>
             </div>
           ) : (
@@ -919,11 +1051,22 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
                         </p>
                         <h3 className="text-xl font-bold text-gray-900">{note.title}</h3>
                       </div>
-                      <span className="text-xs text-gray-500">
-                        {note.createdAt?.toDate?.()
-                          ? note.createdAt.toDate().toLocaleDateString('hu-HU')
-                          : '—'}
-                      </span>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>
+                          {note.createdAt?.toDate?.()
+                            ? note.createdAt.toDate().toLocaleDateString('hu-HU')
+                            : '—'}
+                        </span>
+                        {canManageContentResolved && (
+                          <button
+                            onClick={() => handleDeleteNote(note)}
+                            className="text-red-600 hover:text-red-800"
+                            title="Jegyzet törlése"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="prose prose-sm max-w-none">
                       {renderNoteContent(note.content)}
@@ -935,7 +1078,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-gray-800">Feltöltött fájlok</h2>
-                  {canManage && (
+                  {canManageContentResolved && (
                     <button
                       onClick={() => setIsUploadModalOpen(true)}
                       className="text-sm text-blue-700 hover:text-blue-900 font-semibold"
@@ -971,7 +1114,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
                           >
                             <DownloadIcon className="h-5 w-5" />
                           </a>
-                          {canManage && (
+                          {canManageContentResolved && (
                             <button
                               onClick={() => handleDeleteFile(file)}
                               className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-100 rounded-full"
