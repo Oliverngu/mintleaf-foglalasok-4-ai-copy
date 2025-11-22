@@ -96,7 +96,8 @@ const FileUploadModal: FC<{
     console.log('UPLOAD CLICK', { unitId, fileName: file?.name, categoryId, subcategory });
 
     try {
-      const storagePath = `tudastar/${unitId}/${Date.now()}_${file.name}`;
+      const safeCategorySegment = categoryId || 'uncategorized';
+      const storagePath = `units/${unitId}/knowledge_base/${safeCategorySegment}/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storagePath);
       console.log('START STORAGE UPLOAD', { storagePath });
       const uploadResult = await uploadBytes(storageRef, file, {
@@ -132,7 +133,11 @@ const FileUploadModal: FC<{
       onClose();
     } catch (err: any) {
       console.error('Error uploading file:', err);
-      setError(err?.message || 'Hiba a fájl feltöltése során.');
+      if (err?.code === 'storage/unauthorized' || err?.code === 'storage/permission-denied') {
+        setError('Nincs jogosultság a feltöltéshez. Ellenőrizd az egységre vonatkozó tárhelyszabályokat.');
+      } else {
+        setError(err?.message || 'Hiba a fájl feltöltése során.');
+      }
     } finally {
       setIsUploading(false);
     }
