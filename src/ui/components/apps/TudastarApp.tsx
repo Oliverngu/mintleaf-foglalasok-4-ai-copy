@@ -91,6 +91,12 @@ const FileUploadModal: FC<{
       setError('Nincs kategória kiválasztva.');
       return;
     }
+    if (!unitId) {
+      const message = 'Hiányzó egység azonosító, nem lehet feltölteni.';
+      console.error('UPLOAD ERROR missing unitId', { fileName: file?.name });
+      setError(message);
+      return;
+    }
 
     setIsUploading(true);
     setError('');
@@ -123,17 +129,47 @@ const FileUploadModal: FC<{
         subcategory: subcategory || undefined,
       };
 
-      console.log('WRITE FILE METADATA', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
-      await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
-      console.log('UPLOAD COMPLETE', { unitId, fileName: file.name });
+      let metadataSaved = false;
 
       try {
-        await onSubcategoryCapture(categoryId, subcategory || undefined);
-      } catch (captureErr) {
-        console.warn('Failed to capture subcategory metadata after upload', captureErr);
+        console.log('WRITE FILE METADATA primary', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
+        await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
+        metadataSaved = true;
+        console.log('METADATA WRITE primary success');
+      } catch (primaryErr: any) {
+        console.error('Primary metadata write failed', { code: primaryErr?.code, message: primaryErr?.message, err: primaryErr });
+        try {
+          console.log('WRITE FILE METADATA fallback', {
+            unitId,
+            categoryId,
+            subcategory,
+            path: `units/${unitId}/knowledge_base`,
+          });
+          await addDoc(collection(db, 'units', unitId, 'knowledge_base'), fileMetadata);
+          metadataSaved = true;
+          console.log('METADATA WRITE fallback success');
+        } catch (fallbackErr: any) {
+          console.error('Fallback metadata write failed', {
+            code: fallbackErr?.code,
+            message: fallbackErr?.message,
+            err: fallbackErr,
+          });
+          setError('A fájl feltöltése sikerült, de a metaadatok mentése nem; ellenőrizd a jogosultságokat.');
+          throw fallbackErr;
+        }
       }
 
-      onClose();
+      if (metadataSaved) {
+        console.log('UPLOAD COMPLETE', { unitId, fileName: file.name });
+
+        try {
+          await onSubcategoryCapture(categoryId, subcategory || undefined);
+        } catch (captureErr) {
+          console.warn('Failed to capture subcategory metadata after upload', captureErr);
+        }
+
+        onClose();
+      }
     } catch (err: any) {
       console.error('Error uploading file:', { code: err?.code, message: err?.message, err });
       if (err?.code === 'storage/unauthorized' || err?.code === 'storage/permission-denied') {
