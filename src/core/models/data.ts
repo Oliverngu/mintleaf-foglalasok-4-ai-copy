@@ -93,6 +93,11 @@ export interface Booking {
   cancelReason?: string;
   referenceCode?: string;
   customData?: Record<string, string>;
+  reservationMode?: 'auto' | 'request';
+  adminActionToken?: string;
+  adminActionHandledAt?: Timestamp;
+  adminActionSource?: 'email' | 'manual';
+  cancelledBy?: 'guest' | 'admin' | 'system';
 }
 
 export interface ThemeSettings {
@@ -170,6 +175,9 @@ export interface Todo {
   unitId?: string;
   seenBy?: string[];
   seenAt?: { [userId: string]: Timestamp };
+  isDaily?: boolean;
+  dailyType?: 'opening' | 'closing' | 'general';
+  completedDate?: string;
 }
 
 export interface Feedback {
@@ -227,6 +235,28 @@ export interface FileMetadata {
   uploadedByUid: string;
   uploadedAt: Timestamp;
   unitId: string; // 'central' for shared documents
+  categoryId?: string;
+  subcategory?: string;
+}
+
+export interface KnowledgeCategory {
+  id: string;
+  title: string;
+  order: number;
+  unitId: string;
+  subcategories?: string[];
+}
+
+export interface KnowledgeNote {
+  id: string;
+  title: string;
+  content: string;
+  categoryId: string;
+  subcategory?: string;
+  unitId: string;
+  createdAt: Timestamp;
+  createdBy: string;
+  createdByUid: string;
 }
 
 export interface Unit {
@@ -269,6 +299,8 @@ export interface Permissions {
     canManageLeaveRequests: boolean;
     canSubmitLeaveRequests: boolean;
     canManageTodos: boolean;
+    canManageKnowledgeBase: boolean;
+    canManageKnowledgeCategories: boolean;
     canManageContacts: boolean;
     canViewAllContacts: boolean;
     canManageUnits: boolean;

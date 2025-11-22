@@ -18,18 +18,29 @@ interface EmailSettingsAppProps {
 }
 
 const emailTypeGroups: Record<string, EmailTypeId[]> = {
-  'Foglalások': ['booking_created_guest', 'booking_created_admin'],
+  'Foglalások': [
+    'booking_created_guest',
+    'booking_created_admin',
+    'booking_status_updated_guest',
+    'booking_cancelled_admin',
+  ],
   'Szabadságkérelmek': ['leave_request_created', 'leave_request_approved', 'leave_request_rejected'],
   'Beosztás': ['new_schedule_published'],
   'Felhasználókezelés': ['user_registration_welcome'],
 };
 
-const ADMIN_RECIPIENT_TYPES: EmailTypeId[] = ['booking_created_admin', 'leave_request_created'];
+const ADMIN_RECIPIENT_TYPES: EmailTypeId[] = [
+  'booking_created_admin',
+  'booking_cancelled_admin',
+  'leave_request_created',
+];
 
 // Emberi, UI-barát címkék az email típusokra
 const EMAIL_TYPE_LABELS: Partial<Record<EmailTypeId, string>> = {
   booking_created_guest: 'Foglalás – vendég visszaigazolás',
   booking_created_admin: 'Foglalás – admin értesítés',
+  booking_status_updated_guest: 'Foglalás – státusz frissítés (vendég)',
+  booking_cancelled_admin: 'Foglalás – lemondás (admin)',
   leave_request_created: 'Szabadságkérés – új kérelem (admin)',
   leave_request_approved: 'Szabadságkérés – jóváhagyva (dolgozó)',
   leave_request_rejected: 'Szabadságkérés – elutasítva (dolgozó)',
@@ -54,6 +65,7 @@ const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>>
     comment: 'Ez egy minta megjegyzés.',
     bookingRef: 'ABC12345',
     isAutoConfirm: false,
+    isRequestMode: true,
   },
   booking_created_admin: {
     unitName: 'Gin and Avocado',
@@ -69,7 +81,32 @@ const PREVIEW_PAYLOAD_BY_TYPE: Partial<Record<EmailTypeId, Record<string, any>>>
     occasionOther: '',
     comment: 'Ez egy minta megjegyzés.',
     bookingRef: 'ABC12345',
-    isAutoConfirm: true,
+    isAutoConfirm: false,
+    isRequestMode: true,
+    reservationModeLabel: 'Foglalási kérelem',
+    adminApproveUrl: 'https://mintleaf.example.com/manage?token=ABC&adminToken=XYZ&action=approve',
+    adminRejectUrl: 'https://mintleaf.example.com/manage?token=ABC&adminToken=XYZ&action=reject',
+  },
+  booking_status_updated_guest: {
+    unitName: 'Gin and Avocado',
+    guestName: 'Minta vendég',
+    bookingDate: '2025. 11. 21.',
+    bookingTimeFrom: '18:00',
+    bookingTimeTo: '20:00',
+    headcount: 4,
+    decisionLabel: 'Elfogadva',
+    bookingRef: 'ABC12345',
+  },
+  booking_cancelled_admin: {
+    unitName: 'Gin and Avocado',
+    guestName: 'Minta vendég',
+    bookingDate: '2025. 11. 21.',
+    bookingTimeFrom: '18:00',
+    bookingTimeTo: '20:00',
+    headcount: 4,
+    guestEmail: 'minta.vendeg@example.com',
+    guestPhone: '+36 30 123 4567',
+    bookingRef: 'ABC12345',
   },
   leave_request_created: {
     userName: 'Teszt Dolgozó',

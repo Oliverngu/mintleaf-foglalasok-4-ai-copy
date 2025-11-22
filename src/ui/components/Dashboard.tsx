@@ -420,6 +420,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             currentUser={currentUser}
             allUnits={allUnits}
             activeUnitIds={activeUnitIds}
+            canManageContent={hasPermission('canManageKnowledgeBase')}
+            canManageCategories={hasPermission('canManageKnowledgeCategories')}
           />
         );
       case 'velemenyek':

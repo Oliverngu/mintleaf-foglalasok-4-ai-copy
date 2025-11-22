@@ -4,6 +4,8 @@ export type EmailTypeId =
   | "leave_request_rejected"
   | "booking_created_guest"
   | "booking_created_admin"
+  | "booking_status_updated_guest"
+  | "booking_cancelled_admin"
   | "user_registration_welcome"
   | "new_schedule_published";
 
@@ -14,6 +16,8 @@ export const KNOWN_TYPE_IDS: EmailTypeId[] = [
   "leave_request_rejected",
   "booking_created_guest",
   "booking_created_admin",
+  "booking_status_updated_guest",
+  "booking_cancelled_admin",
   "user_registration_welcome",
   "new_schedule_published",
 ];

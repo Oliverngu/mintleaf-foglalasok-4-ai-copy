@@ -37,13 +37,29 @@ export const defaultTemplates: Record<EmailTypeId, TemplateDef> = {
   },
 
   // ============ VENDÉG FOGALALÁS EMAIL ============
-booking_created_guest: {
-  subject: '[DEFAULT TEMPLATE] Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
-  html: `
-    <p>EZ A DEFAULT SABLON</p>
-    ...
-  `,
-},
+  booking_created_guest: {
+    subject: '[DEFAULT TEMPLATE] Foglalás visszaigazolás – {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+    html: `
+    <p>Szia {{guestName}}!</p>
+    <p>Köszönjük a foglalásodat a(z) <strong>{{unitName}}</strong> egységnél.</p>
+
+    {{#if isAutoConfirm}}
+      <p>A foglalásod automatikusan visszaigazolásra került.</p>
+    {{/if}}
+    {{#if isRequestMode}}
+      <p>A foglalás jelenleg <strong>jóváhagyásra vár</strong>. Hamarosan e-mailben értesítünk a döntésről.</p>
+    {{/if}}
+
+    <ul>
+      <li><strong>Dátum:</strong> {{bookingDate}}</li>
+      <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+      <li><strong>Létszám:</strong> {{headcount}} fő</li>
+    </ul>
+
+    <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+    <p>Üdvözlettel,<br />A MintLeaf Csapata</p>
+    `,
+  },
 
   // ============ ADMIN FOGALALÁS EMAIL ============
   booking_created_admin: {
@@ -61,9 +77,52 @@ booking_created_guest: {
         <li><strong>Email:</strong> {{guestEmail}}</li>
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
         <li><strong>Alkalom:</strong> {{occasion}}</li>
+        <li><strong>Foglalás módja:</strong> {{reservationModeLabel}}</li>
       </ul>
 
+      {{#if isAutoConfirm}}
+        <p><em>Ez a foglalás automatikusan megerősítésre került.</em></p>
+      {{/if}}
+      {{#if isRequestMode}}
+        <p><em>Ez a foglalás jóváhagyásra vár. A döntési gombok a részletek felett találhatók.</em></p>
+      {{/if}}
+
       <p>A levél alján egy részletes, fix adatlap blokk található a foglalásról.</p>
+    `,
+  },
+
+  booking_status_updated_guest: {
+    subject: 'Foglalás frissítés: {{bookingDate}} {{bookingTimeFrom}} – {{decisionLabel}}',
+    html: `
+      <h2>Foglalás frissítése</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
+      <ul>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Döntés:</strong> {{decisionLabel}}</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <p>Köszönjük a türelmedet!</p>
+    `,
+  },
+
+  booking_cancelled_admin: {
+    subject: 'Foglalás lemondva: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
+    html: `
+      <h2>Vendég lemondta a foglalást</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+      <ul>
+        <li><strong>Vendég neve:</strong> {{guestName}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Email:</strong> {{guestEmail}}</li>
+        <li><strong>Telefon:</strong> {{guestPhone}}</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <p>A foglalás le lett mondva a vendég oldaláról.</p>
     `,
   },
 

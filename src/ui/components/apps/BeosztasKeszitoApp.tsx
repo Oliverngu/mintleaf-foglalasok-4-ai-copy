@@ -609,6 +609,19 @@ const ExportSettingsPanel: FC<{
     [altNameColor]
   );
 
+  const tableZebraDelta = useMemo(
+    () => settings.zebraStrength / 4,
+    [settings.zebraStrength]
+  );
+  const tableAltZebraColor = useMemo(
+    () => adjustColor(settings.zebraColor, -tableZebraDelta),
+    [settings.zebraColor, tableZebraDelta]
+  );
+  const tableAltNameColor = useMemo(
+    () => adjustColor(settings.nameColumnColor, -tableZebraDelta),
+    [settings.nameColumnColor, tableZebraDelta]
+  );
+
   const ColorInput: FC<{ id: keyof ExportStyleSettings; label: string }> = ({
     id,
     label
@@ -1219,6 +1232,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
 
+  // Subtle zebra palette for the UI table, mirroring export defaults
+  const tableZebraDelta = useMemo(
+    () => exportSettings.zebraStrength / 4,
+    [exportSettings.zebraStrength]
+  );
+  const tableBaseZebraColor = exportSettings.zebraColor;
+  const tableBaseNameColor = exportSettings.nameColumnColor;
+  const tableAltZebraColor = useMemo(
+    () => adjustColor(exportSettings.zebraColor, -tableZebraDelta),
+    [exportSettings.zebraColor, tableZebraDelta]
+  );
+  const tableAltNameColor = useMemo(
+    () => adjustColor(exportSettings.nameColumnColor, -tableZebraDelta),
+    [exportSettings.nameColumnColor, tableZebraDelta]
+  );
+
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
     return activeUnitIds.sort().join('_');
@@ -1519,6 +1548,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [allAppUsers, hiddenUserIds]
   );
 
+  let zebraRowIndex = 0;
+
   const handlePrevWeek = () =>
     setCurrentDate(d => {
       const newDate = new Date(d);
@@ -1809,6 +1840,51 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 5) Összesítő sor (Napi összes) kiszedése
     tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+
+    // 6) Zebra csíkozás alkalmazása az exportált táblára
+    const zebraBase = exportSettings.zebraColor;
+    const zebraDelta = exportSettings.zebraStrength / 5;
+    const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
+    const nameBase = exportSettings.nameColumnColor;
+    const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('th, td')
+      .forEach(cell => {
+        cell.style.borderWidth = '0.5px';
+      });
+
+    let dataRowIndex = 0;
+    tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
+      const isCategoryRow = row.querySelector('td[colSpan]');
+      const isSummaryRow = row.classList.contains('summary-row');
+      if (isCategoryRow || isSummaryRow) return;
+
+      const isAltRow = dataRowIndex % 2 === 1;
+      const rowBg = isAltRow ? zebraAlt : zebraBase;
+      const rowText = getContrastingTextColor(rowBg);
+      row.style.background = rowBg;
+      row.style.color = rowText;
+
+      const nameCell = row.querySelector('td');
+      if (nameCell) {
+        const nameBg = isAltRow ? nameAlt : nameBase;
+        nameCell.style.background = nameBg;
+        nameCell.style.color = getContrastingTextColor(nameBg);
+      }
+
+      row.querySelectorAll<HTMLTableCellElement>('td:not(:first-child)').forEach(td => {
+        if (
+          !td.classList.contains('day-off-cell') &&
+          !td.classList.contains('leave-cell')
+        ) {
+          td.style.background = rowBg;
+          td.style.color = rowText;
+        }
+      });
+
+      dataRowIndex += 1;
+    });
 
     // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
 
@@ -2422,7 +2498,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[5] bg-slate-200 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-700 border-t border-b border-slate-300"
+                      className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
@@ -2459,13 +2535,28 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                     const weeklyHours = workHours.userTotals[user.id] || 0;
                     const isEmptyWeek = weeklyHours === 0;
 
+                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const rowBg = isAltRow
+                      ? tableAltZebraColor
+                      : tableBaseZebraColor;
+                    const nameBg = isAltRow
+                      ? tableAltNameColor
+                      : tableBaseNameColor;
+                    const nameTextColor = getContrastingTextColor(nameBg);
+                    const rowTextColor = getContrastingTextColor(rowBg);
+                    zebraRowIndex += 1;
+
                     return (
                       <tr
                         key={user.id}
                         className={isEmptyWeek ? 'no-shifts-week' : ''}
+                        style={{ background: rowBg }}
                       >
                         {/* Név oszlop */}
-                        <td className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle">
+                        <td
+                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          style={{ background: nameBg, color: nameTextColor }}
+                        >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-slate-800 leading-tight">
@@ -2577,6 +2668,11 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                             <td
                               key={dayIndex}
                               className={cellClasses}
+                              style={
+                                !isDayOff && !isLeave
+                                  ? { background: rowBg, color: rowTextColor }
+                                  : undefined
+                              }
                               onClick={() =>
                                 canEditCell &&
                                 handleOpenShiftModal(
