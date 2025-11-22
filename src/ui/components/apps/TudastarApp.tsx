@@ -116,7 +116,7 @@ const FileUploadModal: FC<{
         subcategory: subcategory || undefined,
       };
 
-      await addDoc(collection(db, 'files'), fileMetadata);
+      await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
 
       try {
         await onSubcategoryCapture(categoryId, subcategory || undefined);
@@ -463,14 +463,15 @@ const CategoryManagerModal: FC<{
 
       const affectedFiles = await getDocs(
         query(
-          collection(db, 'files'),
-          where('unitId', '==', selectedUnitId),
+          collection(db, 'units', selectedUnitId, 'files'),
           where('categoryId', '==', categoryId),
           where('subcategory', '==', subcategory)
         )
       );
       await Promise.all(
-        affectedFiles.docs.map(fileSnap => updateDoc(doc(db, 'files', fileSnap.id), { subcategory: null }))
+        affectedFiles.docs.map(fileSnap =>
+          updateDoc(doc(db, 'units', selectedUnitId, 'files', fileSnap.id), { subcategory: null })
+        )
       );
     } catch (err) {
       console.error('Error deleting subcategory:', err);
@@ -488,7 +489,7 @@ const CategoryManagerModal: FC<{
       await Promise.all(relatedNotes.docs.map(noteSnap => deleteDoc(doc(db, 'knowledgeNotes', noteSnap.id))));
 
       const relatedFiles = await getDocs(
-        query(collection(db, 'files'), where('unitId', '==', selectedUnitId), where('categoryId', '==', categoryId))
+        query(collection(db, 'units', selectedUnitId, 'files'), where('categoryId', '==', categoryId))
       );
       await Promise.all(
         relatedFiles.docs.map(async fileSnap => {
@@ -500,7 +501,7 @@ const CategoryManagerModal: FC<{
               console.error('Error removing storage file:', err);
             }
           }
-          await deleteDoc(doc(db, 'files', fileSnap.id));
+          await deleteDoc(doc(db, 'units', selectedUnitId, 'files', fileSnap.id));
         })
       );
 
@@ -789,7 +790,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
     let isStale = false;
 
     try {
-      const filesQuery = query(collection(db, 'files'), where('unitId', '==', selectedUnitId));
+      const filesQuery = collection(db, 'units', selectedUnitId, 'files');
       unsubscribe = onSnapshot(
         filesQuery,
         snapshot => {
@@ -820,12 +821,12 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
   }, [selectedUnitId]);
 
   const handleDeleteFile = async (file: FileMetadata) => {
-    if (!canManageContentResolved) return;
+    if (!canManageContentResolved || !selectedUnitId) return;
     if (window.confirm(`Biztosan törölni szeretnéd a(z) "${file.name}" fájlt?`)) {
       try {
         const storageRef = ref(storage, file.storagePath);
         await deleteObject(storageRef);
-        await deleteDoc(doc(db, 'files', file.id));
+        await deleteDoc(doc(db, 'units', selectedUnitId!, 'files', file.id));
       } catch (err) {
         console.error('Error deleting file:', err);
         alert('Hiba a fájl törlése során.');

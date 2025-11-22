@@ -97,6 +97,7 @@ export interface Booking {
   adminActionToken?: string;
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
+  cancelledBy?: 'guest' | 'admin' | 'system';
 }
 
 export interface ThemeSettings {

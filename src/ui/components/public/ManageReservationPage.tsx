@@ -278,6 +278,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
             await updateDoc(reservationRef, {
                 status: 'cancelled',
                 cancelledAt: serverTimestamp(),
+                cancelledBy: 'guest',
             });
 
             try {
@@ -341,11 +342,15 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
         try {
             const nextStatus = decision === 'approve' ? 'confirmed' : 'cancelled';
             const reservationRef = doc(db, 'units', unit.id, 'reservations', booking.id);
-            await updateDoc(reservationRef, {
+            const update: Record<string, any> = {
                 status: nextStatus,
                 adminActionHandledAt: serverTimestamp(),
                 adminActionSource: 'email',
-            });
+            };
+            if (nextStatus === 'cancelled') {
+                update.cancelledBy = 'admin';
+            }
+            await updateDoc(reservationRef, update);
             await writeDecisionLog(nextStatus);
 
             await sendGuestDecisionEmail(decision);
