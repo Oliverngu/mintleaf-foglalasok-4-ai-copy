@@ -130,13 +130,12 @@ const FileUploadModal: FC<{
       };
 
       let metadataSaved = false;
-      let primarySaved = false;
+      let usedFallback = false;
 
       try {
         console.log('WRITE FILE METADATA primary', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
         await addDoc(collection(db, 'units', unitId, 'files'), fileMetadata);
         metadataSaved = true;
-        primarySaved = true;
         console.log('METADATA WRITE primary success');
       } catch (primaryErr: any) {
         console.error('Primary metadata write failed', { code: primaryErr?.code, message: primaryErr?.message, err: primaryErr });
@@ -152,6 +151,7 @@ const FileUploadModal: FC<{
           });
           await addDoc(collection(db, 'units', unitId, 'knowledge_base'), fileMetadata);
           metadataSaved = true;
+          usedFallback = true;
           console.log('METADATA WRITE fallback success');
         } catch (fallbackErr: any) {
           console.error('Fallback metadata write failed', {
@@ -164,25 +164,8 @@ const FileUploadModal: FC<{
         }
       }
 
-      if (metadataSaved && primarySaved) {
-        try {
-          console.log('WRITE FILE METADATA mirror legacy', {
-            unitId,
-            categoryId,
-            subcategory,
-            path: `units/${unitId}/knowledge_base`,
-          });
-          await addDoc(collection(db, 'units', unitId, 'knowledge_base'), fileMetadata);
-          console.log('METADATA WRITE mirror legacy success');
-        } catch (mirrorErr: any) {
-          console.warn('Non-blocking legacy metadata mirror failed', {
-            code: mirrorErr?.code,
-            message: mirrorErr?.message,
-            err: mirrorErr,
-          });
-        }
-
-        console.log('UPLOAD COMPLETE', { unitId, fileName: file.name });
+      if (metadataSaved) {
+        console.log('UPLOAD COMPLETE', { unitId, fileName: file.name, usedFallback });
 
         try {
           await onSubcategoryCapture(categoryId, subcategory || undefined);
