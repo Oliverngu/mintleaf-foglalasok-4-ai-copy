@@ -131,6 +131,8 @@ const FileUploadModal: FC<{
 
       let metadataSaved = false;
       let usedFallback = false;
+      let primaryError: any;
+      let fallbackError: any;
 
       try {
         console.log('WRITE FILE METADATA primary', { unitId, categoryId, subcategory, path: `units/${unitId}/files` });
@@ -138,6 +140,7 @@ const FileUploadModal: FC<{
         metadataSaved = true;
         console.log('METADATA WRITE primary success');
       } catch (primaryErr: any) {
+        primaryError = primaryErr;
         console.error('Primary metadata write failed', { code: primaryErr?.code, message: primaryErr?.message, err: primaryErr });
       }
 
@@ -154,6 +157,7 @@ const FileUploadModal: FC<{
           usedFallback = true;
           console.log('METADATA WRITE fallback success');
         } catch (fallbackErr: any) {
+          fallbackError = fallbackErr;
           console.error('Fallback metadata write failed', {
             code: fallbackErr?.code,
             message: fallbackErr?.message,
@@ -174,7 +178,11 @@ const FileUploadModal: FC<{
 
         onClose();
       } else {
-        throw new Error('A fájl metaadatainak mentése sikertelen (primary és fallback útvonal is).');
+        throw new Error(
+          `A fájl metaadatainak mentése sikertelen (primary és fallback útvonal is). Primary: ${primaryError?.code || 'n/a'} ${
+            primaryError?.message || ''
+          } | Fallback: ${fallbackError?.code || 'n/a'} ${fallbackError?.message || ''}`
+        );
       }
     } catch (err: any) {
       console.error('Error uploading file:', { code: err?.code, message: err?.message, err });
