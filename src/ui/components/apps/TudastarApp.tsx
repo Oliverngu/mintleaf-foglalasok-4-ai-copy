@@ -54,14 +54,13 @@ const notePaperStyles: React.CSSProperties = {
 const FileUploadModal: FC<{
   onClose: () => void;
   currentUser: User;
-  allUnits: Unit[];
+  unitId: string;
+  unitName?: string;
   categories: KnowledgeCategory[];
-  defaultUnitId: string;
   defaultCategoryId?: string | null;
   onSubcategoryCapture: (categoryId: string, subcategory?: string) => Promise<void>;
-}> = ({ onClose, currentUser, allUnits, categories, defaultUnitId, defaultCategoryId, onSubcategoryCapture }) => {
+}> = ({ onClose, currentUser, unitId, unitName, categories, defaultCategoryId, onSubcategoryCapture }) => {
   const [file, setFile] = useState<File | null>(null);
-  const [unitId, setUnitId] = useState(defaultUnitId);
   const [categoryId, setCategoryId] = useState<string>(defaultCategoryId || '');
   const [subcategory, setSubcategory] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -83,10 +82,6 @@ const FileUploadModal: FC<{
     e.preventDefault();
     if (!file) {
       setError('Nincs fájl kiválasztva.');
-      return;
-    }
-    if (!unitId) {
-      setError('Nincs egység kiválasztva.');
       return;
     }
     if (!categoryId) {
@@ -148,26 +143,9 @@ const FileUploadModal: FC<{
               </div>
               <div>
                 <label className="text-sm font-medium">Egység</label>
-                <select
-                  value={unitId}
-                  onChange={e => setUnitId(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-lg bg-white"
-                  required
-                >
-                  <option value="" disabled>
-                    Válassz...
-                  </option>
-                  {currentUser.role === 'Admin' && (
-                    <option value="central">Mindenki (központi)</option>
-                  )}
-                  {allUnits
-                    .filter(u => currentUser.role === 'Admin' || currentUser.unitIds?.includes(u.id))
-                    .map(unit => (
-                      <option key={unit.id} value={unit.id}>
-                        {unit.name}
-                      </option>
-                    ))}
-                </select>
+                <div className="w-full mt-1 p-2 border rounded-lg bg-gray-50 text-sm font-semibold text-gray-700">
+                  {unitName || 'Ismeretlen egység'}
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -243,9 +221,18 @@ const NoteModal: FC<{
   categories: KnowledgeCategory[];
   defaultCategoryId?: string;
   selectedUnitId: string;
+  selectedUnitName?: string;
   currentUser: User;
   onSubcategoryCapture: (categoryId: string, subcategory?: string) => Promise<void>;
-}> = ({ onClose, categories, defaultCategoryId, selectedUnitId, currentUser, onSubcategoryCapture }) => {
+}> = ({
+  onClose,
+  categories,
+  defaultCategoryId,
+  selectedUnitId,
+  selectedUnitName,
+  currentUser,
+  onSubcategoryCapture,
+}) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [categoryId, setCategoryId] = useState(defaultCategoryId || '');
@@ -365,7 +352,7 @@ const NoteModal: FC<{
                 <label className="text-sm font-medium">Egység</label>
                 <input
                   type="text"
-                  value={selectedUnitId === 'central' ? 'Központi' : selectedUnitId}
+                  value={selectedUnitName || selectedUnitId}
                   disabled
                   className="w-full mt-1 p-2 border rounded-lg bg-gray-100 text-gray-600"
                 />
@@ -535,10 +522,6 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   const [categories, setCategories] = useState<KnowledgeCategory[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
-  const [selectedUnitId, setSelectedUnitId] = useState<string>(() => {
-    if (currentUser.role === 'Admin') return 'central';
-    return activeUnitIds[0] || currentUser.unitIds?.[0] || 'central';
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -547,23 +530,56 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
 
   const canManage = currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
 
-  const accessibleUnits = useMemo(() => {
-    const allowedIds = new Set<string>([...activeUnitIds, ...(currentUser.unitIds || [])]);
-    const units = allUnits.filter(u => currentUser.role === 'Admin' || allowedIds.has(u.id));
-    if (currentUser.role === 'Admin') {
-      return [{ id: 'central', name: 'Központi' }, ...units];
+  const selectedUnitId = useMemo(() => {
+    if (activeUnitIds.length === 1) return activeUnitIds[0];
+    if (activeUnitIds.length === 0 && currentUser.role !== 'Admin') {
+      return currentUser.unitIds?.[0] || null;
     }
-    return units;
-  }, [allUnits, activeUnitIds, currentUser]);
+    return null;
+  }, [activeUnitIds, currentUser]);
+
+  const selectionState: 'none' | 'single' | 'multi' = useMemo(() => {
+    if (activeUnitIds.length === 0) return 'none';
+    if (activeUnitIds.length === 1) return 'single';
+    return 'multi';
+  }, [activeUnitIds]);
+
+  const selectedUnitName = useMemo(
+    () => selectedUnitId ? allUnits.find(u => u.id === selectedUnitId)?.name || 'Ismeretlen egység' : '',
+    [allUnits, selectedUnitId]
+  );
 
   useEffect(() => {
-    if (!selectedUnitId && accessibleUnits.length > 0) {
-      setSelectedUnitId(accessibleUnits[0].id);
+    setSelectedCategoryId(null);
+    setSelectedSubcategory(null);
+
+    if (!selectedUnitId) {
+      setCategories([]);
+      setNotes([]);
+      setFiles([]);
+      setSelectedCategoryId(null);
+      setSelectedSubcategory(null);
+      setIsUploadModalOpen(false);
+      setIsNoteModalOpen(false);
+      setIsCategoryModalOpen(false);
+      setLoading(false);
     }
-    if (selectedUnitId && accessibleUnits.length > 0 && !accessibleUnits.find(u => u.id === selectedUnitId)) {
-      setSelectedUnitId(accessibleUnits[0].id);
-    }
-  }, [accessibleUnits, selectedUnitId]);
+  }, [selectedUnitId]);
+
+  if (!selectedUnitId) {
+    const message =
+      selectionState === 'multi'
+        ? 'Egyszerre csak egy egység tudástárát tudjuk megjeleníteni. Kérlek, válaszd ki pontosan az egyiket a felső (zöld) egységválasztóban.'
+        : 'A tudástár eléréséhez válassz ki egy egységet a felső (zöld) egységválasztó sávban.';
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+        <BookIcon className="h-16 w-16 text-green-500 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-800">Válassz egységet</h2>
+        <p className="mt-2 text-gray-600 max-w-xl">{message}</p>
+      </div>
+    );
+  }
 
   const ensureDefaultsForUnit = useCallback(
     async (unitId: string) => {
@@ -585,6 +601,8 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
   );
 
   useEffect(() => {
+    if (!selectedUnitId) return;
+
     let unsubscribe: (() => void) | undefined;
     const loadCategories = async () => {
       setLoading(true);
@@ -721,19 +739,20 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
         <FileUploadModal
           onClose={() => setIsUploadModalOpen(false)}
           currentUser={currentUser}
-          allUnits={allUnits}
           categories={categories}
-          defaultUnitId={selectedUnitId}
+          unitId={selectedUnitId}
+          unitName={allUnits.find(u => u.id === selectedUnitId)?.name}
           defaultCategoryId={selectedCategoryId}
           onSubcategoryCapture={ensureSubcategoryTracked}
         />
       )}
-      {isNoteModalOpen && selectedCategory && (
+      {isNoteModalOpen && selectedCategory && selectedUnitId && (
         <NoteModal
           onClose={() => setIsNoteModalOpen(false)}
           categories={categories}
           defaultCategoryId={selectedCategory.id}
           selectedUnitId={selectedUnitId}
+          selectedUnitName={selectedUnitName}
           currentUser={currentUser}
           onSubcategoryCapture={ensureSubcategoryTracked}
         />
@@ -752,17 +771,11 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
           <p className="text-gray-500">Dokumentumok és jegyzetek egységenként rendezve.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedUnitId}
-            onChange={e => setSelectedUnitId(e.target.value)}
-            className="p-2 border rounded-lg bg-white"
-          >
-            {accessibleUnits.map(unit => (
-              <option key={unit.id} value={unit.id}>
-                {unit.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">
+            <span>Aktív egység:</span>
+            <span className="rounded bg-white px-2 py-1 text-green-900 shadow-sm">{selectedUnitName}</span>
+          </div>
+          <span className="text-xs text-gray-500">Egységváltáshoz használd a fejléc zöld sávját.</span>
           {canManage && (
             <>
               <button
