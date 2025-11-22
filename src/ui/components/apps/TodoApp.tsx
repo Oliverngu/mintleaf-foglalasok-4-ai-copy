@@ -77,7 +77,8 @@ const SeenByModal: React.FC<{
 
 const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, allUsers, allUnits, activeUnitIds }) => {
   const [newTodoText, setNewTodoText] = useState('');
-  const [isDailyNew, setIsDailyNew] = useState(false); // ÚJ: napi teendő jelölés
+  const [activeTab, setActiveTab] = useState<'regular' | 'daily'>('regular');
+  const [dailyTypeNew, setDailyTypeNew] = useState<'opening' | 'closing' | 'general'>('opening');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [todoToConfirm, setTodoToConfirm] = useState<Todo | null>(null);
   const [viewingSeenBy, setViewingSeenBy] = useState<Todo | null>(null);
@@ -204,6 +205,8 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
 
     setIsSubmitting(true);
 
+    const isDaily = activeTab === 'daily';
+
     const newTodo: any = {
       text: newTodoText.trim(),
       isDone: false,
@@ -212,17 +215,17 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
       createdAt: serverTimestamp(),
       seenBy: [currentUser.id],
       seenAt: {
-        [currentUser.id]: serverTimestamp()
+        [currentUser.id]: serverTimestamp(),
       },
       unitId: activeUnitIds[0],
-      // ÚJ: napi teendő jelölés
-      isDaily: isDailyNew || false,
+      isDaily,
+      dailyType: isDaily ? dailyTypeNew : undefined,
     };
 
     try {
       await addDoc(collection(db, 'todos'), newTodo);
       setNewTodoText('');
-      setIsDailyNew(false);
+      setDailyTypeNew('opening');
     } catch (err) {
       console.error("Error adding todo:", err);
       alert("Hiba történt a teendő hozzáadása közben.");
@@ -272,6 +275,8 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
     const unit = todo.unitId ? allUnits.find(u => u.id === todo.unitId) : null;
     const seenByCount = todo.seenBy?.length || 0;
     const isDaily = (todo as any).isDaily;
+    const dailyTypeLabel =
+      todo.dailyType === 'opening' ? 'Nyitási' : todo.dailyType === 'closing' ? 'Zárási' : 'Napi';
 
     return (
       <div
@@ -319,7 +324,7 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
             )}
             {isDaily && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">
-                Napi
+                {dailyTypeLabel}
               </span>
             )}
           </div>
@@ -353,31 +358,60 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
         />
       )}
 
-      {/* ÚJ/SZERKESZTETT FORM: napi checkbox */}
+      <div className="flex flex-wrap gap-3 items-center mb-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab('regular')}
+          className={`px-4 py-2 rounded-lg font-semibold border ${
+            activeTab === 'regular' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-200'
+          }`}
+        >
+          Egyszeri teendők
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('daily')}
+          className={`px-4 py-2 rounded-lg font-semibold border ${
+            activeTab === 'daily' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-200'
+          }`}
+        >
+          Napi teendők
+        </button>
+      </div>
+
       <form
         onSubmit={handleAddNewTodo}
         className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-8"
       >
-        <h2 className="text-xl font-bold text-gray-800 mb-2">Új teendő hozzáadása</h2>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">
+          {activeTab === 'daily' ? 'Új napi teendő hozzáadása' : 'Új teendő hozzáadása'}
+        </h2>
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           <input
             type="text"
             value={newTodoText}
-            onChange={(e) => setNewTodoText(e.target.value)}
+            onChange={e => setNewTodoText(e.target.value)}
             placeholder="Mit kell tenni?"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition"
             disabled={isSubmitting}
           />
+          {activeTab === 'daily' && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                Típus:
+                <select
+                  value={dailyTypeNew}
+                  onChange={e => setDailyTypeNew(e.target.value as 'opening' | 'closing' | 'general')}
+                  className="border rounded-lg px-2 py-1 text-sm bg-white"
+                >
+                  <option value="opening">Nyitási</option>
+                  <option value="closing">Zárási</option>
+                  <option value="general">Egyéb napi</option>
+                </select>
+              </label>
+            </div>
+          )}
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={isDailyNew}
-                onChange={(e) => setIsDailyNew(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              Napi teendő
-            </label>
             <button
               type="submit"
               disabled={isSubmitting || newTodoText.trim() === ''}
@@ -388,7 +422,7 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
           </div>
         </div>
       </form>
-      
+
       {loading && (
         <div className="relative h-64">
           <LoadingSpinner />
@@ -403,106 +437,188 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
           <p>{error}</p>
         </div>
       )}
-      
-      {!loading && !error && (
-        <div className="space-y-10">
-          {/* SIMA TEENDŐK */}
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Egyszeri teendők</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div>
-                <h3 className="text-xl font-bold text-gray-800 mb-4">
-                  Aktuális Feladatok ({activeTodos.length})
-                </h3>
-                {activeTodos.length > 0 ? (
-                  <div className="space-y-4">
-                    {activeTodos.map(todo => (
-                      <TodoItem key={todo.id} todo={todo} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
-                    <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-700">
-                      Minden feladat elvégezve!
-                    </h3>
-                    <p className="text-gray-500 mt-1">Nincsenek aktív teendők.</p>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">
-                  Elvégzett Feladatok ({completedTodos.length})
-                </h3>
-                {completedTodos.length > 0 ? (
-                  <div className="space-y-4">
-                    {completedTodos.map(todo => (
-                      <TodoItem key={todo.id} todo={todo} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
-                    <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-700">
-                      Nincsenek elvégzett feladatok
-                    </h3>
-                    <p className="text-gray-500 mt-1">Még egy teendő sem lett kipipálva.</p>
-                  </div>
-                )}
+
+      {!loading && !error ? (
+        activeTab === 'regular' ? (
+          <div className="space-y-10">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Egyszeri teendők</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Aktuális Feladatok ({activeTodos.length})</h3>
+                  {activeTodos.length > 0 ? (
+                    <div className="space-y-4">
+                      {activeTodos.map(todo => (
+                        <TodoItem key={todo.id} todo={todo} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Minden feladat elvégezve!</h3>
+                      <p className="text-gray-500 mt-1">Nincsenek aktív teendők.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Elvégzett Feladatok ({completedTodos.length})</h3>
+                  {completedTodos.length > 0 ? (
+                    <div className="space-y-4">
+                      {completedTodos.map(todo => (
+                        <TodoItem key={todo.id} todo={todo} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Nincsenek elvégzett feladatok</h3>
+                      <p className="text-gray-500 mt-1">Még egy teendő sem lett kipipálva.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
+        ) : (
+          <div className="space-y-10">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Napi teendők</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Nyitási napi teendők ({
+                    activeDailyTodos.filter(t => (t.dailyType || 'general') === 'opening').length
+                  })</h3>
+                  {activeDailyTodos.filter(t => (t.dailyType || 'general') === 'opening').length > 0 ? (
+                    <div className="space-y-4">
+                      {activeDailyTodos
+                        .filter(t => (t.dailyType || 'general') === 'opening')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Nincs nyitási feladat</h3>
+                      <p className="text-gray-500 mt-1">Adj hozzá egyet a fenti űrlapon.</p>
+                    </div>
+                  )}
+                </div>
 
-          {/* NAPI TEENDŐK */}
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Napi teendők</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div>
-                <h3 className="text-xl font-bold text-gray-800 mb-4">
-                  Mai teendők ({activeDailyTodos.length})
-                </h3>
-                {activeDailyTodos.length > 0 ? (
-                  <div className="space-y-4">
-                    {activeDailyTodos.map(todo => (
-                      <TodoItem key={todo.id} todo={todo} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
-                    <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-700">
-                      Minden napi feladat kész!
-                    </h3>
-                    <p className="text-gray-500 mt-1">Holnap újra nekifuthatsz. 🙃</p>
-                  </div>
-                )}
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Ma elvégzett nyitási teendők ({
+                    completedDailyTodos.filter(t => (t.dailyType || 'general') === 'opening').length
+                  })</h3>
+                  {completedDailyTodos.filter(t => (t.dailyType || 'general') === 'opening').length > 0 ? (
+                    <div className="space-y-4">
+                      {completedDailyTodos
+                        .filter(t => (t.dailyType || 'general') === 'opening')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Még nincs kész nyitási feladat</h3>
+                      <p className="text-gray-500 mt-1">Kezdd a legfontosabbal.</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">
-                  Ma elvégzett napi teendők ({completedDailyTodos.length})
-                </h3>
-                {completedDailyTodos.length > 0 ? (
-                  <div className="space-y-4">
-                    {completedDailyTodos.map(todo => (
-                      <TodoItem key={todo.id} todo={todo} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
-                    <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-700">
-                      Ma még nem lett kipipálva napi feladat
-                    </h3>
-                    <p className="text-gray-500 mt-1">Kezdj egy egyszerűvel, aztán jöhet a többi.</p>
-                  </div>
-                )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Zárási napi teendők ({
+                    activeDailyTodos.filter(t => (t.dailyType || 'general') === 'closing').length
+                  })</h3>
+                  {activeDailyTodos.filter(t => (t.dailyType || 'general') === 'closing').length > 0 ? (
+                    <div className="space-y-4">
+                      {activeDailyTodos
+                        .filter(t => (t.dailyType || 'general') === 'closing')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Nincs zárási feladat</h3>
+                      <p className="text-gray-500 mt-1">Adj hozzá egyet a fenti űrlapon.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Ma elvégzett zárási teendők ({
+                    completedDailyTodos.filter(t => (t.dailyType || 'general') === 'closing').length
+                  })</h3>
+                  {completedDailyTodos.filter(t => (t.dailyType || 'general') === 'closing').length > 0 ? (
+                    <div className="space-y-4">
+                      {completedDailyTodos
+                        .filter(t => (t.dailyType || 'general') === 'closing')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Még nincs kész zárási feladat</h3>
+                      <p className="text-gray-500 mt-1">Végigmehetsz a listán estig.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Egyéb napi teendők ({
+                    activeDailyTodos.filter(t => !t.dailyType || (t.dailyType || 'general') === 'general').length
+                  })</h3>
+                  {activeDailyTodos.filter(t => !t.dailyType || (t.dailyType || 'general') === 'general').length > 0 ? (
+                    <div className="space-y-4">
+                      {activeDailyTodos
+                        .filter(t => !t.dailyType || (t.dailyType || 'general') === 'general')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Nincs egyéb napi feladat</h3>
+                      <p className="text-gray-500 mt-1">Ide kerülnek a korábbi napi teendők is.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">Ma elvégzett egyéb napi teendők ({
+                    completedDailyTodos.filter(t => !t.dailyType || (t.dailyType || 'general') === 'general').length
+                  })</h3>
+                  {completedDailyTodos.filter(t => !t.dailyType || (t.dailyType || 'general') === 'general').length > 0 ? (
+                    <div className="space-y-4">
+                      {completedDailyTodos
+                        .filter(t => !t.dailyType || (t.dailyType || 'general') === 'general')
+                        .map(todo => (
+                          <TodoItem key={todo.id} todo={todo} />
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl">
+                      <TodoIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-gray-700">Még nincs kész egyéb napi feladat</h3>
+                      <p className="text-gray-500 mt-1">Hasonlóan működik, mint korábban.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      ) : null}
 
       {todoToConfirm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">

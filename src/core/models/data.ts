@@ -174,6 +174,9 @@ export interface Todo {
   unitId?: string;
   seenBy?: string[];
   seenAt?: { [userId: string]: Timestamp };
+  isDaily?: boolean;
+  dailyType?: 'opening' | 'closing' | 'general';
+  completedDate?: string;
 }
 
 export interface Feedback {

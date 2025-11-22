@@ -617,15 +617,13 @@ const TudastarApp: React.FC<TudastarAppProps> = ({ currentUser, allUnits, active
 
   useEffect(() => {
     if (!selectedUnitId) return;
-    const notesQuery = query(
-      collection(db, 'knowledgeNotes'),
-      where('unitId', '==', selectedUnitId),
-      orderBy('createdAt', 'desc')
-    );
+    const notesQuery = query(collection(db, 'knowledgeNotes'), where('unitId', '==', selectedUnitId));
     const unsubscribe = onSnapshot(
       notesQuery,
       snapshot => {
-        const fetchedNotes = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote));
+        const fetchedNotes = snapshot.docs
+          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
+          .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
         setNotes(fetchedNotes);
       },
       err => {
