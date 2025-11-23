@@ -35,6 +35,7 @@ interface BookingRecord {
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
+  customData?: Record<string, any>; 
 }
 
 interface EmailSettingsDocument {
@@ -44,8 +45,19 @@ interface EmailSettingsDocument {
   adminDefaultEmail?: string;
 }
 
+interface CustomSelectField {
+  id: string;
+  label: string;
+  options?: string[];
+}
+
 interface ReservationSettings {
   notificationEmails?: string[];
+  guestForm?: {
+    customSelects?: CustomSelectField[];
+  };
+  publicBaseUrl?: string;
+  themeMode?: 'light' | 'dark';
 }
 
 const decisionLabels: Record<
@@ -73,7 +85,7 @@ const defaultTemplates = {
       <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
       <ul>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
       </ul>
@@ -91,7 +103,7 @@ const defaultTemplates = {
       <ul>
         <li><strong>Vendég neve:</strong> {{guestName}}</li>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
         {{#if notes}}<li><strong>Megjegyzés:</strong> {{notes}}</li>{{/if}}
@@ -111,7 +123,7 @@ const defaultTemplates = {
       <p>A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
       <ul>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         <li><strong>Döntés:</strong> {{decisionLabel}}</li>
       </ul>
@@ -129,7 +141,7 @@ const defaultTemplates = {
       <ul>
         <li><strong>Vendég neve:</strong> {{guestName}}</li>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         <li><strong>Email:</strong> {{guestEmail}}</li>
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
@@ -147,7 +159,7 @@ const defaultTemplates = {
       <p>A(z) <strong>{{unitName}}</strong> egységnél a foglalásod adatai módosultak.</p>
       <ul>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
       </ul>
       <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
@@ -163,7 +175,7 @@ const defaultTemplates = {
       <ul>
         <li><strong>Vendég neve:</strong> {{guestName}}</li>
         <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeFrom}}{{bookingTimeTo}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
         <li><strong>Létszám:</strong> {{headcount}} fő</li>
         <li><strong>Email:</strong> {{guestEmail}}</li>
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
@@ -286,8 +298,8 @@ const resolveEmailTemplate = async (
     unitOverride?.html || defaultOverride?.html || hardcoded.html;
 
   return {
-    subject: renderTemplate(subjectTemplate, payload),
-    html: renderTemplate(htmlTemplate, payload),
+    subject: subjectTemplate,
+    html: htmlTemplate,
   };
 };
 
@@ -337,35 +349,237 @@ const sendEmail = async (params: {
   }
 };
 
-const formatDate = (value: any, locale: 'hu' | 'en') => {
-  const date = value?.toDate ? value.toDate() : new Date(value);
-  return new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
+type TimestampLike =
+  | FirebaseFirestore.Timestamp
+  | admin.firestore.Timestamp;
+
+const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
+  if (!v) return new Date(0);
+  if (v instanceof Date) return v;
+
+  // Firestore Timestamp mind admin, mind client oldalon tud toDate()-et
+  const anyV = v as any;
+  if (typeof anyV.toDate === "function") return anyV.toDate();
+
+  // fallback, ha valami furcsa jön
+  return new Date(anyV);
+};
+
+const buildTimeFields = (
+  start: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date,
+  end: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null | undefined,
+  locale: 'hu' | 'en'
+) => {
+  const date = toJsDate(start);
+  const endDate = end ? toJsDate(end) : null;
+
+  const dateFormatter = new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  }).format(date);
-};
+  });
 
-const formatTime = (value: any, locale: 'hu' | 'en') => {
-  const date = value?.toDate ? value.toDate() : new Date(value);
-  return new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
+  const timeFormatter = new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
     hour: '2-digit',
     minute: '2-digit',
-  }).format(date);
+    hour12: false,
+  });
+
+  const bookingDate = dateFormatter.format(date);
+  const bookingTimeFrom = timeFormatter.format(date);
+  const bookingTimeTo = endDate ? timeFormatter.format(endDate) : '';
+  const bookingTimeRange = bookingTimeTo
+    ? `${bookingTimeFrom} – ${bookingTimeTo}`
+    : bookingTimeFrom;
+
+  return { bookingDate, bookingTimeFrom, bookingTimeTo, bookingTimeRange };
+};
+
+const buildCustomFieldsHtml = (
+  customSelects: CustomSelectField[] = [],
+  customData: Record<string, string> = {},
+  mutedColor: string
+) => {
+  const items: { label: string; value: string }[] = [];
+
+  customSelects.forEach(select => {
+    const value = customData[select.id];
+    const displayValue = value === undefined || value === null ? '' : String(value);
+    if (displayValue) {
+      items.push({ label: select.label, value: displayValue });
+    }
+  });
+
+  Object.entries(customData || {}).forEach(([key, value]) => {
+    const displayValue = value === undefined || value === null ? '' : String(value);
+    if (!displayValue) return;
+    if (key === 'occasion' || key === 'occasionOther') return;
+    if (customSelects.some(select => select.id === key)) return;
+    items.push({ label: key, value: displayValue });
+  });
+
+  if (!items.length) return '';
+
+  const listItems = items
+    .map(
+      item =>
+        `<li style="margin: 4px 0; padding: 0; list-style: none;"><strong>${item.label}:</strong> <span style="color: ${mutedColor};">${item.value}</span></li>`
+    )
+    .join('');
+
+  return `
+    <div style="margin-top: 12px;">
+      <strong>További adatok:</strong>
+      <ul style="margin: 8px 0 0 0; padding: 0;">
+        ${listItems}
+      </ul>
+    </div>
+  `;
+};
+
+const buildDetailsCardHtml = (
+  payload: Record<string, any>,
+  theme: 'light' | 'dark' = 'light'
+) => {
+  const isDark = theme === 'dark';
+  const background = isDark ? '#111827' : '#f9fafb';
+  const cardBackground = isDark ? '#1f2937' : '#ffffff';
+  const borderColor = isDark ? '#374151' : '#e5e7eb';
+  const textColor = isDark ? '#e5e7eb' : '#111827';
+  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
+
+  const customFieldsHtml = buildCustomFieldsHtml(
+    payload.customSelects,
+    payload.customData || {},
+    mutedColor
+  );
+
+  const statusRow = payload.decisionLabel
+    ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
+        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
+      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
+        payload.decisionLabel
+      }</span></div>`
+    : '';
+
+  const occasionRow = payload.occasion
+    ? `<div><strong>Alkalom:</strong> <span style="color: ${mutedColor};">${payload.occasion}</span></div>`
+    : '';
+
+  const occasionOtherRow = payload.occasionOther
+    ? `<div><strong>Alkalom (egyéb):</strong> <span style="color: ${mutedColor};">${payload.occasionOther}</span></div>`
+    : '';
+
+  const notesRow = payload.notes
+    ? `<div style="margin-top: 12px;"><strong>Megjegyzés:</strong><div style="margin-top: 4px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div></div>`
+    : '';
+
+  const autoConfirmRow =
+    payload.reservationMode === 'auto'
+      ? payload.locale === 'en'
+        ? 'Yes'
+        : 'Igen'
+      : payload.locale === 'en'
+      ? 'No'
+      : 'Nem';
+
+  return `
+    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px;">
+      <div
+        class="mintleaf-card"
+        style="background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 24px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};"
+      >
+        <h3 style="margin: 0 0 12px 0; font-size: 20px;">Foglalás részletei</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 14px; line-height: 1.5;">
+          <div><strong>Egység neve:</strong> <span style="color: ${mutedColor};">${payload.unitName}</span></div>
+          <div><strong>Vendég neve:</strong> <span style="color: ${mutedColor};">${payload.guestName}</span></div>
+          <div><strong>Dátum:</strong> <span style="color: ${mutedColor};">${payload.bookingDate}</span></div>
+          <div><strong>Időpont:</strong> <span style="color: ${mutedColor};">${payload.bookingTimeRange}</span></div>
+          <div><strong>Létszám:</strong> <span style="color: ${mutedColor};">${payload.headcount}</span></div>
+          ${occasionRow}
+          ${occasionOtherRow}
+          <div><strong>Email:</strong> <span style="color: ${mutedColor};">${payload.guestEmail}</span></div>
+          <div><strong>Telefon:</strong> <span style="color: ${mutedColor};">${payload.guestPhone}</span></div>
+          <div><strong>Foglalás azonosító:</strong> <span style="color: ${mutedColor};">${payload.bookingRef}</span></div>
+          <div><strong>Automatikus megerősítés:</strong> <span style="color: ${mutedColor};">${autoConfirmRow}</span></div>
+        </div>
+        ${statusRow}
+        ${customFieldsHtml}
+        ${notesRow}
+      </div>
+    </div>
+    <style>
+      .mintleaf-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 18px;
+        border-radius: 9999px;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-weight: 700;
+        text-decoration: none;
+        background: #16a34a;
+        color: #ffffff;
+        border: 1px solid transparent;
+      }
+      .mintleaf-btn-danger {
+        background: #dc2626;
+      }
+      @media (prefers-color-scheme: dark) {
+        .mintleaf-card-wrapper { background-color: #111827 !important; }
+        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
+        .mintleaf-card strong { color: #e5e7eb !important; }
+        .mintleaf-card span { color: #d1d5db !important; }
+        .mintleaf-btn { color: #ffffff !important; }
+      }
+    </style>
+  `;
+};
+
+const appendHtmlSafely = (baseHtml: string, extraHtml: string): string => {
+  if (!baseHtml) return extraHtml;
+
+  if (/<\/body>/i.test(baseHtml)) {
+    return baseHtml.replace(/<\/body>/i, `${extraHtml}</body>`);
+  }
+
+  if (/<\/html>/i.test(baseHtml)) {
+    return baseHtml.replace(/<\/html>/i, `${extraHtml}</html>`);
+  }
+
+  return `${baseHtml}${extraHtml}`;
+};
+
+const getPublicBaseUrl = (settings?: ReservationSettings) => {
+  const envUrl = process.env.PUBLIC_BASE_URL || process.env.VITE_PUBLIC_BASE_URL;
+  const baseUrl = settings?.publicBaseUrl || envUrl || 'https://mintleaf.hu';
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 };
 
 const buildPayload = (
   booking: BookingRecord,
   unitName: string,
   locale: 'hu' | 'en',
-  decisionLabel: string
+  decisionLabel: string,
+  options: {
+    bookingId?: string;
+    customSelects?: CustomSelectField[];
+    publicBaseUrl?: string;
+  } = {}
 ) => {
-  const bookingDate = formatDate(booking.startTime, locale);
-  const bookingTimeFrom = formatTime(booking.startTime, locale);
-  const bookingTimeTo = booking.endTime
-    ? ` – ${formatTime(booking.endTime, locale)}`
-    : '';
+  const { bookingDate, bookingTimeFrom, bookingTimeTo, bookingTimeRange } = buildTimeFields(
+    booking.startTime,
+    booking.endTime,
+    locale
+  );
+
+  const customData = booking.customData || {};
+  const occasion = (customData.occasion as string) || booking.occasion || '';
+  const occasionOther = (customData.occasionOther as string) || '';
+
+  const bookingRef =
+    booking.referenceCode?.substring(0, 8).toUpperCase() || booking.referenceCode || '';
 
   return {
     guestName: booking.name || '',
@@ -373,14 +587,23 @@ const buildPayload = (
     bookingDate,
     bookingTimeFrom,
     bookingTimeTo,
+    bookingTimeRange,
     headcount: booking.headcount || 0,
     decisionLabel,
-    bookingRef:
-      booking.referenceCode?.substring(0, 8).toUpperCase() || '',
+    bookingRef,
     guestEmail: booking.contact?.email || booking.email || '',
     guestPhone: booking.contact?.phoneE164 || booking.phone || '',
-    occasion: booking.occasion || '',
+    occasion,
+    occasionOther,
     notes: booking.notes || '',
+    reservationMode: booking.reservationMode,
+    adminActionToken: booking.adminActionToken,
+    status: booking.status,
+    bookingId: options.bookingId || bookingRef,
+    customSelects: options.customSelects || [],
+    customData,
+    locale,
+    publicBaseUrl: options.publicBaseUrl,
   };
 };
 
@@ -412,30 +635,86 @@ const getReservationSettings = async (
 
 // ---------- EMAIL SENDERS ----------
 
+const buildButtonBlock = (
+  buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
+  theme: 'light' | 'dark'
+) => {
+  const background = theme === 'dark' ? '#111827' : '#f9fafb';
+  const spacing =
+    '<span style="display: inline-block; width: 4px; height: 4px;"></span>';
+  const buttonsHtml = buttons
+    .map(
+      btn =>
+        `<a class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}" href="${btn.url}" style="background: ${
+          btn.variant === 'danger' ? '#dc2626' : '#16a34a'
+        }; color: #ffffff; text-decoration: none;">${btn.label}</a>`
+    )
+    .join(spacing);
+
+  return `
+    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+      ${buttonsHtml}
+    </div>
+  `;
+};
+
 const sendGuestCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
-  await shouldSendEmail('booking_created_guest', unitId);
+  const allowed = await shouldSendEmail('booking_created_guest', unitId);
+  if (!allowed) return;
 
-  const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const settings = await getReservationSettings(unitId);
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_guest',
     payload
   );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_created_guest.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_created_guest.html,
+    payload
+  );
+
+  const extraHtml = `${buildButtonBlock(
+    [
+      {
+        label: 'FOGLALÁS MÓDOSÍTÁSA',
+        url: manageUrl,
+      },
+    ],
+    theme
+  )}${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await sendEmail({
     typeId: 'booking_created_guest',
     unitId,
     to: guestEmail,
     subject,
-    html,
+    html: finalHtml,
     payload,
   });
 };
@@ -443,7 +722,8 @@ const sendGuestCreatedEmail = async (
 const sendAdminCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
@@ -454,15 +734,58 @@ const sendAdminCreatedEmail = async (
   );
   if (!recipients.length) return;
 
-  await shouldSendEmail('booking_created_admin', unitId);
+  const allowed = await shouldSendEmail('booking_created_admin', unitId);
+  if (!allowed) return;
 
   const locale = booking.locale || 'hu';
-  const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+
+  const manageApproveUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
+    payload.adminActionToken || ''
+  }&action=approve`;
+  const manageRejectUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
+    payload.adminActionToken || ''
+  }&action=reject`;
+
+  const showAdminButtons =
+    booking.reservationMode === 'request' && !!payload.adminActionToken;
+
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_admin',
     payload
   );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_created_admin.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_created_admin.html,
+    payload
+  );
+
+  const extraHtml = `${
+    showAdminButtons
+      ? buildButtonBlock(
+          [
+            { label: 'ELFOGADÁS', url: manageApproveUrl },
+            { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
+          ],
+          theme
+        )
+      : ''
+  }${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await Promise.all(
     recipients.map(to =>
@@ -471,7 +794,7 @@ const sendAdminCreatedEmail = async (
         unitId,
         to,
         subject,
-        html,
+        html: finalHtml,
         payload,
       })
     )
@@ -481,32 +804,65 @@ const sendAdminCreatedEmail = async (
 const sendGuestStatusEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
-  await shouldSendEmail('booking_status_updated_guest', unitId);
+  const allowed = await shouldSendEmail('booking_status_updated_guest', unitId);
+  if (!allowed) return;
+
+  const settings = await getReservationSettings(unitId);
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
 
   const decisionLabel =
     booking.status === 'confirmed'
       ? decisionLabels[locale].approved
       : decisionLabels[locale].rejected;
 
-  const payload = buildPayload(booking, unitName, locale, decisionLabel);
-  const { subject, html } = await resolveEmailTemplate(
+  const payload = buildPayload(booking, unitName, locale, decisionLabel, {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_status_updated_guest',
     payload
   );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_status_updated_guest.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_status_updated_guest.html,
+    payload
+  );
+
+  const extraHtml = `${buildButtonBlock(
+    [
+      {
+        label: 'FOGLALÁS MÓDOSÍTÁSA',
+        url: manageUrl,
+      },
+    ],
+    theme
+  )}${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await sendEmail({
     typeId: 'booking_status_updated_guest',
     unitId,
     to: guestEmail,
     subject,
-    html,
+    html: finalHtml,
     payload,
   });
 };
@@ -514,7 +870,8 @@ const sendGuestStatusEmail = async (
 const sendAdminCancellationEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
@@ -534,19 +891,43 @@ const sendAdminCancellationEmail = async (
   );
   if (!recipients.length) return;
 
-  await shouldSendEmail('booking_cancelled_admin', unitId);
+  const allowed = await shouldSendEmail('booking_cancelled_admin', unitId);
+  if (!allowed) return;
 
   const locale = booking.locale || 'hu';
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
   const payload = buildPayload(
     booking,
     unitName,
     locale,
-    decisionLabels[locale].cancelled
+    decisionLabels[locale].cancelled,
+    {
+      bookingId,
+      customSelects,
+      publicBaseUrl,
+    }
   );
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_cancelled_admin',
     payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_cancelled_admin.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_cancelled_admin.html,
+    payload
+  );
+
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildDetailsCardHtml(payload, theme)
   );
 
   await Promise.all(
@@ -556,7 +937,7 @@ const sendAdminCancellationEmail = async (
         unitId,
         to,
         subject,
-        html,
+        html: finalHtml,
         payload,
       })
     )
@@ -572,12 +953,22 @@ const sendGuestModifiedEmail = async (
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
-  await shouldSendEmail('booking_modified_guest', unitId);
+  const allowed = await shouldSendEmail('booking_modified_guest', unitId);
+  if (!allowed) return;
 
   const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_guest',
+    payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_modified_guest.subject,
+    payload
+  );
+  const html = renderTemplate(
+    rawHtml || defaultTemplates.booking_modified_guest.html,
     payload
   );
 
@@ -605,13 +996,23 @@ const sendAdminModifiedEmail = async (
   );
   if (!recipients.length) return;
 
-  await shouldSendEmail('booking_modified_admin', unitId);
+  const allowed = await shouldSendEmail('booking_modified_admin', unitId);
+  if (!allowed) return;
 
   const locale = booking.locale || 'hu';
   const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_admin',
+    payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_modified_admin.subject,
+    payload
+  );
+  const html = renderTemplate(
+    rawHtml || defaultTemplates.booking_modified_admin.html,
     payload
   );
 
@@ -667,18 +1068,19 @@ export const onReservationCreated = onDocumentCreated(
     if (!booking) return;
 
     const unitId = event.params.unitId as string;
+    const bookingId = event.params.bookingId as string;
     const unitName = await getUnitName(unitId);
 
     const tasks: Promise<void>[] = [];
 
     tasks.push(
-      sendGuestCreatedEmail(unitId, booking, unitName).catch(err =>
+      sendGuestCreatedEmail(unitId, booking, unitName, bookingId).catch(err =>
         logger.error("Failed to send guest created email", { unitId, err })
       )
     );
 
     tasks.push(
-      sendAdminCreatedEmail(unitId, booking, unitName).catch(err =>
+      sendAdminCreatedEmail(unitId, booking, unitName, bookingId).catch(err =>
         logger.error("Failed to send admin created email", { unitId, err })
       )
     );
@@ -734,7 +1136,7 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     if (adminDecision) {
       tasks.push(
-        sendGuestStatusEmail(unitId, after, unitName).catch(err =>
+        sendGuestStatusEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send guest status email", { unitId, err })
         )
       );
@@ -742,7 +1144,7 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     if (guestCancelled) {
       tasks.push(
-        sendAdminCancellationEmail(unitId, after, unitName).catch(err =>
+        sendAdminCancellationEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send admin cancellation email", { unitId, err })
         )
       );
