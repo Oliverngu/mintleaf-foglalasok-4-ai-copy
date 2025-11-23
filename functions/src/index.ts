@@ -736,6 +736,9 @@ const sendAdminCreatedEmail = async (
     payload.adminActionToken || ''
   }&action=reject`;
 
+  const showAdminButtons =
+    booking.reservationMode === 'request' && !!payload.adminActionToken;
+
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_admin',
@@ -751,13 +754,17 @@ const sendAdminCreatedEmail = async (
     payload
   );
 
-  const extraHtml = `${buildButtonBlock(
-    [
-      { label: 'ELFOGADÁS', url: manageApproveUrl },
-      { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
-    ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+  const extraHtml = `${
+    showAdminButtons
+      ? buildButtonBlock(
+          [
+            { label: 'ELFOGADÁS', url: manageApproveUrl },
+            { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
+          ],
+          theme
+        )
+      : ''
+  }${buildDetailsCardHtml(payload, theme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
