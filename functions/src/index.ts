@@ -35,6 +35,7 @@ interface BookingRecord {
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
+  customData?: Record<string, any>; 
 }
 
 interface EmailSettingsDocument {
@@ -348,19 +349,37 @@ const sendEmail = async (params: {
   }
 };
 
+type TimestampLike =
+  | FirebaseFirestore.Timestamp
+  | admin.firestore.Timestamp;
+
+const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
+  if (!v) return new Date(0);
+  if (v instanceof Date) return v;
+
+  // Firestore Timestamp mind admin, mind client oldalon tud toDate()-et
+  const anyV = v as any;
+  if (typeof anyV.toDate === "function") return anyV.toDate();
+
+  // fallback, ha valami furcsa jön
+  return new Date(anyV);
+};
+
 const buildTimeFields = (
   start: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date,
   end: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null | undefined,
   locale: 'hu' | 'en'
 ) => {
-  const date = start?.toDate ? start.toDate() : new Date(start);
-  const endDate = end?.toDate ? end.toDate() : end ? new Date(end) : null;
+  const date = toJsDate(start);
+  const endDate = end ? toJsDate(end) : null;
+
   const dateFormatter = new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
+
   const timeFormatter = new Intl.DateTimeFormat(locale === 'hu' ? 'hu-HU' : 'en-US', {
     hour: '2-digit',
     minute: '2-digit',
