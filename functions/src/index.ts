@@ -297,8 +297,8 @@ const resolveEmailTemplate = async (
     unitOverride?.html || defaultOverride?.html || hardcoded.html;
 
   return {
-    subject: renderTemplate(subjectTemplate, payload),
-    html: renderTemplate(htmlTemplate, payload),
+    subject: subjectTemplate,
+    html: htmlTemplate,
   };
 };
 
@@ -518,6 +518,20 @@ const buildDetailsCardHtml = (
   `;
 };
 
+const appendHtmlSafely = (baseHtml: string, extraHtml: string): string => {
+  if (!baseHtml) return extraHtml;
+
+  if (/<\/body>/i.test(baseHtml)) {
+    return baseHtml.replace(/<\/body>/i, `${extraHtml}</body>`);
+  }
+
+  if (/<\/html>/i.test(baseHtml)) {
+    return baseHtml.replace(/<\/html>/i, `${extraHtml}</html>`);
+  }
+
+  return `${baseHtml}${extraHtml}`;
+};
+
 const getPublicBaseUrl = (settings?: ReservationSettings) => {
   const envUrl = process.env.PUBLIC_BASE_URL || process.env.VITE_PUBLIC_BASE_URL;
   const baseUrl = settings?.publicBaseUrl || envUrl || 'https://mintleaf.hu';
@@ -649,13 +663,22 @@ const sendGuestCreatedEmail = async (
     publicBaseUrl,
   });
   const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
-  const { subject, html: baseHtml } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_guest',
     payload
   );
 
-  const finalHtml = `${baseHtml}${buildButtonBlock(
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_created_guest.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_created_guest.html,
+    payload
+  );
+
+  const extraHtml = `${buildButtonBlock(
     [
       {
         label: 'FOGLALÁS MÓDOSÍTÁSA',
@@ -664,6 +687,8 @@ const sendGuestCreatedEmail = async (
     ],
     theme
   )}${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await sendEmail({
     typeId: 'booking_created_guest',
@@ -711,19 +736,30 @@ const sendAdminCreatedEmail = async (
     payload.adminActionToken || ''
   }&action=reject`;
 
-  const { subject, html: baseHtml } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_admin',
     payload
   );
 
-  const finalHtml = `${baseHtml}${buildButtonBlock(
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_created_admin.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_created_admin.html,
+    payload
+  );
+
+  const extraHtml = `${buildButtonBlock(
     [
       { label: 'ELFOGADÁS', url: manageApproveUrl },
       { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
     ],
     theme
   )}${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await Promise.all(
     recipients.map(to =>
@@ -768,13 +804,22 @@ const sendGuestStatusEmail = async (
     publicBaseUrl,
   });
   const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
-  const { subject, html: baseHtml } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_status_updated_guest',
     payload
   );
 
-  const finalHtml = `${baseHtml}${buildButtonBlock(
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_status_updated_guest.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_status_updated_guest.html,
+    payload
+  );
+
+  const extraHtml = `${buildButtonBlock(
     [
       {
         label: 'FOGLALÁS MÓDOSÍTÁSA',
@@ -783,6 +828,8 @@ const sendGuestStatusEmail = async (
     ],
     theme
   )}${buildDetailsCardHtml(payload, theme)}`;
+
+  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
   await sendEmail({
     typeId: 'booking_status_updated_guest',
@@ -837,10 +884,24 @@ const sendAdminCancellationEmail = async (
       publicBaseUrl,
     }
   );
-  const { subject, html: baseHtml } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_cancelled_admin',
     payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_cancelled_admin.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_cancelled_admin.html,
+    payload
+  );
+
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildDetailsCardHtml(payload, theme)
   );
 
   await Promise.all(
@@ -850,7 +911,7 @@ const sendAdminCancellationEmail = async (
         unitId,
         to,
         subject,
-        html: `${baseHtml}${buildDetailsCardHtml(payload, theme)}`,
+        html: finalHtml,
         payload,
       })
     )
@@ -870,9 +931,18 @@ const sendGuestModifiedEmail = async (
   if (!allowed) return;
 
   const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_guest',
+    payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_modified_guest.subject,
+    payload
+  );
+  const html = renderTemplate(
+    rawHtml || defaultTemplates.booking_modified_guest.html,
     payload
   );
 
@@ -905,9 +975,18 @@ const sendAdminModifiedEmail = async (
 
   const locale = booking.locale || 'hu';
   const payload = buildPayload(booking, unitName, locale, '');
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_admin',
+    payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_modified_admin.subject,
+    payload
+  );
+  const html = renderTemplate(
+    rawHtml || defaultTemplates.booking_modified_admin.html,
     payload
   );
 
