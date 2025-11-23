@@ -22,12 +22,6 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
-import { sendEmail } from '../../../core/api/emailGateway';
-import {
-  shouldSendEmail,
-  getAdminRecipientsOverride,
-  resolveEmailTemplate,
-} from '../../../core/api/emailSettingsService';
 
 type Locale = 'hu' | 'en';
 
@@ -93,10 +87,14 @@ const writeGuestLog = async (
 
     let baseMessage = '';
     if (type === 'guest_created') {
-      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${dateStr ? `, ${dateStr}` : ''})`;
+      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${
+        dateStr ? `, ${dateStr}` : ''
+      })`;
     }
     if (type === 'guest_cancelled') {
-      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${dateStr ? ` (${dateStr})` : ''}`;
+      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${
+        dateStr ? ` (${dateStr})` : ''
+      }`;
     }
 
     const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
@@ -168,6 +166,7 @@ const ProgressIndicator: React.FC<{
 const ReservationPage: React.FC<ReservationPageProps> = ({
   unitId,
   allUnits,
+  currentUser: _currentUser, // jelenleg nincs használva
 }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -191,9 +190,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [dailyHeadcounts, setDailyHeadcounts] = useState<
-    Map<string, number>
-  >(new Map());
+  const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
+    new Map()
+  );
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -310,8 +309,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     if (settings?.theme) {
       const root = document.documentElement;
       Object.entries(settings.theme).forEach(([key, value]) => {
-        if (key !== 'radius' && key !== 'elevation' && key !== 'typographyScale') {
-          root.style.setProperty(`--color-${key}`, value);
+        if (
+          key !== 'radius' &&
+          key !== 'elevation' &&
+          key !== 'typographyScale'
+        ) {
+          root.style.setProperty(`--color-${key}`, value as string);
         }
       });
     }
@@ -357,9 +360,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     let startDateTime: Date;
     let endDateTime: Date;
     let newReservation: any;
-    let bookingDate: string;
-    let bookingTimeFrom: string;
-    let bookingTimeTo: string;
 
     try {
       const requestedStartTime = formData.startTime;
@@ -371,7 +371,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       };
       if (requestedStartTime < bookingStart || requestedStartTime > bookingEnd) {
         throw new Error(
-          t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd)
+          t.errorTimeWindow
+            .replace('{start}', bookingStart)
+            .replace('{end}', bookingEnd)
         );
       }
 
@@ -394,7 +396,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           0
         );
 
-        if (currentHeadcount >= settings.dailyCapacity) throw new Error(t.errorCapacityFull);
+        if (currentHeadcount >= settings.dailyCapacity)
+          throw new Error(t.errorCapacityFull);
         if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
           throw new Error(
             t.errorCapacityLimited.replace(
@@ -405,19 +408,26 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         }
       }
 
-      startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
+      startDateTime = new Date(
+        `${toDateKey(selectedDate)}T${formData.startTime}`
+      );
       endDateTime = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
       if (formData.endTime) {
         const potentialEndDateTime = new Date(
           `${toDateKey(selectedDate)}T${formData.endTime}`
         );
-        if (potentialEndDateTime > startDateTime) endDateTime = potentialEndDateTime;
+        if (potentialEndDateTime > startDateTime)
+          endDateTime = potentialEndDateTime;
       }
 
-      const newReservationRef = doc(collection(db, 'units', unitId, 'reservations'));
+      const newReservationRef = doc(
+        collection(db, 'units', unitId, 'reservations')
+      );
       const referenceCode = newReservationRef.id;
       const adminActionToken =
-        settings.reservationMode === 'request' ? generateAdminActionToken() : null;
+        settings.reservationMode === 'request'
+          ? generateAdminActionToken()
+          : null;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -456,400 +466,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         'guest_created'
       );
 
-      bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
-      bookingTimeFrom = startDateTime.toLocaleTimeString(newReservation.locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      bookingTimeTo = endDateTime
-        ? endDateTime.toLocaleTimeString(newReservation.locale, {
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-        : '';
-
       setSubmittedData({ ...newReservation, date: selectedDate });
       setStep(3);
 
-      // ---- EMAIL LOGIC (fire-and-forget) ----
-      (async () => {
-        // 0) Közös formázott dátum/idő
-        const bookingDate = startDateTime.toLocaleDateString(newReservation.locale);
-        const bookingTimeFrom = startDateTime.toLocaleTimeString(
-          newReservation.locale,
-          {
-            hour: '2-digit',
-            minute: '2-digit',
-          }
-        );
-        const bookingTimeTo = endDateTime
-          ? endDateTime.toLocaleTimeString(newReservation.locale, {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          : '';
-
-        // ---------------------------------------------------------------------------
-        // 1) VENDÉG EMAIL
-        // ---------------------------------------------------------------------------
-        try {
-          if (newReservation.contact.email) {
-            // MOST: fixen engedjük, amíg az email_settings UI nincs kész
-            const canSendGuest = true;
-
-            if (canSendGuest) {
-              const guestPayload = {
-                unitName: unit.name,
-
-                bookingName: newReservation.name,
-                bookingDate,
-                bookingTimeFrom,
-                bookingTimeTo,
-                headcount: newReservation.headcount,
-
-                guestName: newReservation.name,
-                guestEmail: newReservation.contact.email,
-                guestPhone: newReservation.contact.phoneE164 || '',
-
-                occasion: newReservation.occasion || '',
-                occasionOther: newReservation.customData?.occasionOther || '',
-                comment: newReservation.customData?.comment || '',
-
-                bookingRef: newReservation.referenceCode,
-                isAutoConfirm: newReservation.status === 'confirmed',
-                isRequestMode: newReservation.status === 'pending',
-              };
-
-              const { subject, html: baseHtml } = await resolveEmailTemplate(
-                unit.id,
-                'booking_created_guest',
-                guestPayload
-              );
-
-              // Dinamikus custom mezők blokk (vendég emailhez)
-              let customFieldsHtml = '';
-              if (settings.guestForm?.customSelects?.length) {
-                const lines = settings.guestForm.customSelects
-                  .map((field) => {
-                    const value = newReservation.customData?.[field.id];
-                    if (!value) return '';
-                    return `<li><strong>${field.label}:</strong> ${value}</li>`;
-                  })
-                  .filter(Boolean)
-                  .join('');
-
-                if (lines) {
-                  customFieldsHtml = `
-              <div style="margin-top: 20px;">
-                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
-                <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
-                  <ul style="list-style:none; margin:0; padding:0; font-size:14px; line-height:1.6;">
-                    ${lines}
-                  </ul>
-                </div>
-              </div>
-            `;
-                }
-              }
-
-              const detailsHtml = `
-          <div style="
-            margin-top: 32px;
-            padding: 24px;
-            background: #f9fafb;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          ">
-            <h2 style="
-              font-size: 20px;
-              font-weight: 600;
-              margin: 0 0 16px 0;
-              color: #111827;
-            ">Foglalás részletei</h2>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Helyszín:</strong> ${guestPayload.unitName}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Név:</strong> ${guestPayload.guestName}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Dátum:</strong> ${bookingDate}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Időpont:</strong> ${bookingTimeFrom}${
-                bookingTimeTo ? ' – ' + bookingTimeTo : ''
-              }
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Létszám:</strong> ${guestPayload.headcount} fő
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Email:</strong> ${guestPayload.guestEmail || '-'}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Telefon:</strong> ${guestPayload.guestPhone || '-'}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Foglalás azonosító:</strong> ${guestPayload.bookingRef || '-'}
-            </div>
-
-            ${customFieldsHtml}
-
-            ${
-              guestPayload.comment
-                ? `<div style="margin-top: 20px;">
-                    <strong>Megjegyzés:</strong>
-                    <div style="
-                      margin-top: 6px;
-                      padding: 12px;
-                      background: white;
-                      border: 1px solid #e5e7eb;
-                      border-radius: 8px;
-                      font-size: 14px;
-                      line-height: 1.6;
-                    ">${guestPayload.comment}</div>
-                  </div>`
-                : ''
-            }
-          </div>
-        `;
-
-              const finalHtml = `${baseHtml || ''}${detailsHtml}`;
-
-              await sendEmail({
-                typeId: 'booking_created_guest',
-                unitId: unit.id,
-                to: newReservation.contact.email,
-                subject,
-                html: finalHtml,
-                payload: guestPayload,
-              });
-            }
-          }
-        } catch (emailError) {
-          console.error("Failed to send 'booking_created_guest' email:", emailError);
-        }
-
-        // ---------------------------------------------------------------------------
-        // 2) ADMIN EMAIL(ek)
-        // ---------------------------------------------------------------------------
-        try {
-          const canSendAdmin = await shouldSendEmail(
-            'booking_created_admin',
-            unit.id
-          );
-          if (canSendAdmin) {
-            const legacyRecipients = settings.notificationEmails || [];
-
-            const adminRecipients = await getAdminRecipientsOverride(
-              unit.id,
-              'booking_created_admin',
-              legacyRecipients
-            );
-
-            const adminActionBaseUrl =
-              settings.reservationMode === 'request' && newReservation.adminActionToken
-                ? `${window.location.origin}/manage?token=${referenceCode}&adminToken=${newReservation.adminActionToken}`
-                : '';
-            const adminApproveUrl =
-              adminActionBaseUrl && `${adminActionBaseUrl}&action=approve`;
-            const adminRejectUrl =
-              adminActionBaseUrl && `${adminActionBaseUrl}&action=reject`;
-            const reservationModeLabel =
-              settings.reservationMode === 'auto'
-                ? 'Automatikus megerősítés'
-                : 'Foglalási kérelem';
-
-            const adminActionButtonsHtml =
-              settings.reservationMode === 'request' && adminApproveUrl && adminRejectUrl
-                ? `
-            <div style="
-              margin: 0 0 16px 0;
-              display: flex;
-              gap: 12px;
-              flex-wrap: wrap;
-            ">
-              <a href="${adminApproveUrl}" style="background:#16a34a;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELFOGADÁS</a>
-              <a href="${adminRejectUrl}" style="background:#dc2626;color:#fff;padding:12px 16px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;">ELUTASÍTÁS</a>
-            </div>
-          `
-                : '';
-
-            if (!adminRecipients || adminRecipients.length === 0) {
-              console.warn(
-                "No admin recipients configured for 'booking_created_admin' for unit:",
-                unit.id
-              );
-            } else {
-              const adminPayload = {
-                unitName: unit.name,
-                bookingName: newReservation.name,
-                bookingDate,
-                bookingTimeFrom,
-                bookingTimeTo,
-                bookingDateTime: `${bookingDate} ${bookingTimeFrom}${
-                  bookingTimeTo ? ' – ' + bookingTimeTo : ''
-                }`,
-                headcount: newReservation.headcount,
-                guestName: newReservation.name,
-                guestEmail: newReservation.contact.email,
-                guestPhone: newReservation.contact.phoneE164 || '',
-                occasion: newReservation.occasion || '',
-                occasionOther: newReservation.customData?.occasionOther || '',
-                comment: newReservation.customData?.comment || '',
-                bookingRef: newReservation.referenceCode,
-                isAutoConfirm: newReservation.status === 'confirmed',
-                isRequestMode: settings.reservationMode === 'request',
-                date: bookingDate,
-                time: bookingTimeFrom,
-                reservationModeLabel,
-                adminApproveUrl,
-                adminRejectUrl,
-              };
-
-              const { subject, html: baseHtml } = await resolveEmailTemplate(
-                unit.id,
-                'booking_created_admin',
-                adminPayload
-              );
-
-              // Külön custom mező blokk admin emailhez
-              let customFieldsHtmlAdmin = '';
-              if (settings.guestForm?.customSelects?.length) {
-                const lines = settings.guestForm.customSelects
-                  .map((field) => {
-                    const value = newReservation.customData?.[field.id];
-                    if (!value) return '';
-                    return `<li><strong>${field.label}:</strong> ${value}</li>`;
-                  })
-                  .filter(Boolean)
-                  .join('');
-
-                if (lines) {
-                  customFieldsHtmlAdmin = `
-              <div style="margin-top: 20px;">
-                <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">További adatok</h3>
-                <div style="padding: 16px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
-                  <ul style="list-style:none; margin:0; padding:0; font-size:14px; line-height:1.6;">
-                    ${lines}
-                  </ul>
-                </div>
-              </div>
-            `;
-                }
-              }
-
-              const detailsHtml = `
-          ${adminActionButtonsHtml}
-          <div style="
-            margin-top: 32px;
-            padding: 24px;
-            background: #f9fafb;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          ">
-            <h2 style="
-              font-size: 20px;
-              font-weight: 600;
-              margin: 0 0 16px 0;
-              color: #111827;
-            ">Foglalás részletei</h2>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Egység:</strong> ${adminPayload.unitName}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Vendég neve:</strong> ${adminPayload.guestName}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Dátum:</strong> ${adminPayload.bookingDate}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Időpont:</strong> ${adminPayload.bookingTimeFrom}${
-                adminPayload.bookingTimeTo ? ' – ' + adminPayload.bookingTimeTo : ''
-              }
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Létszám:</strong> ${adminPayload.headcount} fő
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Alkalom:</strong> ${adminPayload.occasion || '-'} ${
-                adminPayload.occasionOther || ''
-              }
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Email:</strong> ${adminPayload.guestEmail || '-'}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Telefon:</strong> ${adminPayload.guestPhone || '-'}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Foglalás azonosító:</strong> ${adminPayload.bookingRef || '-'}
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <strong>Auto-confirm:</strong> ${
-                adminPayload.isAutoConfirm ? 'igen' : 'nem'
-              }
-            </div>
-
-            ${customFieldsHtmlAdmin}
-
-            ${
-              adminPayload.comment
-                ? `<div style="margin-top: 20px;">
-                    <strong>Megjegyzés:</strong>
-                    <div style="
-                      margin-top: 6px;
-                      padding: 12px;
-                      background: white;
-                      border: 1px solid #e5e7eb;
-                      border-radius: 8px;
-                      font-size: 14px;
-                      line-height: 1.6;
-                    ">${adminPayload.comment}</div>
-                  </div>`
-                : ''
-            }
-          </div>
-        `;
-
-              const finalHtml = `${baseHtml || ''}${detailsHtml}`;
-
-              for (const adminEmail of adminRecipients) {
-                await sendEmail({
-                  typeId: 'booking_created_admin',
-                  unitId: unit.id,
-                  to: adminEmail,
-                  subject,
-                  html: finalHtml,
-                  payload: adminPayload,
-                });
-              }
-            }
-          }
-        } catch (adminErr) {
-          console.error("Failed to send 'booking_created_admin' email:", adminErr);
-        }
-      })();
+      // !!! FRONTEND NEM KÜLD EMAILT !!!
+      // A backend (onReservationCreated / onReservationStatusChange) intézi.
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
       if (err instanceof Error) {
@@ -872,11 +493,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     }
     const { radius, elevation, typographyScale } = settings.theme;
     return {
-      radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[radius],
+      radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[
+        radius
+      ],
       shadowClass: { low: 'shadow-sm', mid: 'shadow-md', high: 'shadow-lg' }[
         elevation
       ],
-      fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[typographyScale],
+      fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[
+        typographyScale
+      ],
     };
   }, [settings?.theme]);
 
@@ -908,7 +533,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         <button
           onClick={() => setLocale('hu')}
           className={
-            locale === 'hu' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'
+            locale === 'hu'
+              ? 'font-bold text-[var(--color-primary)]'
+              : 'text-gray-500'
           }
         >
           Magyar
@@ -917,7 +544,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         <button
           onClick={() => setLocale('en')}
           className={
-            locale === 'en' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'
+            locale === 'en'
+              ? 'font-bold text-[var(--color-primary)]'
+              : 'text-gray-500'
           }
         >
           English
@@ -928,7 +557,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
           {unit.name}
         </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">{t.title}</p>
+        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
+          {t.title}
+        </p>
       </header>
 
       <main className="w-full max-w-2xl">
@@ -1002,7 +633,11 @@ const Step1Date: React.FC<{
   onMonthChange,
   dailyHeadcounts,
 }) => {
-  const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+  const startOfMonth = new Date(
+    currentMonth.getFullYear(),
+    currentMonth.getMonth(),
+    1
+  );
   const endOfMonth = new Date(
     currentMonth.getFullYear(),
     currentMonth.getMonth() + 1,
@@ -1080,7 +715,8 @@ const Step1Date: React.FC<{
 
           if (isDisabled) {
             if (isFull) {
-              buttonClass += ' bg-red-50 text-red-400 line-through cursor-not-allowed';
+              buttonClass +=
+                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
               titleText = t.errorCapacityFull;
             } else {
               buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
@@ -1121,7 +757,11 @@ const Step2Details: React.FC<any> = ({
   locale,
   error,
 }) => {
-  const [formErrors, setFormErrors] = useState({ name: '', phone: '', email: '' });
+  const [formErrors, setFormErrors] = useState({
+    name: '',
+    phone: '',
+    email: '',
+  });
 
   const validateField = (name: string, value: string) => {
     if (!value.trim()) return t.errorRequired;
@@ -1133,16 +773,23 @@ const Step2Details: React.FC<any> = ({
   };
 
   const handleStandardChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
   ) => {
     const { name, value } = e.target;
     setFormData((prev: any) => ({ ...prev, [name]: value }));
     if (['name', 'phone', 'email'].includes(name)) {
-      setFormErrors((prev: any) => ({ ...prev, [name]: validateField(name, value) }));
+      setFormErrors((prev: any) => ({
+        ...prev,
+        [name]: validateField(name, value),
+      }));
     }
   };
 
-  const handleCustomFieldChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleCustomFieldChange = (
+    e: React.ChangeEvent<HTMLSelectElement>
+  ) => {
     const { name, value } = e.target;
     setFormData((prev: any) => ({
       ...prev,
@@ -1180,16 +827,22 @@ const Step2Details: React.FC<any> = ({
           {error}
         </div>
       )}
-      {(bookingWindowText || settings.kitchenStartTime || settings.barStartTime) && (
+      {(bookingWindowText ||
+        settings.kitchenStartTime ||
+        settings.barStartTime) && (
         <div
           className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
         >
           {bookingWindowText && (
             <p className="flex items-start gap-2">
-              <span className="font-semibold whitespace-nowrap">{t.bookableWindowLabel}:</span>
+              <span className="font-semibold whitespace-nowrap">
+                {t.bookableWindowLabel}:
+              </span>
               <span>
                 {bookingWindowText}
-                <span className="block text-xs text-gray-500">{t.bookableWindowHint}</span>
+                <span className="block text-xs text-gray-500">
+                  {t.bookableWindowHint}
+                </span>
               </span>
             </p>
           )}
@@ -1451,7 +1104,10 @@ const Step3Confirmation: React.FC<{
             <strong>{t.startTime}:</strong>{' '}
             {submittedData.startTime
               .toDate()
-              .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+              .toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
           </p>
           <p>
             <strong>{t.email}:</strong> {submittedData.contact.email}
