@@ -19,6 +19,7 @@ interface BookingRecord {
   endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';
   createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  updatedAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   notes?: string;
   phone?: string;
   email?: string;
@@ -35,7 +36,7 @@ interface BookingRecord {
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  customData?: Record<string, any>; 
+  customData?: Record<string, any>;
 }
 
 interface EmailSettingsDocument {
@@ -1032,6 +1033,19 @@ const sendAdminModifiedEmail = async (
 
 // ---------- CHANGE DETECTOR ----------
 
+const stableStringify = (value: any): string => {
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    const entries = keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value);
+};
+
 const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
   const fields: (keyof BookingRecord)[] = [
     'name',
@@ -1043,16 +1057,23 @@ const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
     'phone',
     'email',
     'reservationMode',
+    'customData',
+    'contact',
   ];
+
+  const normalize = (v: any) => {
+    if (v === null || v === undefined) return v;
+    if (typeof v?.toMillis === 'function') return v.toMillis();
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'object') return stableStringify(v);
+    return v;
+  };
 
   return fields.some(f => {
     const b: any = (before as any)[f];
     const a: any = (after as any)[f];
 
-    const bVal = b?.toMillis ? b.toMillis() : b;
-    const aVal = a?.toMillis ? a.toMillis() : a;
-
-    return bVal !== aVal;
+    return normalize(b) !== normalize(a);
   });
 };
 
@@ -1110,13 +1131,14 @@ export const onReservationStatusChange = onDocumentUpdated(
     const unitId = event.params.unitId as string;
     const bookingId = event.params.bookingId as string;
 
-    logger.info("TRIGGER FIRED", {
+    logger.info("Reservation update evaluation", {
       unitId,
       bookingId,
       beforeStatus: before.status,
       afterStatus: after.status,
       beforeCancelledBy: before.cancelledBy,
       afterCancelledBy: after.cancelledBy,
+      statusChanged,
       edited,
     });
 
