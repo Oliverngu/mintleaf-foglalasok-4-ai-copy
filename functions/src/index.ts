@@ -38,6 +38,15 @@ interface BookingRecord {
   customData?: Record<string, any>; 
 }
 
+interface QueuedEmail {
+  typeId: string;
+  unitId?: string | null;
+  payload: Record<string, any>;
+  createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  status: "pending" | "sent" | "error";
+  errorMessage?: string;
+}
+
 interface EmailSettingsDocument {
   enabledTypes?: Record<string, boolean>;
   adminRecipients?: Record<string, string[]>;
@@ -181,6 +190,65 @@ const defaultTemplates = {
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
       </ul>
       <p>Ref: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+};
+
+const queuedEmailTemplates: Record<
+  | "leave_request_created"
+  | "leave_request_approved"
+  | "leave_request_rejected"
+  | "schedule_published"
+  | "register_welcome",
+  { subject: string; html: string }
+> = {
+  leave_request_created: {
+    subject: "Új szabadságkérés: {{userName}}",
+    html: `
+      <h2>Új szabadságkérés érkezett</h2>
+      <p><strong>Kérelmező:</strong> {{userName}}</p>
+      <p><strong>Időszakok:</strong></p>
+      <ul>
+        {{#if dateRanges}}
+          {{dateRanges}}
+        {{/if}}
+      </ul>
+      {{#if note}}<p><strong>Megjegyzés:</strong> {{note}}</p>{{/if}}
+    `,
+  },
+  leave_request_approved: {
+    subject: "Szabadságkérelem elfogadva",
+    html: `
+      <h2>Szabadságkérelmedet elfogadtuk</h2>
+      <p>Kedves {{firstName}}!</p>
+      <p>A(z) {{startDate}} - {{endDate}} időszakra beadott kérelmed jóváhagyásra került.</p>
+      {{#if approverName}}<p>Jóváhagyta: {{approverName}}</p>{{/if}}
+    `,
+  },
+  leave_request_rejected: {
+    subject: "Szabadságkérelem elutasítva",
+    html: `
+      <h2>Szabadságkérelmedet elutasítottuk</h2>
+      <p>Kedves {{firstName}}!</p>
+      <p>A(z) {{startDate}} - {{endDate}} időszakra beadott kérelmedet elutasítottuk.</p>
+      {{#if approverName}}<p>Ellenőrizte: {{approverName}}</p>{{/if}}
+    `,
+  },
+  schedule_published: {
+    subject: "Új beosztás elérhető: {{weekLabel}}",
+    html: `
+      <h2>Új beosztás lett közzétéve</h2>
+      <p><strong>Egység:</strong> {{unitName}}</p>
+      <p><strong>Hét:</strong> {{weekLabel}}</p>
+      <p><strong>Szerkesztő:</strong> {{editorName}}</p>
+      <p><a href="{{url}}">Tekintsd meg a beosztást</a></p>
+    `,
+  },
+  register_welcome: {
+    subject: "Üdvözlünk a Mintleaf-ben, {{name}}!",
+    html: `
+      <h2>Köszönjük a regisztrációt, {{name}}!</h2>
+      <p>Örülünk, hogy csatlakoztál.</p>
     `,
   },
 };
@@ -347,6 +415,61 @@ const sendEmail = async (params: {
     });
     throw err;
   }
+};
+
+const resolveQueuedEmailRecipients = async (
+  typeId: string,
+  unitId: string | null | undefined,
+  payload: Record<string, any>
+): Promise<string[]> => {
+  if (typeId === "leave_request_created") {
+    if (Array.isArray(payload.adminEmails) && payload.adminEmails.length) {
+      return payload.adminEmails;
+    }
+    if (unitId) {
+      const recipients = await getAdminRecipientsOverride(
+        unitId,
+        typeId,
+        []
+      );
+      return recipients;
+    }
+    return [];
+  }
+
+  if (typeId === "schedule_published") {
+    if (Array.isArray(payload.recipients) && payload.recipients.length) {
+      return payload.recipients;
+    }
+    if (unitId) {
+      const recipients = await getAdminRecipientsOverride(
+        unitId,
+        typeId,
+        []
+      );
+      return recipients;
+    }
+    return [];
+  }
+
+  if (typeId === "leave_request_approved" || typeId === "leave_request_rejected") {
+    if (typeof payload.userEmail === "string" && payload.userEmail) {
+      return [payload.userEmail];
+    }
+    if (typeof payload.email === "string" && payload.email) {
+      return [payload.email];
+    }
+    return [];
+  }
+
+  if (typeId === "register_welcome") {
+    if (typeof payload.email === "string" && payload.email) {
+      return [payload.email];
+    }
+    return [];
+  }
+
+  return [];
 };
 
 type TimestampLike =
@@ -536,6 +659,76 @@ const buildDetailsCardHtml = (
     </style>
   `;
 };
+
+export const onQueuedEmailCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "email_queue/{emailId}",
+  },
+  async event => {
+    const queued = event.data?.data() as QueuedEmail | undefined;
+    const emailId = event.params.emailId as string;
+    const ref = db.doc(`email_queue/${emailId}`);
+
+    if (!queued || !queued.typeId || !queued.payload) {
+      logger.error("Queued email missing required fields", { emailId });
+      return;
+    }
+
+    const { typeId, unitId = null, payload } = queued;
+    const template = queuedEmailTemplates[typeId as keyof typeof queuedEmailTemplates];
+
+    if (!template) {
+      logger.error("No template found for queued email", { typeId, emailId });
+      await ref.update({
+        status: "error",
+        errorMessage: `No template for typeId ${typeId}`,
+      });
+      return;
+    }
+
+    const allowed = await shouldSendEmail(typeId, unitId);
+    if (!allowed) {
+      logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
+      await ref.update({
+        status: "sent",
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    try {
+      const recipients = await resolveQueuedEmailRecipients(typeId, unitId, payload);
+
+      if (!recipients.length) {
+        throw new Error("No recipients resolved for queued email");
+      }
+
+      const subject = renderTemplate(template.subject, payload);
+      const html = renderTemplate(template.html, payload);
+
+      await sendEmail({
+        typeId,
+        unitId: unitId || undefined,
+        to: recipients,
+        subject,
+        html,
+        payload,
+      });
+
+      await ref.update({
+        status: "sent",
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (err: any) {
+      logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
+      await ref.update({
+        status: "error",
+        errorMessage: err?.message || "Unknown error",
+      });
+    }
+  }
+);
 
 const appendHtmlSafely = (baseHtml: string, extraHtml: string): string => {
   if (!baseHtml) return extraHtml;

@@ -1,16 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Request, User, Unit } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
-import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
-// FIX: Changed import to the correct email gateway service.
-import { sendEmail } from '../../../core/api/emailGateway';
-// FIX: Imported missing functions from the email settings service.
-import { shouldSendEmail, getAdminRecipientsOverride, resolveEmailTemplate } from '../../../core/api/emailSettingsService';
 
 interface KerelemekAppProps {
   requests: Request[];
@@ -258,45 +254,37 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
         await batch.commit();
         setIsFormVisible(false);
 
-        // Fire-and-forget email notification
-        (async () => {
-            try {
-                if (!(await shouldSendEmail('leave_request_created', unitIdForRequest))) return;
+        const legacyAdminEmails = allUsers
+          .filter(
+            u =>
+              u.email &&
+              (u.role === 'Admin' ||
+                (u.role === 'Unit Admin' && u.unitIds?.includes(unitIdForRequest)))
+          )
+          .map(u => u.email);
 
-                const legacyAdminEmails = allUsers
-                    .filter(u => u.email && (u.role === 'Admin' || (u.role === 'Unit Admin' && u.unitIds?.includes(unitIdForRequest))))
-                    .map(u => u.email);
+        const dateRangesHtml = dateBlocks
+          .map(
+            b =>
+              `<li><strong>${b.startDate.toLocaleDateString('hu-HU')}</strong> - <strong>${b.endDate.toLocaleDateString('hu-HU')}</strong></li>`
+          )
+          .join('');
 
-                const adminEmails = await getAdminRecipientsOverride('leave_request_created', unitIdForRequest, legacyAdminEmails);
-
-                if (adminEmails.length > 0) {
-                    const payload = {
-                        userName: currentUser.fullName,
-                        userEmail: currentUser.email,
-                        unitName: allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység',
-                        dateRanges: dateBlocks.map(b => ({
-                            start: b.startDate.toLocaleDateString('hu-HU'),
-                            end: b.endDate.toLocaleDateString('hu-HU'),
-                        })),
-                        note: note || "Nincs megjegyzés.",
-                        createdAt: new Date().toLocaleString('hu-HU'),
-                    };
-                    // FIX: Updated to use async resolveEmailTemplate with 3 arguments.
-                    const { subject, html } = await resolveEmailTemplate(unitIdForRequest, 'leave_request_created', payload);
-                    
-                    await sendEmail({
-                        typeId: "leave_request_created",
-                        unitId: unitIdForRequest,
-                        to: adminEmails,
-                        subject,
-                        html,
-                        payload,
-                    });
-                }
-            } catch (emailError) {
-                console.error("Failed to send 'leave_request_created' email:", emailError);
-            }
-        })();
+        await addDoc(collection(db, 'email_queue'), {
+          typeId: 'leave_request_created',
+          unitId: unitIdForRequest || null,
+          payload: {
+            userName: currentUser.fullName,
+            userEmail: currentUser.email,
+            unitName: allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység',
+            dateRanges: dateRangesHtml,
+            note: note || 'Nincs megjegyzés.',
+            createdAt: new Date().toLocaleString('hu-HU'),
+            adminEmails: legacyAdminEmails,
+          },
+          createdAt: serverTimestamp(),
+          status: 'pending',
+        });
 
     } catch (err) {
         console.error("Error submitting requests:", err);
@@ -318,38 +306,23 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
             reviewedAt: serverTimestamp(),
         });
 
-        // Fire-and-forget email notification
-        (async () => {
-            try {
-                const requestUser = allUsers.find(u => u.id === request.userId);
-                if (requestUser && requestUser.email) {
-                    const typeId = status === "approved" ? "leave_request_approved" : "leave_request_rejected";
-                    
-                    if (!(await shouldSendEmail(typeId, request.unitId))) return;
-                    
-                    const payload = {
-                        firstName: requestUser.firstName,
-                        status: status === 'approved' ? 'jóváhagyva' : 'elutasítva',
-                        approverName: currentUser.fullName,
-                        startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
-                        endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
-                    };
-                    // FIX: Updated to use async resolveEmailTemplate with 3 arguments.
-                    const { subject, html } = await resolveEmailTemplate(request.unitId, typeId, payload);
-
-                    await sendEmail({
-                        typeId,
-                        unitId: request.unitId,
-                        to: requestUser.email,
-                        subject,
-                        html,
-                        payload,
-                    });
-                }
-            } catch (emailError) {
-                console.error("Failed to send leave request status email:", emailError);
-            }
-        })();
+        const requestUser = allUsers.find(u => u.id === request.userId);
+        if (requestUser && requestUser.email) {
+          const typeId = status === 'approved' ? 'leave_request_approved' : 'leave_request_rejected';
+          await addDoc(collection(db, 'email_queue'), {
+            typeId,
+            unitId: request.unitId || null,
+            payload: {
+              firstName: requestUser.firstName,
+              approverName: currentUser.fullName,
+              startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
+              endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
+              userEmail: requestUser.email,
+            },
+            createdAt: serverTimestamp(),
+            status: 'pending',
+          });
+        }
     } catch (err) {
         console.error("Error updating request status:", err);
         alert("Hiba a kérelem státuszának frissítésekor.");
