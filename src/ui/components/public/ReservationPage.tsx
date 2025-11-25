@@ -352,10 +352,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       const requestedStartTime = formData.startTime;
       const requestedHeadcount = parseInt(formData.headcount, 10);
 
-      const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || {
-        from: '00:00',
-        to: '23:59',
-      };
+      const { from: bookingStart, to: bookingEnd } = bookingWindow;
       if (requestedStartTime < bookingStart || requestedStartTime > bookingEnd) {
         throw new Error(
           t.errorTimeWindow.replace('{start}', bookingStart).replace('{end}', bookingEnd)
@@ -454,7 +451,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     }
   };
 
-  const bookingWindow = settings?.bookableWindow || { from: '00:00', to: '23:59' };
+  const bookingWindow = useMemo(() => {
+    const rawFrom = settings?.bookableWindow?.from;
+    const rawTo = settings?.bookableWindow?.to;
+    const isValidTime = (value?: string) => (value ? /^\d{2}:\d{2}$/.test(value) : false);
+
+    const safeFrom = isValidTime(rawFrom) ? rawFrom! : '00:00';
+    const safeTo = isValidTime(rawTo) ? rawTo! : '23:59';
+
+    return { from: safeFrom, to: safeTo };
+  }, [settings?.bookableWindow?.from, settings?.bookableWindow?.to]);
   const availableSlots = (settings as any)?.availableSlots as string[] | undefined;
 
   const availableTimes = useMemo(() => {
