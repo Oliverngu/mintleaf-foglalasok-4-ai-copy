@@ -346,7 +346,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             
             <header className="text-center mb-8 mt-8"><h1 className="text-4xl font-bold text-[var(--color-text-primary)]">{unit.name}</h1><p className="text-lg text-[var(--color-text-secondary)] mt-1">{t.title}</p></header>
             
-            <main className="w-full max-w-3xl md:max-w-4xl mx-auto overflow-y-auto max-h-screen sm:max-h-none sm:overflow-visible">
+            <main className="w-full max-w-3xl md:max-w-4xl mx-auto overflow-y-auto max-h-screen overflow-x-hidden">
                 <ProgressIndicator currentStep={step} t={t} />
                 <div className="relative">
                     <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${(step - 1) * 100}%)` }}>
