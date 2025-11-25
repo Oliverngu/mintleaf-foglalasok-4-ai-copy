@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../../core/firebase/config';
+import { auth, db, serverTimestamp } from '../../core/firebase/config';
 import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, addDoc } from 'firebase/firestore';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { User } from '../../core/models/data';
-import { sendEmail } from '../../core/api/emailGateway';
-// FIX: Imported shouldSendEmail, which was previously missing.
-import { shouldSendEmail, resolveEmailTemplate } from '../../core/api/emailSettingsService';
 
 interface RegisterProps {
   inviteCode: string;
@@ -122,32 +119,16 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
       // 6. Send registration email via the new service
-      (async () => {
-        try {
-            const canSend = await shouldSendEmail('user_registration_welcome', inviteDetails.unitId);
-            if (canSend) {
-                const payload = { firstName: userDataForDb.firstName };
-                // FIX: Corrected the 'resolveEmailTemplate' call to use the async 3-argument signature.
-                const { subject, html } = await resolveEmailTemplate(inviteDetails.unitId, 'user_registration_welcome', payload);
-
-                const emailResponse = await sendEmail({
-                    typeId: 'user_registration_welcome',
-                    unitId: inviteDetails.unitId,
-                    to: userDataForDb.email,
-                    locale: 'hu',
-                    subject,
-                    html,
-                    payload
-                });
-
-                if (!emailResponse.ok) {
-                    console.warn("Registration welcome email could not be sent:", emailResponse.error);
-                }
-            }
-        } catch (e) {
-            console.error("Error sending registration welcome email", e);
-        }
-      })();
+      await addDoc(collection(db, 'email_queue'), {
+        typeId: 'register_welcome',
+        unitId: null,
+        payload: {
+          name: userDataForDb.firstName,
+          email: userDataForDb.email
+        },
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
 
       // 7. Mark invitation as used
       await updateDoc(doc(db, 'invitations', inviteCode), {

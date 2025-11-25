@@ -15,7 +15,7 @@ import {
   ScheduleSettings,
   ExportStyleSettings
 } from '../../../core/models/data';
-import { db, Timestamp } from '../../../core/firebase/config';
+import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
   doc,
@@ -41,11 +41,6 @@ import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
-import { sendEmail } from '../../../core/api/emailGateway';
-import {
-  shouldSendEmail,
-  resolveEmailTemplate
-} from '../../../core/api/emailSettingsService';
 import ColorPicker from '../common/ColorPicker';
 
 // Helper function to calculate shift duration in hours
@@ -1647,78 +1642,43 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
 
-      // Email notifications
-      (async () => {
-        try {
-          const affectedUserIds = [
-            ...new Set(shiftsToPublish.map(s => s.userId))
-          ];
-          const weekLabel = `${weekDays[0].toLocaleDateString(
-            'hu-HU',
-            { month: 'short', day: 'numeric' }
-          )} - ${weekDays[6].toLocaleDateString('hu-HU', {
-            month: 'short',
-            day: 'numeric'
-          })}`;
+      const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
+      const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {
+        month: 'short',
+        day: 'numeric'
+      })} - ${weekDays[6].toLocaleDateString('hu-HU', {
+        month: 'short',
+        day: 'numeric'
+      })}`;
 
-          for (const userId of affectedUserIds) {
-            try {
-              const user = allAppUsers.find(u => u.id === userId);
-              if (
-                !user ||
-                !user.email ||
-                user.notifications?.newSchedule === false
-              ) {
-                continue;
-              }
+      const recipients = affectedUserIds
+        .map(userId => allAppUsers.find(u => u.id === userId))
+        .filter(
+          (u): u is User =>
+            !!u && !!u.email && u.notifications?.newSchedule !== false
+        )
+        .map(u => u.email as string);
 
-              const userPrimaryUnitId =
-                user.unitIds?.[0] || null;
+      const unitId = selectedUnitIds[0] || null;
+      const unitName =
+        allUnits.find(u => u.id === unitId)?.name || 'Ismeretlen egység';
+      const publicScheduleUrl = window.location?.href || '';
 
-              const canSend = await shouldSendEmail(
-                'new_schedule_published',
-                userPrimaryUnitId
-              );
-              if (!canSend) {
-                console.log(
-                  `Email disabled for 'new_schedule_published' for user ${user.fullName}.`
-                );
-                continue;
-              }
-
-              const payload = {
-                firstName: user.firstName,
-                weekLabel: weekLabel
-              };
-
-              const { subject, html } = await resolveEmailTemplate(
-                userPrimaryUnitId,
-                'new_schedule_published',
-                payload
-              );
-
-              await sendEmail({
-                typeId: 'new_schedule_published',
-                unitId: userPrimaryUnitId,
-                to: user.email,
-                subject,
-                html,
-                payload
-              });
-            } catch (singleEmailError) {
-              console.error(
-                `Failed to send 'new_schedule_published' email to ${userId}:`,
-                singleEmailError
-              );
-            }
-          }
-        } catch (emailError) {
-          console.error(
-            'An error occurred during the email notification process for published schedules:',
-            emailError
-          );
-        }
-      })();
+      if (recipients.length > 0) {
+        await addDoc(collection(db, 'email_queue'), {
+          typeId: 'schedule_published',
+          unitId,
+          payload: {
+            unitName,
+            weekLabel,
+            url: publicScheduleUrl,
+            editorName: currentUser.fullName,
+            recipients
+          },
+          createdAt: serverTimestamp(),
+          status: 'pending'
+        });
+      }
     }
     setIsPublishModalOpen(false);
   };
