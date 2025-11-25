@@ -739,13 +739,13 @@ const Step2Details: React.FC<any> = ({
     [availableTimes]
   );
 
-  const sanitizedBookingWindow = useMemo(() => {
+  const sanitizedBookingWindow = (() => {
     const isValidTime = (value?: string | null) => (value ? /^\d{2}:\d{2}$/.test(value) : false);
     return {
       from: isValidTime(bookingWindow?.from) ? bookingWindow!.from : '',
       to: isValidTime(bookingWindow?.to) ? bookingWindow!.to : '',
     };
-  }, [bookingWindow?.from, bookingWindow?.to]);
+  })();
 
   // Guard: keep time options resilient when date or backend data is missing
   const timesForSelectedDay = useMemo(
