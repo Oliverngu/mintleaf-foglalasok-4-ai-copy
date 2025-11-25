@@ -566,9 +566,6 @@ const buildDetailsCardHtml = (
   theme: 'light' | 'dark' = 'light'
 ) => {
   const isDark = theme === 'dark';
-  const background = isDark ? '#111827' : '#f9fafb';
-  const cardBackground = isDark ? '#1f2937' : '#ffffff';
-  const borderColor = isDark ? '#374151' : '#e5e7eb';
   const textColor = isDark ? '#e5e7eb' : '#111827';
   const mutedColor = isDark ? '#9ca3af' : '#4b5563';
 
@@ -578,85 +575,66 @@ const buildDetailsCardHtml = (
     mutedColor
   );
 
+  const statusColors = (() => {
+    if (payload.status === 'confirmed') {
+      return { bg: '#dcfce7', text: '#166534' };
+    }
+    if (payload.status === 'cancelled' || payload.status === 'rejected') {
+      return { bg: '#fee2e2', text: '#991b1b' };
+    }
+    return { bg: '#fef9c3', text: '#854d0e' };
+  })();
+
   const statusRow = payload.decisionLabel
-    ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
-        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
-      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
-        payload.decisionLabel
-      }</span></div>`
-    : '';
-
-  const occasionRow = payload.occasion
-    ? `<div><strong>Alkalom:</strong> <span style="color: ${mutedColor};">${payload.occasion}</span></div>`
-    : '';
-
-  const occasionOtherRow = payload.occasionOther
-    ? `<div><strong>Alkalom (egyéb):</strong> <span style="color: ${mutedColor};">${payload.occasionOther}</span></div>`
+    ? `<span style="display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: ${statusColors.bg}; color: ${statusColors.text};">${payload.decisionLabel}</span>`
     : '';
 
   const notesRow = payload.notes
-    ? `<div style="margin-top: 12px;"><strong>Megjegyzés:</strong><div style="margin-top: 4px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div></div>`
+    ? `<div style="margin-top: 12px; padding: 10px 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div>`
     : '';
 
-  const autoConfirmRow =
-    payload.reservationMode === 'auto'
-      ? payload.locale === 'en'
-        ? 'Yes'
-        : 'Igen'
-      : payload.locale === 'en'
-      ? 'No'
-      : 'Nem';
+  const rows = [
+    { label: 'Egység neve', value: payload.unitName },
+    { label: 'Vendég neve', value: payload.guestName },
+    { label: 'Dátum', value: payload.bookingDate },
+    { label: 'Időpont', value: payload.bookingTimeRange },
+    { label: 'Létszám', value: payload.headcount },
+    { label: 'Email', value: payload.guestEmail },
+    { label: 'Telefon', value: payload.guestPhone },
+    { label: 'Foglalás azonosító', value: payload.bookingRef },
+  ];
+
+  if (payload.occasion) rows.push({ label: 'Alkalom', value: payload.occasion });
+  if (payload.occasionOther)
+    rows.push({ label: 'Alkalom (egyéb)', value: payload.occasionOther });
+
+  const rowsHtml = rows
+    .map(
+      row => `
+      <div style="flex: 1 1 240px; display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
+        <span style="font-weight: 700; color: ${textColor};">${row.label}:</span>
+        <span style="color: ${mutedColor}; text-align: right;">${row.value}</span>
+      </div>`
+    )
+    .join('');
 
   return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px;">
-      <div
-        class="mintleaf-card"
-        style="background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 24px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};"
-      >
-        <h3 style="margin: 0 0 12px 0; font-size: 20px;">Foglalás részletei</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 14px; line-height: 1.5;">
-          <div><strong>Egység neve:</strong> <span style="color: ${mutedColor};">${payload.unitName}</span></div>
-          <div><strong>Vendég neve:</strong> <span style="color: ${mutedColor};">${payload.guestName}</span></div>
-          <div><strong>Dátum:</strong> <span style="color: ${mutedColor};">${payload.bookingDate}</span></div>
-          <div><strong>Időpont:</strong> <span style="color: ${mutedColor};">${payload.bookingTimeRange}</span></div>
-          <div><strong>Létszám:</strong> <span style="color: ${mutedColor};">${payload.headcount}</span></div>
-          ${occasionRow}
-          ${occasionOtherRow}
-          <div><strong>Email:</strong> <span style="color: ${mutedColor};">${payload.guestEmail}</span></div>
-          <div><strong>Telefon:</strong> <span style="color: ${mutedColor};">${payload.guestPhone}</span></div>
-          <div><strong>Foglalás azonosító:</strong> <span style="color: ${mutedColor};">${payload.bookingRef}</span></div>
-          <div><strong>Automatikus megerősítés:</strong> <span style="color: ${mutedColor};">${autoConfirmRow}</span></div>
+    <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px; border-radius: 24px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
+      <div style="background: rgba(255,255,255,0.92); border-radius: 20px; padding: 20px 22px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18);">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <div style="font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600;">Foglalási adatok</div>
+            <div style="font-size: 13px; color: ${mutedColor}; margin-top: 4px;">Kérjük ellenőrizze az adatokat.</div>
+          </div>
+          ${statusRow}
         </div>
-        ${statusRow}
-        ${customFieldsHtml}
+        <div style="display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 14px; line-height: 1.5; padding: 6px 0 0 0;">
+          ${rowsHtml}
+        </div>
+        ${customFieldsHtml ? `<div style="margin-top: 12px; font-size: 13px;">${customFieldsHtml}</div>` : ''}
         ${notesRow}
       </div>
     </div>
-    <style>
-      .mintleaf-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 12px 18px;
-        border-radius: 9999px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        text-decoration: none;
-        background: #16a34a;
-        color: #ffffff;
-        border: 1px solid transparent;
-      }
-      .mintleaf-btn-danger {
-        background: #dc2626;
-      }
-      @media (prefers-color-scheme: dark) {
-        .mintleaf-card-wrapper { background-color: #111827 !important; }
-        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
-        .mintleaf-card strong { color: #e5e7eb !important; }
-        .mintleaf-card span { color: #d1d5db !important; }
-        .mintleaf-btn { color: #ffffff !important; }
-      }
-    </style>
   `;
 };
 
