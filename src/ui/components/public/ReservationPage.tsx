@@ -765,15 +765,52 @@ const Step2Details: React.FC<any> = ({
     );
   }, [formData, t]);
 
-  if (!selectedDate) return null;
-
   const bookingWindowText = bookingWindow ? `${bookingWindow.from} – ${bookingWindow.to}` : null;
 
+  // Guard: ensure time options stay safe even if settings or date data are missing
+  const safeAvailableTimes = useMemo(
+    () => (Array.isArray(availableTimes) ? availableTimes : []),
+    [availableTimes]
+  );
+
   const endTimeOptions = useMemo(() => {
-    if (!formData.startTime) return availableTimes;
+    if (!formData.startTime) return safeAvailableTimes;
     const startMinutes = parseTimeToMinutes(formData.startTime);
-    return availableTimes.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
-  }, [availableTimes, formData.startTime]);
+    return safeAvailableTimes.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
+  }, [safeAvailableTimes, formData.startTime]);
+
+  const noDateMessage = locale === 'en' ? 'Please select a date first.' : 'Válassz először dátumot.';
+  const noSlotsMessage =
+    locale === 'en'
+      ? 'No available time slots for this day.'
+      : 'Erre a napra nincs elérhető időpont.';
+
+  if (!selectedDate) {
+    return (
+      <div className="p-2 sm:p-4">
+        <div className="bg-white/30 backdrop-blur-xl border border-white/40 rounded-2xl shadow-sm p-6 space-y-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.25em] text-emerald-700/60">{t.step2Title}</p>
+              <h2 className="text-3xl font-[Playfair Display] text-emerald-900">{t.step2}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={onBack}
+              className="px-8 py-3 bg-white/20 backdrop-blur-lg border border-white/40 text-emerald-800 rounded-full hover:bg-white/40 transition-all"
+            >
+              {t.back}
+            </button>
+          </div>
+          <div className="p-4 bg-white/50 border border-white/60 rounded-2xl text-emerald-800/80 text-sm text-center">
+            {noDateMessage}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hasSlots = safeAvailableTimes.length > 0;
 
   return (
     <div className="p-2 sm:p-4">
@@ -875,23 +912,38 @@ const Step2Details: React.FC<any> = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <TimePicker
-              label={t.startTime}
-              name="startTime"
-              selected={formData.startTime}
-              onSelect={(value: string) => setFormData((prev: any) => ({ ...prev, startTime: value, endTime: prev.endTime && parseTimeToMinutes(prev.endTime) > parseTimeToMinutes(value) ? prev.endTime : '' }))}
-              options={availableTimes}
-            />
-            <TimePicker
-              label={t.endTime}
-              name="endTime"
-              selected={formData.endTime}
-              onSelect={(value: string) => setFormData((prev: any) => ({ ...prev, endTime: value }))}
-              options={endTimeOptions}
-              allowEmpty
-            />
-          </div>
+          {!hasSlots ? (
+            <div className="p-4 bg-white/50 border border-white/60 rounded-2xl text-emerald-800/80 text-sm text-center">
+              {noSlotsMessage}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TimePicker
+                label={t.startTime}
+                name="startTime"
+                selected={formData.startTime}
+                onSelect={(value: string) =>
+                  setFormData((prev: any) => ({
+                    ...prev,
+                    startTime: value,
+                    endTime:
+                      prev.endTime && parseTimeToMinutes(prev.endTime) > parseTimeToMinutes(value)
+                        ? prev.endTime
+                        : '',
+                  }))
+                }
+                options={safeAvailableTimes}
+              />
+              <TimePicker
+                label={t.endTime}
+                name="endTime"
+                selected={formData.endTime}
+                onSelect={(value: string) => setFormData((prev: any) => ({ ...prev, endTime: value }))}
+                options={endTimeOptions}
+                allowEmpty
+              />
+            </div>
+          )}
 
           {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
             <SelectField
