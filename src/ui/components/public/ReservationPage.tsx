@@ -530,9 +530,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 text-emerald-900 font-[Inter] relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 text-emerald-900 font-[Inter] relative overflow-y-auto flex flex-col">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.12),_transparent_35%)]" aria-hidden />
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-10">
+      <div className="relative z-10 max-w-5xl w-full mx-auto px-4 sm:px-6 py-10 pb-14 flex-1 flex flex-col">
         <div className="flex items-center justify-end gap-2 text-sm font-medium mb-6">
           <button
             onClick={() => setLocale('hu')}
@@ -561,9 +561,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           <p className="text-lg text-emerald-700/80 mt-2">{t.title}</p>
         </header>
 
-        <div className="bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] rounded-2xl p-6 sm:p-8">
+        <div className="bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] rounded-2xl p-6 sm:p-8 max-h-[calc(100vh-5rem)] overflow-y-auto sm:max-h-none sm:overflow-visible">
           <ProgressIndicator currentStep={step} t={t} />
-          <div className="relative overflow-hidden">
+          <div className="relative overflow-x-hidden">
             <div
               className="flex transition-transform duration-500 ease-in-out"
               style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
