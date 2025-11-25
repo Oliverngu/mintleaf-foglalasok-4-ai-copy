@@ -60,6 +60,18 @@ interface CustomSelectField {
   options?: string[];
 }
 
+interface EmailTheme {
+  textColor: string;
+  mutedColor: string;
+  surface: string;
+  surfaceBorder?: string;
+  background?: string;
+  gradientBg: string;
+  buttonPrimary: string;
+  buttonSecondary: string;
+  buttonText?: string;
+}
+
 interface ReservationSettings {
   notificationEmails?: string[];
   guestForm?: {
@@ -192,6 +204,45 @@ const defaultTemplates = {
       <p>Ref: <strong>{{bookingRef}}</strong></p>
     `,
   },
+};
+
+const defaultEmailThemes: Record<'light' | 'dark', Required<EmailTheme>> = {
+  light: {
+    textColor: '#111827',
+    mutedColor: '#4b5563',
+    surface: '#ffffff',
+    surfaceBorder: '#e5e7eb',
+    background: '#f9fafb',
+    gradientBg: 'linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%)',
+    buttonPrimary: '#16a34a',
+    buttonSecondary: '#dc2626',
+    buttonText: '#ffffff',
+  },
+  dark: {
+    textColor: '#e5e7eb',
+    mutedColor: '#9ca3af',
+    surface: '#1f2937',
+    surfaceBorder: '#374151',
+    background: '#111827',
+    gradientBg: 'linear-gradient(180deg, #0b1220 0%, #111827 100%)',
+    buttonPrimary: '#16a34a',
+    buttonSecondary: '#dc2626',
+    buttonText: '#ffffff',
+  },
+};
+
+const buildEmailTheme = (
+  mode: 'light' | 'dark' = 'light',
+  overrides: Partial<EmailTheme> = {}
+): Required<EmailTheme> => {
+  const fallback = defaultEmailThemes[mode] || defaultEmailThemes.light;
+  return {
+    ...fallback,
+    ...overrides,
+    surfaceBorder: overrides.surfaceBorder || fallback.surfaceBorder,
+    background: overrides.background || fallback.background,
+    buttonText: overrides.buttonText || fallback.buttonText,
+  };
 };
 
 const queuedEmailTemplates: Record<
@@ -563,14 +614,13 @@ const buildCustomFieldsHtml = (
 
 const buildDetailsCardHtml = (
   payload: Record<string, any>,
-  theme: 'light' | 'dark' = 'light'
+  theme: Required<EmailTheme>
 ) => {
-  const isDark = theme === 'dark';
-  const background = isDark ? '#111827' : '#f9fafb';
-  const cardBackground = isDark ? '#1f2937' : '#ffffff';
-  const borderColor = isDark ? '#374151' : '#e5e7eb';
-  const textColor = isDark ? '#e5e7eb' : '#111827';
-  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
+  const background = theme.gradientBg || theme.background;
+  const cardBackground = theme.surface;
+  const borderColor = theme.surfaceBorder;
+  const textColor = theme.textColor;
+  const mutedColor = theme.mutedColor;
 
   const customFieldsHtml = buildCustomFieldsHtml(
     payload.customSelects,
@@ -580,10 +630,10 @@ const buildDetailsCardHtml = (
 
   const statusRow = payload.decisionLabel
     ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
-        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
-      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
-        payload.decisionLabel
-      }</span></div>`
+        payload.status === 'confirmed'
+          ? theme.buttonPrimary
+          : theme.buttonSecondary
+      }; color: ${theme.buttonText}; font-weight: 700;">${payload.decisionLabel}</span></div>`
     : '';
 
   const occasionRow = payload.occasion
@@ -632,31 +682,6 @@ const buildDetailsCardHtml = (
         ${notesRow}
       </div>
     </div>
-    <style>
-      .mintleaf-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 12px 18px;
-        border-radius: 9999px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        text-decoration: none;
-        background: #16a34a;
-        color: #ffffff;
-        border: 1px solid transparent;
-      }
-      .mintleaf-btn-danger {
-        background: #dc2626;
-      }
-      @media (prefers-color-scheme: dark) {
-        .mintleaf-card-wrapper { background-color: #111827 !important; }
-        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
-        .mintleaf-card strong { color: #e5e7eb !important; }
-        .mintleaf-card span { color: #d1d5db !important; }
-        .mintleaf-btn { color: #ffffff !important; }
-      }
-    </style>
   `;
 };
 
@@ -830,22 +855,42 @@ const getReservationSettings = async (
 
 const buildButtonBlock = (
   buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
-  theme: 'light' | 'dark'
+  theme: Required<EmailTheme>
 ) => {
-  const background = theme === 'dark' ? '#111827' : '#f9fafb';
   const spacing =
     '<span style="display: inline-block; width: 4px; height: 4px;"></span>';
   const buttonsHtml = buttons
-    .map(
-      btn =>
-        `<a class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}" href="${btn.url}" style="background: ${
-          btn.variant === 'danger' ? '#dc2626' : '#16a34a'
-        }; color: #ffffff; text-decoration: none;">${btn.label}</a>`
-    )
+    .map(btn => {
+      const backgroundColor =
+        btn.variant === 'danger' ? theme.buttonSecondary : theme.buttonPrimary;
+      const borderColor = btn.variant === 'danger'
+        ? theme.buttonSecondary
+        : theme.buttonPrimary;
+
+      return `<a
+        class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}"
+        href="${btn.url}"
+        style="
+          background: ${backgroundColor};
+          color: ${theme.buttonText};
+          text-decoration: none;
+          border: 1px solid ${borderColor};
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 12px 18px;
+          border-radius: 9999px;
+          font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+          font-weight: 700;
+        "
+      >${btn.label}</a>`;
+    })
     .join(spacing);
 
   return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+    <div class="mintleaf-card-wrapper" style="background: ${
+      theme.gradientBg || theme.background
+    }; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
       ${buttonsHtml}
     </div>
   `;
@@ -867,7 +912,9 @@ const sendGuestCreatedEmail = async (
   const settings = await getReservationSettings(unitId);
   const customSelects = settings.guestForm?.customSelects || [];
   const publicBaseUrl = getPublicBaseUrl(settings);
-  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+  const emailTheme = buildEmailTheme(
+    settings.themeMode === 'dark' ? 'dark' : 'light'
+  );
 
   const payload = buildPayload(booking, unitName, locale, '', {
     bookingId,
@@ -897,8 +944,8 @@ const sendGuestCreatedEmail = async (
         url: manageUrl,
       },
     ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+    emailTheme
+  )}${buildDetailsCardHtml(payload, emailTheme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -933,7 +980,9 @@ const sendAdminCreatedEmail = async (
   const locale = booking.locale || 'hu';
   const customSelects = settings.guestForm?.customSelects || [];
   const publicBaseUrl = getPublicBaseUrl(settings);
-  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+  const emailTheme = buildEmailTheme(
+    settings.themeMode === 'dark' ? 'dark' : 'light'
+  );
 
   const payload = buildPayload(booking, unitName, locale, '', {
     bookingId,
@@ -973,10 +1022,10 @@ const sendAdminCreatedEmail = async (
             { label: 'ELFOGADÁS', url: manageApproveUrl },
             { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
           ],
-          theme
+          emailTheme
         )
       : ''
-  }${buildDetailsCardHtml(payload, theme)}`;
+  }${buildDetailsCardHtml(payload, emailTheme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1010,7 +1059,9 @@ const sendGuestStatusEmail = async (
   const settings = await getReservationSettings(unitId);
   const customSelects = settings.guestForm?.customSelects || [];
   const publicBaseUrl = getPublicBaseUrl(settings);
-  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+  const emailTheme = buildEmailTheme(
+    settings.themeMode === 'dark' ? 'dark' : 'light'
+  );
 
   const decisionLabel =
     booking.status === 'confirmed'
@@ -1045,8 +1096,8 @@ const sendGuestStatusEmail = async (
         url: manageUrl,
       },
     ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+    emailTheme
+  )}${buildDetailsCardHtml(payload, emailTheme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1090,7 +1141,9 @@ const sendAdminCancellationEmail = async (
   const locale = booking.locale || 'hu';
   const customSelects = settings.guestForm?.customSelects || [];
   const publicBaseUrl = getPublicBaseUrl(settings);
-  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+  const emailTheme = buildEmailTheme(
+    settings.themeMode === 'dark' ? 'dark' : 'light'
+  );
 
   const payload = buildPayload(
     booking,
@@ -1120,7 +1173,7 @@ const sendAdminCancellationEmail = async (
 
   const finalHtml = appendHtmlSafely(
     baseHtmlRendered,
-    buildDetailsCardHtml(payload, theme)
+    buildDetailsCardHtml(payload, emailTheme)
   );
 
   await Promise.all(
