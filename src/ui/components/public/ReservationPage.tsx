@@ -734,6 +734,31 @@ const Step2Details: React.FC<any> = ({
     email: '',
   });
 
+  const safeAvailableTimes = useMemo(
+    () => (Array.isArray(availableTimes) ? availableTimes : []),
+    [availableTimes]
+  );
+
+  const sanitizedBookingWindow = useMemo(() => {
+    const isValidTime = (value?: string | null) => (value ? /^\d{2}:\d{2}$/.test(value) : false);
+    return {
+      from: isValidTime(bookingWindow?.from) ? bookingWindow!.from : '',
+      to: isValidTime(bookingWindow?.to) ? bookingWindow!.to : '',
+    };
+  }, [bookingWindow?.from, bookingWindow?.to]);
+
+  // Guard: keep time options resilient when date or backend data is missing
+  const timesForSelectedDay = useMemo(
+    () => (selectedDate ? safeAvailableTimes : []),
+    [selectedDate, safeAvailableTimes]
+  );
+
+  const endTimeOptions = useMemo(() => {
+    if (!formData.startTime) return timesForSelectedDay;
+    const startMinutes = parseTimeToMinutes(formData.startTime);
+    return timesForSelectedDay.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
+  }, [timesForSelectedDay, formData.startTime]);
+
   const validateField = (name: string, value: string) => {
     if (!value.trim()) return t.errorRequired;
     if (name === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
@@ -776,24 +801,9 @@ const Step2Details: React.FC<any> = ({
   }, [formData, t]);
 
   const bookingWindowText =
-    bookingWindow?.from && bookingWindow?.to ? `${bookingWindow.from} – ${bookingWindow.to}` : null;
-
-  const safeAvailableTimes = useMemo(
-    () => (Array.isArray(availableTimes) ? availableTimes : []),
-    [availableTimes]
-  );
-
-  // Guard: keep time options resilient when date or backend data is missing
-  const timesForSelectedDay = useMemo(
-    () => (selectedDate ? safeAvailableTimes : []),
-    [selectedDate, safeAvailableTimes]
-  );
-
-  const endTimeOptions = useMemo(() => {
-    if (!formData.startTime) return timesForSelectedDay;
-    const startMinutes = parseTimeToMinutes(formData.startTime);
-    return timesForSelectedDay.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
-  }, [timesForSelectedDay, formData.startTime]);
+    sanitizedBookingWindow.from && sanitizedBookingWindow.to
+      ? `${sanitizedBookingWindow.from} – ${sanitizedBookingWindow.to}`
+      : null;
 
   const noDateMessage = locale === 'en' ? 'Please select a date first.' : 'Válassz először dátumot.';
   const noSlotsMessage =
