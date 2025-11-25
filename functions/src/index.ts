@@ -80,17 +80,45 @@ const defaultTemplates = {
   booking_created_guest: {
     subject: 'Foglalás visszaigazolás: {{bookingDate}} {{bookingTimeFrom}}',
     html: `
-      <h2>Foglalásodat megkaptuk</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>Hamarosan visszajelzünk a foglalás státuszáról.</p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Foglalásodat megkaptuk</h1>
+            <p style="margin:0 0 8px;">Kedves {{guestName}}!</p>
+            <p style="margin:0;color:#0f172a;">Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Foglalás részletei</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+              {{#if occasion}}
+                <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                  <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Alkalom</p>
+                  <p style="margin:0;font-weight:700;color:#0f172a;">{{occasion}}</p>
+                </div>
+              {{/if}}
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Hivatkozási kód: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">Hamarosan visszajelzünk a foglalás státuszáról.</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 
@@ -98,19 +126,62 @@ const defaultTemplates = {
     subject:
       'Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő) – {{guestName}}',
     html: `
-      <h2>Új foglalási kérelem érkezett</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
-        {{#if notes}}<li><strong>Megjegyzés:</strong> {{notes}}</li>{{/if}}
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Ref: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Új foglalási kérelem érkezett</h1>
+            <p style="margin:0;color:#0f172a;">Egység: <strong>{{unitName}}</strong></p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Foglalás röviden</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Vendég neve</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestName}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+              {{#if occasion}}
+                <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                  <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Alkalom</p>
+                  <p style="margin:0;font-weight:700;color:#0f172a;">{{occasion}}</p>
+                </div>
+              {{/if}}
+              {{#if notes}}
+                <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                  <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Megjegyzés</p>
+                  <p style="margin:0;font-weight:700;color:#0f172a;">{{notes}}</p>
+                </div>
+              {{/if}}
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Email</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestEmail}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Telefon</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestPhone}}</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Ref: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">Döntés a rendszerben.</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 
@@ -118,17 +189,43 @@ const defaultTemplates = {
     subject:
       'Foglalás frissítés: {{bookingDate}} {{bookingTimeFrom}} – {{decisionLabel}}',
     html: `
-      <h2>Foglalás frissítése</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Döntés:</strong> {{decisionLabel}}</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>Köszönjük a türelmedet!</p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Foglalás frissítése</h1>
+            <p style="margin:0 0 8px;">Kedves {{guestName}}!</p>
+            <p style="margin:0;color:#0f172a;">A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Foglalás részletei</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Döntés</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{decisionLabel}}</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Hivatkozási kód: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">Köszönjük a türelmedet!</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 
@@ -136,33 +233,89 @@ const defaultTemplates = {
     subject:
       'Foglalás lemondva: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
     html: `
-      <h2>Vendég lemondta a foglalást</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>A foglalás le lett mondva a vendég oldaláról.</p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Vendég lemondta a foglalást</h1>
+            <p style="margin:0;color:#0f172a;">Egység: <strong>{{unitName}}</strong></p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Foglalás részletei</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Vendég neve</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestName}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Email</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestEmail}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Telefon</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestPhone}}</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Hivatkozási kód: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">A foglalás le lett mondva a vendég oldaláról.</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 
   booking_modified_guest: {
     subject: 'Foglalás módosítva: {{bookingDate}} {{bookingTimeFrom}}',
     html: `
-      <h2>Foglalás módosítva</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>A(z) <strong>{{unitName}}</strong> egységnél a foglalásod adatai módosultak.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Foglalás módosítva</h1>
+            <p style="margin:0 0 8px;">Kedves {{guestName}}!</p>
+            <p style="margin:0;color:#0f172a;">A(z) <strong>{{unitName}}</strong> egységnél a foglalásod adatai módosultak.</p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Új részletek</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Hivatkozási kód: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">Köszönjük a rugalmas együttműködést!</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 
@@ -170,17 +323,50 @@ const defaultTemplates = {
     subject:
       'Foglalás módosítva (admin): {{bookingDate}} {{bookingTimeFrom}} – {{guestName}}',
     html: `
-      <h2>Foglalás módosítva</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Ref: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:0;background:linear-gradient(135deg,#ecfdf3,#ffffff 45%,#d1fae5);padding:24px;font-family:'Inter','Segoe UI',sans-serif;color:#0f172a;">
+        <div style="max-width:640px;margin:0 auto;background:rgba(255,255,255,0.9);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 8px 32px rgba(16,185,129,0.12);border-radius:18px;overflow:hidden;">
+          <div style="padding:30px 32px 18px;">
+            <p style="margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#047857;font-weight:700;">WizardBooking</p>
+            <h1 style="margin:10px 0 6px;font-family:'Playfair Display',serif;font-size:28px;color:#064e3b;">Foglalás módosítva</h1>
+            <p style="margin:0;color:#0f172a;">Egység: <strong>{{unitName}}</strong></p>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:22px 32px;">
+            <h2 style="margin:0 0 12px;font-family:'Playfair Display',serif;font-size:20px;color:#065f46;">Új részletek</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Vendég neve</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestName}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Dátum</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingDate}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Időpont</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Létszám</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{headcount}} fő</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Email</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestEmail}}</p>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);">
+                <p style="margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#065f46;">Telefon</p>
+                <p style="margin:0;font-weight:700;color:#0f172a;">{{guestPhone}}</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(16,185,129,0.15);padding:18px 32px 26px;">
+            <p style="margin:0 0 8px;color:#065f46;font-weight:700;">Ref: <span style="font-family:'Roboto Mono',monospace;">{{bookingRef}}</span></p>
+            <p style="margin:0;color:#0f172a;">Frissített adatok elérhetőek a rendszerben.</p>
+          </div>
+        </div>
+      </div>
     `,
   },
 };

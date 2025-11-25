@@ -234,14 +234,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const getStatusChip = (status: Booking['status']) => {
     const styles = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800',
+      pending: 'bg-amber-100 text-amber-800 border border-amber-200',
+      confirmed: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+      cancelled: 'bg-red-100 text-red-800 border border-red-200',
     } as const;
     const text = (t as any)[`status_${status}`] || status;
     return (
       <span
-        className={`px-3 py-1 text-sm font-bold rounded-full ${styles[status]}`}
+        className={`px-3 py-1 text-sm font-bold rounded-full shadow-sm ${styles[status]}`}
       >
         {text}
       </span>
@@ -255,162 +255,187 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 md:p-8">
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-gray-800">{unit.name}</h1>
-        <p className="text-lg text-gray-500 mt-1">{t.manageTitle}</p>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-4xl mx-auto space-y-6">
+        <header className="text-center space-y-2">
+          <p className="text-xs uppercase tracking-[0.24em] text-emerald-700 font-semibold">WizardBooking</p>
+          <h1 className="text-4xl sm:text-5xl font-bold text-emerald-900 leading-tight">{unit.name}</h1>
+          <p className="text-lg text-emerald-800/80">{t.manageTitle}</p>
+        </header>
 
-      <main className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
-        <div className="flex justify-between items-center mb-6 pb-4 border-b">
-          <h2 className="text-2xl font-semibold text-gray-800">
-            {t.reservationDetails}
-          </h2>
-          {getStatusChip(booking.status)}
-        </div>
-
-        <div className="space-y-3 text-gray-700">
-          <p>
-            <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded text-sm">
-              {booking.referenceCode?.substring(0, 8).toUpperCase()}
-            </span>
-          </p>
-          <p>
-            <strong>{t.name}:</strong> {booking.name}
-          </p>
-          <p>
-            <strong>{t.headcount}:</strong> {booking.headcount}
-          </p>
-          <p>
-            <strong>{t.date}:</strong>{' '}
-            {booking.startTime
-              .toDate()
-              .toLocaleDateString(locale, {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-          </p>
-          <p>
-            <strong>{t.startTime}:</strong>{' '}
-            {booking.startTime
-              .toDate()
-              .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
-          </p>
-          <p>
-            <strong>{t.email}:</strong> {booking.contact?.email}
-          </p>
-          <p>
-            <strong>{t.phone}:</strong>{' '}
-            {booking.contact?.phoneE164
-              ? maskPhone(booking.contact.phoneE164)
-              : 'N/A'}
-          </p>
-        </div>
-
-        {booking.status === 'pending' && (
-          <div className="mt-6 p-4 border rounded-xl bg-yellow-50 text-yellow-900">
-            <p className="font-semibold">{t.pendingApproval}</p>
-            <p className="text-sm mt-1">{t.pendingApprovalHint}</p>
-          </div>
-        )}
-
-        {booking.status === 'pending' &&
-          adminToken &&
-          booking.adminActionToken !== adminToken && (
-            <div className="mt-4 p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
-              {t.invalidAdminToken}
+        <main className="p-8 bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)] rounded-2xl max-w-xl mx-auto relative overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-emerald-100/20 via-transparent to-emerald-200/10" />
+          <div className="relative space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold text-emerald-900">{t.reservationDetails}</h2>
+              <p className="text-sm text-emerald-800/80">
+                {booking.status === 'pending' ? t.pendingApprovalHint : t.manageTitle}
+              </p>
+              <div className="h-px bg-gradient-to-r from-emerald-200 via-emerald-300/50 to-transparent" />
             </div>
-          )}
 
-        {booking.status === 'pending' &&
-          adminToken &&
-          booking.adminActionToken === adminToken && (
-            <div className="mt-6 p-4 border rounded-xl bg-green-50 text-green-900 space-y-3">
-              <p className="font-semibold">{t.adminActionTitle}</p>
-              {actionMessage && (
-                <p className="text-sm text-green-800 bg-white/60 p-2 rounded-md border border-green-200">
-                  {actionMessage}
-                </p>
-              )}
-              {actionError && (
-                <p className="text-sm text-red-700 bg-white/60 p-2 rounded-md border border-red-200">
-                  {actionError}
-                </p>
-              )}
-              {!actionMessage && (
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={() => handleAdminDecision('approve')}
-                    className="flex-1 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-60"
-                    disabled={isProcessingAction}
-                  >
-                    {t.adminApprove}
-                  </button>
-                  <button
-                    onClick={() => handleAdminDecision('reject')}
-                    className="flex-1 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-60"
-                    disabled={isProcessingAction}
-                  >
-                    {t.adminReject}
-                  </button>
+            <div className="bg-white/70 border border-emerald-100 rounded-xl shadow-inner p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-emerald-900">{t.reservationDetails}</h3>
+                {getStatusChip(booking.status)}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-emerald-900/90 text-sm sm:text-base">
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.referenceCode}</p>
+                  <span className="font-mono bg-emerald-50 px-2 py-1 rounded border border-emerald-100 text-sm">
+                    {booking.referenceCode?.substring(0, 8).toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.name}</p>
+                  <p>{booking.name}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.headcount}</p>
+                  <p>{booking.headcount}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.date}</p>
+                  <p>
+                    {booking.startTime
+                      .toDate()
+                      .toLocaleDateString(locale, {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.startTime}</p>
+                  <p>
+                    {booking.startTime
+                      .toDate()
+                      .toLocaleTimeString(locale, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.email}</p>
+                  <p>{booking.contact?.email}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-800 text-xs uppercase tracking-wide mb-1">{t.phone}</p>
+                  <p>
+                    {booking.contact?.phoneE164
+                      ? maskPhone(booking.contact.phoneE164)
+                      : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {booking.status === 'pending' && (
+              <div className="p-4 border border-emerald-100 rounded-xl bg-emerald-50/70 text-emerald-900 shadow-inner">
+                <p className="font-semibold">{t.pendingApproval}</p>
+                <p className="text-sm mt-1 text-emerald-800/80">{t.pendingApprovalHint}</p>
+              </div>
+            )}
+
+            {booking.status === 'pending' &&
+              adminToken &&
+              booking.adminActionToken !== adminToken && (
+                <div className="p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
+                  {t.invalidAdminToken}
                 </div>
               )}
-            </div>
-          )}
 
-        {booking.status !== 'cancelled' ? (
-          <div className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4">
-            <button
-              disabled
-              className="w-full bg-gray-300 text-gray-500 font-bold py-3 px-6 rounded-lg cursor-not-allowed"
-            >
-              {t.modifyReservation}
-            </button>
-            <button
-              onClick={() => setIsCancelModalOpen(true)}
-              className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700"
-            >
-              {t.cancelReservation}
-            </button>
+            {booking.status === 'pending' &&
+              adminToken &&
+              booking.adminActionToken === adminToken && (
+                <div className="p-4 border border-emerald-200 rounded-xl bg-white/60 text-emerald-900 space-y-3 shadow-inner">
+                  <p className="font-semibold">{t.adminActionTitle}</p>
+                  {actionMessage && (
+                    <p className="text-sm text-emerald-800 bg-emerald-50/80 p-2 rounded-md border border-emerald-100">
+                      {actionMessage}
+                    </p>
+                  )}
+                  {actionError && (
+                    <p className="text-sm text-red-700 bg-red-50/80 p-2 rounded-md border border-red-200">
+                      {actionError}
+                    </p>
+                  )}
+                  {!actionMessage && (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={() => handleAdminDecision('approve')}
+                        className="flex-1 bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 disabled:opacity-60"
+                        disabled={isProcessingAction}
+                      >
+                        {t.adminApprove}
+                      </button>
+                      <button
+                        onClick={() => handleAdminDecision('reject')}
+                        className="flex-1 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                        disabled={isProcessingAction}
+                      >
+                        {t.adminReject}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            {booking.status !== 'cancelled' ? (
+              <div className="pt-4 border-t border-emerald-100 flex flex-col sm:flex-row gap-4">
+                <button
+                  disabled
+                  className="w-full bg-emerald-100 text-emerald-500 font-bold py-3 px-6 rounded-lg cursor-not-allowed"
+                >
+                  {t.modifyReservation}
+                </button>
+                <button
+                  onClick={() => setIsCancelModalOpen(true)}
+                  className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700"
+                >
+                  {t.cancelReservation}
+                </button>
+              </div>
+            ) : (
+              <div className="pt-6 border-t border-emerald-100 text-center">
+                <p className="text-lg font-semibold text-red-700">
+                  {t.reservationCancelledSuccess}
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="mt-8 pt-6 border-t text-center">
-            <p className="text-lg font-semibold text-red-700">
-              {t.reservationCancelledSuccess}
-            </p>
+        </main>
+
+        {isCancelModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+              <h2 className="text-xl font-bold text-gray-800">
+                {t.areYouSureCancel}
+              </h2>
+              <p className="text-gray-600 my-4">
+                {t.cancelConfirmationBody}
+              </p>
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={() => setIsCancelModalOpen(false)}
+                  className="bg-gray-200 text-gray-800 font-bold py-2 px-6 rounded-lg hover:bg-gray-300"
+                >
+                  {t.noKeep}
+                </button>
+                <button
+                  onClick={handleCancelReservation}
+                  className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-700"
+                >
+                  {t.yesCancel}
+                </button>
+              </div>
+            </div>
           </div>
         )}
-      </main>
-
-      {isCancelModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <h2 className="text-xl font-bold text-gray-800">
-              {t.areYouSureCancel}
-            </h2>
-            <p className="text-gray-600 my-4">
-              {t.cancelConfirmationBody}
-            </p>
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={() => setIsCancelModalOpen(false)}
-                className="bg-gray-200 text-gray-800 font-bold py-2 px-6 rounded-lg hover:bg-gray-300"
-              >
-                {t.noKeep}
-              </button>
-              <button
-                onClick={handleCancelReservation}
-                className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-700"
-              >
-                {t.yesCancel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
