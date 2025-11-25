@@ -80,17 +80,59 @@ const defaultTemplates = {
   booking_created_guest: {
     subject: 'Foglalás visszaigazolás: {{bookingDate}} {{bookingTimeFrom}}',
     html: `
-      <h2>Foglalásodat megkaptuk</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>Hamarosan visszajelzünk a foglalás státuszáról.</p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#ecfdf3,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#16a34a;font-weight:700;">Foglalás beérkezett</p>
+                    <h1 style="margin:0;font-size:24px;color:#065f46;">Foglalásodat megkaptuk</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Kedves {{guestName}}!</p>
+                    <p style="margin:6px 0 0 0;color:#475569;">Köszönjük a foglalást a(z) <strong style="color:#0f172a;">{{unitName}}</strong> egységbe. Hamarosan visszajelzünk a státuszról.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      {{#if occasion}}<tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Alkalom</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{occasion}}{{#if occasionOther}} – {{occasionOther}}{{/if}}</td>
+                      </tr>{{/if}}
+                      {{#if notes}}<tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Megjegyzés</td>
+                        <td style="font-size:15px;color:#0f172a;">{{notes}}</td>
+                      </tr>{{/if}}
+                      {{#if bookingRef}}<tr>
+                        <td style="width:180px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 
@@ -98,19 +140,70 @@ const defaultTemplates = {
     subject:
       'Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő) – {{guestName}}',
     html: `
-      <h2>Új foglalási kérelem érkezett</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        {{#if occasion}}<li><strong>Alkalom:</strong> {{occasion}}</li>{{/if}}
-        {{#if notes}}<li><strong>Megjegyzés:</strong> {{notes}}</li>{{/if}}
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Ref: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#ecfdf3,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#16a34a;font-weight:700;">Új foglalási kérelem</p>
+                    <h1 style="margin:0;font-size:24px;color:#065f46;">Új foglalás érkezett</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Egység: <strong style="color:#0f172a;">{{unitName}}</strong></p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Vendég neve</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{guestName}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      {{#if occasion}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Alkalom</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{occasion}}{{#if occasionOther}} – {{occasionOther}}{{/if}}</td>
+                      </tr>{{/if}}
+                      {{#if notes}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Megjegyzés</td>
+                        <td style="font-size:15px;color:#0f172a;">{{notes}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Email</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestEmail}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Telefon</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestPhone}}</td>
+                      </tr>
+                      {{#if bookingRef}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 
@@ -118,17 +211,51 @@ const defaultTemplates = {
     subject:
       'Foglalás frissítés: {{bookingDate}} {{bookingTimeFrom}} – {{decisionLabel}}',
     html: `
-      <h2>Foglalás frissítése</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>A(z) <strong>{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Döntés:</strong> {{decisionLabel}}</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>Köszönjük a türelmedet!</p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#ecfdf3,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#16a34a;font-weight:700;">Foglalás frissült</p>
+                    <h1 style="margin:0;font-size:24px;color:#065f46;">Státusz: {{decisionLabel}}</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Kedves {{guestName}}!</p>
+                    <p style="margin:6px 0 0 0;color:#475569;">A(z) <strong style="color:#0f172a;">{{unitName}}</strong> egységnél leadott foglalásod státusza frissült.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      {{#if bookingRef}}<tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 
@@ -136,33 +263,113 @@ const defaultTemplates = {
     subject:
       'Foglalás lemondva: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő)',
     html: `
-      <h2>Vendég lemondta a foglalást</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-      <p>A foglalás le lett mondva a vendég oldaláról.</p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#fef2f2,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#dc2626;font-weight:700;">Lemondva vendég által</p>
+                    <h1 style="margin:0;font-size:24px;color:#7f1d1d;">Foglalás lemondva</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Egység: <strong style="color:#0f172a;">{{unitName}}</strong></p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Vendég neve</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{guestName}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Email</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestEmail}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Telefon</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestPhone}}</td>
+                      </tr>
+                      {{#if bookingRef}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 
   booking_modified_guest: {
     subject: 'Foglalás módosítva: {{bookingDate}} {{bookingTimeFrom}}',
     html: `
-      <h2>Foglalás módosítva</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>A(z) <strong>{{unitName}}</strong> egységnél a foglalásod adatai módosultak.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#ecfdf3,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#16a34a;font-weight:700;">Foglalás módosítva</p>
+                    <h1 style="margin:0;font-size:24px;color:#065f46;">Frissített adatok</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Kedves {{guestName}}!</p>
+                    <p style="margin:6px 0 0 0;color:#475569;">A(z) <strong style="color:#0f172a;">{{unitName}}</strong> egységnél a foglalásod módosult.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      {{#if bookingRef}}<tr>
+                        <td style="width:190px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 
@@ -170,17 +377,62 @@ const defaultTemplates = {
     subject:
       'Foglalás módosítva (admin): {{bookingDate}} {{bookingTimeFrom}} – {{guestName}}',
     html: `
-      <h2>Foglalás módosítva</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Ref: <strong>{{bookingRef}}</strong></p>
+      <div style="margin:0;padding:24px 0;background:#f8fafc;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#0f172a;line-height:1.6;">
+                <tr>
+                  <td style="padding:28px 32px 12px 32px;background:linear-gradient(135deg,#ecfdf3,#ffffff);">
+                    <p style="margin:0 0 6px 0;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#16a34a;font-weight:700;">Foglalás módosítva</p>
+                    <h1 style="margin:0;font-size:24px;color:#065f46;">Frissített adatok</h1>
+                    <p style="margin:10px 0 0 0;color:#475569;">Egység: <strong style="color:#0f172a;">{{unitName}}</strong></p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 28px 32px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Vendég neve</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{guestName}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Dátum</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingDate}}</td>
+                      </tr>
+                      {{#if bookingTimeRange}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Időpont</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingTimeRange}}</td>
+                      </tr>{{/if}}
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Létszám</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{headcount}} fő</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Email</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestEmail}}</td>
+                      </tr>
+                      <tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Telefon</td>
+                        <td style="font-size:15px;color:#0f172a;">{{guestPhone}}</td>
+                      </tr>
+                      {{#if bookingRef}}<tr>
+                        <td style="width:200px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Hivatkozás</td>
+                        <td style="font-size:15px;font-weight:700;color:#0f172a;">{{bookingRef}}</td>
+                      </tr>{{/if}}
+                    </table>
+                    {{#if publicBaseUrl}}
+                      <div style="margin-top:18px;">
+                        <a href="{{publicBaseUrl}}/manage?token={{bookingId}}" style="display:inline-block;padding:12px 18px;border-radius:999px;border:1px solid #16a34a;background:#16a34a;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;">Foglalás megtekintése</a>
+                      </div>
+                    {{/if}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 };
@@ -582,7 +834,7 @@ const buildPayload = (
     booking.referenceCode?.substring(0, 8).toUpperCase() || booking.referenceCode || '';
 
   return {
-    guestName: booking.name || '',
+    guestName: booking.name || 'Vendég',
     unitName,
     bookingDate,
     bookingTimeFrom,

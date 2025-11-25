@@ -120,7 +120,7 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className="mb-10">
+    <div className="mb-8 text-center">
       <div className="flex items-center justify-center gap-4">
         {steps.map((label, index) => {
           const stepNumber = index + 1;
@@ -129,20 +129,20 @@ const ProgressIndicator: React.FC<{
           return (
             <div key={stepNumber} className="flex items-center">
               <div
-                className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-500 shadow ${
+                className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-500 ${
                   isCompleted || isActive
-                    ? 'bg-emerald-600 text-white shadow-emerald-200'
-                    : 'bg-white/70 text-emerald-800/40 border border-emerald-100'
+                    ? 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.35)]'
+                    : 'bg-white/20 text-emerald-800/40 border border-white/60 backdrop-blur'
                 }`}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
-              <div className="ml-3">
+              <div className="ml-3 text-left">
                 <p
-                  className={`text-xs uppercase tracking-[0.15em] font-semibold ${
+                  className={`text-[11px] uppercase tracking-[0.15em] font-semibold ${
                     isCompleted || isActive
-                      ? 'text-emerald-800'
-                      : 'text-emerald-900/40'
+                      ? 'text-emerald-900'
+                      : 'text-emerald-800/50'
                   }`}
                 >
                   {label}
@@ -150,10 +150,10 @@ const ProgressIndicator: React.FC<{
               </div>
               {index < steps.length - 1 && (
                 <div
-                  className={`w-14 h-0.5 mx-3 ${
+                  className={`w-12 h-0.5 mx-3 ${
                     currentStep > stepNumber
-                      ? 'bg-emerald-500'
-                      : 'bg-emerald-900/10'
+                      ? 'bg-emerald-600/50'
+                      : 'bg-emerald-800/10'
                   }`}
                 />
               )}
@@ -546,12 +546,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       <div className="w-full max-w-5xl relative">
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-200/40 via-transparent to-yellow-200/40 blur-3xl" />
-        <div className="relative bg-white/80 backdrop-blur-xl border border-white/60 shadow-2xl rounded-3xl p-6 sm:p-10 min-h-[680px] flex flex-col">
-          <header className="text-center mb-4">
+        <div className="relative w-full max-w-4xl mx-auto bg-white/80 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] rounded-2xl p-6 sm:p-10 min-h-[600px] flex flex-col">
+          <header className="text-center mb-6">
             <p className="text-xs uppercase tracking-[0.2em] text-emerald-700 font-semibold mb-2">
               {unit.name}
             </p>
-            <h1 className="text-3xl sm:text-4xl font-bold text-emerald-950 drop-shadow-sm">{t.title}</h1>
+            <h1 className="text-3xl sm:text-4xl font-serif tracking-tight text-emerald-900 drop-shadow-sm">{t.title}</h1>
             <p className="text-emerald-800/80 mt-2 max-w-2xl mx-auto leading-relaxed">
               {t.step1Title}
             </p>
@@ -559,7 +559,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
           <ProgressIndicator currentStep={step} t={t} />
 
-          <div className="flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {step === 1 && (
               <Step1Date
                 settings={settings}
@@ -650,16 +650,16 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`bg-white/80 border border-emerald-100 p-6 sm:p-8 rounded-2xl ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      className={`bg-white/70 backdrop-blur-xl border border-emerald-100/80 p-6 sm:p-8 rounded-2xl shadow-[0_12px_40px_rgba(16,185,129,0.08)] ${themeProps.radiusClass} ${themeProps.shadowClass || ''}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-700 font-semibold mb-1">
             {t.step1}
           </p>
-          <h2 className="text-2xl font-semibold text-emerald-950">{t.step1Title}</h2>
+          <h2 className="text-2xl font-serif tracking-tight text-emerald-900">{t.step1Title}</h2>
         </div>
-        <div className="flex items-center gap-3 bg-emerald-50 px-4 py-2 rounded-full border border-emerald-100">
+        <div className="flex items-center gap-3 bg-white/70 px-4 py-2 rounded-full border border-emerald-100 shadow-sm">
           <button
             type="button"
             onClick={() =>
@@ -667,7 +667,7 @@ const Step1Date: React.FC<{
                 new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
               )
             }
-            className="w-9 h-9 rounded-full bg-white shadow hover:shadow-md text-emerald-800"
+            className="w-9 h-9 rounded-full bg-emerald-700/10 border border-emerald-100 text-emerald-900 shadow-sm hover:shadow-md"
           >
             &lt;
           </button>
@@ -684,21 +684,21 @@ const Step1Date: React.FC<{
                 new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
               )
             }
-            className="w-9 h-9 rounded-full bg-white shadow hover:shadow-md text-emerald-800"
+            className="w-9 h-9 rounded-full bg-emerald-700/10 border border-emerald-100 text-emerald-900 shadow-sm hover:shadow-md"
           >
             &gt;
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-2 text-center font-semibold text-emerald-700 text-sm mb-3">
+      <div className="grid grid-cols-7 gap-2 text-center font-semibold text-emerald-700 text-sm mb-4">
         {t.dayNames.map((d: string) => (
           <div key={d} className="uppercase tracking-wide text-xs text-emerald-500">
             {d}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-7 gap-3">
         {days.map((day, i) => {
           if (!day) return <div key={`empty-${i}`}></div>;
           const dateKey = toDateKey(day);
@@ -713,7 +713,7 @@ const Step1Date: React.FC<{
           const isDisabled = isBlackout || isPast || isFull;
 
           let buttonClass =
-            'w-full aspect-square flex items-center justify-center text-sm rounded-xl transition-colors shadow-sm';
+            'w-full aspect-square flex items-center justify-center text-sm rounded-full transition-all duration-200 font-medium';
           let titleText = '';
 
           if (isDisabled) {
@@ -725,7 +725,8 @@ const Step1Date: React.FC<{
               buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed border border-gray-100';
             }
           } else {
-            buttonClass += ' bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-100';
+            buttonClass +=
+              ' text-emerald-800/90 bg-white/80 border border-emerald-100 shadow-sm hover:bg-emerald-50 hover:shadow-md';
           }
 
           return (
@@ -821,15 +822,15 @@ const Step2Details: React.FC<any> = ({
 
   return (
     <div
-      className={`bg-white/80 border border-emerald-100 rounded-2xl p-6 sm:p-8 space-y-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      className={`bg-white/75 backdrop-blur-xl border border-emerald-100/80 rounded-2xl p-6 sm:p-8 space-y-6 shadow-[0_12px_40px_rgba(16,185,129,0.08)] ${themeProps.radiusClass} ${themeProps.shadowClass || ''}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-700 font-semibold mb-1">
             {t.step2}
           </p>
-          <h2 className="text-2xl font-semibold text-emerald-950">{t.step2Title}</h2>
-          <p className="text-sm text-emerald-700 mt-1">
+          <h2 className="text-2xl font-serif tracking-tight text-emerald-900">{t.step2Title}</h2>
+          <p className="text-sm text-emerald-700 mt-1 font-medium">
             {selectedDate.toLocaleDateString(locale, {
               weekday: 'long',
               year: 'numeric',
@@ -838,20 +839,20 @@ const Step2Details: React.FC<any> = ({
             })}
           </p>
         </div>
-        <div className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-900 font-semibold shadow-sm">
+        <div className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-700/10 border border-emerald-200 rounded-full text-emerald-900 font-semibold shadow-sm">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
           {t.step2Title}
         </div>
       </div>
 
       {error && (
-        <div className="p-3 mb-2 bg-red-100 text-red-800 font-semibold rounded-xl text-sm border border-red-200">
+        <div className="p-3 mb-2 bg-red-50 text-red-700 font-semibold rounded-xl text-sm border border-red-200">
           {error}
         </div>
       )}
 
       {(bookingWindowText || settings.kitchenStartTime || settings.barStartTime) && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-sm text-emerald-900 space-y-2">
+        <div className="p-4 rounded-2xl bg-emerald-700/5 border border-emerald-100 text-sm text-emerald-900 space-y-2 shadow-inner">
           {bookingWindowText && (
             <p className="flex items-start gap-2">
               <span className="font-semibold whitespace-nowrap">
@@ -885,7 +886,7 @@ const Step2Details: React.FC<any> = ({
               name="name"
               value={formData.name}
               onChange={handleStandardChange}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
             />
             {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
@@ -898,7 +899,7 @@ const Step2Details: React.FC<any> = ({
               value={formData.headcount}
               onChange={handleStandardChange}
               min="1"
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
             />
           </div>
@@ -912,7 +913,7 @@ const Step2Details: React.FC<any> = ({
               name="email"
               value={formData.email}
               onChange={handleStandardChange}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
             />
             {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
@@ -925,7 +926,7 @@ const Step2Details: React.FC<any> = ({
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
             />
             {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
@@ -940,7 +941,7 @@ const Step2Details: React.FC<any> = ({
               name="startTime"
               value={formData.startTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
               min={settings.bookableWindow?.from}
               max={settings.bookableWindow?.to}
@@ -953,7 +954,7 @@ const Step2Details: React.FC<any> = ({
               name="endTime"
               value={formData.endTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               min={formData.startTime}
             />
           </div>
@@ -966,7 +967,7 @@ const Step2Details: React.FC<any> = ({
               name={field.id}
               value={formData.customData[field.id] || ''}
               onChange={handleCustomFieldChange}
-              className="w-full mt-1 px-4 py-3 rounded-xl border border-emerald-100 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full mt-1 px-4 py-3 rounded-2xl border border-emerald-100 bg-white/80 text-emerald-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               required
             >
               <option value="">{selectPlaceholder}</option>
@@ -983,14 +984,14 @@ const Step2Details: React.FC<any> = ({
           <button
             type="button"
             onClick={onBack}
-            className="w-full bg-white text-emerald-900 font-semibold py-3 px-4 rounded-xl border border-emerald-200 hover:bg-emerald-50 shadow-sm"
+            className="w-full bg-white/80 text-emerald-900 font-semibold py-3 px-4 rounded-full border border-emerald-200 hover:bg-emerald-50 shadow-sm"
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={!isFormValid || isSubmitting}
-            className="w-full bg-emerald-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg hover:bg-emerald-500 disabled:bg-gray-300 disabled:cursor-not-allowed text-lg"
+            className="w-full bg-emerald-700/10 border border-emerald-700/20 text-emerald-900 font-serif font-semibold py-3 px-6 rounded-full shadow-sm hover:bg-emerald-700/20 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed text-lg"
           >
             {isSubmitting ? t.submitting : t.next}
           </button>
@@ -1077,7 +1078,7 @@ const Step3Confirmation: React.FC<{
 
   return (
     <div
-      className={`bg-white/85 border border-emerald-100 rounded-3xl p-8 sm:p-10 text-center space-y-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      className={`bg-white/80 backdrop-blur-xl border border-emerald-100/80 rounded-3xl p-8 sm:p-10 text-center space-y-6 shadow-[0_12px_40px_rgba(16,185,129,0.08)] ${themeProps.radiusClass} ${themeProps.shadowClass || ''}`}
     >
       <div>
         <p className="text-xs uppercase tracking-[0.2em] text-emerald-700 font-semibold mb-2">
