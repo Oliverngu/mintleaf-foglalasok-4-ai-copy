@@ -35,7 +35,7 @@ interface BookingRecord {
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  customData?: Record<string, any>; 
+  customData?: Record<string, any>;
 }
 
 interface EmailSettingsDocument {
@@ -357,11 +357,9 @@ const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
   if (!v) return new Date(0);
   if (v instanceof Date) return v;
 
-  // Firestore Timestamp mind admin, mind client oldalon tud toDate()-et
   const anyV = v as any;
   if (typeof anyV.toDate === "function") return anyV.toDate();
 
-  // fallback, ha valami furcsa jön
   return new Date(anyV);
 };
 
@@ -396,10 +394,9 @@ const buildTimeFields = (
   return { bookingDate, bookingTimeFrom, bookingTimeTo, bookingTimeRange };
 };
 
-const buildCustomFieldsHtml = (
+const buildCustomFieldItems = (
   customSelects: CustomSelectField[] = [],
-  customData: Record<string, string> = {},
-  mutedColor: string
+  customData: Record<string, string> = {}
 ) => {
   const items: { label: string; value: string }[] = [];
 
@@ -419,121 +416,131 @@ const buildCustomFieldsHtml = (
     items.push({ label: key, value: displayValue });
   });
 
-  if (!items.length) return '';
+  return items;
+};
 
-  const listItems = items
+const buildUnifiedEmailSection = (
+  payload: Record<string, any>,
+  theme: 'light' | 'dark',
+  actions: { label: string; url: string; variant?: 'primary' | 'danger' }[] = []
+) => {
+  const isDark = theme === 'dark';
+  const background = isDark ? '#0f172a' : '#f4f7fb';
+  const cardBackground = isDark ? 'rgba(30,41,59,0.9)' : 'rgba(255,255,255,0.82)';
+  const borderColor = isDark ? '#1f2937' : '#e5e7eb';
+  const textColor = isDark ? '#e5e7eb' : '#0f172a';
+  const mutedColor = isDark ? '#cbd5e1' : '#4b5563';
+  const chipBg = isDark ? 'rgba(52,211,153,0.12)' : '#ecfdf3';
+  const chipColor = isDark ? '#34d399' : '#15803d';
+
+  const yesText = payload.locale === 'en' ? 'Yes' : 'Igen';
+  const noText = payload.locale === 'en' ? 'No' : 'Nem';
+
+  const labels = payload.locale === 'en'
+    ? {
+        details: 'Reservation details',
+        unit: 'Unit name',
+        guest: 'Guest name',
+        date: 'Date',
+        time: 'Time range',
+        headcount: 'Headcount',
+        occasion: 'Occasion',
+        email: 'Email',
+        phone: 'Phone',
+        ref: 'Booking reference',
+        auto: 'Auto confirm',
+        status: 'Status',
+        custom: 'Additional details',
+      }
+    : {
+        details: 'Foglalás részletei',
+        unit: 'Egység neve',
+        guest: 'Vendég neve',
+        date: 'Dátum',
+        time: 'Időpont',
+        headcount: 'Létszám',
+        occasion: 'Alkalom',
+        email: 'Email',
+        phone: 'Telefon',
+        ref: 'Foglalási azonosító',
+        auto: 'Automatikus megerősítés',
+        status: 'Státusz',
+        custom: 'További adatok',
+      };
+
+  const rows: { label: string; value: string }[] = [
+    { label: labels.unit, value: payload.unitName || '' },
+    { label: labels.guest, value: payload.guestName || '' },
+    { label: labels.date, value: payload.bookingDate || '' },
+    { label: labels.time, value: payload.bookingTimeRange || '' },
+    { label: labels.headcount, value: `${payload.headcount || 0}` },
+  ];
+
+  if (payload.occasion) rows.push({ label: labels.occasion, value: payload.occasion });
+  if (payload.guestEmail) rows.push({ label: labels.email, value: payload.guestEmail });
+  if (payload.guestPhone) rows.push({ label: labels.phone, value: payload.guestPhone });
+  if (payload.bookingRef) rows.push({ label: labels.ref, value: payload.bookingRef });
+  rows.push({ label: labels.auto, value: payload.reservationMode === 'auto' ? yesText : noText });
+  if (payload.decisionLabel) rows.push({ label: labels.status, value: payload.decisionLabel });
+
+  const customItems = buildCustomFieldItems(payload.customSelects, payload.customData || {});
+
+  const actionsHtml = actions.length
+    ? `<div style="margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px;">
+        ${actions
+          .map(
+            (btn) =>
+              `<a href="${btn.url}" style="text-decoration: none; font-family: 'Inter', sans-serif; font-weight: 700; padding: 12px 18px; border-radius: 12px; border: 1px solid ${btn.variant === 'danger' ? '#ef4444' : '#10b981'}; background: ${btn.variant === 'danger' ? '#fee2e2' : '#ecfdf3'}; color: ${btn.variant === 'danger' ? '#991b1b' : '#166534'}; display: inline-block; box-shadow: 0 10px 30px rgba(0,0,0,0.06);">${btn.label}</a>`
+          )
+          .join('')}
+      </div>`
+    : '';
+
+  const detailGrid = rows
     .map(
-      item =>
-        `<li style="margin: 4px 0; padding: 0; list-style: none;"><strong>${item.label}:</strong> <span style="color: ${mutedColor};">${item.value}</span></li>`
+      (row) => `
+        <div style="padding: 12px 14px; border-radius: 12px; background: ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.02)'}; border: 1px solid ${borderColor};">
+          <div style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: ${mutedColor}; font-family: 'Inter', sans-serif;">${row.label}</div>
+          <div style="margin-top: 6px; font-size: 15px; color: ${textColor}; font-family: 'Inter', sans-serif; line-height: 1.5;">${row.value}</div>
+        </div>`
     )
     .join('');
 
-  return `
-    <div style="margin-top: 12px;">
-      <strong>További adatok:</strong>
-      <ul style="margin: 8px 0 0 0; padding: 0;">
-        ${listItems}
-      </ul>
-    </div>
-  `;
-};
-
-const buildDetailsCardHtml = (
-  payload: Record<string, any>,
-  theme: 'light' | 'dark' = 'light'
-) => {
-  const isDark = theme === 'dark';
-  const background = isDark ? '#111827' : '#f9fafb';
-  const cardBackground = isDark ? '#1f2937' : '#ffffff';
-  const borderColor = isDark ? '#374151' : '#e5e7eb';
-  const textColor = isDark ? '#e5e7eb' : '#111827';
-  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
-
-  const customFieldsHtml = buildCustomFieldsHtml(
-    payload.customSelects,
-    payload.customData || {},
-    mutedColor
-  );
-
-  const statusRow = payload.decisionLabel
-    ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
-        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
-      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
-        payload.decisionLabel
-      }</span></div>`
-    : '';
-
-  const occasionRow = payload.occasion
-    ? `<div><strong>Alkalom:</strong> <span style="color: ${mutedColor};">${payload.occasion}</span></div>`
-    : '';
-
-  const occasionOtherRow = payload.occasionOther
-    ? `<div><strong>Alkalom (egyéb):</strong> <span style="color: ${mutedColor};">${payload.occasionOther}</span></div>`
-    : '';
-
-  const notesRow = payload.notes
-    ? `<div style="margin-top: 12px;"><strong>Megjegyzés:</strong><div style="margin-top: 4px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div></div>`
-    : '';
-
-  const autoConfirmRow =
-    payload.reservationMode === 'auto'
-      ? payload.locale === 'en'
-        ? 'Yes'
-        : 'Igen'
-      : payload.locale === 'en'
-      ? 'No'
-      : 'Nem';
-
-  return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px;">
-      <div
-        class="mintleaf-card"
-        style="background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 24px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};"
-      >
-        <h3 style="margin: 0 0 12px 0; font-size: 20px;">Foglalás részletei</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 14px; line-height: 1.5;">
-          <div><strong>Egység neve:</strong> <span style="color: ${mutedColor};">${payload.unitName}</span></div>
-          <div><strong>Vendég neve:</strong> <span style="color: ${mutedColor};">${payload.guestName}</span></div>
-          <div><strong>Dátum:</strong> <span style="color: ${mutedColor};">${payload.bookingDate}</span></div>
-          <div><strong>Időpont:</strong> <span style="color: ${mutedColor};">${payload.bookingTimeRange}</span></div>
-          <div><strong>Létszám:</strong> <span style="color: ${mutedColor};">${payload.headcount}</span></div>
-          ${occasionRow}
-          ${occasionOtherRow}
-          <div><strong>Email:</strong> <span style="color: ${mutedColor};">${payload.guestEmail}</span></div>
-          <div><strong>Telefon:</strong> <span style="color: ${mutedColor};">${payload.guestPhone}</span></div>
-          <div><strong>Foglalás azonosító:</strong> <span style="color: ${mutedColor};">${payload.bookingRef}</span></div>
-          <div><strong>Automatikus megerősítés:</strong> <span style="color: ${mutedColor};">${autoConfirmRow}</span></div>
+  const customSection = customItems.length
+    ? `
+      <div style="margin-top: 16px;">
+        <div style="font-size: 13px; color: ${mutedColor}; letter-spacing: 0.08em; text-transform: uppercase; font-family: 'Inter', sans-serif; margin-bottom: 6px;">${labels.custom}</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+          ${customItems
+            .map(
+              (item) => `
+                <div style="padding: 10px 12px; border-radius: 12px; background: ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.02)'}; border: 1px solid ${borderColor};">
+                  <div style="font-size: 12px; color: ${mutedColor}; font-family: 'Inter', sans-serif; letter-spacing: 0.05em; text-transform: uppercase;">${item.label}</div>
+                  <div style="margin-top: 4px; font-size: 14px; color: ${textColor}; font-family: 'Inter', sans-serif;">${item.value}</div>
+                </div>`
+            )
+            .join('')}
         </div>
-        ${statusRow}
-        ${customFieldsHtml}
-        ${notesRow}
+      </div>`
+    : '';
+
+  return `
+    <div style="background: ${background}; padding: 18px;">
+      <div style="max-width: 760px; margin: 0 auto; background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 18px; padding: 24px; box-shadow: 0 24px 70px rgba(15,23,42,0.12); backdrop-filter: blur(12px); color: ${textColor};">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px;">
+          <div>
+            <div style="font-size: 13px; color: ${mutedColor}; letter-spacing: 0.12em; text-transform: uppercase; font-family: 'Inter', sans-serif;">${labels.details}</div>
+            <h2 style="margin: 4px 0 0; font-size: 24px; color: ${textColor}; font-family: 'Playfair Display', serif;">${payload.unitName || ''}</h2>
+          </div>
+          ${payload.decisionLabel ? `<span style="padding: 8px 14px; border-radius: 9999px; background: ${chipBg}; color: ${chipColor}; font-weight: 700; font-family: 'Inter', sans-serif; border: 1px solid ${borderColor};">${payload.decisionLabel}</span>` : ''}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+          ${detailGrid}
+        </div>
+        ${customSection}
+        ${actionsHtml}
       </div>
     </div>
-    <style>
-      .mintleaf-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 12px 18px;
-        border-radius: 9999px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        text-decoration: none;
-        background: #16a34a;
-        color: #ffffff;
-        border: 1px solid transparent;
-      }
-      .mintleaf-btn-danger {
-        background: #dc2626;
-      }
-      @media (prefers-color-scheme: dark) {
-        .mintleaf-card-wrapper { background-color: #111827 !important; }
-        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
-        .mintleaf-card strong { color: #e5e7eb !important; }
-        .mintleaf-card span { color: #d1d5db !important; }
-        .mintleaf-btn { color: #ffffff !important; }
-      }
-    </style>
   `;
 };
 
@@ -633,31 +640,6 @@ const getReservationSettings = async (
   }
 };
 
-// ---------- EMAIL SENDERS ----------
-
-const buildButtonBlock = (
-  buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
-  theme: 'light' | 'dark'
-) => {
-  const background = theme === 'dark' ? '#111827' : '#f9fafb';
-  const spacing =
-    '<span style="display: inline-block; width: 4px; height: 4px;"></span>';
-  const buttonsHtml = buttons
-    .map(
-      btn =>
-        `<a class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}" href="${btn.url}" style="background: ${
-          btn.variant === 'danger' ? '#dc2626' : '#16a34a'
-        }; color: #ffffff; text-decoration: none;">${btn.label}</a>`
-    )
-    .join(spacing);
-
-  return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
-      ${buttonsHtml}
-    </div>
-  `;
-};
-
 const sendGuestCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
@@ -697,17 +679,12 @@ const sendGuestCreatedEmail = async (
     payload
   );
 
-  const extraHtml = `${buildButtonBlock(
-    [
-      {
-        label: 'FOGLALÁS MÓDOSÍTÁSA',
-        url: manageUrl,
-      },
-    ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
-
-  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildUnifiedEmailSection(payload, theme, [
+      { label: locale === 'en' ? 'Open reservation' : 'Foglalás megnyitása', url: manageUrl },
+    ])
+  );
 
   await sendEmail({
     typeId: 'booking_created_guest',
@@ -773,19 +750,23 @@ const sendAdminCreatedEmail = async (
     payload
   );
 
-  const extraHtml = `${
-    showAdminButtons
-      ? buildButtonBlock(
-          [
-            { label: 'ELFOGADÁS', url: manageApproveUrl },
-            { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
-          ],
-          theme
-        )
-      : ''
-  }${buildDetailsCardHtml(payload, theme)}`;
-
-  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildUnifiedEmailSection(
+      payload,
+      theme,
+      showAdminButtons
+        ? [
+            { label: locale === 'en' ? 'Accept' : 'Elfogadás', url: manageApproveUrl },
+            {
+              label: locale === 'en' ? 'Reject' : 'Elutasítás',
+              url: manageRejectUrl,
+              variant: 'danger',
+            },
+          ]
+        : []
+    )
+  );
 
   await Promise.all(
     recipients.map(to =>
@@ -845,17 +826,12 @@ const sendGuestStatusEmail = async (
     payload
   );
 
-  const extraHtml = `${buildButtonBlock(
-    [
-      {
-        label: 'FOGLALÁS MÓDOSÍTÁSA',
-        url: manageUrl,
-      },
-    ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
-
-  const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildUnifiedEmailSection(payload, theme, [
+      { label: locale === 'en' ? 'Open reservation' : 'Foglalás megnyitása', url: manageUrl },
+    ])
+  );
 
   await sendEmail({
     typeId: 'booking_status_updated_guest',
@@ -927,7 +903,7 @@ const sendAdminCancellationEmail = async (
 
   const finalHtml = appendHtmlSafely(
     baseHtmlRendered,
-    buildDetailsCardHtml(payload, theme)
+    buildUnifiedEmailSection(payload, theme)
   );
 
   await Promise.all(
@@ -947,7 +923,8 @@ const sendAdminCancellationEmail = async (
 const sendGuestModifiedEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
@@ -956,7 +933,17 @@ const sendGuestModifiedEmail = async (
   const allowed = await shouldSendEmail('booking_modified_guest', unitId);
   if (!allowed) return;
 
-  const payload = buildPayload(booking, unitName, locale, '');
+  const settings = await getReservationSettings(unitId);
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_guest',
@@ -967,9 +954,16 @@ const sendGuestModifiedEmail = async (
     rawSubject || defaultTemplates.booking_modified_guest.subject,
     payload
   );
-  const html = renderTemplate(
+  const baseHtmlRendered = renderTemplate(
     rawHtml || defaultTemplates.booking_modified_guest.html,
     payload
+  );
+
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildUnifiedEmailSection(payload, theme, [
+      { label: locale === 'en' ? 'Open reservation' : 'Foglalás megnyitása', url: manageUrl },
+    ])
   );
 
   await sendEmail({
@@ -977,7 +971,7 @@ const sendGuestModifiedEmail = async (
     unitId,
     to: guestEmail,
     subject,
-    html,
+    html: finalHtml,
     payload,
   });
 };
@@ -985,7 +979,8 @@ const sendGuestModifiedEmail = async (
 const sendAdminModifiedEmail = async (
   unitId: string,
   booking: BookingRecord,
-  unitName: string
+  unitName: string,
+  bookingId: string
 ) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
@@ -1000,7 +995,16 @@ const sendAdminModifiedEmail = async (
   if (!allowed) return;
 
   const locale = booking.locale || 'hu';
-  const payload = buildPayload(booking, unitName, locale, '');
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_modified_admin',
@@ -1011,9 +1015,16 @@ const sendAdminModifiedEmail = async (
     rawSubject || defaultTemplates.booking_modified_admin.subject,
     payload
   );
-  const html = renderTemplate(
+  const baseHtmlRendered = renderTemplate(
     rawHtml || defaultTemplates.booking_modified_admin.html,
     payload
+  );
+
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildUnifiedEmailSection(payload, theme, [
+      { label: locale === 'en' ? 'Open reservation' : 'Foglalás megnyitása', url: manageUrl },
+    ])
   );
 
   await Promise.all(
@@ -1023,14 +1034,12 @@ const sendAdminModifiedEmail = async (
         unitId,
         to,
         subject,
-        html,
+        html: finalHtml,
         payload,
       })
     )
   );
 };
-
-// ---------- CHANGE DETECTOR ----------
 
 const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
   const fields: (keyof BookingRecord)[] = [
@@ -1055,8 +1064,6 @@ const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
     return bVal !== aVal;
   });
 };
-
-// ---------- TRIGGERS ----------
 
 export const onReservationCreated = onDocumentCreated(
   {
@@ -1152,12 +1159,12 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     if (edited && !statusChanged) {
       tasks.push(
-        sendGuestModifiedEmail(unitId, after, unitName).catch(err =>
+        sendGuestModifiedEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send guest modified email", { unitId, err })
         )
       );
       tasks.push(
-        sendAdminModifiedEmail(unitId, after, unitName).catch(err =>
+        sendAdminModifiedEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send admin modified email", { unitId, err })
         )
       );
