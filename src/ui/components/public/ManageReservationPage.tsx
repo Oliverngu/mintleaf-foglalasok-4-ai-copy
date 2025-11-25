@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Unit, Booking } from '../../../core/models/data';
+import { Booking, ThemeSettings, Unit } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
 import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -12,6 +12,23 @@ interface ManageReservationPageProps {
   token: string;
   allUnits: Unit[];
 }
+
+type ThemeWithPill = ThemeSettings & { pill?: string };
+
+const DEFAULT_THEME: ThemeWithPill = {
+  primary: '#166534',
+  pill: '#dcfce7',
+  surface: '#ffffff',
+  background: '#f9fafb',
+  textPrimary: '#1f2937',
+  textSecondary: '#4b5563',
+  accent: '#10b981',
+  success: '#16a34a',
+  danger: '#dc2626',
+  radius: 'lg',
+  elevation: 'mid',
+  typographyScale: 'M',
+};
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   token,
@@ -30,6 +47,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [theme, setTheme] = useState<ThemeWithPill>(DEFAULT_THEME);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -91,6 +109,37 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       fetchBooking();
     }
   }, [token, allUnits]);
+
+  useEffect(() => {
+    if (!unit) return;
+
+    const fetchTheme = async () => {
+      try {
+        const settingsRef = doc(db, 'reservation_settings', unit.id);
+        const settingsSnap = await getDoc(settingsRef);
+        const themeFromDb = (settingsSnap.data() as any)?.theme;
+        setTheme({ ...DEFAULT_THEME, ...(themeFromDb || {}) });
+      } catch (themeErr) {
+        console.error('Error fetching reservation theme:', themeErr);
+        setTheme(DEFAULT_THEME);
+      }
+    };
+
+    fetchTheme();
+  }, [unit]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    Object.entries(theme).forEach(([key, value]) => {
+      if (
+        key !== 'radius' &&
+        key !== 'elevation' &&
+        key !== 'typographyScale'
+      ) {
+        root.style.setProperty(`--color-${key}`, value as string);
+      }
+    });
+  }, [theme]);
 
   const writeDecisionLog = async (status: 'confirmed' | 'cancelled') => {
     if (!booking || !unit) return;
@@ -344,14 +393,16 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={() => handleAdminDecision('approve')}
-                    className="flex-1 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-60"
+                    className="flex-1 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-60"
+                    style={{ backgroundColor: 'var(--color-primary)' }}
                     disabled={isProcessingAction}
                   >
                     {t.adminApprove}
                   </button>
                   <button
                     onClick={() => handleAdminDecision('reject')}
-                    className="flex-1 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                    className="flex-1 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-60"
+                    style={{ backgroundColor: 'var(--color-danger)' }}
                     disabled={isProcessingAction}
                   >
                     {t.adminReject}
@@ -371,7 +422,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             </button>
             <button
               onClick={() => setIsCancelModalOpen(true)}
-              className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700"
+              className="w-full text-white font-bold py-3 px-6 rounded-lg transition-colors"
+              style={{ backgroundColor: 'var(--color-danger)' }}
             >
               {t.cancelReservation}
             </button>
@@ -397,13 +449,18 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             <div className="flex justify-center gap-4">
               <button
                 onClick={() => setIsCancelModalOpen(false)}
-                className="bg-gray-200 text-gray-800 font-bold py-2 px-6 rounded-lg hover:bg-gray-300"
+                className="font-bold py-2 px-6 rounded-lg transition-colors"
+                style={{
+                  backgroundColor: 'var(--color-pill)',
+                  color: 'var(--color-primary)',
+                }}
               >
                 {t.noKeep}
               </button>
               <button
                 onClick={handleCancelReservation}
-                className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-700"
+                className="text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                style={{ backgroundColor: 'var(--color-danger)' }}
               >
                 {t.yesCancel}
               </button>
