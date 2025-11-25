@@ -563,7 +563,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
         <div className="bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] rounded-2xl p-6 sm:p-8 max-h-[calc(100vh-5rem)] overflow-y-auto sm:max-h-none sm:overflow-visible">
           <ProgressIndicator currentStep={step} t={t} />
-          <div className="relative overflow-x-hidden">
+          <div className="relative">
             <div
               className="flex transition-transform duration-500 ease-in-out"
               style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
