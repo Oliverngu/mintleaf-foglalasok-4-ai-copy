@@ -527,131 +527,149 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-emerald-900/5 px-2 sm:px-4">
-      <div
-        className="w-full max-w-4xl bg-white rounded-3xl shadow-xl border border-emerald-900/5 flex flex-col max-h-[90vh]"
-        style={{ color: 'var(--color-text-primary)' }}
-      >
-        <header className="px-5 pt-5 pb-3 border-b border-emerald-900/5">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div className="min-h-screen flex items-center justify-center px-3 sm:px-4 py-6 bg-[radial-gradient(circle_at_top,_#ecfdf3_0,_#e0f2fe_35%,_#020617_100%)]">
+      <div className="relative w-full max-w-5xl">
+        <div className="pointer-events-none absolute inset-0 rounded-[32px] bg-gradient-to-br from-white/40 via-white/5 to-emerald-500/25 blur-xl opacity-90" />
+
+        <div
+          className="relative rounded-[32px] border border-white/50 bg-white/10 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.65)] overflow-hidden flex flex-col max-h-[88vh]"
+          style={{ color: 'var(--color-text-primary)' }}
+        >
+          <header className="px-5 sm:px-7 pt-5 pb-4 border-b border-white/40 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-gradient-to-br from-white/40/80 via-white/10 to-emerald-50/10">
             <div>
-              <p className="text-sm font-semibold text-emerald-900/70">{t.title}</p>
-              <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">
+              <p className="text-[11px] tracking-[0.25em] uppercase text-emerald-800/70">
+                {t.title}
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-[Playfair_Display] text-slate-900">
                 {unit.name}
               </h1>
-            </div>
-            <div className="flex items-center gap-2 text-sm font-medium bg-emerald-50 text-emerald-900 px-3 py-1.5 rounded-full self-start">
-              <button
-                onClick={() => setLocale('hu')}
-                className={
-                  locale === 'hu'
-                    ? 'font-bold text-emerald-900'
-                    : 'text-emerald-700 hover:text-emerald-900'
-                }
-              >
-                Magyar
-              </button>
-              <span className="text-emerald-200">|</span>
-              <button
-                onClick={() => setLocale('en')}
-                className={
-                  locale === 'en'
-                    ? 'font-bold text-emerald-900'
-                    : 'text-emerald-700 hover:text-emerald-900'
-                }
-              >
-                English
-              </button>
-            </div>
-          </div>
-          <div className="mt-4">
-            <ProgressIndicator currentStep={step} t={t} />
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
-          {step === 1 && (
-            <Step1Date
-              settings={settings}
-              onDateSelect={handleDateSelect}
-              themeProps={themeClassProps}
-              t={t}
-              currentMonth={currentMonth}
-              onMonthChange={setCurrentMonth}
-              dailyHeadcounts={dailyHeadcounts}
-            />
-          )}
-          {step === 2 && (
-            <Step2Details
-              selectedDate={selectedDate}
-              formData={formData}
-              setFormData={setFormData}
-              onSubmit={handleSubmit}
-              isSubmitting={isSubmitting}
-              settings={settings}
-              themeProps={themeClassProps}
-              t={t}
-              locale={locale}
-              error={error}
-              formId="reservation-details-form"
-              onValidityChange={setIsDetailsValid}
-            />
-          )}
-          {step === 3 && (
-            <Step3Confirmation
-              themeProps={themeClassProps}
-              t={t}
-              submittedData={submittedData}
-              unit={unit}
-              locale={locale}
-              settings={settings}
-            />
-          )}
-        </div>
-
-        <div className="border-t border-emerald-900/5 px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          {step === 1 && (
-            <div className="w-full flex items-center justify-end">
-              <span className="text-sm text-emerald-900/70">
+              <p className="text-xs sm:text-sm text-slate-700/80 mt-1.5">
                 {t.step1Title}
-              </span>
+              </p>
             </div>
-          )}
 
-          {step === 2 && (
-            <div className="w-full flex flex-col sm:flex-row sm:items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setStep(1);
-                  setError('');
-                }}
-                className="bg-gray-100 text-gray-800 font-semibold py-2 px-4 rounded-xl hover:bg-gray-200 w-full sm:w-auto"
-              >
-                {t.back}
-              </button>
-              <div className="flex-1" />
-              <button
-                type="submit"
-                form="reservation-details-form"
-                disabled={isSubmitting || !isDetailsValid}
-                className="bg-[var(--color-primary)] text-white font-semibold py-2 px-6 rounded-xl disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? t.submitting : t.next}
-              </button>
+            <div className="flex items-center gap-3 self-start sm:self-auto">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-800/70 bg-white/40 rounded-full px-3 py-1 border border-white/60">
+                <span className={step === 1 ? 'font-semibold text-emerald-800' : ''}>1</span>
+                <span>·</span>
+                <span className={step === 2 ? 'font-semibold text-emerald-800' : ''}>2</span>
+                <span>·</span>
+                <span className={step === 3 ? 'font-semibold text-emerald-800' : ''}>3</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-medium bg-white/50 text-emerald-900 px-3 py-1.5 rounded-full border border-white/70">
+                <button
+                  onClick={() => setLocale('hu')}
+                  className={
+                    locale === 'hu'
+                      ? 'font-bold text-emerald-900'
+                      : 'text-emerald-700 hover:text-emerald-900'
+                  }
+                >
+                  Magyar
+                </button>
+                <span className="text-emerald-200">|</span>
+                <button
+                  onClick={() => setLocale('en')}
+                  className={
+                    locale === 'en'
+                      ? 'font-bold text-emerald-900'
+                      : 'text-emerald-700 hover:text-emerald-900'
+                  }
+                >
+                  English
+                </button>
+              </div>
             </div>
-          )}
+          </header>
 
-          {step === 3 && (
-            <div className="w-full flex items-center justify-end">
-              <button
-                onClick={resetFlow}
-                className="bg-[var(--color-primary)] text-white font-semibold py-2 px-6 rounded-xl hover:brightness-95"
-              >
-                {t.newBooking}
-              </button>
-            </div>
-          )}
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+            {step === 1 && (
+              <Step1Date
+                settings={settings}
+                onDateSelect={handleDateSelect}
+                themeProps={themeClassProps}
+                t={t}
+                currentMonth={currentMonth}
+                onMonthChange={setCurrentMonth}
+                dailyHeadcounts={dailyHeadcounts}
+              />
+            )}
+
+            {step === 2 && (
+              <Step2Details
+                selectedDate={selectedDate}
+                formData={formData}
+                setFormData={setFormData}
+                onSubmit={handleSubmit}
+                isSubmitting={isSubmitting}
+                settings={settings}
+                themeProps={themeClassProps}
+                t={t}
+                locale={locale}
+                error={error}
+                formId="reservation-details-form"
+                onValidityChange={setIsDetailsValid}
+              />
+            )}
+
+            {step === 3 && (
+              <Step3Confirmation
+                themeProps={themeClassProps}
+                t={t}
+                submittedData={submittedData}
+                unit={unit}
+                locale={locale}
+                settings={settings}
+              />
+            )}
+          </main>
+
+          <div className="border-t border-white/40 px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/10">
+            {step === 1 && (
+              <div className="w-full flex items-center justify-end">
+                <span className="text-sm text-emerald-900/80">{t.step1Title}</span>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="w-full flex flex-col sm:flex-row sm:items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep(1);
+                    setError('');
+                  }}
+                  className="bg-white/70 text-slate-800 font-semibold py-2 px-4 rounded-xl hover:bg-white/90 w-full sm:w-auto border border-white/80"
+                >
+                  {t.back}
+                </button>
+                <div className="flex-1" />
+                <button
+                  type="submit"
+                  form="reservation-details-form"
+                  disabled={isSubmitting || !isDetailsValid}
+                  className="bg-emerald-700 text-white font-semibold py-2 px-6 rounded-xl disabled:bg-gray-400 disabled:cursor-not-allowed shadow-lg shadow-emerald-700/30"
+                >
+                  {isSubmitting ? t.submitting : t.next}
+                </button>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <button
+                  onClick={resetFlow}
+                  className="bg-white/70 text-slate-800 font-semibold py-2 px-4 rounded-xl hover:bg-white/90 w-full sm:w-auto border border-white/80"
+                >
+                  {t.newBooking}
+                </button>
+                <div className="flex items-center gap-2 text-sm text-emerald-900/80">
+                  <CalendarIcon className="w-5 h-5" />
+                  <span>{t.step3Details}</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
