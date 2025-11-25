@@ -202,6 +202,15 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const t = translations[locale];
 
+  const buttonStyles = {
+    primary:
+      'inline-flex items-center justify-center px-4 py-3 rounded-xl bg-emerald-600 text-white font-semibold shadow-[0_10px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 transition disabled:opacity-70 disabled:cursor-not-allowed',
+    secondary:
+      'inline-flex items-center justify-center px-4 py-3 rounded-xl border border-emerald-100 bg-white/80 text-emerald-800 font-semibold shadow-sm hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition disabled:opacity-70 disabled:cursor-not-allowed',
+    danger:
+      'inline-flex items-center justify-center px-4 py-3 rounded-xl bg-red-600 text-white font-semibold shadow-[0_10px_30px_rgba(248,113,113,0.25)] hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-200 transition disabled:opacity-70 disabled:cursor-not-allowed',
+  };
+
   useEffect(() => {
     if (
       booking &&
@@ -255,7 +264,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center px-4 py-10">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center px-4 py-10 overflow-y-auto">
       <div className="w-full max-w-4xl mx-auto space-y-6">
         <header className="text-center space-y-2">
           <p className="text-xs uppercase tracking-[0.24em] text-emerald-700 font-semibold">WizardBooking</p>
@@ -263,7 +272,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           <p className="text-lg text-emerald-800/80">{t.manageTitle}</p>
         </header>
 
-        <main className="p-8 bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)] rounded-2xl max-w-xl mx-auto relative overflow-hidden">
+        <main className="p-8 bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)] rounded-2xl max-w-xl mx-auto relative overflow-hidden max-h-[calc(100vh-180px)] overflow-y-auto">
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-emerald-100/20 via-transparent to-emerald-200/10" />
           <div className="relative space-y-6">
             <div className="space-y-2">
@@ -367,14 +376,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                     <div className="flex flex-col sm:flex-row gap-3">
                       <button
                         onClick={() => handleAdminDecision('approve')}
-                        className="flex-1 bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 disabled:opacity-60"
+                        className={buttonStyles.primary}
                         disabled={isProcessingAction}
                       >
                         {t.adminApprove}
                       </button>
                       <button
                         onClick={() => handleAdminDecision('reject')}
-                        className="flex-1 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                        className={buttonStyles.danger}
                         disabled={isProcessingAction}
                       >
                         {t.adminReject}
@@ -388,13 +397,13 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               <div className="pt-4 border-t border-emerald-100 flex flex-col sm:flex-row gap-4">
                 <button
                   disabled
-                  className="w-full bg-emerald-100 text-emerald-500 font-bold py-3 px-6 rounded-lg cursor-not-allowed"
+                  className={`${buttonStyles.secondary} w-full cursor-not-allowed text-emerald-500`}
                 >
                   {t.modifyReservation}
                 </button>
                 <button
                   onClick={() => setIsCancelModalOpen(true)}
-                  className="w-full bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700"
+                  className={`${buttonStyles.danger} w-full`}
                 >
                   {t.cancelReservation}
                 </button>
@@ -421,13 +430,13 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               <div className="flex justify-center gap-4">
                 <button
                   onClick={() => setIsCancelModalOpen(false)}
-                  className="bg-gray-200 text-gray-800 font-bold py-2 px-6 rounded-lg hover:bg-gray-300"
+                  className={buttonStyles.secondary}
                 >
                   {t.noKeep}
                 </button>
                 <button
                   onClick={handleCancelReservation}
-                  className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-700"
+                  className={buttonStyles.danger}
                 >
                   {t.yesCancel}
                 </button>

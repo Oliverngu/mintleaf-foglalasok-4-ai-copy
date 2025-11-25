@@ -505,6 +505,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     };
   }, [settings?.theme]);
 
+  const buttonStyles = useMemo(
+    () => ({
+      primary: `inline-flex items-center justify-center px-4 py-3 ${themeClassProps.radiusClass} bg-emerald-600 text-white font-semibold shadow-[0_10px_30px_rgba(16,185,129,0.25)] hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 transition disabled:bg-emerald-200 disabled:text-white disabled:shadow-none disabled:cursor-not-allowed`,
+      secondary: `inline-flex items-center justify-center px-4 py-3 ${themeClassProps.radiusClass} border border-emerald-100 bg-white/70 text-emerald-800 font-semibold shadow-sm hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition disabled:opacity-70 disabled:cursor-not-allowed`,
+      ghost: `inline-flex items-center justify-center px-3 py-2 ${themeClassProps.radiusClass} text-emerald-800 font-semibold hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-100 transition`,
+    }),
+    [themeClassProps.radiusClass]
+  );
+
   if (error && step !== 2) {
     return (
       <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
@@ -525,7 +534,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center px-4 py-10">
+    <div className="relative min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center px-4 py-10 overflow-y-auto">
       <div className="absolute top-6 right-6 flex items-center gap-3 text-sm font-semibold text-emerald-700/80">
         <button
           onClick={() => setLocale('hu')}
@@ -595,6 +604,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                   t={t}
                   locale={locale}
                   error={error}
+                  buttonStyles={buttonStyles}
                 />
               </div>
               <div className="w-full flex-shrink-0">
@@ -606,6 +616,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                   unit={unit}
                   locale={locale}
                   settings={settings}
+                  buttonStyles={buttonStyles}
                 />
               </div>
             </div>
@@ -659,7 +670,7 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`min-h-[600px] bg-white/70 backdrop-blur-xl p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.06)] flex flex-col`}
+      className={`min-h-[600px] max-h-[calc(100vh-200px)] bg-white/70 backdrop-blur-xl p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.06)] flex flex-col overflow-y-auto`}
     >
       <h2 className="text-2xl sm:text-3xl font-semibold text-emerald-900 mb-3 text-center">
         {t.step1Title}
@@ -675,7 +686,7 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-emerald-50 text-emerald-700"
+          className="p-2 rounded-full bg-white/70 border border-emerald-100 text-emerald-800 hover:bg-emerald-50 shadow-sm"
         >
           &lt;
         </button>
@@ -689,7 +700,7 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-emerald-50 text-emerald-700"
+          className="p-2 rounded-full bg-white/70 border border-emerald-100 text-emerald-800 hover:bg-emerald-50 shadow-sm"
         >
           &gt;
         </button>
@@ -759,6 +770,7 @@ const Step2Details: React.FC<any> = ({
   t,
   locale,
   error,
+  buttonStyles,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -820,7 +832,7 @@ const Step2Details: React.FC<any> = ({
 
   return (
     <div
-      className={`min-h-[600px] bg-white/70 backdrop-blur-xl p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.06)] flex flex-col`}
+      className={`min-h-[600px] max-h-[calc(100vh-200px)] bg-white/70 backdrop-blur-xl p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.06)] flex flex-col overflow-hidden`}
     >
       <h2 className="text-2xl sm:text-3xl font-semibold text-emerald-900 mb-3">
         {t.step2Title}
@@ -981,19 +993,18 @@ const Step2Details: React.FC<any> = ({
             </select>
           </div>
         ))}
-        <div className="flex justify-between items-center pt-4">
+        <div className="flex justify-between items-center pt-4 gap-3">
           <button
             type="button"
             onClick={onBack}
-            className={`bg-emerald-50 text-emerald-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-emerald-100 border border-emerald-100`}
+            className={buttonStyles.secondary}
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-emerald-200 disabled:cursor-not-allowed text-lg shadow-lg shadow-emerald-200`}
-            style={{ backgroundColor: 'var(--color-primary)' }}
+            className={buttonStyles.primary}
           >
             {isSubmitting ? t.submitting : t.next}
           </button>
@@ -1011,7 +1022,17 @@ const Step3Confirmation: React.FC<{
   unit: Unit;
   locale: Locale;
   settings: ReservationSetting;
-}> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+  buttonStyles: { primary: string; secondary: string; ghost: string };
+}> = ({
+  onReset,
+  themeProps,
+  t,
+  submittedData,
+  unit,
+  locale,
+  settings,
+  buttonStyles,
+}) => {
   const [copied, setCopied] = useState(false);
 
   const { googleLink, icsLink, manageLink } = useMemo(() => {
@@ -1073,7 +1094,7 @@ const Step3Confirmation: React.FC<{
 
   return (
     <div
-      className={`min-h-[600px] bg-white/80 backdrop-blur-xl p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] text-center flex flex-col`}
+      className={`min-h-[600px] max-h-[calc(100vh-200px)] bg-white/80 backdrop-blur-xl p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.08)] text-center flex flex-col overflow-y-auto`}
     >
       <h2 className="text-3xl font-bold text-emerald-800">
         {titleText}
@@ -1151,7 +1172,7 @@ const Step3Confirmation: React.FC<{
           />
           <button
             onClick={handleCopy}
-            className="bg-emerald-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-emerald-700 whitespace-nowrap flex items-center gap-1.5"
+            className={buttonStyles.secondary}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
@@ -1161,19 +1182,19 @@ const Step3Confirmation: React.FC<{
 
       <div className="mt-6">
         <h3 className="font-semibold mb-3">{t.addToCalendar}</h3>
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-3 flex-wrap">
           <a
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className={buttonStyles.primary}
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className={buttonStyles.secondary}
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
@@ -1182,8 +1203,7 @@ const Step3Confirmation: React.FC<{
 
       <button
         onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
+        className={`${buttonStyles.primary} mt-8 w-full sm:w-auto justify-center`}
       >
         {t.newBooking}
       </button>
