@@ -586,11 +586,11 @@ const buildDetailsCardHtml = (
   })();
 
   const statusRow = payload.decisionLabel
-    ? `<span style="display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: ${statusColors.bg}; color: ${statusColors.text};">${payload.decisionLabel}</span>`
+    ? `<span style="display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: ${statusColors.bg}; color: ${statusColors.text}; align-self: flex-start;">${payload.decisionLabel}</span>`
     : '';
 
   const notesRow = payload.notes
-    ? `<div style="margin-top: 12px; padding: 10px 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div>`
+    ? `<div style="margin-top: 14px; padding: 12px 14px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.18); border-radius: 14px; color: ${mutedColor}; white-space: pre-line; box-shadow: 0 6px 18px rgba(16,185,129,0.08);">${payload.notes}</div>`
     : '';
 
   const rows = [
@@ -608,34 +608,40 @@ const buildDetailsCardHtml = (
   if (payload.occasionOther)
     rows.push({ label: 'Alkalom (egyéb)', value: payload.occasionOther });
 
-  const rowsHtml = rows
-    .map(
-      row => `
-      <div style="flex: 1 1 240px; display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
-        <span style="font-weight: 700; color: ${textColor};">${row.label}:</span>
-        <span style="color: ${mutedColor}; text-align: right;">${row.value}</span>
-      </div>`
-    )
-    .join('');
+    const rowsHtml = rows
+      .map(
+        row => `
+        <div style="flex: 1 1 260px; min-width: 240px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid rgba(15,118,110,0.08); border-radius: 14px; background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(232,255,244,0.85)); box-shadow: 0 8px 20px rgba(16,185,129,0.08); box-sizing: border-box;">
+          <span style="font-weight: 700; color: ${textColor}; letter-spacing: 0.02em;">${row.label}:</span>
+          <span style="color: ${mutedColor}; text-align: right; word-break: break-word;">${row.value}</span>
+        </div>`
+      )
+      .join('');
 
-  return `
-    <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px; border-radius: 24px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
-      <div style="background: rgba(255,255,255,0.92); border-radius: 20px; padding: 20px 22px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18);">
-        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
-          <div>
-            <div style="font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600;">Foglalási adatok</div>
-            <div style="font-size: 13px; color: ${mutedColor}; margin-top: 4px;">Kérjük ellenőrizze az adatokat.</div>
+    return `
+      <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 32px 16px; box-sizing: border-box; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
+        <div style="max-width: 600px; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.82), rgba(232,255,244,0.78)); padding: 18px; border-radius: 28px; border: 1px solid rgba(148, 227, 195, 0.55); box-shadow: 0 24px 60px rgba(15,118,110,0.16); backdrop-filter: blur(10px);">
+          <div style="background: rgba(255,255,255,0.94); border-radius: 20px; padding: 22px 24px; border: 1px solid rgba(148, 227, 195, 0.5); box-shadow: 0 12px 30px rgba(16,185,129,0.14);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
+              <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                <div style="height: 42px; width: 42px; border-radius: 50%; background: rgba(16,185,129,0.12); color: ${statusColors.text}; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: inset 0 1px 2px rgba(255,255,255,0.6);">📅</div>
+                <div>
+                  <div style="font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 600; letter-spacing: 0.01em;">Foglalási adatok</div>
+                  <div style="font-size: 13px; color: ${mutedColor}; margin-top: 2px;">Kérjük ellenőrizze az adatokat.</div>
+                </div>
+              </div>
+              ${statusRow}
+            </div>
+            <div style="height: 1px; background: linear-gradient(90deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05), rgba(16,185,129,0.15)); margin: 6px 0 12px;"></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 14px; line-height: 1.5;">
+              ${rowsHtml}
+            </div>
+            ${customFieldsHtml ? `<div style="margin-top: 14px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.5); font-size: 13px;">${customFieldsHtml}</div>` : ''}
+            ${notesRow}
           </div>
-          ${statusRow}
         </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 14px; line-height: 1.5; padding: 6px 0 0 0;">
-          ${rowsHtml}
-        </div>
-        ${customFieldsHtml ? `<div style="margin-top: 12px; font-size: 13px;">${customFieldsHtml}</div>` : ''}
-        ${notesRow}
       </div>
-    </div>
-  `;
+    `;
 };
 
 export const onQueuedEmailCreated = onDocumentCreated(
