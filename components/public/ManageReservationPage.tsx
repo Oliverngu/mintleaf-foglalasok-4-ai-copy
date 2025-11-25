@@ -105,7 +105,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
 
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 md:p-8">
+        <div className="min-h-screen h-full overflow-y-auto bg-gray-50 flex flex-col items-center p-4 sm:p-6 md:p-8">
             <header className="text-center mb-8 mt-8">
                 <h1 className="text-4xl font-bold text-gray-800">{unit.name}</h1>
                 <p className="text-lg text-gray-500 mt-1">{t.manageTitle}</p>
