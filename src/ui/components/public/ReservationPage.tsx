@@ -188,6 +188,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [submittedData, setSubmittedData] = useState<any>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDetailsValid, setIsDetailsValid] = useState(false);
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
@@ -333,6 +334,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     });
     setSubmittedData(null);
     setStep(1);
+    setIsDetailsValid(false);
   };
 
   const handleDateSelect = (day: Date) => {
@@ -525,51 +527,63 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }
 
   return (
-    <div
-      className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
-      style={{ color: 'var(--color-text-primary)' }}
-    >
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-        <button
-          onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          Magyar
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          English
-        </button>
-      </div>
+    <div className="min-h-screen flex items-center justify-center px-3 sm:px-4 py-6 bg-[radial-gradient(circle_at_top,_#ecfdf3_0,_#e0f2fe_35%,_#020617_100%)]">
+      <div className="relative w-full max-w-5xl">
+        <div className="pointer-events-none absolute inset-0 rounded-[32px] bg-gradient-to-br from-white/40 via-white/5 to-emerald-500/25 blur-xl opacity-90" />
 
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
-          {unit.name}
-        </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
-          {t.title}
-        </p>
-      </header>
+        <div
+          className="relative rounded-[32px] border border-white/50 bg-white/10 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.65)] overflow-hidden flex flex-col max-h-[88vh]"
+          style={{ color: 'var(--color-text-primary)' }}
+        >
+          <header className="px-5 sm:px-7 pt-5 pb-4 border-b border-white/40 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-gradient-to-br from-white/40/80 via-white/10 to-emerald-50/10">
+            <div>
+              <p className="text-[11px] tracking-[0.25em] uppercase text-emerald-800/70">
+                {t.title}
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-[Playfair_Display] text-slate-900">
+                {unit.name}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-700/80 mt-1.5">
+                {t.step1Title}
+              </p>
+            </div>
 
-      <main className="w-full max-w-2xl">
-        <ProgressIndicator currentStep={step} t={t} />
-        <div className="relative overflow-hidden">
-          <div
-            className="flex transition-transform duration-500 ease-in-out"
-            style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
-          >
-            <div className="w-full flex-shrink-0">
+            <div className="flex items-center gap-3 self-start sm:self-auto">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-800/70 bg-white/40 rounded-full px-3 py-1 border border-white/60">
+                <span className={step === 1 ? 'font-semibold text-emerald-800' : ''}>1</span>
+                <span>·</span>
+                <span className={step === 2 ? 'font-semibold text-emerald-800' : ''}>2</span>
+                <span>·</span>
+                <span className={step === 3 ? 'font-semibold text-emerald-800' : ''}>3</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-medium bg-white/50 text-emerald-900 px-3 py-1.5 rounded-full border border-white/70">
+                <button
+                  onClick={() => setLocale('hu')}
+                  className={
+                    locale === 'hu'
+                      ? 'font-bold text-emerald-900'
+                      : 'text-emerald-700 hover:text-emerald-900'
+                  }
+                >
+                  Magyar
+                </button>
+                <span className="text-emerald-200">|</span>
+                <button
+                  onClick={() => setLocale('en')}
+                  className={
+                    locale === 'en'
+                      ? 'font-bold text-emerald-900'
+                      : 'text-emerald-700 hover:text-emerald-900'
+                  }
+                >
+                  English
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+            {step === 1 && (
               <Step1Date
                 settings={settings}
                 onDateSelect={handleDateSelect}
@@ -579,16 +593,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 onMonthChange={setCurrentMonth}
                 dailyHeadcounts={dailyHeadcounts}
               />
-            </div>
-            <div className="w-full flex-shrink-0">
+            )}
+
+            {step === 2 && (
               <Step2Details
                 selectedDate={selectedDate}
                 formData={formData}
                 setFormData={setFormData}
-                onBack={() => {
-                  setStep(1);
-                  setError('');
-                }}
                 onSubmit={handleSubmit}
                 isSubmitting={isSubmitting}
                 settings={settings}
@@ -596,11 +607,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 t={t}
                 locale={locale}
                 error={error}
+                formId="reservation-details-form"
+                onValidityChange={setIsDetailsValid}
               />
-            </div>
-            <div className="w-full flex-shrink-0">
+            )}
+
+            {step === 3 && (
               <Step3Confirmation
-                onReset={resetFlow}
                 themeProps={themeClassProps}
                 t={t}
                 submittedData={submittedData}
@@ -608,10 +621,57 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 locale={locale}
                 settings={settings}
               />
-            </div>
+            )}
+          </main>
+
+          <div className="border-t border-white/40 px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/10">
+            {step === 1 && (
+              <div className="w-full flex items-center justify-end">
+                <span className="text-sm text-emerald-900/80">{t.step1Title}</span>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="w-full flex flex-col sm:flex-row sm:items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep(1);
+                    setError('');
+                  }}
+                  className="bg-white/70 text-slate-800 font-semibold py-2 px-4 rounded-xl hover:bg-white/90 w-full sm:w-auto border border-white/80"
+                >
+                  {t.back}
+                </button>
+                <div className="flex-1" />
+                <button
+                  type="submit"
+                  form="reservation-details-form"
+                  disabled={isSubmitting || !isDetailsValid}
+                  className="bg-emerald-700 text-white font-semibold py-2 px-6 rounded-xl disabled:bg-gray-400 disabled:cursor-not-allowed shadow-lg shadow-emerald-700/30"
+                >
+                  {isSubmitting ? t.submitting : t.next}
+                </button>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <button
+                  onClick={resetFlow}
+                  className="bg-white/70 text-slate-800 font-semibold py-2 px-4 rounded-xl hover:bg-white/90 w-full sm:w-auto border border-white/80"
+                >
+                  {t.newBooking}
+                </button>
+                <div className="flex items-center gap-2 text-sm text-emerald-900/80">
+                  <CalendarIcon className="w-5 h-5" />
+                  <span>{t.step3Details}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };
@@ -748,7 +808,6 @@ const Step2Details: React.FC<any> = ({
   selectedDate,
   formData,
   setFormData,
-  onBack,
   onSubmit,
   isSubmitting,
   settings,
@@ -756,6 +815,8 @@ const Step2Details: React.FC<any> = ({
   t,
   locale,
   error,
+  formId,
+  onValidityChange,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -809,6 +870,12 @@ const Step2Details: React.FC<any> = ({
     );
   }, [formData, t]);
 
+  useEffect(() => {
+    if (onValidityChange) {
+      onValidityChange(isFormValid);
+    }
+  }, [isFormValid, onValidityChange]);
+
   if (!selectedDate) return null;
 
   const bookingWindowText = settings.bookableWindow
@@ -860,7 +927,7 @@ const Step2Details: React.FC<any> = ({
           )}
         </div>
       )}
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form id={formId} onSubmit={onSubmit} className="space-y-4">
         <input
           type="text"
           readOnly
@@ -976,37 +1043,19 @@ const Step2Details: React.FC<any> = ({
             </select>
           </div>
         ))}
-        <div className="flex justify-between items-center pt-4">
-          <button
-            type="button"
-            onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
-          >
-            {t.back}
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
-            style={{ backgroundColor: 'var(--color-primary)' }}
-          >
-            {isSubmitting ? t.submitting : t.next}
-          </button>
-        </div>
       </form>
     </div>
   );
 };
 
 const Step3Confirmation: React.FC<{
-  onReset: () => void;
   themeProps: any;
   t: any;
   submittedData: any;
   unit: Unit;
   locale: Locale;
   settings: ReservationSetting;
-}> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+}> = ({ themeProps, t, submittedData, unit, locale, settings }) => {
   const [copied, setCopied] = useState(false);
 
   const { googleLink, icsLink, manageLink } = useMemo(() => {
@@ -1172,14 +1221,6 @@ const Step3Confirmation: React.FC<{
           </a>
         </div>
       </div>
-
-      <button
-        onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
-      >
-        {t.newBooking}
-      </button>
     </div>
   );
 };
