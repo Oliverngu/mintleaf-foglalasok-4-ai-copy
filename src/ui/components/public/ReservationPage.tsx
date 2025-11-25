@@ -532,8 +532,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-gradient-to-b from-[#e8fff4] via-[#f4fffb] to-[#fafdff] px-3 sm:px-6 py-6 sm:py-10 lg:py-16">
-      <div className="relative max-w-5xl mx-auto">
+    <div className="min-h-screen w-full overflow-y-auto bg-gradient-to-b from-[#e8fff4] via-[#f4fffb] to-[#fafdff] px-3 sm:px-6 py-6 sm:py-10 lg:py-16">
+      <div className="relative max-w-5xl mx-auto w-full">
         <div className="absolute top-0 right-0 flex items-center gap-2 text-xs sm:text-sm font-medium text-emerald-700/80">
           <button
             onClick={() => setLocale('hu')}

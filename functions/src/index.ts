@@ -607,28 +607,31 @@ const buildDetailsCardHtml = (
   if (payload.occasion) rows.push({ label: 'Alkalom', value: payload.occasion });
   if (payload.occasionOther)
     rows.push({ label: 'Alkalom (egyéb)', value: payload.occasionOther });
+
   const rowsHtml = rows
     .map(
       row => `
-        <div class="ml-row" style="display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 10px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
-          <div style="flex: 1 1 180px; font-weight: 700; color: ${textColor}; letter-spacing: 0.01em; min-width: 140px;">${row.label}:</div>
-          <div style="flex: 2 1 240px; color: ${mutedColor}; word-break: break-word; overflow-wrap: anywhere;">${row.value}</div>
+        <div class="ml-row" style="display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
+          <div class="ml-label" style="flex: 1 1 150px; font-weight: 700; color: ${textColor}; letter-spacing: 0.01em; min-width: 140px;">${row.label}:</div>
+          <div class="ml-value" style="flex: 2 1 220px; color: ${mutedColor}; word-break: break-word; overflow-wrap: anywhere;">${row.value}</div>
         </div>`
     )
     .join('');
 
   return `
-    <div style="width: 100%; box-sizing: border-box; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px;">
+    <div style="width: 100%; box-sizing: border-box; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 22px 16px;">
       <style>
-        @media (max-width: 520px) {
+        @media (max-width: 560px) {
           .ml-card-inner { padding: 16px 14px !important; }
-          .ml-row { flex-direction: column !important; }
+          .ml-rows { grid-template-columns: 1fr !important; }
+          .ml-row { flex-direction: column !important; gap: 4px !important; }
+          .ml-label { min-width: 0 !important; }
         }
       </style>
-      <div style="max-width: 600px; width: 100%; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(232,255,244,0.85)); padding: 22px; border-radius: 24px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18); backdrop-filter: blur(12px); font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
-        <div class="ml-card-inner" style="background: rgba(255,255,255,0.94); border-radius: 18px; padding: 20px; box-shadow: 0 10px 28px rgba(16,185,129,0.12); border: 1px solid rgba(148, 227, 195, 0.55);">
+      <div style="max-width: 600px; width: 100%; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(232,255,244,0.9)); padding: 20px; border-radius: 24px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18); backdrop-filter: blur(12px); font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor}; box-sizing: border-box;">
+        <div class="ml-card-inner" style="background: rgba(255,255,255,0.94); border-radius: 18px; padding: 20px 18px; box-shadow: 0 10px 28px rgba(16,185,129,0.12); border: 1px solid rgba(148, 227, 195, 0.55); box-sizing: border-box;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
               <div style="height: 42px; width: 42px; border-radius: 50%; background: rgba(16,185,129,0.14); color: ${statusColors.text}; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: inset 0 1px 2px rgba(255,255,255,0.7);">📅</div>
               <div style="min-width: 0;">
                 <div style="font-family: 'Playfair Display', serif; font-size: 19px; font-weight: 600; letter-spacing: 0.01em; color: ${textColor};">Foglalási adatok</div>
@@ -638,10 +641,10 @@ const buildDetailsCardHtml = (
             ${statusRow}
           </div>
           <div style="height: 1px; background: linear-gradient(90deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06), rgba(16,185,129,0.18)); margin: 6px 0 10px;"></div>
-          <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.6; word-break: break-word;">
+          <div class="ml-rows" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; font-size: 14px; line-height: 1.6; word-break: break-word;">
             ${rowsHtml}
           </div>
-          ${customFieldsHtml ? `<div style="margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.45); font-size: 13px; color: ${textColor}; word-break: break-word;">${customFieldsHtml}</div>` : ''}
+          ${customFieldsHtml ? `<div style=\"margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.45); font-size: 13px; color: ${textColor}; word-break: break-word;\">${customFieldsHtml}</div>` : ''}
           ${notesRow}
         </div>
       </div>
@@ -821,17 +824,29 @@ const buildButtonBlock = (
   buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
   theme: 'light' | 'dark'
 ) => {
-  const background = theme === 'dark' ? '#0f172a' : '#f7fafc';
+  const background =
+    theme === 'dark' ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.76)';
+  const borderColor = theme === 'dark' ? 'rgba(148, 227, 195, 0.35)' : 'rgba(148, 227, 195, 0.6)';
   const buttonsHtml = buttons
     .map(btn => {
       const baseColor = btn.variant === 'danger' ? '#f87171' : '#34d399';
-      const textColor = btn.variant === 'danger' ? '#7f1d1d' : '#064e3b';
-      return `<a href="${btn.url}" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 18px; border-radius: 999px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; text-decoration: none; background: linear-gradient(135deg, ${baseColor}, ${btn.variant === 'danger' ? '#ef4444' : '#10b981'}); color: ${textColor}; box-shadow: 0 10px 24px rgba(16,185,129,0.25); border: 1px solid rgba(255,255,255,0.7);">${btn.label}</a>`;
+      const accentColor = btn.variant === 'danger' ? '#ef4444' : '#10b981';
+      const textColor = btn.variant === 'danger'
+        ? theme === 'dark'
+          ? '#ffe4e6'
+          : '#7f1d1d'
+        : theme === 'dark'
+        ? '#ecfdf3'
+        : '#064e3b';
+      const shadowColor = btn.variant === 'danger'
+        ? 'rgba(248,113,113,0.35)'
+        : 'rgba(16,185,129,0.35)';
+      return `<a href="${btn.url}" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 18px; min-width: 140px; border-radius: 999px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; text-decoration: none; background: linear-gradient(135deg, ${baseColor}, ${accentColor}); color: ${textColor}; box-shadow: 0 12px 28px ${shadowColor}; border: 1px solid rgba(255,255,255,0.7); backdrop-filter: blur(6px);">${btn.label}</a>`;
     })
     .join('<span style="display: inline-block; width: 8px;"></span>');
 
   return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 14px; display: flex; gap: 12px; flex-wrap: wrap; border-radius: 18px; border: 1px solid ${borderColor}; box-shadow: 0 10px 26px rgba(16,185,129,0.18); align-items: center; justify-content: flex-start;">
       ${buttonsHtml}
     </div>
   `;
