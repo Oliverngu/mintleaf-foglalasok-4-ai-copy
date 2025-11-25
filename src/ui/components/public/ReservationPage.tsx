@@ -468,6 +468,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     const minMinutes = parseTimeToMinutes(bookingWindow.from);
     const maxMinutes = parseTimeToMinutes(bookingWindow.to);
 
+    if (!Number.isFinite(minMinutes) || !Number.isFinite(maxMinutes) || minMinutes > maxMinutes) {
+      return [];
+    }
+
     if (availableSlots && Array.isArray(availableSlots) && availableSlots.length > 0) {
       return Array.from(
         new Set(
@@ -771,19 +775,25 @@ const Step2Details: React.FC<any> = ({
     );
   }, [formData, t]);
 
-  const bookingWindowText = bookingWindow ? `${bookingWindow.from} – ${bookingWindow.to}` : null;
+  const bookingWindowText =
+    bookingWindow?.from && bookingWindow?.to ? `${bookingWindow.from} – ${bookingWindow.to}` : null;
 
-  // Guard: ensure time options stay safe even if settings or date data are missing
   const safeAvailableTimes = useMemo(
     () => (Array.isArray(availableTimes) ? availableTimes : []),
     [availableTimes]
   );
 
+  // Guard: keep time options resilient when date or backend data is missing
+  const timesForSelectedDay = useMemo(
+    () => (selectedDate ? safeAvailableTimes : []),
+    [selectedDate, safeAvailableTimes]
+  );
+
   const endTimeOptions = useMemo(() => {
-    if (!formData.startTime) return safeAvailableTimes;
+    if (!formData.startTime) return timesForSelectedDay;
     const startMinutes = parseTimeToMinutes(formData.startTime);
-    return safeAvailableTimes.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
-  }, [safeAvailableTimes, formData.startTime]);
+    return timesForSelectedDay.filter((time: string) => parseTimeToMinutes(time) > startMinutes);
+  }, [timesForSelectedDay, formData.startTime]);
 
   const noDateMessage = locale === 'en' ? 'Please select a date first.' : 'Válassz először dátumot.';
   const noSlotsMessage =
@@ -816,7 +826,7 @@ const Step2Details: React.FC<any> = ({
     );
   }
 
-  const hasSlots = safeAvailableTimes.length > 0;
+  const hasSlots = timesForSelectedDay.length > 0;
 
   return (
     <div className="p-2 sm:p-4">
@@ -938,7 +948,7 @@ const Step2Details: React.FC<any> = ({
                         : '',
                   }))
                 }
-                options={safeAvailableTimes}
+                options={timesForSelectedDay}
               />
               <TimePicker
                 label={t.endTime}
@@ -951,17 +961,18 @@ const Step2Details: React.FC<any> = ({
             </div>
           )}
 
-          {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
-            <SelectField
-              key={field.id}
-              label={field.label}
-              name={field.id}
-              value={formData.customData[field.id] || ''}
-              onChange={handleCustomFieldChange}
-              options={field.options}
-              required
-            />
-          ))}
+          {Array.isArray(settings.guestForm?.customSelects) &&
+            settings.guestForm?.customSelects.map((field: CustomSelectField) => (
+              <SelectField
+                key={field.id}
+                label={field.label}
+                name={field.id}
+                value={formData.customData[field.id] || ''}
+                onChange={handleCustomFieldChange}
+                options={field.options}
+                required
+              />
+            ))}
 
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 pt-4">
             <button
