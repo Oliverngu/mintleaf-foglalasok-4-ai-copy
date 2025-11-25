@@ -120,41 +120,31 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
+    <div className="flex items-center justify-center w-full max-w-3xl mx-auto mb-4 gap-3">
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
         const isActive = currentStep === stepNumber;
+        const bubbleClass = isActive || isCompleted
+          ? 'w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+          : 'w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-white/20 text-emerald-800/40 border border-white/40';
+
         return (
           <React.Fragment key={stepNumber}>
-            <div className="flex flex-col items-center text-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
-                  isCompleted
-                    ? 'bg-[var(--color-primary)] text-white'
-                    : isActive
-                    ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
-                    : 'bg-gray-200 text-gray-500'
-                }`}
-              >
-                {isCompleted ? '✓' : stepNumber}
-              </div>
+            <div className="flex flex-col items-center text-center gap-1">
+              <div className={bubbleClass}>{isCompleted ? '✓' : stepNumber}</div>
               <p
-                className={`mt-2 text-sm font-semibold transition-colors ${
+                className={`text-xs sm:text-sm font-sans ${
                   isActive || isCompleted
-                    ? 'text-[var(--color-text-primary)]'
-                    : 'text-gray-400'
+                    ? 'text-emerald-900'
+                    : 'text-emerald-800/50'
                 }`}
               >
                 {label}
               </p>
             </div>
             {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 transition-colors ${
-                  isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
-                }`}
-              ></div>
+              <div className="flex-1 h-[2px] bg-gradient-to-r from-emerald-200 via-white to-emerald-200" />
             )}
           </React.Fragment>
         );
@@ -507,10 +497,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (error && step !== 2) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
-        <div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2>
-          <p className="text-[var(--color-text-primary)] mt-2">{error}</p>
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center p-6 overflow-y-auto max-h-screen">
+        <div className="bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)] rounded-2xl p-8 text-center max-w-lg w-full">
+          <h2 className="text-xl font-serif tracking-tight text-emerald-900">Hiba</h2>
+          <p className="font-sans text-emerald-800/90 font-light mt-2">{error}</p>
         </div>
       </div>
     );
@@ -518,58 +508,48 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (loading || !unit || !settings) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center overflow-y-auto max-h-screen">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div
-      className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
-      style={{ color: 'var(--color-text-primary)' }}
-    >
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-        <button
-          onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          Magyar
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          English
-        </button>
-      </div>
-
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
-          {unit.name}
-        </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
-          {t.title}
-        </p>
-      </header>
-
-      <main className="w-full max-w-2xl">
-        <ProgressIndicator currentStep={step} t={t} />
-        <div className="relative overflow-hidden">
-          <div
-            className="flex transition-transform duration-500 ease-in-out"
-            style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-y-auto max-h-screen">
+      <div className="w-full max-w-5xl space-y-6">
+        <div className="flex justify-end gap-3 text-sm font-medium">
+          <button
+            onClick={() => setLocale('hu')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              locale === 'hu'
+                ? 'bg-emerald-700/10 border border-emerald-700/20 text-emerald-900'
+                : 'bg-white/40 border border-white/60 text-emerald-800/70'
+            }`}
           >
-            <div className="w-full flex-shrink-0">
+            Magyar
+          </button>
+          <button
+            onClick={() => setLocale('en')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              locale === 'en'
+                ? 'bg-emerald-700/10 border border-emerald-700/20 text-emerald-900'
+                : 'bg-white/40 border border-white/60 text-emerald-800/70'
+            }`}
+          >
+            English
+          </button>
+        </div>
+
+        <div className="bg-white/40 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)] rounded-2xl p-8 space-y-8 overflow-y-auto max-h-screen">
+          <header className="text-center space-y-2">
+            <h1 className="text-4xl font-serif tracking-tight text-emerald-900">{unit.name}</h1>
+            <p className="text-lg font-sans text-emerald-800/90 font-light">{t.title}</p>
+          </header>
+
+          <ProgressIndicator currentStep={step} t={t} />
+
+          <div className="space-y-6">
+            {step === 1 && (
               <Step1Date
                 settings={settings}
                 onDateSelect={handleDateSelect}
@@ -579,8 +559,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 onMonthChange={setCurrentMonth}
                 dailyHeadcounts={dailyHeadcounts}
               />
-            </div>
-            <div className="w-full flex-shrink-0">
+            )}
+
+            {step === 2 && (
               <Step2Details
                 selectedDate={selectedDate}
                 formData={formData}
@@ -597,8 +578,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 locale={locale}
                 error={error}
               />
-            </div>
-            <div className="w-full flex-shrink-0">
+            )}
+
+            {step === 3 && (
               <Step3Confirmation
                 onReset={resetFlow}
                 themeProps={themeClassProps}
@@ -608,10 +590,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 locale={locale}
                 settings={settings}
               />
-            </div>
+            )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };
@@ -658,13 +640,8 @@ const Step1Date: React.FC<{
   today.setHours(0, 0, 0, 0);
 
   return (
-    <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
-    >
-      <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
-        {t.step1Title}
-      </h2>
-      <div className="flex justify-between items-center mb-4">
+    <div className={`bg-white/30 backdrop-blur-xl border border-white/40 rounded-2xl shadow-sm p-6 overflow-y-auto max-h-screen ${themeProps.radiusClass || ''} ${themeProps.shadowClass || ''}`}>
+      <div className="flex items-center justify-between mb-6">
         <button
           type="button"
           onClick={() =>
@@ -672,13 +649,18 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className="w-10 h-10 rounded-full flex items-center justify-center bg-white/60 border border-white/70 text-emerald-800 hover:bg-white"
         >
           &lt;
         </button>
-        <h3 className="font-bold text-lg">
-          {t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-        </h3>
+        <div className="text-center">
+          <p className="text-sm font-sans text-emerald-800/70 font-light">
+            {t.step1Title}
+          </p>
+          <h3 className="text-2xl font-serif tracking-tight text-emerald-900">
+            {t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+          </h3>
+        </div>
         <button
           type="button"
           onClick={() =>
@@ -686,19 +668,21 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className="w-10 h-10 rounded-full flex items-center justify-center bg-white/60 border border-white/70 text-emerald-800 hover:bg-white"
         >
           &gt;
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
+      <div className="grid grid-cols-7 gap-2 text-center text-xs sm:text-sm font-semibold text-emerald-800/70 mb-3">
         {t.dayNames.map((d: string) => (
-          <div key={d}>{d}</div>
+          <div key={d} className="font-sans">
+            {d}
+          </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-2">
         {days.map((day, i) => {
-          if (!day) return <div key={`empty-${i}`}></div>;
+          if (!day) return <div key={`empty-${i}`} />;
           const dateKey = toDateKey(day);
 
           const isBlackout = blackoutSet.has(dateKey);
@@ -710,33 +694,25 @@ const Step1Date: React.FC<{
           }
           const isDisabled = isBlackout || isPast || isFull;
 
-          let buttonClass = `w-full p-1 h-12 flex items-center justify-center text-sm ${themeProps.radiusClass} transition-colors`;
-          let titleText = '';
+          const buttonClass = `w-full aspect-square rounded-xl flex items-center justify-center font-semibold transition-all border ${
+            isDisabled
+              ? 'bg-white/40 border-white/60 text-emerald-800/30 cursor-not-allowed'
+              : 'bg-white/80 border-white/70 text-emerald-900 hover:bg-emerald-700/10 hover:shadow-[0_4px_20px_rgba(6,78,59,0.15)]'
+          }`;
 
-          if (isDisabled) {
-            if (isFull) {
-              buttonClass +=
-                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
-              titleText = t.errorCapacityFull;
-            } else {
-              buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
-            }
-          } else {
-            buttonClass += ' hover:bg-green-100';
-          }
+          const titleText = isFull ? t.errorCapacityFull : '';
 
           return (
-            <div key={dateKey}>
-              <button
-                type="button"
-                onClick={() => onDateSelect(day)}
-                disabled={isDisabled}
-                title={titleText}
-                className={buttonClass}
-              >
-                {day.getDate()}
-              </button>
-            </div>
+            <button
+              key={dateKey}
+              type="button"
+              onClick={() => onDateSelect(day)}
+              disabled={isDisabled}
+              title={titleText}
+              className={buttonClass}
+            >
+              {day.getDate()}
+            </button>
           );
         })}
       </div>
@@ -815,154 +791,172 @@ const Step2Details: React.FC<any> = ({
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
 
+  const timeSlots = useMemo(() => {
+    const slots: string[] = [];
+    for (let hour = 17; hour <= 23; hour++) {
+      for (const minute of [0, 30]) {
+        const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        slots.push(value);
+        if (hour === 23 && minute === 0) break;
+      }
+    }
+    return slots;
+  }, []);
+
+  const isTimeWithinWindow = (time: string) => {
+    if (!settings.bookableWindow) return true;
+    const { from, to } = settings.bookableWindow;
+    return time >= from && time <= to;
+  };
+
   return (
-    <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
-    >
-      <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
-        {t.step2Title}
-      </h2>
-      {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">
-          {error}
-        </div>
-      )}
-      {(bookingWindowText ||
-        settings.kitchenStartTime ||
-        settings.barStartTime) && (
-        <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
-        >
-          {bookingWindowText && (
-            <p className="flex items-start gap-2">
-              <span className="font-semibold whitespace-nowrap">
-                {t.bookableWindowLabel}:
-              </span>
-              <span>
-                {bookingWindowText}
-                <span className="block text-xs text-gray-500">
-                  {t.bookableWindowHint}
-                </span>
-              </span>
-            </p>
-          )}
-          {settings.kitchenStartTime && (
-            <p>
-              <strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} -{' '}
-              {settings.kitchenEndTime || t.untilClose}
-            </p>
-          )}
-          {settings.barStartTime && (
-            <p>
-              <strong>{t.barHours}:</strong> {settings.barStartTime} -{' '}
-              {settings.barEndTime || t.untilClose}
-            </p>
-          )}
-        </div>
-      )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <input
-          type="text"
-          readOnly
-          value={selectedDate.toLocaleDateString(locale, {
+    <div className={`bg-white/30 backdrop-blur-xl border border-white/40 rounded-2xl shadow-sm p-6 overflow-y-auto max-h-screen space-y-6 ${themeProps.radiusClass || ''} ${themeProps.shadowClass || ''}`}>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-sans text-emerald-800/70 font-light">{t.step2Title}</p>
+        <h2 className="text-2xl font-serif tracking-tight text-emerald-900">
+          {selectedDate.toLocaleDateString(locale, {
             weekday: 'long',
             year: 'numeric',
             month: 'long',
             day: 'numeric',
           })}
-          className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
-        />
-        <div>
-          <label className="block text-sm font-medium">{t.name}</label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleStandardChange}
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-          {formErrors.name && (
-            <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
+        </h2>
+      </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 font-sans text-sm">
+          {error}
+        </div>
+      )}
+
+      {(bookingWindowText || settings.kitchenStartTime || settings.barStartTime) && (
+        <div className="bg-white/40 backdrop-blur-lg border border-white/60 rounded-xl p-4 space-y-2 font-sans text-emerald-800/90">
+          {bookingWindowText && (
+            <p className="flex items-start gap-2 text-sm">
+              <span className="font-semibold text-emerald-900">{t.bookableWindowLabel}:</span>
+              <span className="font-light">
+                {bookingWindowText}
+                <span className="block text-xs text-emerald-800/70">{t.bookableWindowHint}</span>
+              </span>
+            </p>
+          )}
+          {settings.kitchenStartTime && (
+            <p className="text-sm">
+              <strong className="text-emerald-900">{t.kitchenHours}:</strong> {settings.kitchenStartTime} - {settings.kitchenEndTime || t.untilClose}
+            </p>
+          )}
+          {settings.barStartTime && (
+            <p className="text-sm">
+              <strong className="text-emerald-900">{t.barHours}:</strong> {settings.barStartTime} - {settings.barEndTime || t.untilClose}
+            </p>
           )}
         </div>
-        <div>
-          <label className="block text-sm font-medium">{t.headcount}</label>
-          <input
-            type="number"
-            name="headcount"
-            value={formData.headcount}
-            onChange={handleStandardChange}
-            min="1"
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-        </div>
+      )}
+
+      <form onSubmit={onSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium">{t.email}</label>
+          <div className="space-y-2">
+            <label className="block text-sm font-sans text-emerald-800/80">{t.name}</label>
+            <input
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleStandardChange}
+              className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 placeholder:text-emerald-800/60 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              required
+            />
+            {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-sans text-emerald-800/80">{t.headcount}</label>
+            <input
+              type="number"
+              name="headcount"
+              value={formData.headcount}
+              onChange={handleStandardChange}
+              min="1"
+              className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="block text-sm font-sans text-emerald-800/80">{t.email}</label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 placeholder:text-emerald-800/60 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               required
             />
-            {formErrors.email && (
-              <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
-            )}
+            {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
           </div>
-          <div>
-            <label className="block text-sm font-medium">{t.phone}</label>
+          <div className="space-y-2">
+            <label className="block text-sm font-sans text-emerald-800/80">{t.phone}</label>
             <input
               type="tel"
               name="phone"
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 placeholder:text-emerald-800/60 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               required
             />
-            {formErrors.phone && (
-              <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
-            )}
+            {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium">{t.startTime}</label>
-            <input
-              type="time"
-              name="startTime"
-              value={formData.startTime}
-              onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
-              required
-              min={settings.bookableWindow?.from}
-              max={settings.bookableWindow?.to}
-            />
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-sans text-emerald-800/80">{t.startTime}</p>
+            <span className="text-xs text-emerald-800/60 font-sans">17:00 – 23:00</span>
           </div>
-          <div>
-            <label className="block text-sm font-medium">{t.endTime}</label>
-            <input
-              type="time"
-              name="endTime"
-              value={formData.endTime}
-              onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
-              min={formData.startTime}
-            />
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+            {timeSlots.map((time) => {
+              const disabled = !isTimeWithinWindow(time);
+              const isActive = formData.startTime === time;
+              return (
+                <button
+                  type="button"
+                  key={time}
+                  disabled={disabled}
+                  onClick={() => setFormData((prev: any) => ({ ...prev, startTime: time }))}
+                  className={`${
+                    isActive
+                      ? 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                      : 'bg-white/70 text-emerald-900 hover:bg-emerald-700/10'
+                  } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} border border-white/70 rounded-xl px-3 py-2 text-sm font-semibold transition-all font-sans`}
+                >
+                  {time}
+                </button>
+              );
+            })}
           </div>
         </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-sans text-emerald-800/80">{t.endTime}</label>
+          <input
+            type="time"
+            name="endTime"
+            value={formData.endTime}
+            onChange={handleStandardChange}
+            className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            min={formData.startTime}
+          />
+        </div>
+
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
-          <div key={field.id}>
-            <label className="block text-sm font-medium">{field.label}</label>
+          <div key={field.id} className="space-y-2">
+            <label className="block text-sm font-sans text-emerald-800/80">{field.label}</label>
             <select
               name={field.id}
               value={formData.customData[field.id] || ''}
               onChange={handleCustomFieldChange}
-              className="w-full mt-1 p-2 border rounded-lg bg-white"
+              className="w-full px-4 py-3 bg-white/60 border border-white/70 rounded-xl text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               required
             >
               <option value="" disabled>
@@ -976,19 +970,19 @@ const Step2Details: React.FC<any> = ({
             </select>
           </div>
         ))}
-        <div className="flex justify-between items-center pt-4">
+
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
           <button
             type="button"
             onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+            className="px-8 py-3 bg-white/20 backdrop-blur-lg border border-white/50 text-emerald-800 rounded-full hover:bg-white/40 transition-all w-full sm:w-auto"
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
-            style={{ backgroundColor: 'var(--color-primary)' }}
+            className="px-8 py-3 bg-emerald-700/10 backdrop-blur-xl border border-emerald-700/20 text-emerald-900 rounded-full font-serif hover:bg-emerald-700/20 hover:shadow-[0_4px_20px_rgba(6,78,59,0.15)] transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
           >
             {isSubmitting ? t.submitting : t.next}
           </button>
@@ -1065,121 +1059,138 @@ const Step3Confirmation: React.FC<{
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const confirmationUrl = manageLink;
 
   return (
-    <div
-      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
-    >
-      <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
-        {titleText}
-      </h2>
-      <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
-      <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
+    <div className={`bg-white/30 backdrop-blur-xl border border-white/40 rounded-2xl shadow-sm p-8 space-y-6 overflow-y-auto max-h-screen ${themeProps.radiusClass || ''} ${themeProps.shadowClass || ''}`}>
+      <div className="text-center space-y-2">
+        <h2 className="text-3xl font-serif tracking-tight text-emerald-900">{titleText}</h2>
+        <p className="font-sans text-emerald-800/90 font-light">{bodyText}</p>
+        <p className="text-sm text-emerald-800/70 font-sans">{t.emailConfirmationSent}</p>
+      </div>
 
       {submittedData && (
-        <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
-          <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
-          <p>
-            <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded">
-              {submittedData.referenceCode.substring(0, 8).toUpperCase()}
-            </span>
-          </p>
-          <p>
-            <strong>{t.name}:</strong> {submittedData.name}
-          </p>
-          <p>
-            <strong>{t.headcount}:</strong> {submittedData.headcount}
-          </p>
-          <p>
-            <strong>{t.date}:</strong>{' '}
-            {submittedData.date.toLocaleDateString(locale, {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </p>
-          <p>
-            <strong>{t.startTime}:</strong>{' '}
-            {submittedData.startTime
-              .toDate()
-              .toLocaleTimeString(locale, {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-          </p>
-          <p>
-            <strong>{t.email}:</strong> {submittedData.contact.email}
-          </p>
-          <p>
-            <strong>{t.phone}:</strong>{' '}
-            {submittedData.contact?.phoneE164
-              ? maskPhone(submittedData.contact.phoneE164)
-              : 'N/A'}
-          </p>
-          {Object.entries(submittedData.customData || {}).map(([key, value]) => {
-            const field = settings.guestForm?.customSelects?.find(
-              (f) => f.id === key
-            );
-            if (!field || !value) return null;
-            return (
-              <p key={key}>
-                <strong>{field.label}:</strong> {value as string}
+        <div className="bg-white/50 backdrop-blur-lg border border-white/70 rounded-2xl p-5 space-y-4">
+          <h3 className="text-lg font-serif tracking-tight text-emerald-900 text-center">{t.step3Details}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-sans text-emerald-900">
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.referenceCode}</p>
+              <p className="font-semibold flex items-center gap-2 mt-1">
+                <span className="font-mono bg-emerald-700/10 border border-emerald-700/20 rounded-full px-3 py-1">
+                  {submittedData.referenceCode.substring(0, 8).toUpperCase()}
+                </span>
               </p>
-            );
-          })}
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.date}</p>
+              <p className="font-semibold mt-1">
+                {submittedData.date.toLocaleDateString(locale, {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </p>
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.name}</p>
+              <p className="font-semibold mt-1">{submittedData.name}</p>
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.headcount}</p>
+              <p className="font-semibold mt-1">{submittedData.headcount}</p>
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.startTime}</p>
+              <p className="font-semibold mt-1">
+                {submittedData.startTime
+                  .toDate()
+                  .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.email}</p>
+              <p className="font-semibold mt-1">{submittedData.contact.email}</p>
+            </div>
+            <div className="bg-white/60 border border-white/70 rounded-xl p-3">
+              <p className="text-xs text-emerald-800/70">{t.phone}</p>
+              <p className="font-semibold mt-1">
+                {submittedData.contact?.phoneE164 ? maskPhone(submittedData.contact.phoneE164) : 'N/A'}
+              </p>
+            </div>
+            {Object.entries(submittedData.customData || {}).map(([key, value]) => {
+              const field = settings.guestForm?.customSelects?.find((f) => f.id === key);
+              if (!field || !value) return null;
+              return (
+                <div key={key} className="bg-white/60 border border-white/70 rounded-xl p-3">
+                  <p className="text-xs text-emerald-800/70">{field.label}</p>
+                  <p className="font-semibold mt-1">{value as string}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
-        <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
-        <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
-          <input
-            type="text"
-            value={manageLink}
-            readOnly
-            className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"
-          />
+      <div className="bg-white/40 backdrop-blur-lg border border-white/60 rounded-2xl p-5 space-y-3">
+        <h3 className="text-lg font-serif tracking-tight text-emerald-900">{t.manageLinkTitle}</h3>
+        <p className="text-sm font-sans text-emerald-800/80">{t.manageLinkBody}</p>
+        <div className="flex flex-col sm:flex-row gap-3 items-center">
+          <div className="flex-1 w-full bg-white/60 border border-white/70 rounded-full px-4 py-3 flex items-center gap-2">
+            <input
+              type="text"
+              value={manageLink}
+              readOnly
+              className="w-full bg-transparent text-sm font-sans text-emerald-900 focus:outline-none"
+            />
+            <button
+              onClick={handleCopy}
+              type="button"
+              className="px-4 py-2 bg-white/20 backdrop-blur-lg border border-white/50 text-emerald-800 rounded-full hover:bg-white/40 transition-all flex items-center gap-2"
+            >
+              <CopyIcon className="h-4 w-4" />
+              {copied ? t.copied : t.copy}
+            </button>
+          </div>
           <button
-            onClick={handleCopy}
-            className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+            className="w-full sm:w-auto py-4 bg-emerald-700/10 backdrop-blur-xl border border-emerald-700/20 text-emerald-900 rounded-full font-serif px-8 hover:bg-emerald-700/20 hover:shadow-[0_4px_20px_rgba(6,78,59,0.15)] transition-all"
+            onClick={() => (window.location.href = confirmationUrl)}
+            type="button"
           >
-            <CopyIcon className="h-4 w-4" />
-            {copied ? t.copied : t.copy}
+            Megnyitás
           </button>
         </div>
       </div>
 
-      <div className="mt-6">
-        <h3 className="font-semibold mb-3">{t.addToCalendar}</h3>
-        <div className="flex justify-center gap-4">
+      <div className="bg-white/40 backdrop-blur-lg border border-white/60 rounded-2xl p-5 space-y-3">
+        <h3 className="text-lg font-serif tracking-tight text-emerald-900">{t.addToCalendar}</h3>
+        <div className="flex flex-col sm:flex-row gap-3">
           <a
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className="flex-1 px-8 py-3 bg-emerald-700/10 backdrop-blur-xl border border-emerald-700/20 text-emerald-900 rounded-full font-serif hover:bg-emerald-700/20 hover:shadow-[0_4px_20px_rgba(6,78,59,0.15)] transition-all flex items-center justify-center gap-2"
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className="flex-1 px-8 py-3 bg-white/20 backdrop-blur-lg border border-white/50 text-emerald-800 rounded-full hover:bg-white/40 transition-all flex items-center justify-center gap-2"
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
         </div>
       </div>
 
-      <button
-        onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
-      >
-        {t.newBooking}
-      </button>
+      <div className="text-center">
+        <button
+          onClick={onReset}
+          className="px-8 py-3 bg-emerald-700/10 backdrop-blur-xl border border-emerald-700/20 text-emerald-900 rounded-full font-serif hover:bg-emerald-700/20 hover:shadow-[0_4px_20px_rgba(6,78,59,0.15)] transition-all"
+        >
+          {t.newBooking}
+        </button>
+      </div>
     </div>
   );
 };
