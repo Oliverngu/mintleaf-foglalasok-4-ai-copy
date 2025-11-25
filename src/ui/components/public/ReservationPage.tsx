@@ -533,7 +533,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#e8fff4] via-[#f4fffb] to-[#fafdff] px-3 sm:px-6 py-6 sm:py-10 lg:py-16">
-      <div className="relative max-w-5xl mx-auto flex min-h-screen">
+      <div className="relative max-w-5xl mx-auto">
         <div className="absolute top-0 right-0 flex items-center gap-2 text-xs sm:text-sm font-medium text-emerald-700/80">
           <button
             onClick={() => setLocale('hu')}
@@ -557,7 +557,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </button>
         </div>
 
-        <div className="mt-10 sm:mt-0 w-full flex flex-col min-h-screen max-h-screen bg-white/60 backdrop-blur-xl border border-white/50 rounded-[28px] shadow-[0_24px_60px_rgba(15,118,110,0.18)] p-5 sm:p-8 lg:p-10">
+        <div className="mt-10 sm:mt-0 w-full flex flex-col bg-white/60 backdrop-blur-xl border border-white/50 rounded-[28px] shadow-[0_24px_60px_rgba(15,118,110,0.18)] p-5 sm:p-8 lg:p-10">
           <header className="text-center mb-8 sm:mb-10 space-y-2">
             <p className="text-sm uppercase tracking-[0.2em] text-emerald-700/80 font-semibold">{unit.name}</p>
             <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">{t.title}</h1>
@@ -567,7 +567,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             <ProgressIndicator currentStep={step} t={t} />
           </div>
 
-          <main className="w-full flex-1 overflow-y-auto min-h-0">
+          <main className="w-full">
             <div className="relative overflow-x-hidden">
               <div
                 className="flex transition-transform duration-500 ease-in-out"

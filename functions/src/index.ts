@@ -607,41 +607,40 @@ const buildDetailsCardHtml = (
   if (payload.occasion) rows.push({ label: 'Alkalom', value: payload.occasion });
   if (payload.occasionOther)
     rows.push({ label: 'Alkalom (egyéb)', value: payload.occasionOther });
-
-    const rowsHtml = rows
-      .map(
-        row => `
-        <div style="flex: 1 1 260px; min-width: 240px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid rgba(15,118,110,0.08); border-radius: 14px; background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(232,255,244,0.85)); box-shadow: 0 8px 20px rgba(16,185,129,0.08); box-sizing: border-box;">
-          <span style="font-weight: 700; color: ${textColor}; letter-spacing: 0.02em;">${row.label}:</span>
-          <span style="color: ${mutedColor}; text-align: right; word-break: break-word;">${row.value}</span>
+  const rowsHtml = rows
+    .map(
+      row => `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
+          <span style="flex: 0 0 160px; font-weight: 700; color: ${textColor}; letter-spacing: 0.01em;">${row.label}:</span>
+          <span style="flex: 1; color: ${mutedColor}; text-align: right; word-break: break-word;">${row.value}</span>
         </div>`
-      )
-      .join('');
+    )
+    .join('');
 
-    return `
-      <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 32px 16px; box-sizing: border-box; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
-        <div style="max-width: 600px; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.82), rgba(232,255,244,0.78)); padding: 18px; border-radius: 28px; border: 1px solid rgba(148, 227, 195, 0.55); box-shadow: 0 24px 60px rgba(15,118,110,0.16); backdrop-filter: blur(10px);">
-          <div style="background: rgba(255,255,255,0.94); border-radius: 20px; padding: 22px 24px; border: 1px solid rgba(148, 227, 195, 0.5); box-shadow: 0 12px 30px rgba(16,185,129,0.14);">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
-              <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
-                <div style="height: 42px; width: 42px; border-radius: 50%; background: rgba(16,185,129,0.12); color: ${statusColors.text}; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: inset 0 1px 2px rgba(255,255,255,0.6);">📅</div>
-                <div>
-                  <div style="font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 600; letter-spacing: 0.01em;">Foglalási adatok</div>
-                  <div style="font-size: 13px; color: ${mutedColor}; margin-top: 2px;">Kérjük ellenőrizze az adatokat.</div>
-                </div>
+  return `
+    <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px; box-sizing: border-box;">
+      <div style="max-width: 600px; width: 100%; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,255,244,0.85)); padding: 20px; border-radius: 24px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18); backdrop-filter: blur(10px); font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
+        <div style="background: rgba(255,255,255,0.96); border-radius: 18px; padding: 20px 22px; box-shadow: 0 10px 28px rgba(16,185,129,0.12); border: 1px solid rgba(148, 227, 195, 0.55);">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+              <div style="height: 42px; width: 42px; border-radius: 50%; background: rgba(16,185,129,0.14); color: ${statusColors.text}; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: inset 0 1px 2px rgba(255,255,255,0.7);">📅</div>
+              <div style="min-width: 0;">
+                <div style="font-family: 'Playfair Display', serif; font-size: 19px; font-weight: 600; letter-spacing: 0.01em; color: ${textColor};">Foglalási adatok</div>
+                <div style="font-size: 13px; color: ${mutedColor}; margin-top: 2px;">Kérjük ellenőrizze az adatokat.</div>
               </div>
-              ${statusRow}
             </div>
-            <div style="height: 1px; background: linear-gradient(90deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05), rgba(16,185,129,0.15)); margin: 6px 0 12px;"></div>
-            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 14px; line-height: 1.5;">
-              ${rowsHtml}
-            </div>
-            ${customFieldsHtml ? `<div style="margin-top: 14px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.5); font-size: 13px;">${customFieldsHtml}</div>` : ''}
-            ${notesRow}
+            ${statusRow}
           </div>
+          <div style="height: 1px; background: linear-gradient(90deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06), rgba(16,185,129,0.18)); margin: 6px 0 10px;"></div>
+          <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.5; word-break: break-word;">
+            ${rowsHtml}
+          </div>
+          ${customFieldsHtml ? `<div style="margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.45); font-size: 13px; color: ${textColor};">${customFieldsHtml}</div>` : ''}
+          ${notesRow}
         </div>
       </div>
-    `;
+    </div>
+  `;
 };
 
 export const onQueuedEmailCreated = onDocumentCreated(
