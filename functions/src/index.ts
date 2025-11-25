@@ -566,8 +566,8 @@ const buildDetailsCardHtml = (
   theme: 'light' | 'dark' = 'light'
 ) => {
   const isDark = theme === 'dark';
-  const textColor = isDark ? '#e5e7eb' : '#111827';
-  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
+  const textColor = isDark ? '#e5e7eb' : '#0f172a';
+  const mutedColor = isDark ? '#cbd5e1' : '#475569';
 
   const customFieldsHtml = buildCustomFieldsHtml(
     payload.customSelects,
@@ -586,11 +586,11 @@ const buildDetailsCardHtml = (
   })();
 
   const statusRow = payload.decisionLabel
-    ? `<span style="display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: ${statusColors.bg}; color: ${statusColors.text}; align-self: flex-start;">${payload.decisionLabel}</span>`
+    ? `<span style="display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; background: ${statusColors.bg}; color: ${statusColors.text}; align-self: flex-start; letter-spacing: 0.02em;">${payload.decisionLabel}</span>`
     : '';
 
   const notesRow = payload.notes
-    ? `<div style="margin-top: 14px; padding: 12px 14px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.18); border-radius: 14px; color: ${mutedColor}; white-space: pre-line; box-shadow: 0 6px 18px rgba(16,185,129,0.08);">${payload.notes}</div>`
+    ? `<div style="margin-top: 14px; padding: 12px 14px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.18); border-radius: 14px; color: ${mutedColor}; white-space: pre-line; box-shadow: 0 6px 18px rgba(16,185,129,0.08);">${payload.notes}</div>`
     : '';
 
   const rows = [
@@ -610,17 +610,23 @@ const buildDetailsCardHtml = (
   const rowsHtml = rows
     .map(
       row => `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
-          <span style="flex: 0 0 160px; font-weight: 700; color: ${textColor}; letter-spacing: 0.01em;">${row.label}:</span>
-          <span style="flex: 1; color: ${mutedColor}; text-align: right; word-break: break-word;">${row.value}</span>
+        <div class="ml-row" style="display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 10px 0; border-bottom: 1px solid rgba(15,118,110,0.08);">
+          <div style="flex: 1 1 180px; font-weight: 700; color: ${textColor}; letter-spacing: 0.01em; min-width: 140px;">${row.label}:</div>
+          <div style="flex: 2 1 240px; color: ${mutedColor}; word-break: break-word; overflow-wrap: anywhere;">${row.value}</div>
         </div>`
     )
     .join('');
 
   return `
-    <div style="width: 100%; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px; box-sizing: border-box;">
-      <div style="max-width: 600px; width: 100%; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,255,244,0.85)); padding: 20px; border-radius: 24px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18); backdrop-filter: blur(10px); font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
-        <div style="background: rgba(255,255,255,0.96); border-radius: 18px; padding: 20px 22px; box-shadow: 0 10px 28px rgba(16,185,129,0.12); border: 1px solid rgba(148, 227, 195, 0.55);">
+    <div style="width: 100%; box-sizing: border-box; background: linear-gradient(145deg, #e8fff4, #fafdff); padding: 24px;">
+      <style>
+        @media (max-width: 520px) {
+          .ml-card-inner { padding: 16px 14px !important; }
+          .ml-row { flex-direction: column !important; }
+        }
+      </style>
+      <div style="max-width: 600px; width: 100%; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(232,255,244,0.85)); padding: 22px; border-radius: 24px; border: 1px solid rgba(148, 227, 195, 0.6); box-shadow: 0 18px 45px rgba(16,185,129,0.18); backdrop-filter: blur(12px); font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};">
+        <div class="ml-card-inner" style="background: rgba(255,255,255,0.94); border-radius: 18px; padding: 20px; box-shadow: 0 10px 28px rgba(16,185,129,0.12); border: 1px solid rgba(148, 227, 195, 0.55);">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
               <div style="height: 42px; width: 42px; border-radius: 50%; background: rgba(16,185,129,0.14); color: ${statusColors.text}; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: inset 0 1px 2px rgba(255,255,255,0.7);">📅</div>
@@ -632,10 +638,10 @@ const buildDetailsCardHtml = (
             ${statusRow}
           </div>
           <div style="height: 1px; background: linear-gradient(90deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06), rgba(16,185,129,0.18)); margin: 6px 0 10px;"></div>
-          <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.5; word-break: break-word;">
+          <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.6; word-break: break-word;">
             ${rowsHtml}
           </div>
-          ${customFieldsHtml ? `<div style="margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.45); font-size: 13px; color: ${textColor};">${customFieldsHtml}</div>` : ''}
+          ${customFieldsHtml ? `<div style="margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(232,255,244,0.7); border: 1px solid rgba(148, 227, 195, 0.45); font-size: 13px; color: ${textColor}; word-break: break-word;">${customFieldsHtml}</div>` : ''}
           ${notesRow}
         </div>
       </div>
@@ -815,17 +821,14 @@ const buildButtonBlock = (
   buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
   theme: 'light' | 'dark'
 ) => {
-  const background = theme === 'dark' ? '#111827' : '#f9fafb';
-  const spacing =
-    '<span style="display: inline-block; width: 4px; height: 4px;"></span>';
+  const background = theme === 'dark' ? '#0f172a' : '#f7fafc';
   const buttonsHtml = buttons
-    .map(
-      btn =>
-        `<a class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}" href="${btn.url}" style="background: ${
-          btn.variant === 'danger' ? '#dc2626' : '#16a34a'
-        }; color: #ffffff; text-decoration: none;">${btn.label}</a>`
-    )
-    .join(spacing);
+    .map(btn => {
+      const baseColor = btn.variant === 'danger' ? '#f87171' : '#34d399';
+      const textColor = btn.variant === 'danger' ? '#7f1d1d' : '#064e3b';
+      return `<a href="${btn.url}" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 18px; border-radius: 999px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; text-decoration: none; background: linear-gradient(135deg, ${baseColor}, ${btn.variant === 'danger' ? '#ef4444' : '#10b981'}); color: ${textColor}; box-shadow: 0 10px 24px rgba(16,185,129,0.25); border: 1px solid rgba(255,255,255,0.7);">${btn.label}</a>`;
+    })
+    .join('<span style="display: inline-block; width: 8px;"></span>');
 
   return `
     <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">

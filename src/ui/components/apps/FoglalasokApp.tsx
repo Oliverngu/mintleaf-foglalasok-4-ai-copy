@@ -291,10 +291,17 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | null }>(
+    { message: '', type: null }
+  );
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+  const activeUnit = useMemo(
+    () => allUnits.find(u => u.id === activeUnitId) || null,
+    [allUnits, activeUnitId]
+  );
 
   useEffect(() => {
     if (!activeUnitId) {
@@ -482,6 +489,70 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     setIsAddModalOpen(false);
   };
 
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (!toast.type) return;
+    const timer = setTimeout(() => setToast({ message: '', type: null }), 3200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const sendTestEmail = async () => {
+    if (!activeUnitId) {
+      showToast('Nincs kiválasztott egység a teszthez.', 'error');
+      return;
+    }
+
+    try {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const bookingDate = tomorrow.toLocaleDateString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+
+      const payload = {
+        unitName: activeUnit?.name || 'MintLeaf egység',
+        guestName: 'Teszt foglalás',
+        guestEmail: 'oliverngu2@gmail.com',
+        guestPhone: '+36301234567',
+        bookingDate,
+        bookingTimeRange: '18:00 – 20:00',
+        bookingTimeFrom: '18:00',
+        bookingTimeTo: '20:00',
+        headcount: 11,
+        bookingRef: 'TESTPREVIEW',
+        bookingId: 'TESTPREVIEW',
+        adminActionToken: 'TESTTOKEN',
+        status: 'pending',
+        reservationMode: 'request',
+        decisionLabel: '',
+        customSelects: [],
+        customData: { occasion: 'Teszt' },
+        occasion: 'Teszt',
+        occasionOther: '',
+        notes: '',
+        locale: 'hu',
+        publicBaseUrl: window.location.origin,
+      };
+
+      await addDoc(collection(db, 'email_queue'), {
+        typeId: 'booking_created_admin',
+        unitId: activeUnitId,
+        payload,
+        createdAt: serverTimestamp(),
+        status: 'pending',
+      });
+      showToast('Teszt email sorba állítva.', 'success');
+    } catch (err) {
+      console.error('Failed to queue test email', err);
+      showToast('Nem sikerült elküldeni a teszt emailt.', 'error');
+    }
+  };
+
   const handleConfirmDelete = async (reason: string) => {
     if (!bookingToDelete || !activeUnitId) return;
     try {
@@ -633,6 +704,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   return (
     <div className="p-4 md:p-8">
+      {toast.type && (
+        <div
+          className={`fixed top-4 right-4 z-50 rounded-xl px-4 py-3 shadow-lg text-white ${
+            toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Foglalások</h1>
         <div className="flex items-center gap-3">
@@ -649,6 +729,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             >
               <PlusIcon className="h-5 w-5" />
               Új foglalás
+            </button>
+          )}
+          {isAdmin && activeUnitId && (
+            <button
+              onClick={sendTestEmail}
+              className="bg-amber-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-amber-600 flex items-center gap-2"
+            >
+              Teszt email küldése
             </button>
           )}
           {isAdmin && activeUnitId && (
