@@ -1,15 +1,112 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import { onRequest } from "firebase-functions/v2/https";
 
+// 🔹 Firebase Admin init – EGYSZER, LEGELŐL
 admin.initializeApp();
 
+// 🔹 Itt definiáljuk, és CSAK EZT használjuk mindenhol
 const db = admin.firestore();
-const REGION = 'europe-west3';
+const Timestamp = admin.firestore.Timestamp;
+const REGION = "europe-west3";
 
 const EMAIL_GATEWAY_URL =
   process.env.EMAIL_GATEWAY_URL ||
-  'https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send';
+  "https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send";
+
+export const guestUpdateReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, manageToken, action, reason } = req.body || {};
+
+      if (!unitId || !manageToken || !action) {
+        res.status(400).json({ error: 'unitId, manageToken és action kötelező' });
+        return;
+      }
+
+      // 1) Foglalás keresése: unit + manageToken alapján
+      const snap = await db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .where('manageToken', '==', manageToken)
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const docRef = snap.docs[0].ref;
+      const booking = snap.docs[0].data();
+
+      // 2) Extra biztonság: ne lehessen múltbeli foglalást piszkálni
+      if (booking.startTime && booking.startTime.toDate() < new Date()) {
+        res
+          .status(400)
+          .json({ error: 'Már elmúlt időpontú foglalást nem lehet módosítani.' });
+        return;
+      }
+
+      if (action === 'cancel') {
+        // már lemondott? akkor ne csináljunk semmit
+        if (booking.status === 'cancelled') {
+          res.status(200).json({ ok: true, alreadyCancelled: true });
+          return;
+        }
+
+        await docRef.update({
+          status: 'cancelled',
+          cancelledAt: Timestamp.now(),
+          cancelReason: reason || '',
+          cancelledBy: 'guest',
+          updatedAt: Timestamp.now(),
+        });
+
+        // opcionális: log írás
+        await db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .add({
+            bookingId: docRef.id,
+            unitId,
+            type: 'cancelled',
+            createdAt: Timestamp.now(),
+            createdByUserId: null,
+            createdByName: booking.name || 'Guest',
+            source: 'guest',
+            message: reason ? `Vendég lemondta: ${reason}` : 'Vendég lemondta',
+          });
+
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // Ha később lesz "edit" action (pl. headcount módosítás)
+      if (action === 'edit') {
+        // itt valami ilyesmi:
+        // const { headcount, notes } = req.body;
+        // validálod, majd docRef.update({ headcount, notes, updatedAt: Timestamp.now() });
+        res.status(501).json({ error: 'EDIT még nincs implementálva' });
+        return;
+      }
+
+      res.status(400).json({ error: 'Ismeretlen action' });
+    } catch (err) {
+      logger.error('guestUpdateReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
 
 interface BookingRecord {
   name?: string;
