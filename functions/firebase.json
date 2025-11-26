@@ -1,0 +1,14 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    },
+    {
+      "source": "functions",
+      "codebase": "single",
+      "ignore": ["**"],
+      "include": ["single.ts"]
+    }
+  ]
+}
