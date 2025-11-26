@@ -3,11 +3,14 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   setDoc,
   updateDoc,
   serverTimestamp,
   Unsubscribe,
+  Query,
+  QuerySnapshot,
   query,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -18,6 +21,28 @@ import {
   ProductCategory,
   Supplier,
 } from '../models/inventory';
+
+// DEV MODE WORKAROUND: In Cloud Shell Web Preview the Firestore watch stream can throw
+// INTERNAL ASSERTION errors when using realtime listeners. To keep the Készlet app stable
+// in development, fall back to a one-shot fetch while preserving realtime updates in prod.
+const subscribeOnceOrRealtime = <T>(
+  queryRef: Query,
+  unitId: string,
+  mapSnapshot: (snapshot: QuerySnapshot, currentUnitId: string) => T[],
+  onChange: (data: T[]) => void
+): Unsubscribe => {
+  if (import.meta.env.DEV) {
+    getDocs(queryRef)
+      .then(snapshot => onChange(mapSnapshot(snapshot, unitId)))
+      .catch(error => {
+        console.error('Firestore one-shot fetch failed', error);
+        onChange([]);
+      });
+    return () => undefined;
+  }
+
+  return onSnapshot(queryRef, snapshot => onChange(mapSnapshot(snapshot, unitId)));
+};
 
 const buildUnitScopedSubscriber = <T>(
   unitIds: string[],
@@ -31,16 +56,22 @@ const buildUnitScopedSubscriber = <T>(
   }
 
   const perUnitData = new Map<string, T[]>();
-  const unsubs = unitIds.map(unitId =>
-    onSnapshot(collection(db, 'units', unitId, pathSegment), snapshot => {
-      perUnitData.set(
-        unitId,
-        snapshot.docs.map(docSnap => mapper(docSnap, unitId))
-      );
-      const merged = Array.from(perUnitData.values()).flat();
-      onChange(merged);
-    })
-  );
+  const unsubs = unitIds.map(unitId => {
+    const collectionRef = collection(db, 'units', unitId, pathSegment);
+    const queryRef = query(collectionRef);
+
+    return subscribeOnceOrRealtime(
+      queryRef,
+      unitId,
+      (snapshot, currentUnitId) =>
+        snapshot.docs.map(docSnap => mapper(docSnap, currentUnitId)),
+      data => {
+        perUnitData.set(unitId, data);
+        const merged = Array.from(perUnitData.values()).flat();
+        onChange(merged);
+      }
+    );
+  });
 
   return () => unsubs.forEach(unsub => unsub());
 };
