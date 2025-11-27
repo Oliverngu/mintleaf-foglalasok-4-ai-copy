@@ -1,312 +1,395 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
-    }
+function userDoc() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid));
+}
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
-    }
+function userRole() {
+  return isSignedIn() ? userDoc().data.role : null;
+}
 
-    function userRole() {
-      return isSignedIn() ? userDoc().data.role : null;
-    }
+function hasUnit(unitId) {
+  return isSignedIn()
+    && unitId != null
+    && (
+      (userDoc().data.unitIDs != null && unitId in userDoc().data.unitIDs) ||
+      (userDoc().data.unitIds != null && unitId in userDoc().data.unitIds)
+    );
+}
 
-    function hasUnit(unitId) {
-      return isSignedIn()
-        && unitId != null
-        && userDoc().data.unitIds != null
-        && userDoc().data.unitIds.hasAny([unitId]);
-    }
+function isAdmin() {
+  return isSignedIn() && userRole() == 'Admin';
+}
 
-    function isAdmin() {
-      return isSignedIn() && userRole() == 'Admin';
-    }
+function isUnitAdmin() {
+  return isSignedIn() && userRole() == 'Unit Admin';
+}
 
-    function isUnitAdmin() {
-      return isSignedIn() && userRole() == 'Unit Admin';
-    }
+function isUnitLeader() {
+  return isSignedIn() && userRole() == 'Unit Leader';
+}
 
-    function isUnitLeader() {
-      return isSignedIn() && userRole() == 'Unit Leader';
-    }
+function isEmployee() {
+  return isSignedIn() && userRole() == 'User';
+}
 
-    function isEmployee() {
-      return isSignedIn() && userRole() == 'User';
-    }
+function canManageUnit(unitId) {
+  return isAdmin() || (isUnitAdmin() && hasUnit(unitId));
+}
 
-    function canManageUnit(unitId) {
-      return isAdmin() || (isUnitAdmin() && hasUnit(unitId));
-    }
+function canViewUnit(unitId) {
+  return isAdmin() || hasUnit(unitId);
+}
 
-    function canViewUnit(unitId) {
-      return isAdmin() || hasUnit(unitId);
-    }
+function unitPermissions(unitId) {
+  return get(/databases/$(database)/documents/unit_permissions/$(unitId));
+}
 
-    function unitPermissions(unitId) {
-      return get(/databases/$(database)/documents/unit_permissions/$(unitId));
-    }
+function rolePermissions(role) {
+  return get(/databases/$(database)/documents/permissions/$(role));
+}
 
-    function rolePermissions(role) {
-      return get(/databases/$(database)/documents/permissions/$(role));
-    }
+function unitPermissionValue(unitId, permission) {
+  let role = userRole();
+  let permDoc = unitPermissions(unitId);
+  if (!permDoc.exists()) return null;
 
-    function unitPermissionValue(unitId, permission) {
-      let role = userRole();
-      let permDoc = unitPermissions(unitId);
-      if (!permDoc.exists()) return null;
+  return permDoc.data.roles != null && role in permDoc.data.roles && permission in permDoc.data.roles[role]
+    ? permDoc.data.roles[role][permission]
+    : null;
+}
 
-      return permDoc.data.roles != null && role in permDoc.data.roles && permission in permDoc.data.roles[role]
-        ? permDoc.data.roles[role][permission]
-        : null;
-    }
+function globalPermissionValue(permission) {
+  let role = userRole();
+  let globalDoc = rolePermissions(role);
+  return globalDoc.exists() && permission in globalDoc.data ? globalDoc.data[permission] : null;
+}
 
-    function globalPermissionValue(permission) {
-      let role = userRole();
-      let globalDoc = rolePermissions(role);
-      return globalDoc.exists() && permission in globalDoc.data ? globalDoc.data[permission] : null;
-    }
+function hasPermissionForUnit(unitId, permission) {
+  if (!isSignedIn()) return false;
+  if (isAdmin()) return true;
+  if (!hasUnit(unitId)) return false;
 
-    function hasPermissionForUnit(unitId, permission) {
-      if (!isSignedIn()) return false;
-      if (isAdmin()) return true;
-      if (!hasUnit(unitId)) return false;
+  let unitValue = unitPermissionValue(unitId, permission);
+  if (unitValue != null) return unitValue;
 
-      let unitValue = unitPermissionValue(unitId, permission);
-      if (unitValue != null) return unitValue;
+  let globalValue = globalPermissionValue(permission);
+  if (globalValue != null) return globalValue;
 
-      let globalValue = globalPermissionValue(permission);
-      if (globalValue != null) return globalValue;
+  return false;
+}
 
-      return false;
-    }
+function canManageInventory(unitId) {
+  if (!isSignedIn()) return false;
+  if (isAdmin()) return true;
+  if (!hasUnit(unitId)) return false;
 
-    function canManageInventory(unitId) {
-      if (!isSignedIn()) return false;
-      if (isAdmin()) return true;
-      if (!hasUnit(unitId)) return false;
+  let unitValue = unitPermissionValue(unitId, 'canManageInventory');
+  if (unitValue != null) return unitValue;
 
-      let unitValue = unitPermissionValue(unitId, 'canManageInventory');
-      if (unitValue != null) return unitValue;
+  let globalValue = globalPermissionValue('canManageInventory');
+  if (globalValue != null) return globalValue;
 
-      let globalValue = globalPermissionValue('canManageInventory');
-      if (globalValue != null) return globalValue;
+  return isUnitAdmin() || isUnitLeader();
+}
 
-      return isUnitAdmin() || isUnitLeader();
-    }
+function isSelf(userId) {
+  return isSignedIn() && request.auth.uid == userId;
+}
 
-    function isSelf(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
+match /users/{userId} {
+  allow read: if isSelf(userId) || isAdmin();
+  allow create: if isAdmin()
+    || (isSelf(userId)
+      && request.resource.data.role in ['User', 'Guest', 'Demo User']
+      && (!('unitIds' in request.resource.data) || request.resource.data.unitIds.size() == 0));
+  allow update: if isAdmin()
+    || (isSelf(userId)
+      && request.resource.data.role == resource.data.role
+      && request.resource.data.unitIds == resource.data.unitIds);
+  allow delete: if isAdmin();
+}
 
-    match /users/{userId} {
-      allow read: if isSelf(userId) || isAdmin();
-      allow create: if isAdmin() || (isSelf(userId) && request.resource.data.role in ['User', 'Guest', 'Demo User'] && (!('unitIds' in request.resource.data) || request.resource.data.unitIds.size() == 0));
-      allow update: if isAdmin() || (isSelf(userId) && request.resource.data.role == resource.data.role && request.resource.data.unitIds == resource.data.unitIds);
-      allow delete: if isAdmin();
-    }
+match /permissions/{id} {
+  allow read: if isSignedIn();
+  allow write: if isAdmin();
+}
 
-    match /permissions/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
+match /unit_permissions/{unitId} {
+  allow read: if canViewUnit(unitId);
+  allow write: if canManageUnit(unitId);
+}
 
-    match /unit_permissions/{unitId} {
-      allow read: if canViewUnit(unitId);
-      allow write: if canManageUnit(unitId);
-    }
+match /units/{unitId} {
+  allow read: if canViewUnit(unitId);
+  allow write: if canManageUnit(unitId);
 
-    match /units/{unitId} {
-      allow read: if canViewUnit(unitId);
-      allow write: if canManageUnit(unitId);
+  match /reservations/{reservationId} {
+    allow read: if canViewUnit(unitId);
+    allow create: if true;
+    allow update, delete: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+  }
 
-      match /reservations/{reservationId} {
-        allow read: if canViewUnit(unitId);
-        allow create: if true;
-        allow update, delete: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
-      }
+  match /reservation_logs/{logId} {
+    allow read, create: if canViewUnit(unitId);
+    allow update, delete: if canManageUnit(unitId);
+  }
 
-      match /reservation_logs/{logId} {
-        allow read, create: if canViewUnit(unitId);
-        allow update, delete: if canManageUnit(unitId);
-      }
+  match /files/{fileId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+  }
 
-      match /files/{fileId} {
-        allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
-      }
+  match /knowledge_base/{docId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+  }
 
-      match /knowledge_base/{docId} {
-        allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
-      }
+  match /chatMessages/{messageId} {
+    allow read, create: if canViewUnit(unitId);
+    allow update, delete: if canManageUnit(unitId) || (isSelf(resource.data.userId) && hasUnit(unitId));
+  }
 
-      match /chatMessages/{messageId} {
-        allow read, create: if canViewUnit(unitId);
-        allow update, delete: if canManageUnit(unitId) || (isSelf(resource.data.userId) && hasUnit(unitId));
-      }
+  match /typing/{typingId} {
+    allow read, create, update, delete: if canViewUnit(unitId);
+  }
 
-      match /typing/{typingId} {
-        allow read, create, update, delete: if canViewUnit(unitId);
-      }
+  match /inventoryCategories/{categoryId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageInventory(unitId);
+  }
 
-        // Készlet (inventory) app collections
-        match /inventoryCategories/{categoryId} {
-          allow read: if canViewUnit(unitId);
-          allow write: if canManageInventory(unitId);
-        }
+  match /inventoryProducts/{productId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageInventory(unitId);
+  }
 
-        match /inventoryProducts/{productId} {
-          allow read: if canViewUnit(unitId);
-          allow write: if canManageInventory(unitId);
-        }
+  match /inventoryIdealStocks/{stockId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageInventory(unitId);
+  }
 
-        match /inventoryIdealStocks/{stockId} {
-          allow read: if canViewUnit(unitId);
-          allow write: if canManageInventory(unitId);
-        }
+  match /inventoryCurrentStocks/{stockId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageInventory(unitId);
+  }
 
-        match /inventoryCurrentStocks/{stockId} {
-          allow read: if canViewUnit(unitId);
-          allow write: if canManageInventory(unitId);
-        }
-
-        match /inventorySuppliers/{supplierId} {
-          allow read: if canViewUnit(unitId);
-          allow write: if canManageInventory(unitId);
-        }
-      }
-
-    match /positions/{positionId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /invitations/{inviteId} {
-      allow read: if true;
-      allow create, delete: if isAdmin() || (isUnitAdmin() && hasUnit(request.resource.data.unitId));
-      allow update: if isAdmin() || (isUnitAdmin() && hasUnit(request.resource.data.unitId)) || (isSignedIn() && resource.data.usedBy == null && request.resource.data.usedBy == request.auth.uid);
-    }
-
-    match /todos/{todoId} {
-      allow read: if isAdmin() || (isSignedIn() && (resource.data.unitId == null || hasUnit(resource.data.unitId)));
-      allow create: if isAdmin() || (isSignedIn() && (request.resource.data.unitId == null || hasUnit(request.resource.data.unitId)));
-      allow update, delete: if isAdmin() || (isSignedIn() && (resource.data.unitId == null || hasUnit(resource.data.unitId)));
-    }
-
-    match /admin_todos/{todoId} {
-      allow read, write: if isAdmin();
-    }
-
-    match /shifts/{shiftId} {
-      allow read: if isAdmin() || (resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isAdmin() || ((isUnitAdmin() || isUnitLeader()) && request.resource.data.unitId != null && hasUnit(request.resource.data.unitId));
-      allow update, delete: if isAdmin() || ((isUnitAdmin() || isUnitLeader()) && resource.data.unitId != null && hasUnit(resource.data.unitId));
-    }
-
-    match /requests/{requestId} {
-      allow read: if isAdmin() || isSelf(resource.data.userId) || ((isUnitAdmin() || isUnitLeader()) && resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() || ((isUnitAdmin() || isUnitLeader()) && resource.data.unitId != null && hasUnit(resource.data.unitId)) || (isSelf(resource.data.userId) && resource.data.status == 'pending');
-    }
-
-    match /time_entries/{entryId} {
-      allow read: if isAdmin() || isSelf(resource.data.userId) || (resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isAdmin() || isSelf(request.resource.data.userId) || ((isUnitAdmin() || isUnitLeader()) && request.resource.data.unitId != null && hasUnit(request.resource.data.unitId));
-      allow update, delete: if isAdmin() || isSelf(resource.data.userId) || ((isUnitAdmin() || isUnitLeader()) && resource.data.unitId != null && hasUnit(resource.data.unitId));
-    }
-
-    match /contact_categories/{categoryId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /contacts/{contactId} {
-      allow read: if isSignedIn() && (resource.data.unitId == null || hasUnit(resource.data.unitId) || isAdmin());
-      allow create: if isAdmin() || (isUnitAdmin() && request.resource.data.unitId != null && hasUnit(request.resource.data.unitId));
-      allow update, delete: if isAdmin() || (isUnitAdmin() && resource.data.unitId != null && hasUnit(resource.data.unitId));
-    }
-
-    match /knowledge_base/{docId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create: if request.resource.data.unitId != null && (canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
-      allow update, delete: if resource.data.unitId != null && (canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId)));
-    }
-
-    match /knowledgeCategories/{categoryId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create: if request.resource.data.unitId != null && (canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
-      allow update, delete: if resource.data.unitId != null && (canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId)));
-    }
-
-    match /knowledgeNotes/{noteId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create: if request.resource.data.unitId != null && (canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
-      allow update, delete: if resource.data.unitId != null && (canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId)));
-    }
-
-    match /files/{fileId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create, update, delete: if request.resource.data.unitId != null && (canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
-    }
-
-    match /polls/{pollId} {
-      allow read: if canViewUnit(resource.data.unitId);
-      allow create: if canManageUnit(request.resource.data.unitId);
-      allow update, delete: if canManageUnit(resource.data.unitId);
-
-      match /votes/{voteId} {
-        allow read, create, update, delete: if isSignedIn() && voteId == request.auth.uid && canViewUnit(get(/databases/$(database)/documents/polls/$(pollId)).data.unitId);
-      }
-    }
-
-    match /feedback/{feedbackId} {
-      allow read: if isAdmin() || (resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isSignedIn() && request.resource.data.unitId != null && hasUnit(request.resource.data.unitId);
-      allow update, delete: if isAdmin() || (isUnitAdmin() && resource.data.unitId != null && hasUnit(resource.data.unitId));
-    }
-
-    match /email_queue/{emailId} {
-      allow read: if isAdmin();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
-    }
-
-    match /reservation_settings/{unitId} {
-      allow read: if true;
-      allow write: if isAdmin() || (isUnitAdmin() && hasUnit(unitId));
-    }
-
-    match /email_settings/{unitId} {
-      allow read, write: if isAdmin() || (isUnitAdmin() && hasUnit(unitId));
-    }
-
-    match /email_templates/{unitId} {
-      allow read, write: if isAdmin() || (isUnitAdmin() && hasUnit(unitId));
-    }
-
-    match /schedule_display_settings/{settingsId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /unit_export_settings/{unitId} {
-      allow read: if canViewUnit(unitId);
-      allow write: if canManageUnit(unitId);
-    }
-
-    match /schedule_settings/{settingsId} {
-      allow read: if canViewUnit(resource.data.unitId);
-      allow create: if canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId));
-      allow update, delete: if canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId));
-    }
-
-    match /user_private_data/{userId} {
-      allow read, write: if isSelf(userId) || isAdmin();
-    }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+  match /inventorySuppliers/{supplierId} {
+    allow read: if canViewUnit(unitId);
+    allow write: if canManageInventory(unitId);
   }
 }
+
+match /positions/{positionId} {
+  allow read: if isSignedIn();
+  allow write: if isAdmin();
+}
+
+match /invitations/{inviteId} {
+  allow read: if true;
+  allow create, delete: if isAdmin()
+    || (isUnitAdmin() && hasUnit(request.resource.data.unitId));
+  allow update: if isAdmin()
+    || (isUnitAdmin() && hasUnit(request.resource.data.unitId))
+    || (isSignedIn()
+      && resource.data.usedBy == null
+      && request.resource.data.usedBy == request.auth.uid);
+}
+
+match /todos/{todoId} {
+  allow read: if isAdmin()
+    || (isSignedIn()
+      && (resource.data.unitId == null || hasUnit(resource.data.unitId)));
+  allow create: if isAdmin()
+    || (isSignedIn()
+      && (request.resource.data.unitId == null || hasUnit(request.resource.data.unitId)));
+  allow update, delete: if isAdmin()
+    || (isSignedIn()
+      && (resource.data.unitId == null || hasUnit(resource.data.unitId)));
+}
+
+match /admin_todos/{todoId} {
+  allow read, write: if isAdmin();
+}
+
+match /shifts/{shiftId} {
+  allow read: if isAdmin()
+    || (resource.data.unitId != null && hasUnit(resource.data.unitId));
+  allow create: if isAdmin()
+    || ((isUnitAdmin() || isUnitLeader())
+      && request.resource.data.unitId != null
+      && hasUnit(request.resource.data.unitId));
+  allow update, delete: if isAdmin()
+    || ((isUnitAdmin() || isUnitLeader())
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId));
+}
+
+match /requests/{requestId} {
+  allow read: if isAdmin()
+    || isSelf(resource.data.userId)
+    || ((isUnitAdmin() || isUnitLeader())
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId));
+  allow create: if isSignedIn()
+    && request.resource.data.userId == request.auth.uid;
+  allow update, delete: if isAdmin()
+    || ((isUnitAdmin() || isUnitLeader())
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId))
+    || (isSelf(resource.data.userId)
+      && resource.data.status == 'pending');
+}
+
+match /time_entries/{entryId} {
+  allow read: if isAdmin()
+    || isSelf(resource.data.userId)
+    || (resource.data.unitId != null && hasUnit(resource.data.unitId));
+  allow create: if isAdmin()
+    || isSelf(request.resource.data.userId)
+    || ((isUnitAdmin() || isUnitLeader())
+      && request.resource.data.unitId != null
+      && hasUnit(request.resource.data.unitId));
+  allow update, delete: if isAdmin()
+    || isSelf(resource.data.userId)
+    || ((isUnitAdmin() || isUnitLeader())
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId));
+}
+
+match /contact_categories/{categoryId} {
+  allow read: if isSignedIn();
+  allow write: if isAdmin();
+}
+
+match /contacts/{contactId} {
+  allow read: if isSignedIn()
+    && (resource.data.unitId == null
+      || hasUnit(resource.data.unitId)
+      || isAdmin());
+  allow create: if isAdmin()
+    || (isUnitAdmin()
+      && request.resource.data.unitId != null
+      && hasUnit(request.resource.data.unitId));
+  allow update, delete: if isAdmin()
+    || (isUnitAdmin()
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId));
+}
+
+match /knowledge_base/{docId} {
+  allow read: if resource.data.unitId != null
+    && canViewUnit(resource.data.unitId);
+  allow create: if request.resource.data.unitId != null
+    && (canManageUnit(request.resource.data.unitId)
+      || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+  allow update, delete: if resource.data.unitId != null
+    && (canManageUnit(resource.data.unitId)
+      || (isUnitLeader() && hasUnit(resource.data.unitId)));
+}
+
+match /knowledgeCategories/{categoryId} {
+  allow read: if resource.data.unitId != null
+    && canViewUnit(resource.data.unitId);
+  allow create: if request.resource.data.unitId != null
+    && (canManageUnit(request.resource.data.unitId)
+      || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+  allow update, delete: if resource.data.unitId != null
+    && (canManageUnit(resource.data.unitId)
+      || (isUnitLeader() && hasUnit(resource.data.unitId)));
+}
+
+match /knowledgeNotes/{noteId} {
+  allow read: if resource.data.unitId != null
+    && canViewUnit(resource.data.unitId);
+  allow create: if request.resource.data.unitId != null
+    && (canManageUnit(request.resource.data.unitId)
+      || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+  allow update, delete: if resource.data.unitId != null
+    && (canManageUnit(resource.data.unitId)
+      || (isUnitLeader() && hasUnit(resource.data.unitId)));
+}
+
+match /files/{fileId} {
+  allow read: if resource.data.unitId != null
+    && canViewUnit(resource.data.unitId);
+  allow create, update, delete: if request.resource.data.unitId != null
+    && (canManageUnit(request.resource.data.unitId)
+      || (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+}
+
+match /polls/{pollId} {
+  allow read: if resource.data.unitId != null
+    && canViewUnit(resource.data.unitId);
+  allow create: if request.resource.data.unitId != null
+    && canManageUnit(request.resource.data.unitId);
+  allow update, delete: if resource.data.unitId != null
+    && canManageUnit(resource.data.unitId);
+
+  match /votes/{voteId} {
+    allow read, create, update, delete: if isSignedIn()
+      && voteId == request.auth.uid
+      && canViewUnit(
+        get(/databases/$(database)/documents/polls/$(pollId)).data.unitId
+      );
+  }
+}
+
+match /feedback/{feedbackId} {
+  allow read: if isAdmin()
+    || (resource.data.unitId != null && hasUnit(resource.data.unitId));
+  allow create: if isSignedIn()
+    && request.resource.data.unitId != null
+    && hasUnit(request.resource.data.unitId);
+  allow update, delete: if isAdmin()
+    || (isUnitAdmin()
+      && resource.data.unitId != null
+      && hasUnit(resource.data.unitId));
+}
+
+match /email_queue/{emailId} {
+  allow read: if isAdmin();
+  allow create: if isSignedIn();
+  allow update, delete: if isAdmin();
+}
+
+match /reservation_settings/{unitId} {
+  allow read: if true;
+  allow write: if isAdmin()
+    || (isUnitAdmin() && hasUnit(unitId));
+}
+
+match /email_settings/{unitId} {
+  allow read, write: if isAdmin()
+    || (isUnitAdmin() && hasUnit(unitId));
+}
+
+match /email_templates/{unitId} {
+  allow read, write: if isAdmin()
+    || (isUnitAdmin() && hasUnit(unitId));
+}
+
+match /schedule_display_settings/{settingsId} {
+  allow read, write: if isSignedIn();
+}
+
+match /unit_export_settings/{unitId} {
+  allow read: if canViewUnit(unitId);
+  allow write: if canManageUnit(unitId);
+}
+
+match /schedule_settings/{settingsId} {
+  allow read: if canViewUnit(resource.data.unitId);
+  allow create: if canManageUnit(request.resource.data.unitId)
+    || (isUnitLeader() && hasUnit(request.resource.data.unitId));
+  allow update, delete: if canManageUnit(resource.data.unitId)
+    || (isUnitLeader() && hasUnit(resource.data.unitId));
+}
+
+match /user_private_data/{userId} {
+  allow read, write: if isSelf(userId) || isAdmin();
+}
+
+match /{document=**} {
+  allow read, write: if false;
+}
+}
+} 
