@@ -92,9 +92,9 @@ service cloud.firestore {
       }
 
       match /knowledge_base/{docId} {
-        // Everyone in the unit can read; any unit member can create; owners (or admins) can update/delete their own entries
+        // Unit members can read their unit's entries; anyone in the unit can create; owners (or admins) can update/delete their own entries
         allow read: if hasUnit(unitId) || isAdmin();
-        allow create: if isSignedIn() && hasUnit(unitId) && request.resource.data.uploadedByUid == request.auth.uid;
+        allow create: if isSignedIn() && hasUnit(unitId) && request.resource.data.unitId == unitId && request.resource.data.uploadedByUid == request.auth.uid;
         allow update, delete: if isAdmin() || (hasUnit(unitId) && isSelf(resource.data.uploadedByUid));
       }
 
@@ -184,10 +184,10 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || (isUnitAdmin() && resource.data.unitId != null && hasUnit(resource.data.unitId));
     }
 
-    match /knowledgeCategories/{categoryId} {
+      match /knowledgeCategories/{categoryId} {
       allow read: if hasUnit(resource.data.unitId) || isAdmin();
       allow create: if isSignedIn() && hasUnit(request.resource.data.unitId);
-      allow update, delete: if canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId));
+      allow update, delete: if canManageUnit(resource.data.unitId) || (hasUnit(resource.data.unitId) && resource.data.createdByUid != null && isSelf(resource.data.createdByUid));
     }
 
     match /knowledgeNotes/{noteId} {
