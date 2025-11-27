@@ -14,7 +14,10 @@ service cloud.firestore {
     }
 
     function hasUnit(unitId) {
-      return isSignedIn() && unitId != null && userDoc().data.unitIds != null && unitId in userDoc().data.unitIds;
+      return isSignedIn()
+        && unitId != null
+        && userDoc().data.unitIds != null
+        && userDoc().data.unitIds.hasAny([unitId]);
     }
 
     function isAdmin() {
