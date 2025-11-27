@@ -30,6 +30,35 @@ service cloud.firestore {
       );
     }
 
+    function canManageInventoryGlobal() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.canManageInventory == true
+      );
+    }
+
+    function canManageInventory(unitId) {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.canManageInventory == true ||
+        (request.auth.token.unitPermissions != null &&
+          request.auth.token.unitPermissions[unitId].canManageInventory == true) ||
+        (request.auth.token.permissions != null &&
+          request.auth.token.permissions[unitId].canManageInventory == true)
+      );
+    }
+
+    function canReadInventory(unitId) {
+      return isSignedIn() && (
+        canManageInventory(unitId) ||
+        request.auth.token.canViewInventory == true ||
+        (request.auth.token.unitPermissions != null &&
+          request.auth.token.unitPermissions[unitId].canViewInventory == true) ||
+        (request.auth.token.permissions != null &&
+          request.auth.token.permissions[unitId].canViewInventory == true)
+      );
+    }
+
     // Tudástár: file meta (new), legacy knowledge_base docs, shared categories/notes
     match /knowledgeCategories/{docId} {
       allow read, write: if canManageKnowledgeGlobal();
@@ -47,8 +76,32 @@ service cloud.firestore {
       allow read, write: if canManageKnowledgeBase(unitId);
     }
 
-    match /{document=**} {
-      allow read, write: if isSignedIn();
+    // Készlet (inventory) app: categories, products, stocks, suppliers
+    match /units/{unitId}/inventoryCategories/{docId} {
+      allow read: if canReadInventory(unitId);
+      allow write: if canManageInventory(unitId);
     }
+
+    match /units/{unitId}/inventoryProducts/{docId} {
+      allow read: if canReadInventory(unitId);
+      allow write: if canManageInventory(unitId);
+    }
+
+    match /units/{unitId}/inventoryIdealStocks/{docId} {
+      allow read: if canReadInventory(unitId);
+      allow write: if canManageInventory(unitId);
+    }
+
+    match /units/{unitId}/inventoryCurrentStocks/{docId} {
+      allow read: if canReadInventory(unitId);
+      allow write: if canManageInventory(unitId);
+    }
+
+    match /units/{unitId}/inventorySuppliers/{docId} {
+      allow read: if canReadInventory(unitId);
+      allow write: if canManageInventory(unitId);
+    }
+
+    // Deny all other access by default for safety.
   }
 }
