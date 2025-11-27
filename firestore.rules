@@ -41,6 +41,15 @@ service cloud.firestore {
       return isAdmin() || hasUnit(unitId);
     }
 
+    function unitPermissions(unitId) {
+      return get(/databases/$(database)/documents/unit_permissions/$(unitId));
+    }
+
+    // Optional toggle that lets Unit Admins enable inventory edits for regular users within a unit
+    function canInventoryUserEdit(unitId) {
+      return hasUnit(unitId) && unitPermissions(unitId).data.allowInventoryUserEdit == true;
+    }
+
     function isSelf(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -83,8 +92,10 @@ service cloud.firestore {
       }
 
       match /knowledge_base/{docId} {
-        allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        // Everyone in the unit can read; any unit member can create; owners (or admins) can update/delete their own entries
+        allow read: if hasUnit(unitId) || isAdmin();
+        allow create: if isSignedIn() && hasUnit(unitId) && request.resource.data.uploadedByUid == request.auth.uid;
+        allow update, delete: if isAdmin() || (hasUnit(unitId) && isSelf(resource.data.uploadedByUid));
       }
 
       match /chatMessages/{messageId} {
@@ -99,27 +110,27 @@ service cloud.firestore {
       // Készlet (inventory) app collections
       match /inventoryCategories/{categoryId} {
         allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        allow write: if canManageUnit(unitId) || canInventoryUserEdit(unitId);
       }
 
       match /inventoryProducts/{productId} {
         allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        allow write: if canManageUnit(unitId) || canInventoryUserEdit(unitId);
       }
 
       match /inventoryIdealStocks/{stockId} {
         allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        allow write: if canManageUnit(unitId) || canInventoryUserEdit(unitId);
       }
 
       match /inventoryCurrentStocks/{stockId} {
         allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        allow write: if canManageUnit(unitId) || canInventoryUserEdit(unitId);
       }
 
       match /inventorySuppliers/{supplierId} {
         allow read: if canViewUnit(unitId);
-        allow write: if canManageUnit(unitId) || (isUnitLeader() && hasUnit(unitId));
+        allow write: if canManageUnit(unitId) || canInventoryUserEdit(unitId);
       }
     }
 
@@ -174,13 +185,16 @@ service cloud.firestore {
     }
 
     match /knowledgeCategories/{categoryId} {
-      allow read: if canViewUnit(resource.data.unitId);
-      allow create, update, delete: if canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId));
+      allow read: if hasUnit(resource.data.unitId) || isAdmin();
+      allow create: if isSignedIn() && hasUnit(request.resource.data.unitId);
+      allow update, delete: if canManageUnit(resource.data.unitId) || (isUnitLeader() && hasUnit(resource.data.unitId));
     }
 
     match /knowledgeNotes/{noteId} {
-      allow read: if canViewUnit(resource.data.unitId);
-      allow create, update, delete: if canManageUnit(request.resource.data.unitId) || (isUnitLeader() && hasUnit(request.resource.data.unitId));
+      // Unit members can read all notes for their unit; anyone in the unit may create; only owners (or admins) may edit/delete
+      allow read: if hasUnit(resource.data.unitId) || isAdmin();
+      allow create: if isSignedIn() && hasUnit(request.resource.data.unitId) && request.resource.data.createdByUid == request.auth.uid;
+      allow update, delete: if isAdmin() || (hasUnit(resource.data.unitId) && isSelf(resource.data.createdByUid));
     }
 
     match /files/{fileId} {
