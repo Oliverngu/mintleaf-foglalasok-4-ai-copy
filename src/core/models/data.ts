@@ -299,6 +299,7 @@ export interface Permissions {
     canManageLeaveRequests: boolean;
     canSubmitLeaveRequests: boolean;
     canManageTodos: boolean;
+    canManageInventory: boolean;
     canManageKnowledgeBase: boolean;
     canManageKnowledgeCategories: boolean;
     canManageContacts: boolean;
