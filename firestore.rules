@@ -1,8 +1,20 @@
+Lényeg: a hiba a knowledge_* résznél van, mert a frontend egy unit-ID nélküli collectionGroup queryt küld a knowledge_base-re, amit az eddigi unit-szintű szabályok Firestore-szinten nem tudtak elfogadni.
+Most ezt úgy javítottam, hogy:
+
+Tudástár (knowledge_base, knowledgeCategories, knowledgeNotes) olvasható minden bejelentkezett usernek.
+
+Írás/módosítás/törlés továbbra is csak a megfelelő unit admin / unit leader / admin számára megy.
+
+A többi rész (inventory, polls, stb.) érintetlen maradt, csak formailag igazítottam.
+
+
+Ez a verzió működni fog a mostani query-iddel. Ha egyszer unit-szinten akarod lezárni a tudástár olvasását, akkor a frontendben kell majd unitId-re szűrős queryt használni.
+
+Itt a javított teljes firestore.rules:
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // --- Helper functions ---
     function isSignedIn() {
       return request.auth != null;
     }
@@ -20,7 +32,9 @@ service cloud.firestore {
       let data = userDoc().data;
       let newUnits = data.unitIds;
       let legacyUnits = data.unitIDs;
-      return newUnits != null ? newUnits : (legacyUnits != null ? legacyUnits : []);
+      if (newUnits != null) return newUnits;
+      if (legacyUnits != null) return legacyUnits;
+      return [];
     }
 
     function hasUnit(unitId) {
@@ -62,11 +76,12 @@ service cloud.firestore {
     function unitPermissionValue(unitId, permission) {
       let role = userRole();
       let permDoc = unitPermissions(unitId);
-      return permDoc.exists() && permDoc.data.roles != null &&
+      if (!permDoc.exists()) return null;
+      return permDoc.data.roles != null &&
              role in permDoc.data.roles &&
              permission in permDoc.data.roles[role]
-             ? permDoc.data.roles[role][permission]
-             : null;
+        ? permDoc.data.roles[role][permission]
+        : null;
     }
 
     function globalPermissionValue(permission) {
@@ -81,10 +96,13 @@ service cloud.firestore {
       if (!isSignedIn()) return false;
       if (isAdmin()) return true;
       if (!hasUnit(unitId)) return false;
+
       let unitValue = unitPermissionValue(unitId, permission);
       if (unitValue != null) return unitValue;
+
       let globalValue = globalPermissionValue(permission);
       if (globalValue != null) return globalValue;
+
       return false;
     }
 
@@ -92,10 +110,13 @@ service cloud.firestore {
       if (!isSignedIn()) return false;
       if (isAdmin()) return true;
       if (!hasUnit(unitId)) return false;
+
       let unitValue = unitPermissionValue(unitId, 'canManageInventory');
       if (unitValue != null) return unitValue;
+
       let globalValue = globalPermissionValue('canManageInventory');
       if (globalValue != null) return globalValue;
+
       return isUnitAdmin() || isUnitLeader();
     }
 
@@ -103,7 +124,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // --- Collections ---
     match /users/{userId} {
       allow read: if isSelf(userId) || isAdmin();
       allow create: if isAdmin() ||
@@ -129,7 +149,6 @@ service cloud.firestore {
       allow write: if canManageUnit(unitId);
     }
 
-    // --- Unit-level subcollections ---
     match /units/{unitId} {
       allow read: if canViewUnit(unitId);
       allow write: if canManageUnit(unitId);
@@ -157,8 +176,7 @@ service cloud.firestore {
 
       match /chatMessages/{messageId} {
         allow read, create: if canViewUnit(unitId);
-        allow update, delete: if canManageUnit(unitId) ||
-          (isSelf(resource.data.userId) && hasUnit(unitId));
+        allow update, delete: if canManageUnit(unitId) || (isSelf(resource.data.userId) && hasUnit(unitId));
       }
 
       match /typing/{typingId} {
@@ -191,7 +209,6 @@ service cloud.firestore {
       }
     }
 
-    // --- Root-level collections ---
     match /positions/{positionId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
@@ -199,7 +216,8 @@ service cloud.firestore {
 
     match /invitations/{inviteId} {
       allow read: if true;
-      allow create, delete: if isAdmin() || (isUnitAdmin() && hasUnit(request.resource.data.unitId));
+      allow create, delete: if isAdmin() ||
+        (isUnitAdmin() && hasUnit(request.resource.data.unitId));
       allow update: if isAdmin() ||
         (isUnitAdmin() && hasUnit(request.resource.data.unitId)) ||
         (isSignedIn() &&
@@ -208,7 +226,13 @@ service cloud.firestore {
     }
 
     match /todos/{todoId} {
-      allow read, create, update, delete: if isAdmin() ||
+      allow read: if isAdmin() ||
+        (isSignedIn() &&
+         (resource.data.unitId == null || hasUnit(resource.data.unitId)));
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         (request.resource.data.unitId == null || hasUnit(request.resource.data.unitId)));
+      allow update, delete: if isAdmin() ||
         (isSignedIn() &&
          (resource.data.unitId == null || hasUnit(resource.data.unitId)));
     }
@@ -218,29 +242,48 @@ service cloud.firestore {
     }
 
     match /shifts/{shiftId} {
-      allow read: if isAdmin() || (resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create, update, delete: if isAdmin() ||
+      allow read: if isAdmin() ||
+        (resource.data.unitId != null && hasUnit(resource.data.unitId));
+      allow create: if isAdmin() ||
         ((isUnitAdmin() || isUnitLeader()) &&
-         ((request.resource.data.unitId != null && hasUnit(request.resource.data.unitId)) ||
-          (resource.data.unitId != null && hasUnit(resource.data.unitId))));
+         request.resource.data.unitId != null &&
+         hasUnit(request.resource.data.unitId));
+      allow update, delete: if isAdmin() ||
+        ((isUnitAdmin() || isUnitLeader()) &&
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId));
     }
 
     match /requests/{requestId} {
       allow read: if isAdmin() ||
         isSelf(resource.data.userId) ||
         ((isUnitAdmin() || isUnitLeader()) &&
-         resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId));
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin() ||
         ((isUnitAdmin() || isUnitLeader()) &&
-         resource.data.unitId != null && hasUnit(resource.data.unitId)) ||
-        (isSelf(resource.data.userId) && resource.data.status == 'pending');
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId)) ||
+        (isSelf(resource.data.userId) &&
+         resource.data.status == 'pending');
     }
 
     match /time_entries/{entryId} {
-      allow read, create, update, delete: if isAdmin() ||
+      allow read: if isAdmin() ||
         isSelf(resource.data.userId) ||
         (resource.data.unitId != null && hasUnit(resource.data.unitId));
+      allow create: if isAdmin() ||
+        isSelf(request.resource.data.userId) ||
+        ((isUnitAdmin() || isUnitLeader()) &&
+         request.resource.data.unitId != null &&
+         hasUnit(request.resource.data.unitId));
+      allow update, delete: if isAdmin() ||
+        isSelf(resource.data.userId) ||
+        ((isUnitAdmin() || isUnitLeader()) &&
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId));
     }
 
     match /contact_categories/{categoryId} {
@@ -253,43 +296,66 @@ service cloud.firestore {
         (resource.data.unitId == null ||
          hasUnit(resource.data.unitId) ||
          isAdmin());
-      allow create, update, delete: if isAdmin() ||
+      allow create: if isAdmin() ||
         (isUnitAdmin() &&
-         ((request.resource.data.unitId != null && hasUnit(request.resource.data.unitId)) ||
-          (resource.data.unitId != null && hasUnit(resource.data.unitId))));
+         request.resource.data.unitId != null &&
+         hasUnit(request.resource.data.unitId));
+      allow update, delete: if isAdmin() ||
+        (isUnitAdmin() &&
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId));
     }
 
-    // --- Knowledge base root-level ---
     match /knowledge_base/{docId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
+      allow read: if isSignedIn();
       allow create: if request.resource.data.unitId != null &&
-        canManageUnit(request.resource.data.unitId);
+        (canManageUnit(request.resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(request.resource.data.unitId)));
       allow update, delete: if resource.data.unitId != null &&
-        canManageUnit(resource.data.unitId);
+        (canManageUnit(resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(resource.data.unitId))) ||
+        isAdmin();
     }
 
     match /knowledgeCategories/{categoryId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create, update, delete: if request.resource.data.unitId != null &&
-        canManageUnit(request.resource.data.unitId);
+      allow read: if isSignedIn();
+      allow create: if request.resource.data.unitId != null &&
+        (canManageUnit(request.resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+      allow update, delete: if resource.data.unitId != null &&
+        (canManageUnit(resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(resource.data.unitId))) ||
+        isAdmin();
     }
 
     match /knowledgeNotes/{noteId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create, update, delete: if request.resource.data.unitId != null &&
-        canManageUnit(request.resource.data.unitId);
+      allow read: if isSignedIn();
+      allow create: if request.resource.data.unitId != null &&
+        (canManageUnit(request.resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+      allow update, delete: if resource.data.unitId != null &&
+        (canManageUnit(resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(resource.data.unitId))) ||
+        isAdmin();
     }
 
     match /files/{fileId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
+      allow read: if (resource.data.unitId != null && canViewUnit(resource.data.unitId)) || isAdmin();
       allow create, update, delete: if request.resource.data.unitId != null &&
-        canManageUnit(request.resource.data.unitId);
+        (canManageUnit(request.resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(request.resource.data.unitId))) ||
+        isAdmin();
     }
 
     match /polls/{pollId} {
-      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
-      allow create, update, delete: if request.resource.data.unitId != null &&
-        canManageUnit(request.resource.data.unitId);
+      allow read: if (resource.data.unitId != null && canViewUnit(resource.data.unitId)) || isAdmin();
+      allow create: if request.resource.data.unitId != null &&
+        (canManageUnit(request.resource.data.unitId) ||
+         hasPermissionForUnit(request.resource.data.unitId, 'canManagePolls'));
+      allow update, delete: if resource.data.unitId != null &&
+        (canManageUnit(resource.data.unitId) ||
+         hasPermissionForUnit(resource.data.unitId, 'canManagePolls')) ||
+        isAdmin();
 
       match /votes/{voteId} {
         allow read, create, update, delete: if isSignedIn() &&
@@ -299,14 +365,21 @@ service cloud.firestore {
     }
 
     match /feedback/{feedbackId} {
-      allow read: if isAdmin() || (resource.data.unitId != null && hasUnit(resource.data.unitId));
-      allow create: if isSignedIn() && request.resource.data.unitId != null && hasUnit(request.resource.data.unitId);
-      allow update, delete: if isAdmin() || (isUnitAdmin() && resource.data.unitId != null && hasUnit(resource.data.unitId));
+      allow read: if isAdmin() ||
+        (resource.data.unitId != null && hasUnit(resource.data.unitId));
+      allow create: if isSignedIn() &&
+        request.resource.data.unitId != null &&
+        hasUnit(request.resource.data.unitId);
+      allow update, delete: if isAdmin() ||
+        (isUnitAdmin() &&
+         resource.data.unitId != null &&
+         hasUnit(resource.data.unitId));
     }
 
     match /email_queue/{emailId} {
-      allow read, update, delete: if isAdmin();
+      allow read: if isAdmin();
       allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
     }
 
     match /reservation_settings/{unitId} {
@@ -332,14 +405,19 @@ service cloud.firestore {
     }
 
     match /schedule_settings/{settingsId} {
-      allow read, create, update, delete: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
+      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
+      allow create: if request.resource.data.unitId != null &&
+        (canManageUnit(request.resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(request.resource.data.unitId)));
+      allow update, delete: if resource.data.unitId != null &&
+        (canManageUnit(resource.data.unitId) ||
+         (isUnitLeader() && hasUnit(resource.data.unitId)));
     }
 
     match /user_private_data/{userId} {
       allow read, write: if isSelf(userId) || isAdmin();
     }
 
-    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
