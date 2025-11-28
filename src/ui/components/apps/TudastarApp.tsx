@@ -839,7 +839,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
     let isStale = false;
 
     try {
-      const notesQuery = query(collection(db, 'knowledgeNotes'));
+      const notesQuery = query(collection(db, 'knowledgeNotes') where('unitId', '==', selectedUnitId));
       unsubscribe = onSnapshot(
         notesQuery,
         snapshot => {
