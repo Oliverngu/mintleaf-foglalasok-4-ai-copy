@@ -30,8 +30,6 @@ import TrashIcon from '../../../../components/icons/TrashIcon';
 import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import PlusIcon from '../../../../components/icons/PlusIcon';
 
-console.log('selectedUnitId', selectedUnitId, currentUser?.unitIds);
-
 interface TudastarAppProps {
   currentUser: User;
   allUnits: Unit[];
