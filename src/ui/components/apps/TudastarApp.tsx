@@ -323,38 +323,55 @@ const NoteModal: FC<{
   const availableSubcategories = selectedCategory?.subcategories || [];
 
   const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !content.trim()) {
-      setError('A cím és a tartalom megadása kötelező.');
-      return;
-    }
-    if (!categoryId) {
-      setError('Nincs kategória kiválasztva.');
-      return;
+  e.preventDefault();
+
+  if (!title.trim() || !content.trim()) {
+    setError('A cím és a tartalom megadása kötelező.');
+    return;
+  }
+
+  if (!categoryId) {
+    setError('Nincs kategória kiválasztva.');
+    return;
+  }
+
+  setSaving(true);
+  setError('');
+
+  try {
+    const trimmedSub = subcategory?.trim() || null;
+
+    const data: any = {
+      title: title.trim(),
+      content: content.trim(),
+      categoryId,
+      unitId: selectedUnitId,
+      createdAt: serverTimestamp() as Timestamp,
+      createdBy: currentUser.fullName,
+      createdByUid: currentUser.id,
+    };
+
+    // Csak akkor adjuk hozzá a mezőt, ha tényleg van értéke
+    if (trimmedSub) {
+      data.subcategory = trimmedSub;
     }
 
-    setSaving(true);
-    setError('');
-    try {
-      await addDoc(collection(db, 'knowledgeNotes'), {
-        title: title.trim(),
-        content: content.trim(),
-        categoryId,
-        subcategory: subcategory || undefined,
-        unitId: selectedUnitId,
-        createdAt: serverTimestamp() as Timestamp,
-        createdBy: currentUser.fullName,
-        createdByUid: currentUser.id,
-      });
-      await onSubcategoryCapture(categoryId, subcategory || undefined);
-      onClose();
-    } catch (err: any) {
-      console.error('Error saving note:', err);
-      setError(err?.message || 'Hiba a jegyzet mentésekor.');
-    } finally {
-      setSaving(false);
+    await addDoc(collection(db, 'knowledgeNotes'), data);
+
+    // Csak akkor hívjuk, ha valóban van subcategory
+    if (trimmedSub) {
+      await onSubcategoryCapture(categoryId, trimmedSub);
     }
-  };
+
+    onClose();
+
+  } catch (err: any) {
+    console.error('Error saving note:', err);
+    setError(err?.message || 'Hiba a jegyzet mentésekor.');
+  } finally {
+    setSaving(false);
+  }
+};
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
