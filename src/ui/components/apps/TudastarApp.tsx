@@ -832,39 +832,46 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
     };
   }, [selectedUnitId, ensureDefaultsForUnit, selectedCategoryId]);
 
-  useEffect(() => {
-    if (!selectedUnitId) return;
+useEffect(() => {
+  // Ha nincs unit kiválasztva, ne is próbáljon query-t futtatni
+  if (!selectedUnitId) {
+    setNotes([]);
+    return;
+  }
 
-    let unsubscribe: (() => void) | undefined;
-    let isStale = false;
+  let unsubscribe: (() => void) | undefined;
+  let isStale = false;
 
-    try {
-      const notesQuery = query(collection(db, 'knowledgeNotes'), where('unitId', '==', selectedUnitId));
-      unsubscribe = onSnapshot(
-        notesQuery,
-        snapshot => {
-          if (isStale) return;
-          const fetchedNotes = snapshot.docs
-            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
-            .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-          setNotes(fetchedNotes);
-        },
-        err => {
-          if (isStale) return;
-          console.error('Error fetching notes:', err);
-          setError('Hiba a jegyzetek betöltésekor.');
-        }
-      );
-    } catch (err) {
-      console.error('Error initializing notes listener:', err);
-      setError('Hiba a jegyzetek betöltésekor.');
+  const notesQuery = query(
+    collection(db, 'knowledgeNotes'),
+    where('unitId', '==', selectedUnitId)
+  );
+
+  unsubscribe = onSnapshot(
+    notesQuery,
+    snapshot => {
+      if (isStale) return;
+      const fetchedNotes = snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
+        .sort(
+          (a, b) =>
+            (b.createdAt?.toMillis?.() || 0) -
+            (a.createdAt?.toMillis?.() || 0)
+        );
+      setNotes(fetchedNotes);
+    },
+    err => {
+      console.error('Error fetching notes:', err);
+      // opcionális: hibát kiírni UI-ra
+      // setError('Hiba a jegyzetek betöltésekor.');
     }
+  );
 
-    return () => {
-      isStale = true;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [selectedUnitId]);
+  return () => {
+    isStale = true;
+    if (unsubscribe) unsubscribe();
+  };
+}, [selectedUnitId]);
 
   useEffect(() => {
     if (!selectedUnitId) return;
