@@ -126,7 +126,7 @@ const FileUploadModal: FC<{
         uploadedAt: serverTimestamp(),
         unitId: unitId,
         categoryId,
-        subcategory: subcategory || undefined,
+        ...(subcategory ? {subcategory} : {})
       };
 
       let metadataSaved = false;
