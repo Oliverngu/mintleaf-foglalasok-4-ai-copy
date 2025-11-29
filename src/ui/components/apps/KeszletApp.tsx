@@ -397,6 +397,8 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     [productsByUnit, selectedUnitIds]
   );
 
+  const normalizedKey = (name: string) => name.trim().toLowerCase();
+
   const getSupplierIds = (product: InventoryProduct) => {
     if (product.supplierIds && product.supplierIds.length > 0) return product.supplierIds;
     if (product.supplierId) return [product.supplierId];
@@ -703,8 +705,6 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     setNewProductSafetyStock('');
     setIsProductModalOpen(false);
   };
-
-  const normalizedKey = (name: string) => name.trim().toLowerCase();
 
   const openProductEditor = (product: InventoryProduct) => {
     const linked = allProducts.filter(p => normalizedKey(p.name) === normalizedKey(product.name));
