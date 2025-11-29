@@ -87,11 +87,11 @@ type AppName =
   | 'szavazasok'
   | 'chat';
 
-const AccessDenied: React.FC = () => (
+const AccessDenied: React.FC<{ message?: string }> = ({ message }) => (
   <div className="flex items-center justify-center h-full p-8 text-center bg-gray-100">
     <div>
       <h2 className="text-2xl font-bold text-red-600">Hozzáférés megtagadva</h2>
-      <p className="mt-2 text-gray-600">Nincs jogosultságod ennek az oldalnak a megtekintéséhez.</p>
+      <p className="mt-2 text-gray-600">{message || 'Nincs jogosultságod ennek az oldalnak a megtekintéséhez.'}</p>
     </div>
   </div>
 );
@@ -428,6 +428,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'keszlet':
+        const canManageInventory = hasPermission('canManageInventory');
+        const canViewInventory = hasPermission('canViewInventory') || canManageInventory;
+        if (!canViewInventory) return <AccessDenied message="Nincs jogosultságod a Készlet megtekintéséhez." />;
         return (
           <KeszletApp
             selectedUnitIds={activeUnitIds}
@@ -436,6 +439,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             currentUserId={currentUser.id}
             currentUserName={currentUser.fullName}
             isUnitAdmin={currentUser.role === 'Admin' || currentUser.role === 'Unit Admin'}
+            canViewInventory={canViewInventory}
+            canManageInventory={canManageInventory}
           />
         );
       case 'velemenyek':
@@ -542,7 +547,9 @@ const Dashboard: React.FC<DashboardProps> = ({
               <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
             )}
             <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
-            <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
+            {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && (
+              <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
+            )}
             <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
           </CategoryItem>
 

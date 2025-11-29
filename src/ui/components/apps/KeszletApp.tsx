@@ -188,6 +188,8 @@ interface KeszletAppProps {
   currentUserId?: string;
   currentUserName?: string;
   isUnitAdmin?: boolean;
+  canViewInventory?: boolean;
+  canManageInventory?: boolean;
 }
 
 interface ProductUnitEntry {
@@ -224,6 +226,8 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   currentUserId,
   currentUserName,
   isUnitAdmin = true,
+  canViewInventory = true,
+  canManageInventory = true,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('products');
 
@@ -290,6 +294,8 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   const [idealEditorProduct, setIdealEditorProduct] = useState<InventoryProduct | null>(null);
   const [idealEditorValues, setIdealEditorValues] = useState<Record<string, string>>({});
   const [idealEditorOriginal, setIdealEditorOriginal] = useState<Record<string, string>>({});
+
+  const isReadOnly = !canManageInventory;
 
   const [expandedStockEditorKey, setExpandedStockEditorKey] = useState<string | null>(null);
 
@@ -592,6 +598,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleSaveCurrent = async (unitId: string, productId: string) => {
+    if (isReadOnly) return;
     const value = parseFloat(currentInputs[`${unitId}:${productId}`] ?? '0');
     if (isNaN(value)) return;
     setSavingCurrent(prev => ({ ...prev, [`${unitId}:${productId}`]: true }));
@@ -603,6 +610,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleAddCategory = async (e: React.FormEvent) => {
+    if (isReadOnly) return;
     e.preventDefault();
     const targetUnitId = selectedUnitIds[0];
     if (!targetUnitId || !newCategoryName.trim()) return;
@@ -611,16 +619,19 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleUpdateCategory = async (unitId: string, categoryId: string) => {
+    if (isReadOnly) return;
     const name = categoryEdits[`${unitId}:${categoryId}`];
     if (!name?.trim()) return;
     await InventoryService.updateCategory(unitId, categoryId, { name: name.trim() });
   };
 
   const handleDeleteCategory = async (unitId: string, categoryId: string) => {
+    if (isReadOnly) return;
     await InventoryService.deleteCategory(unitId, categoryId);
   };
 
   const handleAddSupplier = async (e: React.FormEvent) => {
+    if (isReadOnly) return;
     e.preventDefault();
     const targetUnitId = selectedUnitIds[0];
     if (!targetUnitId || !newSupplierName.trim()) return;
@@ -637,6 +648,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleUpdateSupplier = async (unitId: string, supplierId: string) => {
+    if (isReadOnly) return;
     const name = supplierEdits[`${unitId}:${supplierId}`];
     const contactId = supplierContactEdits[`${unitId}:${supplierId}`];
     const leadMin = supplierLeadMinEdits[`${unitId}:${supplierId}`];
@@ -651,10 +663,12 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleDeleteSupplier = async (unitId: string, supplierId: string) => {
+    if (isReadOnly) return;
     await InventoryService.deleteSupplier(unitId, supplierId);
   };
 
   const handleAddProduct = async (e: React.FormEvent) => {
+    if (isReadOnly) return;
     e.preventDefault();
     const unitsToUse = newProductUnits.length ? newProductUnits : selectedUnitIds;
     if (unitsToUse.length === 0) return;
@@ -707,6 +721,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const openProductEditor = (product: InventoryProduct) => {
+    if (isReadOnly) return;
     const linked = allProducts.filter(p => normalizedKey(p.name) === normalizedKey(product.name));
     const supplierIds = getSupplierIds(product);
     const unitIds = Array.from(new Set(linked.map(p => p.unitId)));
@@ -740,6 +755,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleProductEditorSave = async () => {
+    if (isReadOnly) return;
     if (!productEditorProduct) return;
     const linked = allProducts.filter(p => normalizedKey(p.name) === normalizedKey(productEditorProduct.name));
     const targetUnits = productEditorForm.unitIds.length ? productEditorForm.unitIds : [productEditorProduct.unitId];
@@ -800,6 +816,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleDeleteProduct = async () => {
+    if (isReadOnly) return;
     if (!productEditorProduct) return;
     const confirmDelete = window.confirm('Biztosan törlöd ezt a terméket és készletadatait?');
     if (!confirmDelete) return;
@@ -812,6 +829,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const openIdealEditor = (product: InventoryProduct) => {
+    if (isReadOnly) return;
     const linked = allProducts.filter(p => normalizedKey(p.name) === normalizedKey(product.name));
     const unitIds = linked.map(p => p.unitId);
     const values: Record<string, string> = {};
@@ -839,6 +857,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   };
 
   const handleSaveIdealEditor = async () => {
+    if (isReadOnly) return;
     if (!idealEditorProduct) return;
     const linked = allProducts.filter(p => normalizedKey(p.name) === normalizedKey(idealEditorProduct.name));
     await Promise.all(
@@ -851,6 +870,16 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     );
     setIdealEditorProduct(null);
   };
+
+  if (!canViewInventory && !canManageInventory) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-100 border border-red-200 text-red-800 px-4 py-3 rounded">
+          Nincs jogosultságod a Készlet megtekintéséhez.
+        </div>
+      </div>
+    );
+  }
 
   if (selectedUnitIds.length === 0) {
     return (
@@ -925,13 +954,15 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                 ))}
               </select>
             </div>
-            <button
-              onClick={() => setIsProductModalOpen(true)}
-              className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-green-800"
-            >
-              <span className="text-lg">+</span>
-              <span>Új termék</span>
-            </button>
+            {canManageInventory && (
+              <button
+                onClick={() => setIsProductModalOpen(true)}
+                className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-green-800"
+              >
+                <span className="text-lg">+</span>
+                <span>Új termék</span>
+              </button>
+            )}
           </div>
 
           <div className="flex flex-col gap-3">
@@ -1036,12 +1067,16 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex flex-col gap-1 min-w-[200px]">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <button
-                                onClick={() => openProductEditor(product)}
-                                className="font-semibold text-gray-900 hover:text-green-700"
-                              >
-                                {product.name}
-                              </button>
+                              {canManageInventory ? (
+                                <button
+                                  onClick={() => openProductEditor(product)}
+                                  className="font-semibold text-gray-900 hover:text-green-700"
+                                >
+                                  {product.name}
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-gray-900">{product.name}</span>
+                              )}
                               {showUnitBadges && badgeUnits.length > 0 && (
                                 <div className="flex items-center gap-1">{badgeUnits.map(renderUnitBadge)}</div>
                               )}
@@ -1064,13 +1099,22 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           <div className="flex flex-wrap items-center gap-4 text-sm">
                             <div className="flex flex-col gap-1 min-w-[140px]">
                               <span className="text-xs text-gray-500">Ideális összesen</span>
-                              <button
-                                onClick={() => openIdealEditor(product)}
-                                className="text-left w-full px-3 py-2 border rounded-lg bg-gray-50 hover:bg-gray-100"
-                                title={idealTooltip}
-                              >
-                                {row.totalIdeal}
-                              </button>
+                              {canManageInventory ? (
+                                <button
+                                  onClick={() => openIdealEditor(product)}
+                                  className="text-left w-full px-3 py-2 border rounded-lg bg-gray-50 hover:bg-gray-100"
+                                  title={idealTooltip}
+                                >
+                                  {row.totalIdeal}
+                                </button>
+                              ) : (
+                                <div
+                                  className="text-left w-full px-3 py-2 border rounded-lg bg-gray-50"
+                                  title={idealTooltip}
+                                >
+                                  {row.totalIdeal}
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex flex-col gap-1 min-w-[200px]">
@@ -1117,6 +1161,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                                           setCurrentInputs(prev => ({ ...prev, [currentKey]: e.target.value }))
                                         }
                                         className="w-full border rounded-lg px-3 py-2"
+                                        disabled={isReadOnly}
                                       />
                                       {isCurrentDirty && (
                                         <button
@@ -1184,6 +1229,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                                         setCurrentInputs(prev => ({ ...prev, [currentKey]: e.target.value }))
                                       }
                                       className="w-full border rounded-lg px-3 py-2"
+                                      disabled={isReadOnly}
                                     />
                                     {isCurrentDirty && (
                                       <button
@@ -1232,6 +1278,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           setSupplierEdits(prev => ({ ...prev, [`${supplier.unitId}:${supplier.id}`]: e.target.value }))
                         }
                         className="flex-1 border rounded-lg px-3 py-2"
+                        disabled={isReadOnly}
                       />
                       <select
                         value={
@@ -1244,6 +1291,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           }))
                         }
                         className="border rounded-lg px-3 py-2 min-w-[200px]"
+                        disabled={isReadOnly}
                       >
                         <option value="">Nincs kapcsolattartó</option>
                         {contacts.map(contact => (
@@ -1266,6 +1314,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           }))
                         }
                         className="w-32 border rounded-lg px-3 py-2"
+                        disabled={isReadOnly}
                       />
                       <input
                         type="number"
@@ -1281,22 +1330,25 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           }))
                         }
                         className="w-32 border rounded-lg px-3 py-2"
+                        disabled={isReadOnly}
                       />
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleUpdateSupplier(supplier.unitId, supplier.id)}
-                        className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-                      >
-                        Mentés
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSupplier(supplier.unitId, supplier.id)}
-                        className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
-                      >
-                        Törlés
-                      </button>
-                    </div>
+                    {canManageInventory && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleUpdateSupplier(supplier.unitId, supplier.id)}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                        >
+                          Mentés
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSupplier(supplier.unitId, supplier.id)}
+                          className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
+                        >
+                          Törlés
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {supplier.contactId && (
                     <span className="text-xs text-gray-500">Kapcsolattartó: {contacts.find(c => c.id === supplier.contactId)?.name}</span>
@@ -1306,52 +1358,54 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
-            <h2 className="text-lg font-semibold text-gray-800">Új beszállító</h2>
-            <form onSubmit={handleAddSupplier} className="space-y-2">
-              <input
-                value={newSupplierName}
-                onChange={e => setNewSupplierName(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2"
-                placeholder="Beszállító neve"
-              />
-              <select
-                value={newSupplierContactId}
-                onChange={e => setNewSupplierContactId(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2"
-              >
-                <option value="">Nincs kapcsolattartó</option>
-                {contacts.map(contact => (
-                  <option key={contact.id} value={contact.id}>
-                    {contact.name}
-                  </option>
-                ))}
-              </select>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {canManageInventory && (
+            <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
+              <h2 className="text-lg font-semibold text-gray-800">Új beszállító</h2>
+              <form onSubmit={handleAddSupplier} className="space-y-2">
                 <input
-                  type="number"
-                  value={newSupplierLeadMin}
-                  onChange={e => setNewSupplierLeadMin(e.target.value)}
+                  value={newSupplierName}
+                  onChange={e => setNewSupplierName(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
-                  placeholder="Min. szállítási idő (nap)"
+                  placeholder="Beszállító neve"
                 />
-                <input
-                  type="number"
-                  value={newSupplierLeadMax}
-                  onChange={e => setNewSupplierLeadMax(e.target.value)}
+                <select
+                  value={newSupplierContactId}
+                  onChange={e => setNewSupplierContactId(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
-                  placeholder="Max. szállítási idő (nap)"
-                />
-              </div>
-              <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
-              <button
-                type="submit"
-                className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
-              >
-                Hozzáadás
-              </button>
-            </form>
-          </div>
+                >
+                  <option value="">Nincs kapcsolattartó</option>
+                  {contacts.map(contact => (
+                    <option key={contact.id} value={contact.id}>
+                      {contact.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    value={newSupplierLeadMin}
+                    onChange={e => setNewSupplierLeadMin(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="Min. szállítási idő (nap)"
+                  />
+                  <input
+                    type="number"
+                    value={newSupplierLeadMax}
+                    onChange={e => setNewSupplierLeadMax(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="Max. szállítási idő (nap)"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
+                <button
+                  type="submit"
+                  className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
+                >
+                  Hozzáadás
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       )}
 
@@ -1373,49 +1427,54 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                         setCategoryEdits(prev => ({ ...prev, [`${category.unitId}:${category.id}`]: e.target.value }))
                       }
                       className="flex-1 border rounded-lg px-3 py-2"
+                      disabled={isReadOnly}
                     />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleUpdateCategory(category.unitId, category.id)}
-                        className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-                      >
-                        Mentés
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCategory(category.unitId, category.id)}
-                        className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
-                      >
-                        Törlés
-                      </button>
-                    </div>
+                    {canManageInventory && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleUpdateCategory(category.unitId, category.id)}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                        >
+                          Mentés
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCategory(category.unitId, category.id)}
+                          className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
+                        >
+                          Törlés
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
-            <h2 className="text-lg font-semibold text-gray-800">Új kategória</h2>
-            <form onSubmit={handleAddCategory} className="space-y-2">
-              <input
-                value={newCategoryName}
-                onChange={e => setNewCategoryName(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2"
-                placeholder="Kategória neve"
-              />
-              <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
-              <button
-                type="submit"
-                className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
-              >
-                Hozzáadás
-              </button>
-            </form>
-          </div>
+          {canManageInventory && (
+            <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
+              <h2 className="text-lg font-semibold text-gray-800">Új kategória</h2>
+              <form onSubmit={handleAddCategory} className="space-y-2">
+                <input
+                  value={newCategoryName}
+                  onChange={e => setNewCategoryName(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Kategória neve"
+                />
+                <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
+                <button
+                  type="submit"
+                  className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
+                >
+                  Hozzáadás
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       )}
 
-      {isProductModalOpen && (
+      {canManageInventory && isProductModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-xl w-full p-6 space-y-4">
             <div className="flex items-start justify-between gap-4">

@@ -26,7 +26,34 @@ const permissionLabels: Record<keyof Permissions, { label: string; description: 
     canViewAllContacts: { label: 'Összes névjegy látása', description: 'Engedélyezi a rejtett (nem publikus) névjegyek megtekintését is.' },
     canManageUnits: { label: 'Üzletek kezelése', description: 'Engedélyezi új üzletek/egységek hozzáadását és a meglévők szerkesztését.' },
     canCreatePolls: { label: 'Szavazások létrehozása', description: 'Engedélyezi új szavazások kiírását az egységben.' },
+    canViewInventory: { label: 'Készlet megtekintése', description: 'Engedélyezi a Készlet modul megnyitását és adatainak megtekintését.' },
+    canManageInventory: { label: 'Készlet kezelése', description: 'Engedélyezi készletadatok, termékek, beszállítók és kategóriák szerkesztését.' },
 };
+
+const permissionSections: { title?: string; keys: (keyof Permissions)[] }[] = [
+    {
+        keys: [
+            'canAddBookings',
+            'canManageSchedules',
+            'canManageUsers',
+            'canManagePositions',
+            'canGenerateInvites',
+            'canManageLeaveRequests',
+            'canSubmitLeaveRequests',
+            'canManageTodos',
+            'canManageKnowledgeBase',
+            'canManageKnowledgeCategories',
+            'canManageContacts',
+            'canViewAllContacts',
+            'canManageUnits',
+            'canCreatePolls',
+        ],
+    },
+    {
+        title: 'Készlet (Inventory)',
+        keys: ['canViewInventory', 'canManageInventory'],
+    },
+];
 
 const ROLES: User['role'][] = ['Admin', 'Unit Admin', 'Unit Leader', 'User', 'Guest'];
 
@@ -94,8 +121,6 @@ const JogosultsagokApp: React.FC<JogosultsagokAppProps> = ({ currentUser, allPer
     };
 
     const isSuperAdmin = currentUser.role === 'Admin';
-    const permissionKeys = Object.keys(permissionLabels) as (keyof Permissions)[];
-
     return (
         <div className="space-y-8">
             {isSuperAdmin && (
@@ -110,21 +135,32 @@ const JogosultsagokApp: React.FC<JogosultsagokAppProps> = ({ currentUser, allPer
                                 </tr>
                             </thead>
                             <tbody>
-                                {permissionKeys.map(permKey => (
-                                    <tr key={permKey} className="border-b hover:bg-gray-50">
-                                        <td className="px-4 py-3 font-medium text-gray-900" title={permissionLabels[permKey].description}>{permissionLabels[permKey].label}</td>
-                                        {ROLES.map(role => (
-                                            <td key={`${role}-${permKey}`} className="px-4 py-3 text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={!!localGlobalPerms[role]?.[permKey]}
-                                                    onChange={(e) => handleGlobalChange(role, permKey, e.target.checked)}
-                                                    className="h-5 w-5 rounded"
-                                                    disabled={role === 'Admin'}
-                                                />
-                                            </td>
+                                {permissionSections.map(section => (
+                                    <React.Fragment key={section.title || 'default-section'}>
+                                        {section.title && (
+                                            <tr className="bg-gray-50">
+                                                <td className="px-4 py-2 font-semibold text-gray-800" colSpan={ROLES.length + 1}>
+                                                    {section.title}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {section.keys.map(permKey => (
+                                            <tr key={permKey} className="border-b hover:bg-gray-50">
+                                                <td className="px-4 py-3 font-medium text-gray-900" title={permissionLabels[permKey].description}>{permissionLabels[permKey].label}</td>
+                                                {ROLES.map(role => (
+                                                    <td key={`${role}-${permKey}`} className="px-4 py-3 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={!!localGlobalPerms[role]?.[permKey]}
+                                                            onChange={(e) => handleGlobalChange(role, permKey, e.target.checked)}
+                                                            className="h-5 w-5 rounded"
+                                                            disabled={role === 'Admin'}
+                                                        />
+                                                    </td>
+                                                ))}
+                                            </tr>
                                         ))}
-                                    </tr>
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>
@@ -143,35 +179,46 @@ const JogosultsagokApp: React.FC<JogosultsagokAppProps> = ({ currentUser, allPer
                                 </tr>
                             </thead>
                             <tbody>
-                                 {permissionKeys.map(permKey => (
-                                    <tr key={permKey} className="border-b hover:bg-gray-50">
-                                        <td className="px-4 py-3 font-medium text-gray-900" title={permissionLabels[permKey].description}>{permissionLabels[permKey].label}</td>
-                                        {ROLES.map(role => {
-                                            const unitPerm = localUnitPerms.roles?.[role]?.[permKey];
-                                            let value: 'inherit' | 'allow' | 'deny' = 'inherit';
-                                            if (unitPerm === true) value = 'allow';
-                                            if (unitPerm === false) value = 'deny';
-                                            
-                                            return (
-                                                <td key={`${role}-${permKey}`} className="px-4 py-3 text-center">
-                                                    <select
-                                                        value={value}
-                                                        onChange={e => handleUnitChange(role, permKey, e.target.value as any)}
-                                                        className={`p-1 rounded border text-xs font-semibold ${
-                                                            value === 'allow' ? 'bg-green-100 text-green-800 border-green-300' :
-                                                            value === 'deny' ? 'bg-red-100 text-red-800 border-red-300' :
-                                                            'bg-gray-100 text-gray-800 border-gray-300'
-                                                        }`}
-                                                        disabled={role === 'Admin'}
-                                                    >
-                                                        <option value="inherit">Öröklés</option>
-                                                        <option value="allow">Engedélyez</option>
-                                                        <option value="deny">Tilt</option>
-                                                    </select>
+                                 {permissionSections.map(section => (
+                                    <React.Fragment key={section.title || 'default-section-unit'}>
+                                        {section.title && (
+                                            <tr className="bg-gray-50">
+                                                <td className="px-4 py-2 font-semibold text-gray-800" colSpan={ROLES.length + 1}>
+                                                    {section.title}
                                                 </td>
-                                            );
-                                        })}
-                                    </tr>
+                                            </tr>
+                                        )}
+                                        {section.keys.map(permKey => (
+                                            <tr key={permKey} className="border-b hover:bg-gray-50">
+                                                <td className="px-4 py-3 font-medium text-gray-900" title={permissionLabels[permKey].description}>{permissionLabels[permKey].label}</td>
+                                                {ROLES.map(role => {
+                                                    const unitPerm = localUnitPerms.roles?.[role]?.[permKey];
+                                                    let value: 'inherit' | 'allow' | 'deny' = 'inherit';
+                                                    if (unitPerm === true) value = 'allow';
+                                                    if (unitPerm === false) value = 'deny';
+
+                                                    return (
+                                                        <td key={`${role}-${permKey}`} className="px-4 py-3 text-center">
+                                                            <select
+                                                                value={value}
+                                                                onChange={e => handleUnitChange(role, permKey, e.target.value as any)}
+                                                                className={`p-1 rounded border text-xs font-semibold ${
+                                                                    value === 'allow' ? 'bg-green-100 text-green-800 border-green-300' :
+                                                                    value === 'deny' ? 'bg-red-100 text-red-800 border-red-300' :
+                                                                    'bg-gray-100 text-gray-800 border-gray-300'
+                                                                }`}
+                                                                disabled={role === 'Admin'}
+                                                            >
+                                                                <option value="inherit">Öröklés</option>
+                                                                <option value="allow">Engedélyez</option>
+                                                                <option value="deny">Tilt</option>
+                                                            </select>
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>

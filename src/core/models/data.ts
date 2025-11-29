@@ -365,6 +365,8 @@ export interface Permissions {
     canViewAllContacts: boolean;
     canManageUnits: boolean;
     canCreatePolls: boolean;
+    canViewInventory: boolean;
+    canManageInventory: boolean;
 }
 
 export type RolePermissions = {
