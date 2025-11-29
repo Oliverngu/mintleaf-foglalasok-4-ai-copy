@@ -259,6 +259,51 @@ export interface KnowledgeNote {
   createdByUid: string;
 }
 
+// --- INVENTORY MODULE INTERFACES ---
+export interface InventoryCategory {
+  id: string;
+  name: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface InventorySupplier {
+  id: string;
+  name: string;
+  contactEmail?: string;
+  phone?: string;
+  note?: string;
+  contactId?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface InventoryProduct {
+  id: string;
+  name: string;
+  categoryId?: string;
+  supplierId?: string; // legacy support
+  supplierIds?: string[];
+  unitOfMeasure: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface InventoryIdealStock {
+  id: string;
+  productId: string;
+  idealQuantity: number;
+  updatedAt: Timestamp;
+}
+
+export interface InventoryCurrentStock {
+  id: string;
+  productId: string;
+  currentQuantity: number;
+  updatedAt: Timestamp;
+  updatedByUserId?: string;
+}
+
 export interface Unit {
     id: string;
     name: string;

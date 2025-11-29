@@ -1,0 +1,786 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import InventoryService from '../../../core/api/inventoryService';
+import {
+  InventoryCategory,
+  InventorySupplier,
+  InventoryProduct,
+  InventoryIdealStock,
+  InventoryCurrentStock,
+  Unit,
+} from '../../../core/models/data';
+
+interface KeszletAppProps {
+  selectedUnitIds: string[];
+  allUnits: Unit[];
+  userUnitIds?: string[];
+}
+
+interface ProductRow {
+  unitId: string;
+  product: InventoryProduct;
+  idealQuantity: number;
+  currentQuantity: number;
+  categoryName?: string;
+  supplierName?: string;
+}
+
+type TabKey = 'products' | 'suppliers' | 'categories';
+
+export const KeszletApp: React.FC<KeszletAppProps> = ({ selectedUnitIds, allUnits, userUnitIds = [] }) => {
+  const [activeTab, setActiveTab] = useState<TabKey>('products');
+
+  const [categoriesByUnit, setCategoriesByUnit] = useState<Record<string, InventoryCategory[]>>({});
+  const [suppliersByUnit, setSuppliersByUnit] = useState<Record<string, InventorySupplier[]>>({});
+  const [productsByUnit, setProductsByUnit] = useState<Record<string, InventoryProduct[]>>({});
+  const [idealStocksByUnit, setIdealStocksByUnit] = useState<Record<string, InventoryIdealStock[]>>({});
+  const [currentStocksByUnit, setCurrentStocksByUnit] = useState<Record<string, InventoryCurrentStock[]>>({});
+
+  const [filterSupplier, setFilterSupplier] = useState<string>('');
+  const [activeCategoryFilters, setActiveCategoryFilters] = useState<Set<string>>(new Set());
+
+  const [currentInputs, setCurrentInputs] = useState<Record<string, string>>({});
+  const [idealInputs, setIdealInputs] = useState<Record<string, string>>({});
+  const [savingCurrent, setSavingCurrent] = useState<Record<string, boolean>>({});
+  const [savingIdeal, setSavingIdeal] = useState<Record<string, boolean>>({});
+
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
+  const [supplierEdits, setSupplierEdits] = useState<Record<string, string>>({});
+
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductCategory, setNewProductCategory] = useState('');
+  const [newProductSupplier, setNewProductSupplier] = useState('');
+  const [newProductUnit, setNewProductUnit] = useState('');
+  const [newProductIdeal, setNewProductIdeal] = useState('');
+  const [newProductCurrent, setNewProductCurrent] = useState('');
+  const [newProductUnits, setNewProductUnits] = useState<string[]>(selectedUnitIds);
+
+  useEffect(() => {
+    setNewProductUnits(selectedUnitIds);
+  }, [selectedUnitIds]);
+
+  useEffect(() => {
+    if (selectedUnitIds.length === 0) return;
+
+    const unsubs: (() => void)[] = [];
+
+    selectedUnitIds.forEach(unitId => {
+      unsubs.push(
+        InventoryService.listenCategories(unitId, items =>
+          setCategoriesByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+      unsubs.push(
+        InventoryService.listenSuppliers(unitId, items =>
+          setSuppliersByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+      unsubs.push(
+        InventoryService.listenProducts(unitId, items =>
+          setProductsByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+      unsubs.push(
+        InventoryService.listenIdealStocks(unitId, items =>
+          setIdealStocksByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+      unsubs.push(
+        InventoryService.listenCurrentStocks(unitId, items =>
+          setCurrentStocksByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+    });
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
+  }, [selectedUnitIds]);
+
+  useEffect(() => {
+    const currentMap: Record<string, string> = {};
+    selectedUnitIds.forEach(unitId => {
+      (currentStocksByUnit[unitId] || []).forEach(stock => {
+        currentMap[`${unitId}:${stock.productId}`] = stock.currentQuantity?.toString() ?? '';
+      });
+    });
+    setCurrentInputs(currentMap);
+  }, [selectedUnitIds, currentStocksByUnit]);
+
+  useEffect(() => {
+    const idealMap: Record<string, string> = {};
+    selectedUnitIds.forEach(unitId => {
+      (idealStocksByUnit[unitId] || []).forEach(stock => {
+        idealMap[`${unitId}:${stock.productId}`] = stock.idealQuantity?.toString() ?? '';
+      });
+    });
+    setIdealInputs(idealMap);
+  }, [selectedUnitIds, idealStocksByUnit]);
+
+  const allCategories = useMemo(
+    () =>
+      selectedUnitIds.flatMap(unitId =>
+        (categoriesByUnit[unitId] || []).map(category => ({ ...category, unitId }))
+      ),
+    [categoriesByUnit, selectedUnitIds]
+  );
+
+  const allSuppliers = useMemo(
+    () =>
+      selectedUnitIds.flatMap(unitId =>
+        (suppliersByUnit[unitId] || []).map(supplier => ({ ...supplier, unitId }))
+      ),
+    [selectedUnitIds, suppliersByUnit]
+  );
+
+  const allProducts = useMemo(
+    () =>
+      selectedUnitIds.flatMap(unitId =>
+        (productsByUnit[unitId] || []).map(product => ({ ...product, unitId }))
+      ),
+    [productsByUnit, selectedUnitIds]
+  );
+
+  const idealMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    selectedUnitIds.forEach(unitId => {
+      (idealStocksByUnit[unitId] || []).forEach(stock => {
+        map[`${unitId}:${stock.productId}`] = stock.idealQuantity;
+      });
+    });
+    return map;
+  }, [idealStocksByUnit, selectedUnitIds]);
+
+  const currentMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    selectedUnitIds.forEach(unitId => {
+      (currentStocksByUnit[unitId] || []).forEach(stock => {
+        map[`${unitId}:${stock.productId}`] = stock.currentQuantity;
+      });
+    });
+    return map;
+  }, [currentStocksByUnit, selectedUnitIds]);
+
+  const categoryNameMap = useMemo(
+    () => Object.fromEntries(allCategories.map(c => [c.id, c.name])),
+    [allCategories]
+  );
+  const supplierNameMap = useMemo(
+    () => Object.fromEntries(allSuppliers.map(s => [s.id, s.name])),
+    [allSuppliers]
+  );
+
+  const productNameUnits = useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+    allProducts.forEach(p => {
+      const key = p.name.trim().toLowerCase();
+      if (!map[key]) map[key] = new Set();
+      map[key].add(p.unitId);
+    });
+    return map;
+  }, [allProducts]);
+
+  const filteredProducts: ProductRow[] = useMemo(() => {
+    const applyCategoryFilter = (product: InventoryProduct) => {
+      if (activeCategoryFilters.size === 0) return true;
+      return product.categoryId ? activeCategoryFilters.has(product.categoryId) : activeCategoryFilters.has('none');
+    };
+
+    return allProducts
+      .filter(p => applyCategoryFilter(p))
+      .filter(p => !filterSupplier || p.supplierId === filterSupplier)
+      .map(product => ({
+        unitId: product.unitId,
+        product,
+        idealQuantity: idealMap[`${product.unitId}:${product.id}`] ?? 0,
+        currentQuantity: currentMap[`${product.unitId}:${product.id}`] ?? 0,
+        categoryName: product.categoryId ? categoryNameMap[product.categoryId] : undefined,
+        supplierName: product.supplierId ? supplierNameMap[product.supplierId] : undefined,
+      }));
+  }, [activeCategoryFilters, allProducts, categoryNameMap, currentMap, filterSupplier, idealMap, supplierNameMap]);
+
+  const groupedProducts = useMemo(() => {
+    const groups: Record<string, { label: string; items: ProductRow[] }> = {};
+    filteredProducts.forEach(row => {
+      const key = row.product.categoryId || 'none';
+      if (!groups[key]) {
+        groups[key] = { label: row.categoryName || 'Kategória nélkül', items: [] };
+      }
+      groups[key].items.push(row);
+    });
+    return Object.values(groups).sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredProducts]);
+
+  const showUnitBadges = selectedUnitIds.length > 1 && userUnitIds.length !== 1;
+
+  const toggleCategoryFilter = (categoryId: string) => {
+    setActiveCategoryFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveCurrent = async (unitId: string, productId: string) => {
+    const value = parseFloat(currentInputs[`${unitId}:${productId}`] ?? '0');
+    if (isNaN(value)) return;
+    setSavingCurrent(prev => ({ ...prev, [`${unitId}:${productId}`]: true }));
+    try {
+      await InventoryService.setCurrentStock(unitId, productId, value);
+    } finally {
+      setSavingCurrent(prev => ({ ...prev, [`${unitId}:${productId}`]: false }));
+    }
+  };
+
+  const handleSaveIdeal = async (unitId: string, productId: string) => {
+    const value = parseFloat(idealInputs[`${unitId}:${productId}`] ?? '0');
+    if (isNaN(value)) return;
+    setSavingIdeal(prev => ({ ...prev, [`${unitId}:${productId}`]: true }));
+    try {
+      await InventoryService.setIdealStock(unitId, productId, value);
+    } finally {
+      setSavingIdeal(prev => ({ ...prev, [`${unitId}:${productId}`]: false }));
+    }
+  };
+
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetUnitId = selectedUnitIds[0];
+    if (!targetUnitId || !newCategoryName.trim()) return;
+    await InventoryService.addCategory(targetUnitId, { name: newCategoryName.trim() });
+    setNewCategoryName('');
+  };
+
+  const handleUpdateCategory = async (unitId: string, categoryId: string) => {
+    const name = categoryEdits[`${unitId}:${categoryId}`];
+    if (!name?.trim()) return;
+    await InventoryService.updateCategory(unitId, categoryId, { name: name.trim() });
+  };
+
+  const handleDeleteCategory = async (unitId: string, categoryId: string) => {
+    await InventoryService.deleteCategory(unitId, categoryId);
+  };
+
+  const handleAddSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetUnitId = selectedUnitIds[0];
+    if (!targetUnitId || !newSupplierName.trim()) return;
+    await InventoryService.addSupplier(targetUnitId, { name: newSupplierName.trim() });
+    setNewSupplierName('');
+  };
+
+  const handleUpdateSupplier = async (unitId: string, supplierId: string) => {
+    const name = supplierEdits[`${unitId}:${supplierId}`];
+    if (!name?.trim()) return;
+    await InventoryService.updateSupplier(unitId, supplierId, { name: name.trim() });
+  };
+
+  const handleDeleteSupplier = async (unitId: string, supplierId: string) => {
+    await InventoryService.deleteSupplier(unitId, supplierId);
+  };
+
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const unitsToUse = newProductUnits.length ? newProductUnits : selectedUnitIds;
+    if (unitsToUse.length === 0) return;
+    if (!newProductName.trim() || !newProductUnit.trim()) return;
+    const idealValue = parseFloat(newProductIdeal || '0');
+    const currentValue = newProductCurrent ? parseFloat(newProductCurrent) : undefined;
+
+    await Promise.all(
+      unitsToUse.map(async unitId => {
+        const productRef = await InventoryService.addProduct(unitId, {
+          name: newProductName.trim(),
+          categoryId: newProductCategory || undefined,
+          supplierId: newProductSupplier || undefined,
+          unitOfMeasure: newProductUnit.trim(),
+        });
+        await InventoryService.setIdealStock(unitId, productRef.id, isNaN(idealValue) ? 0 : idealValue);
+        if (!isNaN(currentValue ?? NaN)) {
+          await InventoryService.setCurrentStock(unitId, productRef.id, currentValue as number);
+        }
+      })
+    );
+
+    setNewProductName('');
+    setNewProductCategory('');
+    setNewProductSupplier('');
+    setNewProductUnit('');
+    setNewProductIdeal('');
+    setNewProductCurrent('');
+    setIsProductModalOpen(false);
+  };
+
+  if (selectedUnitIds.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded">
+          <p>Kérjük, válassz ki legalább egy egységet a felső sávban a készlet kezeléséhez.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const renderUnitBadge = (unitId: string) => {
+    const unit = allUnits.find(u => u.id === unitId);
+    if (!unit) return null;
+    return (
+      <div
+        key={unitId}
+        className="w-7 h-7 rounded-full bg-gray-100 border flex items-center justify-center text-[10px] font-semibold text-gray-700 overflow-hidden"
+        title={unit.name}
+      >
+        {unit.logoUrl ? (
+          <img src={unit.logoUrl} alt={unit.name} className="w-full h-full object-cover" />
+        ) : (
+          <span>{unit.name.slice(0, 2).toUpperCase()}</span>
+        )}
+      </div>
+    );
+  };
+
+  const renderTabButton = (key: TabKey, label: string) => (
+    <button
+      key={key}
+      onClick={() => setActiveTab(key)}
+      className={`px-4 py-2 rounded-lg text-sm font-semibold transition border ${
+        activeTab === key
+          ? 'bg-green-700 text-white border-green-700'
+          : 'bg-white text-gray-700 border-gray-200 hover:border-green-500'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Készlet</h1>
+          <p className="text-gray-600">Termékek, ideális és aktuális készlet egységenként.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {renderTabButton('products', 'Termékek')}
+          {renderTabButton('suppliers', 'Beszállítók')}
+          {renderTabButton('categories', 'Kategóriák')}
+        </div>
+      </div>
+
+      {activeTab === 'products' && (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={filterSupplier}
+                onChange={e => setFilterSupplier(e.target.value)}
+                className="border rounded-lg px-3 py-2 bg-white shadow-sm min-w-[200px]"
+              >
+                <option value="">Összes beszállító</option>
+                {allSuppliers.map(supplier => (
+                  <option key={`${supplier.unitId}:${supplier.id}`} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={() => setIsProductModalOpen(true)}
+              className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-green-800"
+            >
+              <span className="text-lg">+</span>
+              <span>Új termék</span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {allCategories.map(category => {
+              const isActive = activeCategoryFilters.has(category.id);
+              return (
+                <button
+                  key={`${category.unitId}:${category.id}`}
+                  onClick={() => toggleCategoryFilter(category.id)}
+                  className={`px-3 py-1 rounded-full border text-sm transition ${
+                    isActive ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  {category.name}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setActiveCategoryFilters(new Set())}
+              className={`px-3 py-1 rounded-full border text-sm transition ${
+                activeCategoryFilters.size === 0
+                  ? 'bg-green-50 text-green-800 border-green-200'
+                  : 'bg-white text-gray-700 border-gray-300'
+              }`}
+            >
+              Összes
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {groupedProducts.length === 0 && (
+              <div className="bg-white border rounded-xl p-6 text-center text-gray-500 shadow-sm">
+                Nincs megjeleníthető termék.
+              </div>
+            )}
+
+            {groupedProducts.map(group => (
+              <div key={group.label} className="bg-white border rounded-xl shadow-sm">
+                <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-gray-800 text-lg flex items-center gap-2">
+                  <span>//</span> <span>{group.label}</span>
+                </div>
+                <div className="divide-y">
+                  {group.items.map(({ product, idealQuantity, currentQuantity, supplierName, unitId }) => {
+                    const shortage = idealQuantity - currentQuantity;
+                    const badgeUnits = Array.from(productNameUnits[product.name.trim().toLowerCase()] || []);
+                    return (
+                      <div key={`${unitId}:${product.id}`} className="px-4 py-3 flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <div className="font-semibold text-gray-900">{product.name}</div>
+                              <div className="text-xs text-gray-500">{supplierName || 'Nincs beszállító'}</div>
+                            </div>
+                            {showUnitBadges && badgeUnits.length > 0 && (
+                              <div className="flex items-center gap-1">{badgeUnits.map(renderUnitBadge)}</div>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-600">{product.unitOfMeasure}</div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-gray-500">Ideális készlet</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={idealInputs[`${unitId}:${product.id}`] ?? idealQuantity}
+                                onChange={e =>
+                                  setIdealInputs(prev => ({ ...prev, [`${unitId}:${product.id}`]: e.target.value }))
+                                }
+                                className="w-full border rounded-lg px-3 py-2"
+                              />
+                              <button
+                                onClick={() => handleSaveIdeal(unitId, product.id)}
+                                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700"
+                                disabled={savingIdeal[`${unitId}:${product.id}`]}
+                              >
+                                {savingIdeal[`${unitId}:${product.id}`] ? 'Mentés...' : 'Mentés'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-gray-500">Aktuális készlet</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={currentInputs[`${unitId}:${product.id}`] ?? currentQuantity}
+                                onChange={e =>
+                                  setCurrentInputs(prev => ({ ...prev, [`${unitId}:${product.id}`]: e.target.value }))
+                                }
+                                className="w-full border rounded-lg px-3 py-2"
+                              />
+                              <button
+                                onClick={() => handleSaveCurrent(unitId, product.id)}
+                                className="px-3 py-2 bg-green-700 text-white rounded-lg text-xs hover:bg-green-800"
+                                disabled={savingCurrent[`${unitId}:${product.id}`]}
+                              >
+                                {savingCurrent[`${unitId}:${product.id}`] ? 'Mentés...' : 'Mentés'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col justify-center">
+                            <span className="text-xs text-gray-500">Eltérés</span>
+                            <div
+                              className={`font-semibold ${
+                                shortage > 0 ? 'text-red-600' : shortage < 0 ? 'text-green-700' : 'text-gray-700'
+                              }`}
+                            >
+                              {shortage === 0 ? 'OK' : `${shortage > 0 ? 'Hiány' : 'Többlet'}: ${shortage}`}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'suppliers' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white border rounded-xl shadow-sm p-4 space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800">Beszállítók</h2>
+            <div className="divide-y">
+              {allSuppliers.length === 0 && (
+                <div className="py-4 text-gray-500 text-center">Nincs beszállító.</div>
+              )}
+              {allSuppliers.map(supplier => (
+                <div key={`${supplier.unitId}:${supplier.id}`} className="py-3 flex flex-col gap-2">
+                  <div className="text-xs text-gray-500">Egység: {allUnits.find(u => u.id === supplier.unitId)?.name || supplier.unitId}</div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <input
+                      defaultValue={supplier.name}
+                      onChange={e =>
+                        setSupplierEdits(prev => ({ ...prev, [`${supplier.unitId}:${supplier.id}`]: e.target.value }))
+                      }
+                      className="flex-1 border rounded-lg px-3 py-2"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateSupplier(supplier.unitId, supplier.id)}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                      >
+                        Mentés
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSupplier(supplier.unitId, supplier.id)}
+                        className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
+                      >
+                        Törlés
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800">Új beszállító</h2>
+            <form onSubmit={handleAddSupplier} className="space-y-2">
+              <input
+                value={newSupplierName}
+                onChange={e => setNewSupplierName(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+                placeholder="Beszállító neve"
+              />
+              <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
+              <button
+                type="submit"
+                className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
+              >
+                Hozzáadás
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'categories' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white border rounded-xl shadow-sm p-4 space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800">Kategóriák</h2>
+            <div className="divide-y">
+              {allCategories.length === 0 && (
+                <div className="py-4 text-gray-500 text-center">Nincs kategória.</div>
+              )}
+              {allCategories.map(category => (
+                <div key={`${category.unitId}:${category.id}`} className="py-3 flex flex-col gap-2">
+                  <div className="text-xs text-gray-500">Egység: {allUnits.find(u => u.id === category.unitId)?.name || category.unitId}</div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <input
+                      defaultValue={category.name}
+                      onChange={e =>
+                        setCategoryEdits(prev => ({ ...prev, [`${category.unitId}:${category.id}`]: e.target.value }))
+                      }
+                      className="flex-1 border rounded-lg px-3 py-2"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateCategory(category.unitId, category.id)}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                      >
+                        Mentés
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCategory(category.unitId, category.id)}
+                        className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-100"
+                      >
+                        Törlés
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white border rounded-xl shadow-sm p-4 space-y-3">
+            <h2 className="text-lg font-semibold text-gray-800">Új kategória</h2>
+            <form onSubmit={handleAddCategory} className="space-y-2">
+              <input
+                value={newCategoryName}
+                onChange={e => setNewCategoryName(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+                placeholder="Kategória neve"
+              />
+              <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
+              <button
+                type="submit"
+                className="w-full bg-green-700 text-white px-3 py-2 rounded-lg hover:bg-green-800"
+              >
+                Hozzáadás
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isProductModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Új termék</h3>
+                <p className="text-sm text-gray-500">Töltsd ki az alapadatokat, és rendeld hozzá a kívánt egységekhez.</p>
+              </div>
+              <button onClick={() => setIsProductModalOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+
+            <form onSubmit={handleAddProduct} className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Terméknév</label>
+                  <input
+                    value={newProductName}
+                    onChange={e => setNewProductName(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="Pl. Pepsi 0.33"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Mértékegység</label>
+                  <input
+                    value={newProductUnit}
+                    onChange={e => setNewProductUnit(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="kg, db, L..."
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Kategória</label>
+                  <select
+                    value={newProductCategory}
+                    onChange={e => setNewProductCategory(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="">Nincs</option>
+                    {allCategories.map(category => (
+                      <option key={`${category.unitId}:${category.id}`} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Beszállító</label>
+                  <select
+                    value={newProductSupplier}
+                    onChange={e => setNewProductSupplier(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="">Nincs</option>
+                    {allSuppliers.map(supplier => (
+                      <option key={`${supplier.unitId}:${supplier.id}`} value={supplier.id}>
+                        {supplier.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Ideális készlet</label>
+                  <input
+                    type="number"
+                    value={newProductIdeal}
+                    onChange={e => setNewProductIdeal(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 10"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Aktuális készlet (opcionális)</label>
+                  <input
+                    type="number"
+                    value={newProductCurrent}
+                    onChange={e => setNewProductCurrent(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 4"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm text-gray-600 font-semibold">Elérhető egységek</div>
+                <div className="flex flex-wrap gap-3">
+                  {selectedUnitIds.map(unitId => {
+                    const unit = allUnits.find(u => u.id === unitId);
+                    const checked = newProductUnits.includes(unitId);
+                    return (
+                      <label
+                        key={unitId}
+                        className={`flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${
+                          checked ? 'border-green-600 bg-green-50' : 'border-gray-200'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e => {
+                            setNewProductUnits(prev => {
+                              if (e.target.checked) return Array.from(new Set([...prev, unitId]));
+                              return prev.filter(id => id !== unitId);
+                            });
+                          }}
+                        />
+                        <span>{unit?.name || unitId}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsProductModalOpen(false)}
+                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700"
+                >
+                  Mégse
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-green-700 text-white font-semibold hover:bg-green-800"
+                >
+                  Mentés
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default KeszletApp;
