@@ -37,8 +37,13 @@ function computeDeviation(params: {
   minOrderQuantity?: number;
   safetyStock?: number;
   supplierLeadTimeDays?: number;
+  targetDaysOfCover?: number;
+  safetyDaysForSupplyRisk?: number;
   deviationView: DeviationView;
   unitOfMeasure?: string;
+  currency?: string;
+  packageSize?: number;
+  packageLabel?: string;
 }): DeviationResult {
   const {
     idealQuantity = 0,
@@ -48,8 +53,13 @@ function computeDeviation(params: {
     minOrderQuantity,
     safetyStock = 0,
     supplierLeadTimeDays,
+    targetDaysOfCover,
+    safetyDaysForSupplyRisk = 2,
     deviationView,
     unitOfMeasure,
+    currency = 'Ft',
+    packageSize,
+    packageLabel,
   } = params;
 
   const ratio = idealQuantity > 0 ? currentQuantity / idealQuantity : undefined;
@@ -81,13 +91,17 @@ function computeDeviation(params: {
       if (!avgDailyUsage || avgDailyUsage <= 0) return { view: deviationView, label: '–', status: undefined };
       const days = currentQuantity / avgDailyUsage;
       let status: StockStatus | undefined = baseStatus();
-      if (days < 2) status = 'critical';
-      else if (days < 5) status = 'low';
+      if (targetDaysOfCover && days < targetDaysOfCover * 0.5) status = 'critical';
+      else if (targetDaysOfCover && days < targetDaysOfCover) status = 'low';
       return {
         view: deviationView,
-        label: `${formatNumber(days)} nap`,
+        label: `${formatNumber(days)} nap${
+          targetDaysOfCover ? ` (cél: ${targetDaysOfCover} nap)` : ''
+        }`,
         status,
-        tooltip: `Napi fogyás: ${avgDailyUsage}, Lefedettség: ${formatNumber(days)} nap`,
+        tooltip: `Napi fogyás: ${avgDailyUsage}, Lefedettség: ${formatNumber(
+          days
+        )} nap${targetDaysOfCover ? `, Cél: ${targetDaysOfCover} nap` : ''}`,
       };
     }
     case 'orderSuggestion': {
@@ -108,6 +122,11 @@ function computeDeviation(params: {
         quantity = multiplier * minOrderQuantity;
         extra = ` (${multiplier} × ${minOrderQuantity})`;
       }
+      if (packageSize && packageSize > 0) {
+        const packages = Math.ceil(quantity / packageSize);
+        quantity = packages * packageSize;
+        extra = ` (${packages} × ${packageLabel || 'csomag'})`;
+      }
       return {
         view: deviationView,
         label: `${quantity}${unitOfMeasure ? ` ${unitOfMeasure}` : ' db'}${extra}`,
@@ -118,14 +137,14 @@ function computeDeviation(params: {
     case 'valueDiff': {
       if (!unitPrice) return { view: deviationView, label: '–', status: undefined };
       const value = shortage * unitPrice;
-      if (value === 0) return { view: deviationView, label: '0 Ft', status: baseStatus() };
-      const label = `${value > 0 ? 'Hiány' : 'Többlet'}: ${Math.round(Math.abs(value)).toLocaleString('hu-HU')} Ft`;
+      if (value === 0) return { view: deviationView, label: `0 ${currency}`, status: baseStatus() };
+      const label = `${value > 0 ? 'Hiány' : 'Többlet'}: ${Math.round(Math.abs(value)).toLocaleString('hu-HU')} ${currency}`;
       const status: StockStatus | undefined = value > 0 ? baseStatus() ?? 'low' : 'overstock';
       return {
         view: deviationView,
         label,
         status,
-        tooltip: `Ideális: ${idealQuantity}, Aktuális: ${currentQuantity}, Ár: ${unitPrice} Ft`,
+        tooltip: `Ideális: ${idealQuantity}, Aktuális: ${currentQuantity}, Ár: ${unitPrice} ${currency}`,
       };
     }
     case 'supplyRisk': {
@@ -133,14 +152,14 @@ function computeDeviation(params: {
         return { view: deviationView, label: '–', status: undefined };
       }
       const days = currentQuantity / avgDailyUsage;
-      const neededDays = supplierLeadTimeDays + 2;
+      const neededDays = supplierLeadTimeDays + safetyDaysForSupplyRisk;
       const label = days < neededDays ? 'Magas kockázat' : days < neededDays + 2 ? 'Közepes' : 'Alacsony';
       const status: StockStatus = days < neededDays ? 'critical' : days < neededDays + 2 ? 'low' : 'ok';
       return {
         view: deviationView,
         label,
         status,
-        tooltip: `Lefedettség: ${formatNumber(days)} nap, Lead time: ${supplierLeadTimeDays} nap (+2 biztonság)`,
+        tooltip: `Lefedettség: ${formatNumber(days)} nap, Lead time: ${supplierLeadTimeDays} nap (+${safetyDaysForSupplyRisk} biztonság)`,
       };
     }
     case 'simpleDiff':

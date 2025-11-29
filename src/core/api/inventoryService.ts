@@ -123,6 +123,12 @@ export const InventoryService = {
       },
       { merge: true }
     ),
+
+  listenSettings: (unitId: string, cb: (settings: Record<string, unknown>) => void) =>
+    onSnapshot(doc(db, 'units', unitId, 'inventorySettings', 'default'), snapshot => {
+      const data = snapshot.data();
+      cb(data ? { ...data, id: snapshot.id } : { id: snapshot.id });
+    }),
 };
 
 export default InventoryService;

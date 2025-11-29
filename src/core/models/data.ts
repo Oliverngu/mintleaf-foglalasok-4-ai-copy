@@ -274,6 +274,8 @@ export interface InventorySupplier {
   phone?: string;
   note?: string;
   contactId?: string;
+  leadTimeMinDays?: number;
+  leadTimeMaxDays?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -284,6 +286,13 @@ export interface InventoryProduct {
   categoryId?: string;
   supplierId?: string; // legacy support
   supplierIds?: string[];
+  avgDailyUsage?: number;
+  unitPrice?: number;
+  currency?: string;
+  minOrderQuantity?: number;
+  packageSize?: number;
+  packageLabel?: string;
+  safetyStock?: number;
   unitOfMeasure: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -302,6 +311,12 @@ export interface InventoryCurrentStock {
   currentQuantity: number;
   updatedAt: Timestamp;
   updatedByUserId?: string;
+}
+
+export interface InventorySettings {
+  id?: string;
+  targetDaysOfCover?: number;
+  safetyDaysForSupplyRisk?: number;
 }
 
 export interface Unit {
