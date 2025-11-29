@@ -94,6 +94,12 @@ export const InventoryService = {
   deleteProduct: (unitId: string, id: string) =>
     deleteDoc(doc(db, 'units', unitId, 'inventoryProducts', id)),
 
+  deleteIdealStock: (unitId: string, productId: string) =>
+    deleteDoc(doc(db, 'units', unitId, 'inventoryIdealStocks', productId)),
+
+  deleteCurrentStock: (unitId: string, productId: string) =>
+    deleteDoc(doc(db, 'units', unitId, 'inventoryCurrentStocks', productId)),
+
   setIdealStock: (unitId: string, productId: string, idealQuantity: number) =>
     setDoc(doc(db, 'units', unitId, 'inventoryIdealStocks', productId), {
       productId,

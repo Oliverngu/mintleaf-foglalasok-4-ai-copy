@@ -433,6 +433,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             selectedUnitIds={activeUnitIds}
             allUnits={allUnits}
             userUnitIds={currentUser.unitIds || []}
+            currentUserId={currentUser.id}
+            currentUserName={currentUser.fullName}
+            isUnitAdmin={currentUser.role === 'Admin' || currentUser.role === 'Unit Admin'}
           />
         );
       case 'velemenyek':
