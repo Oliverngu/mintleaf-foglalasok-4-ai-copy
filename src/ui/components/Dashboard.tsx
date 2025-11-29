@@ -345,6 +345,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             feedbackList={feedbackList}
             polls={polls}
             activeUnitIds={activeUnitIds}
+            allUnits={allUnits}
           />
         );
       case 'kerelemek':
@@ -495,6 +496,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             feedbackList={feedbackList}
             polls={polls}
             activeUnitIds={activeUnitIds}
+            allUnits={allUnits}
           />
         );
     }

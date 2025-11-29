@@ -323,6 +323,8 @@ export interface Unit {
     id: string;
     name: string;
     logoUrl?: string;
+    logoFileId?: string;
+    logo?: string;
     sheetId?: string;
 }
 
