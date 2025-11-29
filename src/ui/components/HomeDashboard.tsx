@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Request, Booking, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll } from '../../core/models/data';
+import { User, Request, Booking, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll, Unit } from '../../core/models/data';
 import { db } from '../../core/firebase/config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import ClockInOutModal from './ClockInOutModal';
@@ -15,6 +15,7 @@ import TodoIcon from '../../../components/icons/TodoIcon';
 import CalendarIcon from '../../../components/icons/CalendarIcon';
 import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
+import UnitLogoBadge from './common/UnitLogoBadge';
 
 interface HomeDashboardProps {
   currentUser: User;
@@ -27,6 +28,7 @@ interface HomeDashboardProps {
   feedbackList: Feedback[];
   polls: Poll[];
   activeUnitIds: string[];
+  allUnits: Unit[];
 }
 
 const DEFAULT_WIDGETS: WidgetConfig[] = [
@@ -40,11 +42,12 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
     { id: 'bookings', visible: true, order: 8 },
 ];
 
-const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds }) => {
+const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds, allUnits }) => {
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
   const [wages, setWages] = useState<Record<string, number | ''>>({});
+  const isMultiUnitView = activeUnitIds.length > 1;
 
   // --- Data Filtering based on activeUnitIds ---
   const filteredTimeEntries = useMemo(() => 
@@ -67,10 +70,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
       feedbackList.filter(f => activeUnitIds.includes(f.unitId)),
       [feedbackList, activeUnitIds]
   );
-  const filteredPolls = useMemo(() => 
+  const filteredPolls = useMemo(() =>
       polls.filter(p => activeUnitIds.includes(p.unitId)),
       [polls, activeUnitIds]
   );
+  const unitMap = useMemo(() => new Map(allUnits.map(unit => [unit.id, unit])), [allUnits]);
   // --- End Data Filtering ---
 
   useEffect(() => {
@@ -349,14 +353,30 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
             </div>
             {sortedTodayShifts.length > 0 ? (
                 <div className="space-y-3 overflow-y-auto max-h-64">
-                    {sortedTodayShifts.map(shift => (
-                        <div key={shift.id} className="p-3 bg-gray-50 rounded-lg">
-                            <p className="font-semibold text-gray-800">{shift.userName}</p>
-                            <p className="text-sm text-gray-600">
-                                {shift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })} - {shift.end ? shift.end.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : 'Zárásig'}
-                            </p>
-                        </div>
-                    ))}
+                    {sortedTodayShifts.map(shift => {
+                        const unit = shift.unitId ? unitMap.get(shift.unitId) : undefined;
+                        const startTime = shift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+                        const endTime = shift.end ? shift.end.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : 'Zárásig';
+                        return (
+                            <div key={shift.id} className="p-3 bg-gray-50 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                    <p className="font-semibold text-gray-800">{shift.userName}</p>
+                                    {isMultiUnitView && unit && (
+                                        <UnitLogoBadge unit={unit} size={18} />
+                                    )}
+                                </div>
+                                <p className="text-sm text-gray-600">
+                                    {shift.isDayOff ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-rose-600 font-semibold">
+                                            Szabadnap
+                                        </span>
+                                    ) : (
+                                        `${startTime} - ${endTime}`
+                                    )}
+                                </p>
+                            </div>
+                        );
+                    })}
                 </div>
             ) : (
                 <p className="text-gray-600">Ma nincsenek beosztott műszakok.</p>

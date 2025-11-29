@@ -42,6 +42,7 @@ import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import ColorPicker from '../common/ColorPicker';
+import UnitLogoBadge from '../common/UnitLogoBadge';
 
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
@@ -1226,6 +1227,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     useState(false);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
+  const isMultiUnitView = activeUnitIds.length > 1;
 
   // Subtle zebra palette for the UI table, mirroring export defaults
   const tableZebraDelta = useMemo(
@@ -1241,6 +1243,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const tableAltNameColor = useMemo(
     () => adjustColor(exportSettings.nameColumnColor, -tableZebraDelta),
     [exportSettings.nameColumnColor, tableZebraDelta]
+  );
+  const unitMap = useMemo(
+    () => new Map(allUnits.map(unit => [unit.id, unit])),
+    [allUnits]
   );
 
   const settingsDocId = useMemo(() => {
@@ -2492,6 +2498,12 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
                   {/* Dolgozók */}
                   {usersInPos.map(user => {
+                    const userUnitId =
+                      user.unitIds?.find(uid => activeUnitIds.includes(uid)) ||
+                      user.unitIds?.[0];
+                    const userUnit = userUnitId
+                      ? unitMap.get(userUnitId)
+                      : undefined;
                     const weeklyHours = workHours.userTotals[user.id] || 0;
                     const isEmptyWeek = weeklyHours === 0;
 
@@ -2518,10 +2530,15 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           style={{ background: nameBg, color: nameTextColor }}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-slate-800 leading-tight">
-                                {user.fullName}
-                              </span>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-slate-800 leading-tight">
+                                  {user.fullName}
+                                </span>
+                                {isMultiUnitView && userUnit && (
+                                  <UnitLogoBadge unit={userUnit} size={18} />
+                                )}
+                              </div>
                               <span className="export-hide text-[11px] text-slate-400">
                                 {weeklyHours.toFixed(1)} óra / hét
                               </span>
