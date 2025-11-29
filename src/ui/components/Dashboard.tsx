@@ -27,6 +27,7 @@ import AdminisztracioApp from './apps/AdminisztracioApp';
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
+import { KeszletApp } from './apps/KeszletApp';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -47,6 +48,7 @@ import MoneyIcon from '../../../components/icons/MoneyIcon';
 import AdminIcon from '../../../components/icons/AdminIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import ChatIcon from '../../../components/icons/ChatIcon';
+import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 
@@ -78,6 +80,7 @@ type AppName =
   | 'admin_todos'
   | 'elerhetosegek'
   | 'tudastar'
+  | 'keszlet'
   | 'velemenyek'
   | 'berezesem'
   | 'adminisztracio'
@@ -424,6 +427,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             canManageCategories={hasPermission('canManageKnowledgeCategories')}
           />
         );
+      case 'keszlet':
+        return (
+          <KeszletApp
+            selectedUnitIds={activeUnitIds}
+            allUnits={allUnits}
+            userUnitIds={currentUser.unitIds || []}
+            currentUserId={currentUser.id}
+            currentUserName={currentUser.fullName}
+            isUnitAdmin={currentUser.role === 'Admin' || currentUser.role === 'Unit Admin'}
+          />
+        );
       case 'velemenyek':
         return (
           <VelemenyekApp
@@ -528,6 +542,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
             )}
             <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
+            <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
+            <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
           </CategoryItem>
 
           <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
