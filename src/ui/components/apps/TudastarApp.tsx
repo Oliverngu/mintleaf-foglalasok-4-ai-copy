@@ -3,8 +3,8 @@ import {
   User,
   Unit,
   FileMetadata,
-  KnowledgeCategory,
-  KnowledgeNote,
+  knowledgeCategory,
+  knowledgeNote,
 } from '../../../core/models/data';
 import { db, storage, serverTimestamp } from '../../../core/firebase/config';
 import {
