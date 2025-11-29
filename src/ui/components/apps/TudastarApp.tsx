@@ -59,7 +59,7 @@ const FileUploadModal: FC<{
   currentUser: User;
   unitId: string;
   unitName?: string;
-  categories: KnowledgeCategory[];
+  categories: knowledgeCategory[];
   defaultCategoryId?: string | null;
   onSubcategoryCapture: (categoryId: string, subcategory?: string) => Promise<void>;
 }> = ({ onClose, currentUser, unitId, unitName, categories, defaultCategoryId, onSubcategoryCapture }) => {
@@ -291,7 +291,7 @@ const FileUploadModal: FC<{
 
 const NoteModal: FC<{
   onClose: () => void;
-  categories: KnowledgeCategory[];
+  categories: knowledgeCategory[];
   defaultCategoryId?: string;
   selectedUnitId: string;
   selectedUnitName?: string;
@@ -486,10 +486,10 @@ const NoteModal: FC<{
 
 const CategoryManagerModal: FC<{
   onClose: () => void;
-  categories: KnowledgeCategory[];
+  categories: knowledgeCategory[];
   selectedUnitId: string;
 }> = ({ onClose, categories, selectedUnitId }) => {
-  const [localCategories, setLocalCategories] = useState<KnowledgeCategory[]>(categories);
+  const [localCategories, setLocalCategories] = useState<knowledgeCategory[]>(categories);
   const [newCategoryTitle, setNewCategoryTitle] = useState('');
   const [draftSubcategories, setDraftSubcategories] = useState<Record<string, string>>({});
 
@@ -497,7 +497,7 @@ const CategoryManagerModal: FC<{
     setLocalCategories(categories);
   }, [categories]);
 
-  const handleRename = async (category: KnowledgeCategory, title: string) => {
+  const handleRename = async (category: knowledgeCategory, title: string) => {
     setLocalCategories(prev => prev.map(c => (c.id === category.id ? { ...c, title } : c)));
     await updateDoc(doc(db, 'knowledgeCategories', category.id), { title });
   };
@@ -704,8 +704,8 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
   canManageCategories,
 }) => {
   const [files, setFiles] = useState<FileMetadata[]>([]);
-  const [notes, setNotes] = useState<KnowledgeNote[]>([]);
-  const [categories, setCategories] = useState<KnowledgeCategory[]>([]);
+  const [notes, setNotes] = useState<knowledgeNote[]>([]);
+  const [categories, setCategories] = useState<knowledgeCategory[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -790,7 +790,7 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
           snapshot => {
             if (isStale) return;
             const fetched = snapshot.docs
-              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeCategory))
+              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as knowledgeCategory))
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             setCategories(fetched);
             setLoading(false);
@@ -850,7 +850,7 @@ useEffect(() => {
     snapshot => {
       if (isStale) return;
       const fetchedNotes = snapshot.docs
-        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as KnowledgeNote))
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as knowledgeNote))
         .sort(
           (a, b) =>
             (b.createdAt?.toMillis?.() || 0) -
@@ -971,7 +971,7 @@ useEffect(() => {
     }
   };
 
-  const handleDeleteNote = async (note: KnowledgeNote) => {
+  const handleDeleteNote = async (note: knowledgeNote) => {
     if (!canManageContentResolved) return;
     if (!window.confirm(`Biztosan törölni szeretnéd a(z) "${note.title}" jegyzetet?`)) return;
 
