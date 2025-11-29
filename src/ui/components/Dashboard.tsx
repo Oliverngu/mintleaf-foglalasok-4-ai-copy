@@ -428,7 +428,13 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'keszlet':
-        return <KeszletApp selectedUnitId={activeUnitIds[0] || ''} />;
+        return (
+          <KeszletApp
+            selectedUnitIds={activeUnitIds}
+            allUnits={allUnits}
+            userUnitIds={currentUser.unitIds || []}
+          />
+        );
       case 'velemenyek':
         return (
           <VelemenyekApp
