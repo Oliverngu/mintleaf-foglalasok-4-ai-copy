@@ -20,6 +20,7 @@ const permissionLabels: Record<keyof Permissions, { label: string; description: 
     canManageLeaveRequests: { label: 'Szabadságkérelmek kezelése', description: 'Engedélyezi a beérkezett szabadságkérelmek elfogadását és elutasítását.' },
     canSubmitLeaveRequests: { label: 'Szabadság kérése', description: 'Engedélyezi a felhasználónak, hogy szabadságot kérjen magának.' },
     canManageTodos: { label: 'Teendők kezelése', description: 'Engedélyezi új teendők felvételét és a meglévők elvégzettnek jelölését.' },
+    canManageInventory: { label: 'Készlet kezelése', description: 'Engedélyezi a készlet/inventár adatok kezelését az egységben.' },
     canManageKnowledgeBase: { label: 'Tudástár tartalom kezelése', description: 'Engedélyezi jegyzetek és dokumentumok létrehozását vagy törlését az egységben.' },
     canManageKnowledgeCategories: { label: 'Tudástár kategóriák kezelése', description: 'Engedélyezi a tudástár kategóriáinak és alkategóriáinak létrehozását, átnevezését és törlését.' },
     canManageContacts: { label: 'Névjegyek kezelése', description: 'Engedélyezi a közös névjegyzék szerkesztését.' },

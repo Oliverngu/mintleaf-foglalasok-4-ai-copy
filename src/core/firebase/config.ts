@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, Timestamp, serverTimestamp } from "firebase/firestore";
+import {
+  initializeFirestore,
+  memoryLocalCache,
+  persistentLocalCache,
+  Timestamp,
+  serverTimestamp,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -15,8 +21,14 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+// DEV MODE FIX: Disabling IndexedDB to avoid Firestore INTERNAL ASSERTION bug on Cloud Shell / Vite dev.
+// Use in-memory cache during development; keep persistent cache for production builds. Easily revertable when SDK is fixed.
+const firestoreCache = import.meta.env.DEV
+  ? { localCache: memoryLocalCache() }
+  : { localCache: persistentLocalCache() };
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, firestoreCache);
 
 // ✅ csak egyszer exportáld, explicit bucket URL-lel
 export const storage = getStorage(app, "gs://mintleaf-74d27.firebasestorage.app");

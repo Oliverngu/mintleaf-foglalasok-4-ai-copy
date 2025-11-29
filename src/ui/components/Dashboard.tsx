@@ -49,6 +49,8 @@ import PollsIcon from '../../../components/icons/PollsIcon';
 import ChatIcon from '../../../components/icons/ChatIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
+import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
+import KeszletApp from './apps/KeszletApp';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -82,7 +84,8 @@ type AppName =
   | 'berezesem'
   | 'adminisztracio'
   | 'szavazasok'
-  | 'chat';
+  | 'chat'
+  | 'keszlet';
 
 const AccessDenied: React.FC = () => (
   <div className="flex items-center justify-center h-full p-8 text-center bg-gray-100">
@@ -433,6 +436,14 @@ const Dashboard: React.FC<DashboardProps> = ({
             feedbackList={feedbackList}
           />
         );
+      case 'keszlet':
+        return (
+          <KeszletApp
+            currentUser={currentUser}
+            allUnits={allUnits}
+            activeUnitIds={activeUnitIds}
+          />
+        );
       case 'berezesem':
         return (
           <BerezesemApp
@@ -528,6 +539,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
             )}
             <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
+            <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
           </CategoryItem>
 
           <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
