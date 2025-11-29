@@ -8,6 +8,7 @@ import {
   InventoryProduct,
   InventoryIdealStock,
   InventoryCurrentStock,
+  InventorySettings,
   Unit,
 } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
@@ -189,15 +190,27 @@ interface KeszletAppProps {
   isUnitAdmin?: boolean;
 }
 
-interface ProductRow {
+interface ProductUnitEntry {
   unitId: string;
   product: InventoryProduct;
   idealQuantity: number;
   currentQuantity: number;
-  categoryName?: string;
-  supplierName?: string;
-  supplierLeadTimeDays?: number;
+  currentMeta?: InventoryCurrentStock;
+  categoryId?: string;
+}
+
+interface AggregatedProductRow {
+  key: string;
+  name: string;
+  unitOfMeasure: string;
+  supplierIds: string[];
+  categoryIds: Set<string>;
+  entries: ProductUnitEntry[];
+  totalIdeal: number;
+  totalCurrent: number;
   deviation: DeviationResult;
+  supplierLeadTimeDays?: number;
+  product: InventoryProduct;
 }
 
 type ShowFilter = 'all' | 'low' | 'critical' | 'overstock';
@@ -219,6 +232,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   const [productsByUnit, setProductsByUnit] = useState<Record<string, InventoryProduct[]>>({});
   const [idealStocksByUnit, setIdealStocksByUnit] = useState<Record<string, InventoryIdealStock[]>>({});
   const [currentStocksByUnit, setCurrentStocksByUnit] = useState<Record<string, InventoryCurrentStock[]>>({});
+  const [settingsByUnit, setSettingsByUnit] = useState<Record<string, InventorySettings>>({});
   const [contacts, setContacts] = useState<Contact[]>([]);
 
   const [filterSupplier, setFilterSupplier] = useState<string>('');
@@ -233,9 +247,13 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSupplierName, setNewSupplierName] = useState('');
   const [newSupplierContactId, setNewSupplierContactId] = useState('');
+  const [newSupplierLeadMin, setNewSupplierLeadMin] = useState('');
+  const [newSupplierLeadMax, setNewSupplierLeadMax] = useState('');
   const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
   const [supplierEdits, setSupplierEdits] = useState<Record<string, string>>({});
   const [supplierContactEdits, setSupplierContactEdits] = useState<Record<string, string>>({});
+  const [supplierLeadMinEdits, setSupplierLeadMinEdits] = useState<Record<string, string>>({});
+  const [supplierLeadMaxEdits, setSupplierLeadMaxEdits] = useState<Record<string, string>>({});
 
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [newProductName, setNewProductName] = useState('');
@@ -245,6 +263,13 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   const [newProductIdeal, setNewProductIdeal] = useState('');
   const [newProductCurrent, setNewProductCurrent] = useState('');
   const [newProductUnits, setNewProductUnits] = useState<string[]>(selectedUnitIds);
+  const [newProductAvgDailyUsage, setNewProductAvgDailyUsage] = useState('');
+  const [newProductUnitPrice, setNewProductUnitPrice] = useState('');
+  const [newProductCurrency, setNewProductCurrency] = useState('HUF');
+  const [newProductMinOrderQuantity, setNewProductMinOrderQuantity] = useState('');
+  const [newProductPackageSize, setNewProductPackageSize] = useState('');
+  const [newProductPackageLabel, setNewProductPackageLabel] = useState('');
+  const [newProductSafetyStock, setNewProductSafetyStock] = useState('');
 
   const [productEditorProduct, setProductEditorProduct] = useState<InventoryProduct | null>(null);
   const [productEditorForm, setProductEditorForm] = useState({
@@ -253,11 +278,20 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     categoryId: '',
     supplierIds: [] as string[],
     unitIds: [] as string[],
+    avgDailyUsage: '',
+    unitPrice: '',
+    currency: 'HUF',
+    minOrderQuantity: '',
+    packageSize: '',
+    packageLabel: '',
+    safetyStock: '',
   });
   const [productEditorOriginal, setProductEditorOriginal] = useState<typeof productEditorForm | null>(null);
   const [idealEditorProduct, setIdealEditorProduct] = useState<InventoryProduct | null>(null);
   const [idealEditorValues, setIdealEditorValues] = useState<Record<string, string>>({});
   const [idealEditorOriginal, setIdealEditorOriginal] = useState<Record<string, string>>({});
+
+  const [expandedStockEditorKey, setExpandedStockEditorKey] = useState<string | null>(null);
 
   useEffect(() => {
     setNewProductUnits(selectedUnitIds);
@@ -305,6 +339,11 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
       unsubs.push(
         InventoryService.listenCurrentStocks(unitId, items =>
           setCurrentStocksByUnit(prev => ({ ...prev, [unitId]: items }))
+        )
+      );
+      unsubs.push(
+        InventoryService.listenSettings(unitId, settings =>
+          setSettingsByUnit(prev => ({ ...prev, [unitId]: settings as InventorySettings }))
         )
       );
     });
@@ -393,22 +432,103 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     [allSuppliers]
   );
 
-  const productNameUnits = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
-    allProducts.forEach(p => {
-      const key = p.name.trim().toLowerCase();
-      if (!map[key]) map[key] = new Set();
-      map[key].add(p.unitId);
+  const aggregatedProducts: AggregatedProductRow[] = useMemo(() => {
+    const map: Record<string, AggregatedProductRow> = {};
+
+    allProducts.forEach(product => {
+      const key = normalizedKey(product.name);
+      const idealQuantity = idealMap[`${product.unitId}:${product.id}`] ?? 0;
+      const currentQuantity = currentMap[`${product.unitId}:${product.id}`] ?? 0;
+      const suppliersForUnit = suppliersByUnit[product.unitId] || [];
+      const supplierIds = getSupplierIds(product);
+      const leadTimes = supplierIds
+        .map(id => {
+          const supplier = suppliersForUnit.find(s => s.id === id);
+          if (supplier?.leadTimeMaxDays !== undefined) return supplier.leadTimeMaxDays;
+          if (supplier?.leadTimeMinDays !== undefined) return supplier.leadTimeMinDays;
+          return undefined;
+        })
+        .filter(v => v !== undefined) as number[];
+      const supplierLeadTimeDays = leadTimes.length ? Math.max(...leadTimes) : undefined;
+      const currentMeta = (currentStocksByUnit[product.unitId] || []).find(s => s.productId === product.id);
+
+      if (!map[key]) {
+        map[key] = {
+          key,
+          name: product.name,
+          unitOfMeasure: product.unitOfMeasure,
+          supplierIds: [],
+          categoryIds: new Set<string>(),
+          entries: [],
+          totalIdeal: 0,
+          totalCurrent: 0,
+          deviation: { view: deviationView, label: '' },
+          product,
+        };
+      }
+
+      const row = map[key];
+      row.entries.push({
+        unitId: product.unitId,
+        product,
+        idealQuantity,
+        currentQuantity,
+        currentMeta,
+        categoryId: product.categoryId,
+      });
+      row.totalIdeal += idealQuantity;
+      row.totalCurrent += currentQuantity;
+      supplierIds.forEach(id => {
+        if (!row.supplierIds.includes(id)) row.supplierIds.push(id);
+      });
+      if (product.categoryId) {
+        row.categoryIds.add(product.categoryId);
+      } else {
+        row.categoryIds.add('none');
+      }
+      if (supplierLeadTimeDays && (!row.supplierLeadTimeDays || supplierLeadTimeDays > row.supplierLeadTimeDays)) {
+        row.supplierLeadTimeDays = supplierLeadTimeDays;
+      }
     });
-    return map;
-  }, [allProducts]);
 
-  const filteredProducts: ProductRow[] = useMemo(() => {
-    const applyCategoryFilter = (product: InventoryProduct) => {
-      if (activeCategoryFilters.size === 0) return true;
-      return product.categoryId ? activeCategoryFilters.has(product.categoryId) : activeCategoryFilters.has('none');
-    };
+    return Object.values(map).map(row => {
+      const targetCover = row.entries
+        .map(entry => settingsByUnit[entry.unitId]?.targetDaysOfCover)
+        .find(value => value !== undefined);
+      const safetyDays = row.entries
+        .map(entry => settingsByUnit[entry.unitId]?.safetyDaysForSupplyRisk)
+        .find(value => value !== undefined);
 
+      const deviation = computeDeviation({
+        idealQuantity: row.totalIdeal,
+        currentQuantity: row.totalCurrent,
+        avgDailyUsage: row.product.avgDailyUsage,
+        unitPrice: row.product.unitPrice,
+        minOrderQuantity: row.product.minOrderQuantity,
+        safetyStock: row.product.safetyStock,
+        supplierLeadTimeDays: row.supplierLeadTimeDays,
+        targetDaysOfCover: targetCover,
+        safetyDaysForSupplyRisk: safetyDays,
+        deviationView,
+        unitOfMeasure: row.product.unitOfMeasure,
+        currency: row.product.currency,
+        packageSize: row.product.packageSize,
+        packageLabel: row.product.packageLabel,
+      });
+
+      return { ...row, deviation };
+    });
+  }, [
+    allProducts,
+    currentMap,
+    currentStocksByUnit,
+    deviationView,
+    idealMap,
+    settingsByUnit,
+    suppliersByUnit,
+  ]);
+
+  const filteredProducts: AggregatedProductRow[] = useMemo(() => {
     const statusMatchesFilter = (status?: StockStatus, ideal?: number, current?: number) => {
       if (showFilter === 'all') return true;
       if (showFilter === 'critical') return status === 'critical';
@@ -417,70 +537,29 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
       return true;
     };
 
-    return allProducts
-      .filter(p => applyCategoryFilter(p))
-      .filter(p => {
+    return aggregatedProducts
+      .filter(row => {
+        if (activeCategoryFilters.size === 0) return true;
+        return Array.from(row.categoryIds).some(id => activeCategoryFilters.has(id));
+      })
+      .filter(row => {
         if (!filterSupplier) return true;
-        const supplierIds = getSupplierIds(p);
-        return supplierIds.includes(filterSupplier);
+        return row.supplierIds.includes(filterSupplier);
       })
-      .map(product => {
-        const supplierIds = getSupplierIds(product);
-        const suppliersForUnit = suppliersByUnit[product.unitId] || [];
-        const leadTimes = supplierIds
-          .map(id => suppliersForUnit.find(s => s.id === id)?.leadTimeDays)
-          .filter(v => v !== undefined) as number[];
-        const supplierLeadTimeDays = leadTimes.length ? Math.max(...leadTimes) : undefined;
-        const idealQuantity = idealMap[`${product.unitId}:${product.id}`] ?? 0;
-        const currentQuantity = currentMap[`${product.unitId}:${product.id}`] ?? 0;
-        const deviation = computeDeviation({
-          idealQuantity,
-          currentQuantity,
-          avgDailyUsage: product.avgDailyUsage,
-          unitPrice: product.unitPrice,
-          minOrderQuantity: product.minOrderQuantity,
-          safetyStock: product.safetyStock,
-          supplierLeadTimeDays,
-          deviationView,
-          unitOfMeasure: product.unitOfMeasure,
-        });
-
-        return {
-          unitId: product.unitId,
-          product,
-          idealQuantity,
-          currentQuantity,
-          categoryName: product.categoryId ? categoryNameMap[product.categoryId] : undefined,
-          supplierName: supplierIds.length ? supplierIds.map(id => supplierNameMap[id]).filter(Boolean).join(', ') : undefined,
-          supplierLeadTimeDays,
-          deviation,
-        };
-      })
-      .filter(row => statusMatchesFilter(row.deviation.status, row.idealQuantity, row.currentQuantity));
-  }, [
-    activeCategoryFilters,
-    allProducts,
-    categoryNameMap,
-    currentMap,
-    deviationView,
-    filterSupplier,
-    idealMap,
-    showFilter,
-    supplierNameMap,
-    suppliersByUnit,
-  ]);
+      .filter(row => statusMatchesFilter(row.deviation.status, row.totalIdeal, row.totalCurrent));
+  }, [activeCategoryFilters, aggregatedProducts, filterSupplier, showFilter]);
 
   const groupedProducts = useMemo(() => {
-    const groups: Record<string, { label: string; items: ProductRow[] }> = {};
+    const groups: Record<string, { label: string; items: AggregatedProductRow[] }> = {};
     filteredProducts.forEach(row => {
-      const key = row.product.categoryId || 'none';
+      const key = Array.from(row.categoryIds).find(id => id !== 'none') || 'none';
       if (!groups[key]) {
-        groups[key] = { label: row.categoryName || 'Kategória nélkül', items: [] };
+        groups[key] = { label: key === 'none' ? 'Kategória nélkül' : categoryNameMap[key] || 'Ismeretlen kategória', items: [] };
       }
       groups[key].items.push(row);
     });
     return Object.values(groups).sort((a, b) => a.label.localeCompare(b.label));
-  }, [filteredProducts]);
+  }, [categoryNameMap, filteredProducts]);
 
   const showUnitBadges = selectedUnitIds.length > 1 && userUnitIds.length !== 1;
 
@@ -546,17 +625,25 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     await InventoryService.addSupplier(targetUnitId, {
       name: newSupplierName.trim(),
       contactId: newSupplierContactId || undefined,
+      ...(newSupplierLeadMin ? { leadTimeMinDays: parseFloat(newSupplierLeadMin) } : {}),
+      ...(newSupplierLeadMax ? { leadTimeMaxDays: parseFloat(newSupplierLeadMax) } : {}),
     });
     setNewSupplierName('');
     setNewSupplierContactId('');
+    setNewSupplierLeadMin('');
+    setNewSupplierLeadMax('');
   };
 
   const handleUpdateSupplier = async (unitId: string, supplierId: string) => {
     const name = supplierEdits[`${unitId}:${supplierId}`];
     const contactId = supplierContactEdits[`${unitId}:${supplierId}`];
+    const leadMin = supplierLeadMinEdits[`${unitId}:${supplierId}`];
+    const leadMax = supplierLeadMaxEdits[`${unitId}:${supplierId}`];
     const payload: Partial<InventorySupplier> = {};
     if (name?.trim()) payload.name = name.trim();
     if (contactId !== undefined) payload.contactId = contactId || undefined;
+    if (leadMin !== undefined) payload.leadTimeMinDays = leadMin ? parseFloat(leadMin) : undefined;
+    if (leadMax !== undefined) payload.leadTimeMaxDays = leadMax ? parseFloat(leadMax) : undefined;
     if (!Object.keys(payload).length) return;
     await InventoryService.updateSupplier(unitId, supplierId, payload);
   };
@@ -572,6 +659,11 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     if (!newProductName.trim() || !newProductUnit.trim()) return;
     const idealValue = parseFloat(newProductIdeal || '0');
     const currentValue = newProductCurrent ? parseFloat(newProductCurrent) : undefined;
+    const avgDailyUsage = newProductAvgDailyUsage ? parseFloat(newProductAvgDailyUsage) : undefined;
+    const unitPrice = newProductUnitPrice ? parseFloat(newProductUnitPrice) : undefined;
+    const minOrderQuantity = newProductMinOrderQuantity ? parseFloat(newProductMinOrderQuantity) : undefined;
+    const packageSize = newProductPackageSize ? parseFloat(newProductPackageSize) : undefined;
+    const safetyStock = newProductSafetyStock ? parseFloat(newProductSafetyStock) : undefined;
 
     await Promise.all(
       unitsToUse.map(async unitId => {
@@ -580,6 +672,14 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
           categoryId: newProductCategory || undefined,
           supplierIds: newProductSupplierIds.length ? newProductSupplierIds : undefined,
           unitOfMeasure: newProductUnit.trim(),
+          ...(avgDailyUsage !== undefined && !isNaN(avgDailyUsage) ? { avgDailyUsage } : {}),
+          ...(unitPrice !== undefined && !isNaN(unitPrice)
+            ? { unitPrice, currency: newProductCurrency || 'HUF' }
+            : {}),
+          ...(minOrderQuantity !== undefined && !isNaN(minOrderQuantity) ? { minOrderQuantity } : {}),
+          ...(packageSize !== undefined && !isNaN(packageSize) ? { packageSize } : {}),
+          ...(newProductPackageLabel ? { packageLabel: newProductPackageLabel } : {}),
+          ...(safetyStock !== undefined && !isNaN(safetyStock) ? { safetyStock } : {}),
         });
         await InventoryService.setIdealStock(unitId, productRef.id, isNaN(idealValue) ? 0 : idealValue);
         if (!isNaN(currentValue ?? NaN)) {
@@ -594,6 +694,13 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     setNewProductUnit('');
     setNewProductIdeal('');
     setNewProductCurrent('');
+    setNewProductAvgDailyUsage('');
+    setNewProductUnitPrice('');
+    setNewProductCurrency('HUF');
+    setNewProductMinOrderQuantity('');
+    setNewProductPackageSize('');
+    setNewProductPackageLabel('');
+    setNewProductSafetyStock('');
     setIsProductModalOpen(false);
   };
 
@@ -610,6 +717,13 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
       categoryId: product.categoryId || '',
       supplierIds,
       unitIds: unitIds.length ? unitIds : [product.unitId],
+      avgDailyUsage: product.avgDailyUsage?.toString() || '',
+      unitPrice: product.unitPrice?.toString() || '',
+      currency: product.currency || 'HUF',
+      minOrderQuantity: product.minOrderQuantity?.toString() || '',
+      packageSize: product.packageSize?.toString() || '',
+      packageLabel: product.packageLabel || '',
+      safetyStock: product.safetyStock?.toString() || '',
     };
     setProductEditorForm(formState);
     setProductEditorOriginal(formState);
@@ -638,6 +752,22 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
           unitOfMeasure: productEditorForm.unitOfMeasure.trim(),
           categoryId: productEditorForm.categoryId || undefined,
           supplierIds: productEditorForm.supplierIds,
+          ...(productEditorForm.avgDailyUsage
+            ? { avgDailyUsage: parseFloat(productEditorForm.avgDailyUsage) }
+            : {}),
+          ...(productEditorForm.unitPrice
+            ? { unitPrice: parseFloat(productEditorForm.unitPrice), currency: productEditorForm.currency || 'HUF' }
+            : productEditorForm.currency
+            ? { currency: productEditorForm.currency }
+            : {}),
+          ...(productEditorForm.minOrderQuantity
+            ? { minOrderQuantity: parseFloat(productEditorForm.minOrderQuantity) }
+            : {}),
+          ...(productEditorForm.packageSize
+            ? { packageSize: parseFloat(productEditorForm.packageSize) }
+            : {}),
+          ...(productEditorForm.packageLabel ? { packageLabel: productEditorForm.packageLabel } : {}),
+          ...(productEditorForm.safetyStock ? { safetyStock: parseFloat(productEditorForm.safetyStock) } : {}),
         };
         if (existing) {
           await InventoryService.updateProduct(unitId, existing.id, payload);
@@ -874,31 +1004,35 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                   <span>//</span> <span>{group.label}</span>
                 </div>
                 <div className="divide-y">
-                  {group.items.map(({ product, idealQuantity, currentQuantity, unitId, deviation }) => {
-                    const badgeUnits = Array.from(productNameUnits[product.name.trim().toLowerCase()] || []);
-                    const supplierIds = getSupplierIds(product);
-                    const supplierBadges = supplierIds
+                  {group.items.map(row => {
+                    const product = row.product;
+                    const badgeUnits = row.entries.map(entry => entry.unitId);
+                    const supplierBadges = row.supplierIds
                       .map(id => supplierNameMap[id])
                       .filter(Boolean)
                       .slice(0, 3);
-                    const supplierOverflow = Math.max(0, supplierIds.length - supplierBadges.length);
-                    const idealValue = idealMap[`${unitId}:${product.id}`] ?? idealQuantity;
-                    const currentKey = `${unitId}:${product.id}`;
-                    const currentInputValue = currentInputs[currentKey] ?? currentQuantity.toString();
-                    const currentSavedValue = currentMap[currentKey] ?? 0;
-                    const isCurrentDirty = parseFloat(currentInputValue) !== currentSavedValue;
-                    const currentMeta = (currentStocksByUnit[unitId] || []).find(s => s.productId === product.id);
-                    const updatedLabel = currentMeta?.updatedAt
-                      ? new Date(currentMeta.updatedAt.toDate()).toLocaleString()
-                      : 'N/A';
-                    const updaterName = currentMeta?.updatedByUserId
-                      ? currentMeta.updatedByUserId === currentUserId
-                        ? currentUserName || currentMeta.updatedByUserId
-                        : currentMeta.updatedByUserId
-                      : 'Ismeretlen';
+                    const supplierOverflow = Math.max(0, row.supplierIds.length - supplierBadges.length);
+                    const idealTooltip = row.entries
+                      .map(entry => `${allUnits.find(u => u.id === entry.unitId)?.name || entry.unitId}: ${entry.idealQuantity}`)
+                      .join(', ');
+                    const currentTooltip = row.entries
+                      .map(entry => {
+                        const updatedLabel = entry.currentMeta?.updatedAt
+                          ? new Date(entry.currentMeta.updatedAt.toDate()).toLocaleString()
+                          : 'N/A';
+                        const updaterName = entry.currentMeta?.updatedByUserId
+                          ? entry.currentMeta.updatedByUserId === currentUserId
+                            ? currentUserName || entry.currentMeta.updatedByUserId
+                            : entry.currentMeta.updatedByUserId
+                          : 'Ismeretlen';
+                        return `${allUnits.find(u => u.id === entry.unitId)?.name || entry.unitId}: ${entry.currentQuantity} (frissítve: ${updatedLabel}, ${updaterName})`;
+                      })
+                      .join('\n');
+                    const isMultiUnit = row.entries.length > 1;
+                    const expanded = expandedStockEditorKey === row.key;
 
                     return (
-                      <div key={`${unitId}:${product.id}`} className="px-4 py-4 flex flex-col gap-3">
+                      <div key={row.key} className="px-4 py-4 flex flex-col gap-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex flex-col gap-1 min-w-[200px]">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -929,55 +1063,146 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
 
                           <div className="flex flex-wrap items-center gap-4 text-sm">
                             <div className="flex flex-col gap-1 min-w-[140px]">
-                              <span className="text-xs text-gray-500">Ideális</span>
+                              <span className="text-xs text-gray-500">Ideális összesen</span>
                               <button
                                 onClick={() => openIdealEditor(product)}
                                 className="text-left w-full px-3 py-2 border rounded-lg bg-gray-50 hover:bg-gray-100"
+                                title={idealTooltip}
                               >
-                                {idealValue}
+                                {row.totalIdeal}
                               </button>
                             </div>
 
-                            <div className="flex flex-col gap-1 min-w-[180px]">
-                              <span className="text-xs text-gray-500">Aktuális</span>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  value={currentInputValue}
-                                  onChange={e =>
-                                    setCurrentInputs(prev => ({ ...prev, [currentKey]: e.target.value }))
-                                  }
-                                  className="w-full border rounded-lg px-3 py-2"
-                                />
-                                {isCurrentDirty && (
+                            <div className="flex flex-col gap-1 min-w-[200px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-500">Aktuális összesen</span>
+                                {isMultiUnit && (
                                   <button
-                                    onClick={() => handleSaveCurrent(unitId, product.id)}
-                                    className="px-3 py-2 bg-green-700 text-white rounded-lg text-xs hover:bg-green-800"
-                                    disabled={savingCurrent[currentKey]}
+                                    onClick={() =>
+                                      setExpandedStockEditorKey(expanded ? null : row.key)
+                                    }
+                                    className="text-xs text-green-700 hover:underline"
                                   >
-                                    {savingCurrent[currentKey] ? 'Mentés...' : 'Mentés'}
+                                    Egységenként
                                   </button>
                                 )}
                               </div>
-                              <span className="text-[11px] text-gray-500">
-                                Utoljára módosítva: {updatedLabel} – {updaterName}
-                              </span>
+                              <div
+                                className="text-left w-full px-3 py-2 border rounded-lg bg-white"
+                                title={currentTooltip}
+                              >
+                                {row.totalCurrent}
+                              </div>
+                              {!isMultiUnit && row.entries[0] && (() => {
+                                const entry = row.entries[0];
+                                const currentKey = `${entry.unitId}:${entry.product.id}`;
+                                const currentInputValue = currentInputs[currentKey] ?? entry.currentQuantity.toString();
+                                const currentSavedValue = currentMap[currentKey] ?? entry.currentQuantity;
+                                const isCurrentDirty = parseFloat(currentInputValue) !== currentSavedValue;
+                                const updatedLabel = entry.currentMeta?.updatedAt
+                                  ? new Date(entry.currentMeta.updatedAt.toDate()).toLocaleString()
+                                  : 'N/A';
+                                const updaterName = entry.currentMeta?.updatedByUserId
+                                  ? entry.currentMeta.updatedByUserId === currentUserId
+                                    ? currentUserName || entry.currentMeta.updatedByUserId
+                                    : entry.currentMeta.updatedByUserId
+                                  : 'Ismeretlen';
+                                return (
+                                  <div className="flex flex-col gap-1 pt-2">
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        value={currentInputValue}
+                                        onChange={e =>
+                                          setCurrentInputs(prev => ({ ...prev, [currentKey]: e.target.value }))
+                                        }
+                                        className="w-full border rounded-lg px-3 py-2"
+                                      />
+                                      {isCurrentDirty && (
+                                        <button
+                                          onClick={() => handleSaveCurrent(entry.unitId, entry.product.id)}
+                                          className="px-3 py-2 bg-green-700 text-white rounded-lg text-xs hover:bg-green-800"
+                                          disabled={savingCurrent[currentKey]}
+                                        >
+                                          {savingCurrent[currentKey] ? 'Mentés...' : 'Mentés'}
+                                        </button>
+                                      )}
+                                    </div>
+                                    <span className="text-[11px] text-gray-500">
+                                      Utoljára módosítva: {updatedLabel} – {updaterName}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </div>
 
                             <div className="flex flex-col gap-1 min-w-[160px] items-start">
                               <span className="text-xs text-gray-500">Eltérés</span>
                               <div
                                 className={`inline-flex items-center gap-2 px-3 py-2 rounded-full border text-sm font-semibold ${statusPillClasses(
-                                  deviation.status
+                                  row.deviation.status
                                 )}`}
-                                title={deviation.tooltip}
+                                title={row.deviation.tooltip}
                               >
                                 <span className="h-2 w-2 rounded-full bg-current opacity-70" />
-                                <span>{deviation.label}</span>
+                                <span>{row.deviation.label}</span>
                               </div>
                             </div>
                           </div>
                         </div>
+
+                        {isMultiUnit && expanded && (
+                          <div className="bg-gray-50 border rounded-lg p-3 space-y-3">
+                            {row.entries.map(entry => {
+                              const currentKey = `${entry.unitId}:${entry.product.id}`;
+                              const currentInputValue = currentInputs[currentKey] ?? entry.currentQuantity.toString();
+                              const currentSavedValue = currentMap[currentKey] ?? entry.currentQuantity;
+                              const isCurrentDirty = parseFloat(currentInputValue) !== currentSavedValue;
+                              const updatedLabel = entry.currentMeta?.updatedAt
+                                ? new Date(entry.currentMeta.updatedAt.toDate()).toLocaleString()
+                                : 'N/A';
+                              const updaterName = entry.currentMeta?.updatedByUserId
+                                ? entry.currentMeta.updatedByUserId === currentUserId
+                                  ? currentUserName || entry.currentMeta.updatedByUserId
+                                  : entry.currentMeta.updatedByUserId
+                                : 'Ismeretlen';
+                              const unit = allUnits.find(u => u.id === entry.unitId);
+                              return (
+                                <div key={currentKey} className="flex flex-col md:flex-row md:items-center gap-2">
+                                  <div className="flex items-center gap-2 min-w-[200px]">
+                                    {renderUnitBadge(entry.unitId)}
+                                    <div>
+                                      <div className="font-semibold text-gray-800">{unit?.name || entry.unitId}</div>
+                                      <div className="text-xs text-gray-500">Aktuális készlet</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      value={currentInputValue}
+                                      onChange={e =>
+                                        setCurrentInputs(prev => ({ ...prev, [currentKey]: e.target.value }))
+                                      }
+                                      className="w-full border rounded-lg px-3 py-2"
+                                    />
+                                    {isCurrentDirty && (
+                                      <button
+                                        onClick={() => handleSaveCurrent(entry.unitId, entry.product.id)}
+                                        className="px-3 py-2 bg-green-700 text-white rounded-lg text-xs hover:bg-green-800"
+                                        disabled={savingCurrent[currentKey]}
+                                      >
+                                        {savingCurrent[currentKey] ? 'Mentés...' : 'Mentés'}
+                                      </button>
+                                    )}
+                                  </div>
+                                  <span className="text-[11px] text-gray-500 min-w-[160px]">
+                                    Utoljára módosítva: {updatedLabel} – {updaterName}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1027,6 +1252,36 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           </option>
                         ))}
                       </select>
+                      <input
+                        type="number"
+                        placeholder="Min lead (nap)"
+                        value={
+                          supplierLeadMinEdits[`${supplier.unitId}:${supplier.id}`] ??
+                          (supplier.leadTimeMinDays?.toString() || '')
+                        }
+                        onChange={e =>
+                          setSupplierLeadMinEdits(prev => ({
+                            ...prev,
+                            [`${supplier.unitId}:${supplier.id}`]: e.target.value,
+                          }))
+                        }
+                        className="w-32 border rounded-lg px-3 py-2"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Max lead (nap)"
+                        value={
+                          supplierLeadMaxEdits[`${supplier.unitId}:${supplier.id}`] ??
+                          (supplier.leadTimeMaxDays?.toString() || '')
+                        }
+                        onChange={e =>
+                          setSupplierLeadMaxEdits(prev => ({
+                            ...prev,
+                            [`${supplier.unitId}:${supplier.id}`]: e.target.value,
+                          }))
+                        }
+                        className="w-32 border rounded-lg px-3 py-2"
+                      />
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -1072,6 +1327,22 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                   </option>
                 ))}
               </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  value={newSupplierLeadMin}
+                  onChange={e => setNewSupplierLeadMin(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Min. szállítási idő (nap)"
+                />
+                <input
+                  type="number"
+                  value={newSupplierLeadMax}
+                  onChange={e => setNewSupplierLeadMax(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Max. szállítási idő (nap)"
+                />
+              </div>
               <p className="text-xs text-gray-500">Az első kijelölt egységhez kerül mentésre.</p>
               <button
                 type="submit"
@@ -1238,6 +1509,83 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Átlagos napi fogyás</label>
+                  <input
+                    type="number"
+                    value={newProductAvgDailyUsage}
+                    onChange={e => setNewProductAvgDailyUsage(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 2"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Egységár</label>
+                  <input
+                    type="number"
+                    value={newProductUnitPrice}
+                    onChange={e => setNewProductUnitPrice(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 1200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Pénznem</label>
+                  <input
+                    value={newProductCurrency}
+                    onChange={e => setNewProductCurrency(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="HUF"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Min. rendelés (db)</label>
+                  <input
+                    type="number"
+                    value={newProductMinOrderQuantity}
+                    onChange={e => setNewProductMinOrderQuantity(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 12"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Csomag kiszerelés (db)</label>
+                  <input
+                    type="number"
+                    value={newProductPackageSize}
+                    onChange={e => setNewProductPackageSize(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 6"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Csomag megnevezés</label>
+                  <input
+                    value={newProductPackageLabel}
+                    onChange={e => setNewProductPackageLabel(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. karton"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-600">Biztonsági készlet</label>
+                  <input
+                    type="number"
+                    value={newProductSafetyStock}
+                    onChange={e => setNewProductSafetyStock(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="pl. 5"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <div className="text-sm text-gray-600 font-semibold">Elérhető egységek</div>
                 <div className="flex flex-wrap gap-3">
@@ -1356,6 +1704,76 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                   ))}
                 </select>
                 <p className="text-xs text-gray-500">Választhatsz több beszállítót is.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Átlagos napi fogyás</label>
+                <input
+                  type="number"
+                  value={productEditorForm.avgDailyUsage}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, avgDailyUsage: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Egységár</label>
+                <input
+                  type="number"
+                  value={productEditorForm.unitPrice}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, unitPrice: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Pénznem</label>
+                <input
+                  value={productEditorForm.currency}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, currency: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Min. rendelés (db)</label>
+                <input
+                  type="number"
+                  value={productEditorForm.minOrderQuantity}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, minOrderQuantity: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Csomag kiszerelés (db)</label>
+                <input
+                  type="number"
+                  value={productEditorForm.packageSize}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, packageSize: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Csomag megnevezés</label>
+                <input
+                  value={productEditorForm.packageLabel}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, packageLabel: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm text-gray-600">Biztonsági készlet</label>
+                <input
+                  type="number"
+                  value={productEditorForm.safetyStock}
+                  onChange={e => setProductEditorForm(prev => ({ ...prev, safetyStock: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                />
               </div>
             </div>
 
