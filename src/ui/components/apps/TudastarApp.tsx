@@ -899,7 +899,7 @@ useEffect(() => {
     };
 
     try {
-      const filesQuery = collection(db, 'units', selectedUnitId, 'files');
+      const filesQuery = collection(db, 'units', selectedUnitId, 'knowledge_base');
       unsubscribeNew = onSnapshot(
         filesQuery,
         snapshot => {
