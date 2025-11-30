@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Unit,
   ReservationSetting,
@@ -31,6 +31,10 @@ interface ReservationPageProps {
   currentUser: User | null;
 }
 
+interface ReservationPageContentProps extends ReservationPageProps {
+  onThemeChange?: (theme: ThemeSettings) => void;
+}
+
 const toDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -55,6 +59,46 @@ const DEFAULT_THEME: ThemeSettings = {
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
   customSelects: [],
 };
+
+const ThemeContext = React.createContext<ThemeSettings>(DEFAULT_THEME);
+
+const withOpacity = (hex: string, alpha: number) => {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return hex;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const ThemeProvider: React.FC<{
+  theme?: Partial<ThemeSettings>;
+  children: React.ReactNode;
+}> = ({ theme, children }) => {
+  const mergedTheme = useMemo(
+    () => ({
+      ...DEFAULT_THEME,
+      ...(theme || {}),
+    }),
+    [theme]
+  );
+
+  useEffect(() => {
+    const root = document.documentElement;
+    Object.entries(mergedTheme).forEach(([key, value]) => {
+      if (key === 'radius' || key === 'elevation' || key === 'typographyScale') {
+        return;
+      }
+      root.style.setProperty(`--color-${key}`, value as string);
+    });
+  }, [mergedTheme]);
+
+  return (
+    <ThemeContext.Provider value={mergedTheme}>{children}</ThemeContext.Provider>
+  );
+};
+
+const useTheme = () => useContext(ThemeContext);
 
 const generateAdminActionToken = () =>
   `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
@@ -118,43 +162,49 @@ const ProgressIndicator: React.FC<{
   currentStep: number;
   t: typeof translations['hu'];
 }> = ({ currentStep, t }) => {
+  const theme = useTheme();
   const steps = [t.step1, t.step2, t.step3];
+  const mutedBg = withOpacity(theme.textSecondary, 0.15);
+  const mutedText = withOpacity(theme.textSecondary, 0.7);
+
   return (
     <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
         const isActive = currentStep === stepNumber;
+        const circleStyle = isCompleted
+          ? { backgroundColor: theme.primary, color: '#ffffff' }
+          : isActive
+          ? {
+              backgroundColor: withOpacity(theme.primary, 0.15),
+              color: theme.primary,
+              border: `2px solid ${theme.primary}`,
+            }
+          : { backgroundColor: mutedBg, color: mutedText };
+        const labelColor = isActive || isCompleted ? theme.textPrimary : mutedText;
+        const barStyle = {
+          backgroundColor: isCompleted ? theme.primary : mutedBg,
+        };
+
         return (
           <React.Fragment key={stepNumber}>
             <div className="flex flex-col items-center text-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
-                  isCompleted
-                    ? 'bg-[var(--color-primary)] text-white'
-                    : isActive
-                    ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
-                    : 'bg-gray-200 text-gray-500'
-                }`}
+                className="w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors"
+                style={circleStyle}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
               <p
-                className={`mt-2 text-sm font-semibold transition-colors ${
-                  isActive || isCompleted
-                    ? 'text-[var(--color-text-primary)]'
-                    : 'text-gray-400'
-                }`}
+                className="mt-2 text-sm font-semibold transition-colors"
+                style={{ color: labelColor }}
               >
                 {label}
               </p>
             </div>
             {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 transition-colors ${
-                  isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
-                }`}
-              ></div>
+              <div className="flex-1 h-1 mx-2 transition-colors" style={barStyle}></div>
             )}
           </React.Fragment>
         );
@@ -163,10 +213,11 @@ const ProgressIndicator: React.FC<{
   );
 };
 
-const ReservationPage: React.FC<ReservationPageProps> = ({
+const ReservationPageContent: React.FC<ReservationPageContentProps> = ({
   unitId,
   allUnits,
   currentUser: _currentUser, // jelenleg nincs használva
+  onThemeChange,
 }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -193,6 +244,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
     new Map()
   );
+
+  const theme = useTheme();
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -306,19 +359,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, [unitId, currentMonth, settings?.dailyCapacity]);
 
   useEffect(() => {
+    if (!onThemeChange) return;
     if (settings?.theme) {
-      const root = document.documentElement;
-      Object.entries(settings.theme).forEach(([key, value]) => {
-        if (
-          key !== 'radius' &&
-          key !== 'elevation' &&
-          key !== 'typographyScale'
-        ) {
-          root.style.setProperty(`--color-${key}`, value as string);
-        }
-      });
+      onThemeChange({ ...DEFAULT_THEME, ...settings.theme });
+    } else {
+      onThemeChange(DEFAULT_THEME);
     }
-  }, [settings?.theme]);
+  }, [onThemeChange, settings?.theme]);
 
   const resetFlow = () => {
     setSelectedDate(null);
@@ -484,14 +531,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   };
 
   const themeClassProps = useMemo(() => {
-    if (!settings?.theme) {
-      return {
-        radiusClass: 'rounded-lg',
-        shadowClass: 'shadow-md',
-        fontBaseClass: 'text-base',
-      };
-    }
-    const { radius, elevation, typographyScale } = settings.theme;
+    const { radius, elevation, typographyScale } = theme || DEFAULT_THEME;
     return {
       radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[
         radius
@@ -503,7 +543,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         typographyScale
       ],
     };
-  }, [settings?.theme]);
+  }, [theme]);
 
   if (error && step !== 2) {
     return (
@@ -532,22 +572,20 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
         <button
           onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
+          className={locale === 'hu' ? 'font-bold' : ''}
+          style={{
+            color: locale === 'hu' ? theme.primary : theme.textSecondary,
+          }}
         >
           Magyar
         </button>
-        <span className="text-gray-300">|</span>
+        <span style={{ color: withOpacity(theme.textSecondary, 0.6) }}>|</span>
         <button
           onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
+          className={locale === 'en' ? 'font-bold' : ''}
+          style={{
+            color: locale === 'en' ? theme.primary : theme.textSecondary,
+          }}
         >
           English
         </button>
@@ -633,6 +671,7 @@ const Step1Date: React.FC<{
   onMonthChange,
   dailyHeadcounts,
 }) => {
+  const theme = useTheme();
   const startOfMonth = new Date(
     currentMonth.getFullYear(),
     currentMonth.getMonth(),
@@ -659,7 +698,11 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border`}
+      style={{
+        backgroundColor: theme.surface,
+        borderColor: withOpacity(theme.textSecondary, 0.15),
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
         {t.step1Title}
@@ -672,7 +715,8 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className="p-2 rounded-full transition-colors"
+          style={{ backgroundColor: withOpacity(theme.primary, 0.05) }}
         >
           &lt;
         </button>
@@ -686,7 +730,8 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className="p-2 rounded-full transition-colors"
+          style={{ backgroundColor: withOpacity(theme.primary, 0.05) }}
         >
           &gt;
         </button>
@@ -711,18 +756,37 @@ const Step1Date: React.FC<{
           const isDisabled = isBlackout || isPast || isFull;
 
           let buttonClass = `w-full p-1 h-12 flex items-center justify-center text-sm ${themeProps.radiusClass} transition-colors`;
+          let buttonStyle: React.CSSProperties = {
+            backgroundColor: theme.surface,
+            color: theme.textPrimary,
+            border: `1px solid ${withOpacity(theme.textSecondary, 0.2)}`,
+          };
           let titleText = '';
 
           if (isDisabled) {
             if (isFull) {
-              buttonClass +=
-                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
+              buttonStyle = {
+                ...buttonStyle,
+                backgroundColor: withOpacity(theme.danger, 0.1),
+                color: withOpacity(theme.danger, 0.6),
+                textDecoration: 'line-through',
+                cursor: 'not-allowed',
+              };
               titleText = t.errorCapacityFull;
             } else {
-              buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
+              buttonStyle = {
+                ...buttonStyle,
+                backgroundColor: withOpacity(theme.textSecondary, 0.05),
+                color: withOpacity(theme.textSecondary, 0.4),
+                cursor: 'not-allowed',
+              };
             }
           } else {
-            buttonClass += ' hover:bg-green-100';
+            buttonStyle = {
+              ...buttonStyle,
+              backgroundColor: withOpacity(theme.primary, 0.05),
+              color: theme.textPrimary,
+            };
           }
 
           return (
@@ -733,6 +797,7 @@ const Step1Date: React.FC<{
                 disabled={isDisabled}
                 title={titleText}
                 className={buttonClass}
+                style={buttonStyle}
               >
                 {day.getDate()}
               </button>
@@ -757,6 +822,7 @@ const Step2Details: React.FC<any> = ({
   locale,
   error,
 }) => {
+  const theme = useTheme();
   const [formErrors, setFormErrors] = useState({
     name: '',
     phone: '',
@@ -817,13 +883,23 @@ const Step2Details: React.FC<any> = ({
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border`}
+      style={{
+        backgroundColor: theme.surface,
+        borderColor: withOpacity(theme.textSecondary, 0.15),
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
         {t.step2Title}
       </h2>
       {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">
+        <div
+          className="p-3 mb-4 font-semibold rounded-lg text-sm"
+          style={{
+            backgroundColor: withOpacity(theme.danger, 0.12),
+            color: theme.danger,
+          }}
+        >
           {error}
         </div>
       )}
@@ -831,7 +907,12 @@ const Step2Details: React.FC<any> = ({
         settings.kitchenStartTime ||
         settings.barStartTime) && (
         <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
+          className={`p-3 mb-4 ${themeProps.radiusClass} text-sm space-y-2 border`}
+          style={{
+            backgroundColor: withOpacity(theme.primary, 0.04),
+            borderColor: withOpacity(theme.textSecondary, 0.12),
+            color: theme.textPrimary,
+          }}
         >
           {bookingWindowText && (
             <p className="flex items-start gap-2">
@@ -840,7 +921,10 @@ const Step2Details: React.FC<any> = ({
               </span>
               <span>
                 {bookingWindowText}
-                <span className="block text-xs text-gray-500">
+                <span
+                  className="block text-xs"
+                  style={{ color: withOpacity(theme.textSecondary, 0.7) }}
+                >
                   {t.bookableWindowHint}
                 </span>
               </span>
@@ -870,7 +954,12 @@ const Step2Details: React.FC<any> = ({
             month: 'long',
             day: 'numeric',
           })}
-          className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
+          className="w-full p-2 border rounded-lg text-center font-semibold"
+          style={{
+            backgroundColor: withOpacity(theme.textSecondary, 0.08),
+            borderColor: withOpacity(theme.textSecondary, 0.2),
+            color: theme.textPrimary,
+          }}
         />
         <div>
           <label className="block text-sm font-medium">{t.name}</label>
@@ -980,15 +1069,23 @@ const Step2Details: React.FC<any> = ({
           <button
             type="button"
             onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+            className={`font-bold py-2 px-4 ${themeProps.radiusClass}`}
+            style={{
+              backgroundColor: withOpacity(theme.textSecondary, 0.15),
+              color: theme.textPrimary,
+              border: `1px solid ${withOpacity(theme.textSecondary, 0.3)}`,
+            }}
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
-            style={{ backgroundColor: 'var(--color-primary)' }}
+            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:cursor-not-allowed text-lg`}
+            style={{
+              backgroundColor: theme.primary,
+              opacity: isSubmitting || !isFormValid ? 0.6 : 1,
+            }}
           >
             {isSubmitting ? t.submitting : t.next}
           </button>
@@ -1007,6 +1104,7 @@ const Step3Confirmation: React.FC<{
   locale: Locale;
   settings: ReservationSetting;
 }> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+  const theme = useTheme();
   const [copied, setCopied] = useState(false);
 
   const { googleLink, icsLink, manageLink } = useMemo(() => {
@@ -1068,20 +1166,41 @@ const Step3Confirmation: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
+      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border text-center`}
+      style={{
+        backgroundColor: theme.surface,
+        borderColor: withOpacity(theme.textSecondary, 0.15),
+      }}
     >
       <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
         {titleText}
       </h2>
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
-      <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
+      <p
+        className="text-sm mt-2"
+        style={{ color: withOpacity(theme.textSecondary, 0.8) }}
+      >
+        {t.emailConfirmationSent}
+      </p>
 
       {submittedData && (
-        <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
+        <div
+          className="mt-6 text-left p-4 rounded-lg border"
+          style={{
+            backgroundColor: withOpacity(theme.textSecondary, 0.05),
+            borderColor: withOpacity(theme.textSecondary, 0.15),
+          }}
+        >
           <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
           <p>
             <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded">
+            <span
+              className="font-mono px-2 py-1 rounded"
+              style={{
+                backgroundColor: withOpacity(theme.primary, 0.15),
+                color: theme.textPrimary,
+              }}
+            >
               {submittedData.referenceCode.substring(0, 8).toUpperCase()}
             </span>
           </p>
@@ -1132,19 +1251,35 @@ const Step3Confirmation: React.FC<{
         </div>
       )}
 
-      <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
+      <div
+        className="mt-6 text-left p-4 rounded-lg border"
+        style={{
+          backgroundColor: withOpacity(theme.accent, 0.12),
+          borderColor: withOpacity(theme.accent, 0.4),
+        }}
+      >
         <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
-        <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
+        <p className="text-sm mb-2" style={{ color: theme.textPrimary }}>
+          {t.manageLinkBody}
+        </p>
+        <div
+          className="flex items-center gap-2 p-2 rounded-lg border"
+          style={{
+            backgroundColor: theme.surface,
+            borderColor: withOpacity(theme.textSecondary, 0.2),
+          }}
+        >
           <input
             type="text"
             value={manageLink}
             readOnly
-            className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"
+            className="w-full bg-transparent text-sm focus:outline-none"
+            style={{ color: theme.textPrimary }}
           />
           <button
             onClick={handleCopy}
-            className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+            className="text-white font-semibold text-sm px-3 py-1.5 rounded-md whitespace-nowrap flex items-center gap-1.5"
+            style={{ backgroundColor: theme.primary }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
@@ -1159,14 +1294,16 @@ const Step3Confirmation: React.FC<{
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className="text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2"
+            style={{ backgroundColor: theme.primary }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className="text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2"
+            style={{ backgroundColor: theme.accent }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
@@ -1176,11 +1313,21 @@ const Step3Confirmation: React.FC<{
       <button
         onClick={onReset}
         className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
+        style={{ backgroundColor: theme.primary }}
       >
         {t.newBooking}
       </button>
     </div>
+  );
+};
+
+const ReservationPage: React.FC<ReservationPageProps> = (props) => {
+  const [theme, setTheme] = useState<ThemeSettings>(DEFAULT_THEME);
+
+  return (
+    <ThemeProvider theme={theme}>
+      <ReservationPageContent {...props} onThemeChange={setTheme} />
+    </ThemeProvider>
   );
 };
 
