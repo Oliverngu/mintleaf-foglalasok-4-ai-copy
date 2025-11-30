@@ -337,7 +337,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
     if (loading || !unit || !settings) return <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center"><LoadingSpinner /></div>;
     
     return (
-        <div className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8" style={{ color: 'var(--color-text-primary)' }}>
+        <div className="min-h-screen h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8" style={{ color: 'var(--color-text-primary)' }}>
             <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
                 <button onClick={() => setLocale('hu')} className={locale === 'hu' ? 'font-bold text-[var(--color-primary)]' : 'text-gray-500'}>Magyar</button>
                 <span className="text-gray-300">|</span>
@@ -346,9 +346,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             
             <header className="text-center mb-8 mt-8"><h1 className="text-4xl font-bold text-[var(--color-text-primary)]">{unit.name}</h1><p className="text-lg text-[var(--color-text-secondary)] mt-1">{t.title}</p></header>
             
-            <main className="w-full max-w-2xl">
+            <main className="w-full max-w-3xl md:max-w-4xl mx-auto overflow-y-auto max-h-screen overflow-x-hidden">
                 <ProgressIndicator currentStep={step} t={t} />
-                <div className="relative overflow-hidden">
+                <div className="relative">
                     <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${(step - 1) * 100}%)` }}>
                         <div className="w-full flex-shrink-0">
                             <Step1Date 
@@ -383,7 +383,7 @@ const Step1Date: React.FC<any> = ({ settings, onDateSelect, themeProps, t, curre
     const today = new Date(); today.setHours(0,0,0,0);
 
     return (
-        <div className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}>
+        <div className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 overflow-x-hidden overflow-y-visible`}>
             <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">{t.step1Title}</h2>
             <div className="flex justify-between items-center mb-4">
                 <button type="button" onClick={() => onMonthChange(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&lt;</button>

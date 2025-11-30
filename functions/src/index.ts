@@ -619,7 +619,8 @@ const buildTimeFields = (
 const buildCustomFieldsHtml = (
   customSelects: CustomSelectField[] = [],
   customData: Record<string, string> = {},
-  mutedColor: string
+  mutedColor: string,
+  labelColor: string
 ) => {
   const items: { label: string; value: string }[] = [];
 
@@ -641,58 +642,55 @@ const buildCustomFieldsHtml = (
 
   if (!items.length) return '';
 
-  const listItems = items
+  const rows = items
     .map(
-      item =>
-        `<li style="margin: 4px 0; padding: 0; list-style: none;"><strong>${item.label}:</strong> <span style="color: ${mutedColor};">${item.value}</span></li>`
+      item => `
+        <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(6,95,70,0.08);">
+          <span style="font-weight:700;font-family:'Playfair Display',serif;color:${labelColor};min-width:140px;">${item.label}:</span>
+          <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${item.value}</span>
+        </div>`
     )
     .join('');
 
   return `
-    <div style="margin-top: 12px;">
-      <strong>További adatok:</strong>
-      <ul style="margin: 8px 0 0 0; padding: 0;">
-        ${listItems}
-      </ul>
+    <div style="margin-top:12px;">
+      <div style="font-weight:700;font-family:'Playfair Display',serif;color:${labelColor};margin-bottom:6px;">Additional details</div>
+      <div>${rows}</div>
     </div>
   `;
 };
 
-const buildDetailsCardHtml = (
-  payload: Record<string, any>,
-  theme: 'light' | 'dark' = 'light'
-) => {
-  const isDark = theme === 'dark';
-  const background = isDark ? '#111827' : '#f9fafb';
-  const cardBackground = isDark ? '#1f2937' : '#ffffff';
-  const borderColor = isDark ? '#374151' : '#e5e7eb';
-  const textColor = isDark ? '#e5e7eb' : '#111827';
-  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
+const buildDetailsCardHtml = (payload: Record<string, any>) => {
+  const background = 'linear-gradient(145deg, rgba(236,253,243,0.9), rgba(255,255,255,0.82))';
+  const cardBg = 'rgba(255,255,255,0.6)';
+  const borderColor = 'rgba(22,163,74,0.18)';
+  const headingColor = '#0f172a';
+  const textColor = '#0f172a';
+  const mutedColor = 'rgba(6,95,70,0.8)';
+  const badgeBg = payload.status === 'confirmed' ? 'rgba(16,185,129,0.15)' : 'rgba(220,38,38,0.12)';
+  const badgeColor = payload.status === 'confirmed' ? '#065f46' : '#b91c1c';
 
   const customFieldsHtml = buildCustomFieldsHtml(
     payload.customSelects,
     payload.customData || {},
-    mutedColor
+    mutedColor,
+    headingColor
   );
 
-  const statusRow = payload.decisionLabel
-    ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
-        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
-      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
-        payload.decisionLabel
-      }</span></div>`
-    : '';
-
   const occasionRow = payload.occasion
-    ? `<div><strong>Alkalom:</strong> <span style="color: ${mutedColor};">${payload.occasion}</span></div>`
+    ? `<div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:140px;">Occasion:</span><span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.occasion}</span></div>`
     : '';
 
   const occasionOtherRow = payload.occasionOther
-    ? `<div><strong>Alkalom (egyéb):</strong> <span style="color: ${mutedColor};">${payload.occasionOther}</span></div>`
+    ? `<div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:140px;">Other occasion:</span><span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.occasionOther}</span></div>`
     : '';
 
   const notesRow = payload.notes
-    ? `<div style="margin-top: 12px;"><strong>Megjegyzés:</strong><div style="margin-top: 4px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div></div>`
+    ? `<div style="margin-top:12px;background:rgba(6,95,70,0.04);padding:12px 14px;border-radius:12px;border:1px solid rgba(6,95,70,0.08);"><div style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};margin-bottom:6px;">Notes</div><div style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;white-space:pre-line;line-height:1.5;">${payload.notes}</div></div>`
+    : '';
+
+  const statusRow = payload.decisionLabel
+    ? `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;"><span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};">Status:</span><span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:${badgeBg};color:${badgeColor};font-weight:700;font-family:'Inter',system-ui,sans-serif;">${payload.decisionLabel}</span></div>`
     : '';
 
   const autoConfirmRow =
@@ -704,56 +702,60 @@ const buildDetailsCardHtml = (
       ? 'No'
       : 'Nem';
 
+  const rows = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:12px;">
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Unit</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.unitName}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Guest</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.guestName}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Date</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.bookingDate}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Time</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.bookingTimeRange}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Guests</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.headcount}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Reference</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.bookingRef}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Email</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.guestEmail}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Phone</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${payload.guestPhone}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;background:rgba(6,95,70,0.04);border:1px solid rgba(6,95,70,0.08);">
+        <span style="font-weight:700;font-family:'Playfair Display',serif;color:${headingColor};min-width:120px;">Auto confirm</span>
+        <span style="color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">${autoConfirmRow}</span>
+      </div>
+    </div>`;
+
   return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px;">
-      <div
-        class="mintleaf-card"
-        style="background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 24px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};"
-      >
-        <h3 style="margin: 0 0 12px 0; font-size: 20px;">Foglalás részletei</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 14px; line-height: 1.5;">
-          <div><strong>Egység neve:</strong> <span style="color: ${mutedColor};">${payload.unitName}</span></div>
-          <div><strong>Vendég neve:</strong> <span style="color: ${mutedColor};">${payload.guestName}</span></div>
-          <div><strong>Dátum:</strong> <span style="color: ${mutedColor};">${payload.bookingDate}</span></div>
-          <div><strong>Időpont:</strong> <span style="color: ${mutedColor};">${payload.bookingTimeRange}</span></div>
-          <div><strong>Létszám:</strong> <span style="color: ${mutedColor};">${payload.headcount}</span></div>
-          ${occasionRow}
-          ${occasionOtherRow}
-          <div><strong>Email:</strong> <span style="color: ${mutedColor};">${payload.guestEmail}</span></div>
-          <div><strong>Telefon:</strong> <span style="color: ${mutedColor};">${payload.guestPhone}</span></div>
-          <div><strong>Foglalás azonosító:</strong> <span style="color: ${mutedColor};">${payload.bookingRef}</span></div>
-          <div><strong>Automatikus megerősítés:</strong> <span style="color: ${mutedColor};">${autoConfirmRow}</span></div>
-        </div>
+    <div style="background:${background};padding:20px;border-radius:22px;box-shadow:0 18px 55px rgba(6,95,70,0.08);">
+      <div style="background:${cardBg};border:1px solid ${borderColor};border-radius:18px;padding:22px;backdrop-filter:blur(16px);font-family:'Inter',system-ui,sans-serif;color:${textColor};">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;color:${mutedColor};font-family:'Inter',system-ui,sans-serif;">Reservation update</div>
+        <div style="font-family:'Playfair Display',serif;font-size:22px;color:${headingColor};margin:0 0 6px 0;">Your reservation details</div>
+        <div style="height:1px;background:linear-gradient(90deg,rgba(6,95,70,0.1),rgba(22,163,74,0.2),rgba(6,95,70,0.05));margin:12px 0;"></div>
+        ${rows}
+        ${occasionRow}
+        ${occasionOtherRow}
         ${statusRow}
         ${customFieldsHtml}
         ${notesRow}
       </div>
     </div>
-    <style>
-      .mintleaf-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 12px 18px;
-        border-radius: 9999px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        text-decoration: none;
-        background: #16a34a;
-        color: #ffffff;
-        border: 1px solid transparent;
-      }
-      .mintleaf-btn-danger {
-        background: #dc2626;
-      }
-      @media (prefers-color-scheme: dark) {
-        .mintleaf-card-wrapper { background-color: #111827 !important; }
-        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
-        .mintleaf-card strong { color: #e5e7eb !important; }
-        .mintleaf-card span { color: #d1d5db !important; }
-        .mintleaf-btn { color: #ffffff !important; }
-      }
-    </style>
   `;
 };
 
@@ -929,20 +931,21 @@ const buildButtonBlock = (
   buttons: { label: string; url: string; variant?: 'primary' | 'danger' }[],
   theme: 'light' | 'dark'
 ) => {
-  const background = theme === 'dark' ? '#111827' : '#f9fafb';
-  const spacing =
-    '<span style="display: inline-block; width: 4px; height: 4px;"></span>';
+  const containerBg = 'linear-gradient(145deg, rgba(236,253,243,0.9), rgba(255,255,255,0.82))';
+  const buttonBase =
+    'display:inline-flex;padding:12px 18px;border-radius:14px;font-weight:700;font-family:"Inter",system-ui,sans-serif;text-decoration:none;box-shadow:0 10px 30px rgba(16,185,129,0.25);';
+  const primaryStyle = `${buttonBase}background:#16a34a;color:#ffffff;`;
+  const dangerStyle = `${buttonBase}background:#dc2626;color:#ffffff;box-shadow:0 10px 30px rgba(220,38,38,0.25);`;
+
   const buttonsHtml = buttons
-    .map(
-      btn =>
-        `<a class="mintleaf-btn${btn.variant === 'danger' ? ' mintleaf-btn-danger' : ''}" href="${btn.url}" style="background: ${
-          btn.variant === 'danger' ? '#dc2626' : '#16a34a'
-        }; color: #ffffff; text-decoration: none;">${btn.label}</a>`
-    )
-    .join(spacing);
+    .map(btn => {
+      const style = btn.variant === 'danger' ? dangerStyle : primaryStyle;
+      return `<a href="${btn.url}" style="${style}">${btn.label}</a>`;
+    })
+    .join('<span style="display:inline-block;width:8px;height:8px;"></span>');
 
   return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px 16px 0 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+    <div style="background:${containerBg};padding:16px;border-radius:18px;margin-top:12px;backdrop-filter:blur(12px);display:flex;flex-wrap:wrap;gap:12px;">
       ${buttonsHtml}
     </div>
   `;
@@ -995,7 +998,7 @@ const sendGuestCreatedEmail = async (
       },
     ],
     theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+  )}${buildDetailsCardHtml(payload)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1073,7 +1076,7 @@ const sendAdminCreatedEmail = async (
           theme
         )
       : ''
-  }${buildDetailsCardHtml(payload, theme)}`;
+  }${buildDetailsCardHtml(payload)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1143,7 +1146,7 @@ const sendGuestStatusEmail = async (
       },
     ],
     theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+  )}${buildDetailsCardHtml(payload)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1217,7 +1220,7 @@ const sendAdminCancellationEmail = async (
 
   const finalHtml = appendHtmlSafely(
     baseHtmlRendered,
-    buildDetailsCardHtml(payload, theme)
+    buildDetailsCardHtml(payload)
   );
 
   await Promise.all(

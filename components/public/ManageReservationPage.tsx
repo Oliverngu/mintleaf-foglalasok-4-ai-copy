@@ -105,13 +105,13 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({ token, al
 
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 md:p-8">
+        <div className="min-h-screen h-full overflow-y-auto bg-gray-50 flex flex-col items-center p-4 sm:p-6 md:p-8">
             <header className="text-center mb-8 mt-8">
                 <h1 className="text-4xl font-bold text-gray-800">{unit.name}</h1>
                 <p className="text-lg text-gray-500 mt-1">{t.manageTitle}</p>
             </header>
-            
-            <main className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
+
+            <main className="w-full max-w-3xl md:max-w-4xl mx-auto overflow-y-auto max-h-screen bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
                 <div className="flex justify-between items-center mb-6 pb-4 border-b">
                     <h2 className="text-2xl font-semibold text-gray-800">{t.reservationDetails}</h2>
                     {getStatusChip(booking.status)}
