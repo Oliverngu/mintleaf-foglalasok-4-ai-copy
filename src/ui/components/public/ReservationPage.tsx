@@ -120,41 +120,38 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
+    <div className="w-full max-w-3xl mx-auto mb-8 flex items-center gap-3">
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
         const isActive = currentStep === stepNumber;
         return (
           <React.Fragment key={stepNumber}>
-            <div className="flex flex-col items-center text-center">
+            <div className="flex-1 flex flex-col items-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
+                className={`w-10 h-10 rounded-2xl backdrop-blur-md flex items-center justify-center font-semibold transition-all duration-300 border border-white/50 shadow ${
                   isCompleted
-                    ? 'bg-[var(--color-primary)] text-white'
+                    ? 'bg-[var(--color-primary)] text-white shadow-lg'
                     : isActive
-                    ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
-                    : 'bg-gray-200 text-gray-500'
+                    ? 'bg-white/80 text-[var(--color-primary)] shadow-lg'
+                    : 'bg-white/40 text-gray-500'
                 }`}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
               <p
-                className={`mt-2 text-sm font-semibold transition-colors ${
+                className={`mt-2 text-sm font-medium ${
                   isActive || isCompleted
                     ? 'text-[var(--color-text-primary)]'
-                    : 'text-gray-400'
+                    : 'text-gray-500'
                 }`}
+                style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
               >
                 {label}
               </p>
             </div>
             {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 transition-colors ${
-                  isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
-                }`}
-              ></div>
+              <div className="h-[2px] flex-1 bg-white/50 rounded-full" />
             )}
           </React.Fragment>
         );
@@ -166,7 +163,7 @@ const ProgressIndicator: React.FC<{
 const ReservationPage: React.FC<ReservationPageProps> = ({
   unitId,
   allUnits,
-  currentUser: _currentUser, // jelenleg nincs használva
+  currentUser: _currentUser,
 }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -454,7 +451,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       await setDoc(newReservationRef, newReservation);
 
-      // ---- GUEST LOG: booking created ----
       await writeGuestLog(
         unitId,
         {
@@ -468,9 +464,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       setSubmittedData({ ...newReservation, date: selectedDate });
       setStep(3);
-
-      // !!! FRONTEND NEM KÜLD EMAILT !!!
-      // A backend (onReservationCreated / onReservationStatusChange) intézi.
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
       if (err instanceof Error) {
@@ -486,17 +479,17 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const themeClassProps = useMemo(() => {
     if (!settings?.theme) {
       return {
-        radiusClass: 'rounded-lg',
-        shadowClass: 'shadow-md',
+        radiusClass: 'rounded-xl',
+        shadowClass: 'shadow-lg',
         fontBaseClass: 'text-base',
       };
     }
     const { radius, elevation, typographyScale } = settings.theme;
     return {
-      radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[
+      radiusClass: { sm: 'rounded-md', md: 'rounded-lg', lg: 'rounded-2xl' }[
         radius
       ],
-      shadowClass: { low: 'shadow-sm', mid: 'shadow-md', high: 'shadow-lg' }[
+      shadowClass: { low: 'shadow-md', mid: 'shadow-lg', high: 'shadow-2xl' }[
         elevation
       ],
       fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[
@@ -507,10 +500,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (error && step !== 2) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
-        <div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2>
-          <p className="text-[var(--color-text-primary)] mt-2">{error}</p>
+      <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-emerald-50 flex items-center justify-center p-6 text-center" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-white/60 max-w-lg w-full">
+          <h2
+            className="text-2xl font-bold text-[var(--color-danger)]"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            Hiba
+          </h2>
+          <p className="text-[var(--color-text-primary)] mt-3">{error}</p>
         </div>
       </div>
     );
@@ -518,7 +516,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (loading || !unit || !settings) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-emerald-50 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
@@ -526,50 +524,56 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   return (
     <div
-      className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
-      style={{ color: 'var(--color-text-primary)' }}
+      className="min-h-screen relative overflow-y-auto bg-gradient-to-br from-emerald-50 via-white to-emerald-50 flex flex-col items-center p-4 sm:p-6 md:p-10"
+      style={{ color: 'var(--color-text-primary)', fontFamily: 'Inter, system-ui, sans-serif' }}
     >
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-        <button
-          onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          Magyar
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          English
-        </button>
-      </div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(16,185,129,0.15),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(59,130,246,0.12),transparent_30%)]" />
+      <div className="absolute inset-0 backdrop-blur-[2px]" />
 
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
-          {unit.name}
-        </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
-          {t.title}
-        </p>
-      </header>
+      <div className="relative z-10 w-full max-w-5xl">
+        <div className="flex items-center justify-end gap-3 text-sm font-medium mb-4">
+          <button
+            onClick={() => setLocale('hu')}
+            className={`px-3 py-1 rounded-full transition-colors ${
+              locale === 'hu'
+                ? 'bg-white/80 shadow text-[var(--color-primary)]'
+                : 'text-gray-600 hover:text-[var(--color-primary)]'
+            }`}
+          >
+            Magyar
+          </button>
+          <button
+            onClick={() => setLocale('en')}
+            className={`px-3 py-1 rounded-full transition-colors ${
+              locale === 'en'
+                ? 'bg-white/80 shadow text-[var(--color-primary)]'
+                : 'text-gray-600 hover:text-[var(--color-primary)]'
+            }`}
+          >
+            English
+          </button>
+        </div>
 
-      <main className="w-full max-w-2xl">
+        <header className="text-center mb-8 mt-4">
+          <h1
+            className="text-4xl sm:text-5xl font-semibold text-[var(--color-text-primary)] drop-shadow-sm"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            {unit.name}
+          </h1>
+          <p className="text-lg text-[var(--color-text-secondary)] mt-2">
+            {t.title}
+          </p>
+        </header>
+
         <ProgressIndicator currentStep={step} t={t} />
-        <div className="relative overflow-hidden">
+
+        <main className="w-full relative overflow-hidden rounded-3xl border border-white/60 shadow-2xl backdrop-blur-xl bg-white/70">
           <div
             className="flex transition-transform duration-500 ease-in-out"
             style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
           >
-            <div className="w-full flex-shrink-0">
+            <div className="w-full flex-shrink-0 p-6 sm:p-10">
               <Step1Date
                 settings={settings}
                 onDateSelect={handleDateSelect}
@@ -580,7 +584,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 dailyHeadcounts={dailyHeadcounts}
               />
             </div>
-            <div className="w-full flex-shrink-0">
+            <div className="w-full flex-shrink-0 p-6 sm:p-10">
               <Step2Details
                 selectedDate={selectedDate}
                 formData={formData}
@@ -598,7 +602,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 error={error}
               />
             </div>
-            <div className="w-full flex-shrink-0">
+            <div className="w-full flex-shrink-0 p-6 sm:p-10">
               <Step3Confirmation
                 onReset={resetFlow}
                 themeProps={themeClassProps}
@@ -610,8 +614,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               />
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 };
@@ -659,46 +663,60 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`backdrop-blur-xl bg-white/80 p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60`}
     >
-      <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
-        {t.step1Title}
-      </h2>
-      <div className="flex justify-between items-center mb-4">
-        <button
-          type="button"
-          onClick={() =>
-            onMonthChange(
-              new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
-            )
-          }
-          className="p-2 rounded-full hover:bg-gray-100"
-        >
-          &lt;
-        </button>
-        <h3 className="font-bold text-lg">
-          {t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-        </h3>
-        <button
-          type="button"
-          onClick={() =>
-            onMonthChange(
-              new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
-            )
-          }
-          className="p-2 rounded-full hover:bg-gray-100"
-        >
-          &gt;
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-gray-500" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+            {t.step1}
+          </p>
+          <h2
+            className="text-2xl sm:text-3xl font-semibold text-[var(--color-text-primary)]"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            {t.step1Title}
+          </h2>
+          <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+            {t.selectDate}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 bg-white/70 px-3 py-2 rounded-full shadow">
+          <button
+            type="button"
+            onClick={() =>
+              onMonthChange(
+                new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+              )
+            }
+            className="w-9 h-9 rounded-full border border-white/70 bg-white/60 hover:bg-white text-[var(--color-primary)]"
+          >
+            ‹
+          </button>
+          <h3 className="font-semibold text-lg" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+            {t.monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+          </h3>
+          <button
+            type="button"
+            onClick={() =>
+              onMonthChange(
+                new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+              )
+            }
+            className="w-9 h-9 rounded-full border border-white/70 bg-white/60 hover:bg-white text-[var(--color-primary)]"
+          >
+            ›
+          </button>
+        </div>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
+
+      <div className="grid grid-cols-7 gap-2 text-center font-semibold text-[var(--color-text-secondary)] text-xs sm:text-sm mb-2">
         {t.dayNames.map((d: string) => (
           <div key={d}>{d}</div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-2">
         {days.map((day, i) => {
-          if (!day) return <div key={`empty-${i}`}></div>;
+          if (!day) return <div key={`empty-${i}`} />;
           const dateKey = toDateKey(day);
 
           const isBlackout = blackoutSet.has(dateKey);
@@ -710,19 +728,19 @@ const Step1Date: React.FC<{
           }
           const isDisabled = isBlackout || isPast || isFull;
 
-          let buttonClass = `w-full p-1 h-12 flex items-center justify-center text-sm ${themeProps.radiusClass} transition-colors`;
+          let buttonClass = `w-full h-14 flex items-center justify-center text-sm sm:text-base ${themeProps.radiusClass} transition-all duration-200 border`;
           let titleText = '';
 
           if (isDisabled) {
             if (isFull) {
-              buttonClass +=
-                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
+              buttonClass += ' bg-red-50 text-red-400 border-red-100 cursor-not-allowed line-through';
               titleText = t.errorCapacityFull;
             } else {
-              buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
+              buttonClass += ' text-gray-300 bg-gray-50 border-gray-100 cursor-not-allowed';
             }
           } else {
-            buttonClass += ' hover:bg-green-100';
+            buttonClass +=
+              ' bg-white/70 border-white/80 hover:-translate-y-[2px] hover:shadow-lg hover:border-[var(--color-primary)] text-[var(--color-text-primary)]';
           }
 
           return (
@@ -733,6 +751,7 @@ const Step1Date: React.FC<{
                 disabled={isDisabled}
                 title={titleText}
                 className={buttonClass}
+                style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
               >
                 {day.getDate()}
               </button>
@@ -815,15 +834,43 @@ const Step2Details: React.FC<any> = ({
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
 
+  const fieldLabelClass = 'block text-sm font-semibold text-[var(--color-text-primary)]';
+  const inputClass =
+    'w-full mt-1 p-3 rounded-xl border border-gray-200 bg-white/80 focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent outline-none transition';
+
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`backdrop-blur-xl bg-white/80 p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60`}
     >
-      <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
-        {t.step2Title}
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-gray-500" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+            {t.step2}
+          </p>
+          <h2
+            className="text-2xl sm:text-3xl font-semibold text-[var(--color-text-primary)]"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            {t.step2Title}
+          </h2>
+          <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+            {t.enterDetails}
+          </p>
+        </div>
+        {selectedDate && (
+          <div className="px-4 py-2 rounded-full bg-white/70 shadow text-sm font-semibold text-[var(--color-primary)]">
+            {selectedDate.toLocaleDateString(locale, {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </div>
+        )}
+      </div>
+
       {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">
+        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-xl text-sm border border-red-200">
           {error}
         </div>
       )}
@@ -831,7 +878,7 @@ const Step2Details: React.FC<any> = ({
         settings.kitchenStartTime ||
         settings.barStartTime) && (
         <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
+          className={`p-3 mb-5 bg-white/70 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2 shadow-sm`}
         >
           {bookingWindowText && (
             <p className="flex items-start gap-2">
@@ -860,53 +907,46 @@ const Step2Details: React.FC<any> = ({
           )}
         </div>
       )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <input
-          type="text"
-          readOnly
-          value={selectedDate.toLocaleDateString(locale, {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          })}
-          className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
-        />
-        <div>
-          <label className="block text-sm font-medium">{t.name}</label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleStandardChange}
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-          {formErrors.name && (
-            <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm font-medium">{t.headcount}</label>
-          <input
-            type="number"
-            name="headcount"
-            value={formData.headcount}
-            onChange={handleStandardChange}
-            min="1"
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-        </div>
+
+      <form onSubmit={onSubmit} className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">{t.email}</label>
+            <label className={fieldLabelClass}>{t.name}</label>
+            <input
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleStandardChange}
+              className={inputClass}
+              required
+            />
+            {formErrors.name && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
+            )}
+          </div>
+          <div>
+            <label className={fieldLabelClass}>{t.headcount}</label>
+            <input
+              type="number"
+              name="headcount"
+              value={formData.headcount}
+              onChange={handleStandardChange}
+              min="1"
+              className={inputClass}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={fieldLabelClass}>{t.email}</label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={inputClass}
               required
             />
             {formErrors.email && (
@@ -914,14 +954,14 @@ const Step2Details: React.FC<any> = ({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.phone}</label>
+            <label className={fieldLabelClass}>{t.phone}</label>
             <input
               type="tel"
               name="phone"
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={inputClass}
               required
             />
             {formErrors.phone && (
@@ -929,40 +969,42 @@ const Step2Details: React.FC<any> = ({
             )}
           </div>
         </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">{t.startTime}</label>
+            <label className={fieldLabelClass}>{t.startTime}</label>
             <input
               type="time"
               name="startTime"
               value={formData.startTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={inputClass}
               required
               min={settings.bookableWindow?.from}
               max={settings.bookableWindow?.to}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.endTime}</label>
+            <label className={fieldLabelClass}>{t.endTime}</label>
             <input
               type="time"
               name="endTime"
               value={formData.endTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={inputClass}
               min={formData.startTime}
             />
           </div>
         </div>
+
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
           <div key={field.id}>
-            <label className="block text-sm font-medium">{field.label}</label>
+            <label className={fieldLabelClass}>{field.label}</label>
             <select
               name={field.id}
               value={formData.customData[field.id] || ''}
               onChange={handleCustomFieldChange}
-              className="w-full mt-1 p-2 border rounded-lg bg-white"
+              className={inputClass}
               required
             >
               <option value="" disabled>
@@ -976,18 +1018,19 @@ const Step2Details: React.FC<any> = ({
             </select>
           </div>
         ))}
-        <div className="flex justify-between items-center pt-4">
+
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
           <button
             type="button"
             onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+            className={`w-full sm:w-auto px-5 py-3 rounded-xl border border-gray-200 bg-white/70 text-[var(--color-text-primary)] hover:shadow ${themeProps.radiusClass}`}
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
+            className={`w-full sm:w-auto px-6 py-3 rounded-xl text-white font-semibold shadow-lg transition ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed`}
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
             {isSubmitting ? t.submitting : t.next}
@@ -1068,74 +1111,91 @@ const Step3Confirmation: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
+      className={`backdrop-blur-xl bg-white/80 p-6 sm:p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-white/60`}
     >
-      <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
+      <h2
+        className="text-2xl sm:text-3xl font-semibold text-center"
+        style={{ color: 'var(--color-success)', fontFamily: 'Playfair Display, serif' }}
+      >
         {titleText}
       </h2>
-      <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
-      <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
+      <p className="text-[var(--color-text-primary)] mt-4 text-center max-w-2xl mx-auto">
+        {bodyText}
+      </p>
+      <p className="text-sm text-gray-500 mt-2 text-center">{t.emailConfirmationSent}</p>
 
       {submittedData && (
-        <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
-          <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
-          <p>
-            <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded">
-              {submittedData.referenceCode.substring(0, 8).toUpperCase()}
-            </span>
-          </p>
-          <p>
-            <strong>{t.name}:</strong> {submittedData.name}
-          </p>
-          <p>
-            <strong>{t.headcount}:</strong> {submittedData.headcount}
-          </p>
-          <p>
-            <strong>{t.date}:</strong>{' '}
-            {submittedData.date.toLocaleDateString(locale, {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </p>
-          <p>
-            <strong>{t.startTime}:</strong>{' '}
-            {submittedData.startTime
-              .toDate()
-              .toLocaleTimeString(locale, {
-                hour: '2-digit',
-                minute: '2-digit',
+        <div className="mt-6 bg-white/70 p-5 rounded-2xl border border-gray-100 shadow-sm">
+          <h3
+            className="font-semibold text-lg text-center mb-3"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            {t.step3Details}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[var(--color-text-primary)]">
+            <p>
+              <strong>{t.referenceCode}:</strong>{' '}
+              <span className="font-mono bg-gray-100 px-2 py-1 rounded">
+                {submittedData.referenceCode.substring(0, 8).toUpperCase()}
+              </span>
+            </p>
+            <p>
+              <strong>{t.name}:</strong> {submittedData.name}
+            </p>
+            <p>
+              <strong>{t.headcount}:</strong> {submittedData.headcount}
+            </p>
+            <p>
+              <strong>{t.date}:</strong>{' '}
+              {submittedData.date.toLocaleDateString(locale, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
               })}
-          </p>
-          <p>
-            <strong>{t.email}:</strong> {submittedData.contact.email}
-          </p>
-          <p>
-            <strong>{t.phone}:</strong>{' '}
-            {submittedData.contact?.phoneE164
-              ? maskPhone(submittedData.contact.phoneE164)
-              : 'N/A'}
-          </p>
-          {Object.entries(submittedData.customData || {}).map(([key, value]) => {
-            const field = settings.guestForm?.customSelects?.find(
-              (f) => f.id === key
-            );
-            if (!field || !value) return null;
-            return (
-              <p key={key}>
-                <strong>{field.label}:</strong> {value as string}
-              </p>
-            );
-          })}
+            </p>
+            <p>
+              <strong>{t.startTime}:</strong>{' '}
+              {submittedData.startTime
+                .toDate()
+                .toLocaleTimeString(locale, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+            </p>
+            <p>
+              <strong>{t.email}:</strong> {submittedData.contact.email}
+            </p>
+            <p>
+              <strong>{t.phone}:</strong>{' '}
+              {submittedData.contact?.phoneE164
+                ? maskPhone(submittedData.contact.phoneE164)
+                : 'N/A'}
+            </p>
+            {Object.entries(submittedData.customData || {}).map(([key, value]) => {
+              const field = settings.guestForm?.customSelects?.find(
+                (f) => f.id === key
+              );
+              if (!field || !value) return null;
+              return (
+                <p key={key}>
+                  <strong>{field.label}:</strong> {value as string}
+                </p>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
-        <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
-        <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
+      <div className="mt-6 bg-gradient-to-r from-emerald-100/80 via-white to-emerald-50 p-5 rounded-2xl border border-emerald-100 shadow-sm">
+        <h3
+          className="font-semibold mb-2"
+          style={{ fontFamily: 'Playfair Display, serif' }}
+        >
+          {t.manageLinkTitle}
+        </h3>
+        <p className="text-sm text-emerald-900 mb-2">{t.manageLinkBody}</p>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white/80 p-2 rounded-xl border border-emerald-100 shadow-inner">
           <input
             type="text"
             value={manageLink}
@@ -1144,7 +1204,7 @@ const Step3Confirmation: React.FC<{
           />
           <button
             onClick={handleCopy}
-            className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-semibold text-sm hover:shadow-lg transition flex items-center gap-2"
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
@@ -1153,33 +1213,40 @@ const Step3Confirmation: React.FC<{
       </div>
 
       <div className="mt-6">
-        <h3 className="font-semibold mb-3">{t.addToCalendar}</h3>
-        <div className="flex justify-center gap-4">
+        <h3
+          className="font-semibold mb-3 text-center"
+          style={{ fontFamily: 'Playfair Display, serif' }}
+        >
+          {t.addToCalendar}
+        </h3>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
           <a
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className="flex-1 sm:flex-initial text-center bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-xl hover:shadow-lg flex items-center justify-center gap-2"
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className="flex-1 sm:flex-initial text-center bg-gray-800 text-white font-semibold py-2.5 px-4 rounded-xl hover:shadow-lg flex items-center justify-center gap-2"
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
         </div>
       </div>
 
-      <button
-        onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
-      >
-        {t.newBooking}
-      </button>
+      <div className="flex justify-center mt-8">
+        <button
+          onClick={onReset}
+          className={`px-6 py-3 text-white font-semibold shadow-xl ${themeProps.radiusClass}`}
+          style={{ backgroundColor: 'var(--color-primary)' }}
+        >
+          {t.newBooking}
+        </button>
+      </div>
     </div>
   );
 };
