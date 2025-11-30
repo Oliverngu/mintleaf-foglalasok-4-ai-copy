@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, FC } from 'react';
-import { ReservationSetting, ThemeSettings, GuestFormSettings, CustomSelectField } from '../../../core/models/data';
+import { ReservationSetting, ThemeSettings, GuestFormSettings, CustomSelectField, DEFAULT_THEME } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -13,12 +13,6 @@ interface ReservationSettingsModalProps {
     unitId: string;
     onClose: () => void;
 }
-
-const DEFAULT_THEME: ThemeSettings = {
-    primary: '#16a34a', surface: '#ffffff', background: '#f9fafb', textPrimary: '#1f2937', 
-    textSecondary: '#4b5563', accent: '#10b981', success: '#22c55e', danger: '#ef4444',
-    radius: 'lg', elevation: 'mid', typographyScale: 'M'
-};
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
     customSelects: [

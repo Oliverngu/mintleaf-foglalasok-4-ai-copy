@@ -112,7 +112,45 @@ export interface ThemeSettings {
     radius: 'sm' | 'md' | 'lg';
     elevation: 'low' | 'mid' | 'high';
     typographyScale: 'S' | 'M' | 'L';
+    cardBg: string;
+    cardBorder: string;
+    glassBlur: string;
+    shadow: string;
+    gradientBg: string;
+    pillBg: string;
+    pillText: string;
+    calendarAccent: string;
+    buttonPrimary: string;
+    buttonPrimaryText: string;
+    buttonSecondary: string;
+    buttonSecondaryText: string;
 }
+
+export const DEFAULT_THEME: ThemeSettings = {
+    primary: '#166534',
+    surface: '#ffffff',
+    background: '#f9fafb',
+    textPrimary: '#1f2937',
+    textSecondary: '#4b5563',
+    accent: '#10b981',
+    success: '#16a34a',
+    danger: '#dc2626',
+    radius: 'lg',
+    elevation: 'mid',
+    typographyScale: 'M',
+    cardBg: '#ffffff',
+    cardBorder: '#e5e7eb',
+    glassBlur: '12px',
+    shadow: '0 10px 40px rgba(0, 0, 0, 0.08)',
+    gradientBg: 'linear-gradient(135deg, rgba(22, 101, 52, 0.08), rgba(16, 185, 129, 0.08))',
+    pillBg: '#ecfdf3',
+    pillText: '#166534',
+    calendarAccent: '#10b981',
+    buttonPrimary: '#166534',
+    buttonPrimaryText: '#ffffff',
+    buttonSecondary: '#f3f4f6',
+    buttonSecondaryText: '#111827',
+};
 
 export interface CustomSelectField {
   id: string;
