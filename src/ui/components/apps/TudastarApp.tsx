@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, FC, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, FC, useCallback, useRef } from 'react';
 import {
   User,
   Unit,
@@ -29,6 +29,7 @@ import BookIcon from '../../../../components/icons/BookIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import PlusIcon from '../../../../components/icons/PlusIcon';
+import XIcon from '../../../../components/icons/XIcon';
 
 interface TudastarAppProps {
   currentUser: User;
@@ -713,6 +714,8 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
+  const noteRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const canManageContentResolved =
     canManageContent ?? (currentUser.role === 'Admin' || currentUser.role === 'Unit Admin');
@@ -736,6 +739,35 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
   const selectedUnitName = useMemo(
     () => selectedUnitId ? allUnits.find(u => u.id === selectedUnitId)?.name || 'Ismeretlen egység' : '',
     [allUnits, selectedUnitId]
+  );
+
+  const scrollToNote = useCallback((noteId: string) => {
+    const target = noteRefs.current[noteId];
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const handleToggleNote = useCallback(
+    (noteId: string) => {
+      if (expandedNoteId === noteId) {
+        setExpandedNoteId(null);
+        requestAnimationFrame(() => scrollToNote(noteId));
+      } else {
+        setExpandedNoteId(noteId);
+      }
+    },
+    [expandedNoteId, scrollToNote]
+  );
+
+  const handleCollapseNote = useCallback(
+    (noteId: string) => {
+      if (expandedNoteId === noteId) {
+        setExpandedNoteId(null);
+        requestAnimationFrame(() => scrollToNote(noteId));
+      }
+    },
+    [expandedNoteId, scrollToNote]
   );
 
   useEffect(() => {
@@ -1185,39 +1217,84 @@ useEffect(() => {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
               <div className="lg:col-span-2 space-y-4">
-                {filteredNotes.map(note => (
-                  <div key={note.id} className="p-5 rounded-2xl" style={notePaperStyles}>
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-blue-600 font-semibold">
-                          {selectedCategory?.title}
-                          {note.subcategory ? ` • ${note.subcategory}` : ''}
-                        </p>
-                        <h3 className="text-xl font-bold text-gray-900">{note.title}</h3>
+                {filteredNotes.map(note => {
+                  const isExpanded = expandedNoteId === note.id;
+
+                  return (
+                    <div
+                      key={note.id}
+                      ref={el => {
+                        noteRefs.current[note.id] = el;
+                      }}
+                      className="relative p-5 rounded-2xl"
+                      style={notePaperStyles}
+                    >
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleToggleNote(note.id)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            handleToggleNote(note.id);
+                          }
+                        }}
+                        className="flex w-full items-start justify-between mb-2 text-left cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-200 rounded-xl"
+                      >
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-blue-600 font-semibold">
+                            {selectedCategory?.title}
+                            {note.subcategory ? ` • ${note.subcategory}` : ''}
+                          </p>
+                          <h3 className="text-xl font-bold text-gray-900">
+                            {note.title}
+                            {isExpanded && <span className="ml-2 text-sm text-blue-600">(Megnyitva)</span>}
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span>
+                            {note.createdAt?.toDate?.()
+                              ? note.createdAt.toDate().toLocaleDateString('hu-HU')
+                              : '—'}
+                          </span>
+                          {canManageContentResolved && (
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                handleDeleteNote(note);
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                              title="Jegyzet törlése"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <span>
-                          {note.createdAt?.toDate?.()
-                            ? note.createdAt.toDate().toLocaleDateString('hu-HU')
-                            : '—'}
-                        </span>
-                        {canManageContentResolved && (
+
+                      {isExpanded && (
+                        <>
+                          <div className="prose prose-sm max-w-none">
+                            {renderNoteContent(note.content)}
+                          </div>
+                          <div className="mt-3 text-xs text-gray-500">Készítette: {note.createdBy}</div>
                           <button
-                            onClick={() => handleDeleteNote(note)}
-                            className="text-red-600 hover:text-red-800"
-                            title="Jegyzet törlése"
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleCollapseNote(note.id);
+                            }}
+                            className="absolute top-3 right-3 p-2 rounded-full bg-white/80 text-gray-700 shadow hover:bg-white"
+                            title="Jegyzet bezárása"
                           >
-                            <TrashIcon className="h-4 w-4" />
+                            <XIcon className="h-4 w-4" />
                           </button>
-                        )}
-                      </div>
+                        </>
+                      )}
                     </div>
-                    <div className="prose prose-sm max-w-none">
-                      {renderNoteContent(note.content)}
-                    </div>
-                    <div className="mt-3 text-xs text-gray-500">Készítette: {note.createdBy}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
