@@ -28,6 +28,26 @@ export interface ReservationThemeTokens {
   progressThumbClass: string;
 }
 
+export const syncThemeCssVariables = (theme: ReservationThemeTokens) => {
+  if (typeof document === 'undefined') return;
+
+  const root = document.documentElement;
+  const colorMap: Record<string, string> = {
+    primary: theme.primaryColor,
+    accent: theme.accentColor,
+    surface: theme.surfaceColor,
+    background: theme.backgroundColor,
+    textPrimary: theme.textPrimaryColor,
+    textSecondary: theme.textSecondaryColor,
+    success: theme.successColor,
+    danger: theme.dangerColor,
+  };
+
+  Object.entries(colorMap).forEach(([key, value]) => {
+    root.style.setProperty(`--color-${key}`, value);
+  });
+};
+
 const themeKeyMap: Record<string, ReservationThemeKey> = {
   minimal_glass: 'minimal',
   minimal: 'minimal',

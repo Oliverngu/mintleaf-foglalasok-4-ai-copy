@@ -25,6 +25,7 @@ import { translations } from '../../../lib/i18n';
 import {
   ReservationThemeTokens,
   resolveReservationTheme,
+  syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 
 type Locale = 'hu' | 'en';
@@ -324,21 +325,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, [unitId, currentMonth, settings?.dailyCapacity]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    const colorMap: Record<string, string> = {
-      primary: theme.primaryColor,
-      accent: theme.accentColor,
-      surface: theme.surfaceColor,
-      background: theme.backgroundColor,
-      textPrimary: theme.textPrimaryColor,
-      textSecondary: theme.textSecondaryColor,
-      success: theme.successColor,
-      danger: theme.dangerColor,
-    };
-
-    Object.entries(colorMap).forEach(([key, value]) => {
-      root.style.setProperty(`--color-${key}`, value);
-    });
+    syncThemeCssVariables(theme);
   }, [theme]);
 
   const resetFlow = () => {

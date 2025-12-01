@@ -5,7 +5,10 @@ import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
-import { resolveReservationTheme } from '../../../core/ui/reservationTheme';
+import {
+  resolveReservationTheme,
+  syncThemeCssVariables,
+} from '../../../core/ui/reservationTheme';
 
 type Locale = 'hu' | 'en';
 
@@ -139,21 +142,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, [unit]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    const colorMap: Record<string, string> = {
-      primary: theme.primaryColor,
-      accent: theme.accentColor,
-      surface: theme.surfaceColor,
-      background: theme.backgroundColor,
-      textPrimary: theme.textPrimaryColor,
-      textSecondary: theme.textSecondaryColor,
-      success: theme.successColor,
-      danger: theme.dangerColor,
-    };
-
-    Object.entries(colorMap).forEach(([key, value]) => {
-      root.style.setProperty(`--color-${key}`, value);
-    });
+    syncThemeCssVariables(theme);
   }, [theme]);
 
   const writeDecisionLog = async (status: 'confirmed' | 'cancelled') => {
