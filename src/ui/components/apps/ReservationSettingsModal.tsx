@@ -104,6 +104,7 @@ const ReservationSettingsModal: FC<ReservationSettingsModalProps> = ({ unitId, o
                     barEndTime: data.barEndTime ?? data.barClose ?? null,
                     guestForm,
                     theme: { ...DEFAULT_THEME, ...data.theme },
+                    uiTheme: data.uiTheme || 'minimal_glass',
                     reservationMode: data.reservationMode || 'request',
                     notificationEmails: data.notificationEmails || [],
                 });
@@ -119,6 +120,7 @@ const ReservationSettingsModal: FC<ReservationSettingsModalProps> = ({ unitId, o
                     barEndTime: null,
                     guestForm: DEFAULT_GUEST_FORM,
                     theme: DEFAULT_THEME,
+                    uiTheme: 'minimal_glass',
                     reservationMode: 'request',
                     notificationEmails: [],
                 });
@@ -242,6 +244,19 @@ const GeneralSettingsTab: FC<{ settings: ReservationSetting, setSettings: React.
                         </span>
                     </label>
                 </div>
+            </div>
+            <div className="p-4 bg-white border rounded-lg">
+                <h3 className="font-bold mb-2">Téma</h3>
+                <p className="text-sm text-gray-500 mb-3">Válassz alap stílust a vendég- és kezelőfelülethez. A megadott színek továbbra is felülírják a téma alapértékeit.</p>
+                <select
+                    className="w-full p-2 border rounded-md"
+                    value={settings.uiTheme || 'minimal_glass'}
+                    onChange={e => handleFieldChange('uiTheme', e.target.value)}
+                >
+                    <option value="minimal_glass">Minimal • Glass</option>
+                    <option value="elegant">Elegáns</option>
+                    <option value="playful_bubbles">Buborékos / játékos</option>
+                </select>
             </div>
             <div className="p-4 bg-white border rounded-lg">
                 <h3 className="font-bold mb-2">Foglalható időablak</h3>

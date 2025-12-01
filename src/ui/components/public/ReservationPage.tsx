@@ -24,6 +24,64 @@ import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
 
 type Locale = 'hu' | 'en';
+type UITheme = 'minimal_glass' | 'elegant' | 'playful_bubbles';
+
+const getPageWrapperClasses = (theme: UITheme) => {
+  const base =
+    'min-h-screen flex items-center justify-center px-4 py-8 relative overflow-hidden';
+  switch (theme) {
+    case 'elegant':
+      return `${base} bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50`;
+    case 'playful_bubbles':
+      return `${base} bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100`;
+    default:
+      return `${base} bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900`;
+  }
+};
+
+const getMainCardClasses = (theme: UITheme) => {
+  switch (theme) {
+    case 'elegant':
+      return 'relative w-full max-w-3xl rounded-3xl bg-white shadow-xl border border-amber-100 text-slate-900 p-6 md:p-8';
+    case 'playful_bubbles':
+      return 'relative w-full max-w-3xl rounded-[28px] bg-white/80 backdrop-blur-md shadow-xl border border-sky-100 text-slate-900 p-6 md:p-8';
+    default:
+      return 'relative w-full max-w-3xl rounded-3xl bg-white/15 backdrop-blur-xl border border-white/20 shadow-2xl text-white p-6 md:p-8';
+  }
+};
+
+const getPrimaryButtonClasses = (theme: UITheme) => {
+  const base =
+    'text-white font-bold py-2 px-6 transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed text-lg shadow-sm';
+  switch (theme) {
+    case 'elegant':
+      return `${base} rounded-xl hover:shadow-md`;
+    case 'playful_bubbles':
+      return `${base} rounded-full transform hover:scale-[1.02] hover:shadow-lg`;
+    default:
+      return `${base} rounded-xl backdrop-blur`;
+  }
+};
+
+const getSecondaryButtonClasses = (theme: UITheme) => {
+  const base = 'font-bold py-2 px-4 transition duration-200';
+  switch (theme) {
+    case 'elegant':
+      return `${base} rounded-xl border border-amber-200 text-amber-900 bg-white hover:bg-amber-50`;
+    case 'playful_bubbles':
+      return `${base} rounded-full bg-white/80 text-slate-800 hover:bg-white shadow-sm border border-sky-100`;
+    default:
+      return `${base} rounded-xl bg-white/20 text-white hover:bg-white/30 border border-white/30`;
+  }
+};
+
+const PlayfulBubbles = () => (
+  <>
+    <div className="pointer-events-none absolute w-64 h-64 bg-white/40 blur-3xl rounded-full -top-10 -left-10" />
+    <div className="pointer-events-none absolute w-52 h-52 bg-white/30 blur-2xl rounded-full top-20 right-10" />
+    <div className="pointer-events-none absolute w-40 h-40 bg-white/25 blur-2xl rounded-full bottom-10 left-1/4" />
+  </>
+);
 
 interface ReservationPageProps {
   unitId: string;
@@ -228,6 +286,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           barEndTime: null,
           guestForm: DEFAULT_GUEST_FORM,
           theme: DEFAULT_THEME,
+          uiTheme: 'minimal_glass',
           reservationMode: 'request',
           notificationEmails: [],
         };
@@ -505,12 +564,26 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     };
   }, [settings?.theme]);
 
+  const uiTheme: UITheme = settings?.uiTheme || 'minimal_glass';
+  const themeClasses = useMemo(
+    () => ({
+      wrapper: getPageWrapperClasses(uiTheme),
+      card: getMainCardClasses(uiTheme),
+      primaryButton: getPrimaryButtonClasses(uiTheme),
+      secondaryButton: getSecondaryButtonClasses(uiTheme),
+    }),
+    [uiTheme]
+  );
+
   if (error && step !== 2) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
-        <div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2>
-          <p className="text-[var(--color-text-primary)] mt-2">{error}</p>
+      <div className={themeClasses.wrapper} style={{ color: 'var(--color-text-primary)' }}>
+        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
+        <div className={`${themeClasses.card} text-center`}>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
+            Hiba
+          </h2>
+          <p className="mt-2">{error}</p>
         </div>
       </div>
     );
@@ -518,100 +591,111 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (loading || !unit || !settings) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center">
-        <LoadingSpinner />
+      <div className={themeClasses.wrapper}>
+        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
+        <div className={themeClasses.card}>
+          <LoadingSpinner />
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
-      style={{ color: 'var(--color-text-primary)' }}
-    >
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-        <button
-          onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          Magyar
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          English
-        </button>
-      </div>
-
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
-          {unit.name}
-        </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
-          {t.title}
-        </p>
-      </header>
-
-      <main className="w-full max-w-2xl">
-        <ProgressIndicator currentStep={step} t={t} />
-        <div className="relative overflow-hidden">
-          <div
-            className="flex transition-transform duration-500 ease-in-out"
-            style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+    <div className={themeClasses.wrapper} style={{ color: 'var(--color-text-primary)' }}>
+      {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
+      <div className={themeClasses.card}>
+        <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+          <button
+            onClick={() => setLocale('hu')}
+            className={
+              locale === 'hu'
+                ? 'font-bold text-[var(--color-primary)]'
+                : 'text-gray-300'
+            }
           >
-            <div className="w-full flex-shrink-0">
-              <Step1Date
-                settings={settings}
-                onDateSelect={handleDateSelect}
-                themeProps={themeClassProps}
-                t={t}
-                currentMonth={currentMonth}
-                onMonthChange={setCurrentMonth}
-                dailyHeadcounts={dailyHeadcounts}
-              />
-            </div>
-            <div className="w-full flex-shrink-0">
-              <Step2Details
-                selectedDate={selectedDate}
-                formData={formData}
-                setFormData={setFormData}
-                onBack={() => {
-                  setStep(1);
-                  setError('');
-                }}
-                onSubmit={handleSubmit}
-                isSubmitting={isSubmitting}
-                settings={settings}
-                themeProps={themeClassProps}
-                t={t}
-                locale={locale}
-                error={error}
-              />
-            </div>
-            <div className="w-full flex-shrink-0">
-              <Step3Confirmation
-                onReset={resetFlow}
-                themeProps={themeClassProps}
-                t={t}
-                submittedData={submittedData}
-                unit={unit}
-                locale={locale}
-                settings={settings}
-              />
+            Magyar
+          </button>
+          <span className="text-gray-300">|</span>
+          <button
+            onClick={() => setLocale('en')}
+            className={
+              locale === 'en'
+                ? 'font-bold text-[var(--color-primary)]'
+                : 'text-gray-300'
+            }
+          >
+            English
+          </button>
+        </div>
+
+        <header className="text-center mb-8 mt-4">
+          <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+            {unit.name}
+          </h1>
+          <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+            {t.title}
+          </p>
+        </header>
+
+        <main className="w-full">
+          <ProgressIndicator currentStep={step} t={t} />
+          <div className="relative overflow-hidden mt-4">
+            <div
+              className="flex transition-transform duration-500 ease-in-out"
+              style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+            >
+              <div className="w-full flex-shrink-0">
+                <Step1Date
+                  settings={settings}
+                  onDateSelect={handleDateSelect}
+                  themeProps={themeClassProps}
+                  t={t}
+                  currentMonth={currentMonth}
+                  onMonthChange={setCurrentMonth}
+                  dailyHeadcounts={dailyHeadcounts}
+                />
+              </div>
+              <div className="w-full flex-shrink-0">
+                <Step2Details
+                  selectedDate={selectedDate}
+                  formData={formData}
+                  setFormData={setFormData}
+                  onBack={() => {
+                    setStep(1);
+                    setError('');
+                  }}
+                  onSubmit={handleSubmit}
+                  isSubmitting={isSubmitting}
+                  settings={settings}
+                  themeProps={themeClassProps}
+                  t={t}
+                  locale={locale}
+                  error={error}
+                  buttonClasses={{
+                    primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                    secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                  }}
+                />
+              </div>
+              <div className="w-full flex-shrink-0">
+                <Step3Confirmation
+                  onReset={resetFlow}
+                  themeProps={themeClassProps}
+                  t={t}
+                  submittedData={submittedData}
+                  unit={unit}
+                  locale={locale}
+                  settings={settings}
+                  buttonClasses={{
+                    primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                    secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 };
@@ -756,6 +840,7 @@ const Step2Details: React.FC<any> = ({
   t,
   locale,
   error,
+  buttonClasses,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -814,6 +899,13 @@ const Step2Details: React.FC<any> = ({
   const bookingWindowText = settings.bookableWindow
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
+
+  const secondaryButtonClass =
+    buttonClasses?.secondary ||
+    `bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`;
+  const primaryButtonClass =
+    buttonClasses?.primary ||
+    `text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`;
 
   return (
     <div
@@ -980,14 +1072,14 @@ const Step2Details: React.FC<any> = ({
           <button
             type="button"
             onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+            className={secondaryButtonClass}
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
+            className={primaryButtonClass}
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
             {isSubmitting ? t.submitting : t.next}
@@ -1006,7 +1098,17 @@ const Step3Confirmation: React.FC<{
   unit: Unit;
   locale: Locale;
   settings: ReservationSetting;
-}> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+  buttonClasses: { primary: string; secondary: string };
+}> = ({
+  onReset,
+  themeProps,
+  t,
+  submittedData,
+  unit,
+  locale,
+  settings,
+  buttonClasses,
+}) => {
   const [copied, setCopied] = useState(false);
 
   const { googleLink, icsLink, manageLink } = useMemo(() => {
@@ -1065,6 +1167,9 @@ const Step3Confirmation: React.FC<{
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const primaryButtonClass =
+    buttonClasses?.primary ||
+    `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
 
   return (
     <div
@@ -1175,7 +1280,7 @@ const Step3Confirmation: React.FC<{
 
       <button
         onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
+        className={`${primaryButtonClass} mt-8`}
         style={{ backgroundColor: 'var(--color-primary)' }}
       >
         {t.newBooking}

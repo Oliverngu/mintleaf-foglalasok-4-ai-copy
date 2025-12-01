@@ -135,6 +135,7 @@ export interface ReservationSetting {
     barEndTime?: string | null;
     guestForm?: GuestFormSettings;
     theme?: ThemeSettings;
+    uiTheme?: 'minimal_glass' | 'elegant' | 'playful_bubbles';
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];
