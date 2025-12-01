@@ -220,12 +220,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   );
 
   const theme = useMemo(
-    () =>
-      buildReservationTheme(
-        settings
-          ? ({ ...settings, theme: settings.theme || defaultReservationTheme } as ReservationSetting)
-          : ({ theme: defaultReservationTheme } as ReservationSetting)
-      ),
+    () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
     [settings]
   );
 

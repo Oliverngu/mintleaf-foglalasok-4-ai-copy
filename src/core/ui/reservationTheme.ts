@@ -1,4 +1,4 @@
-import { ReservationSetting } from '../models/data';
+import { ReservationSetting, ThemeSettings } from '../models/data';
 
 export type ReservationThemeKey = 'minimal' | 'elegant' | 'bubbly';
 
@@ -54,7 +54,9 @@ const themeKeyMap: Record<string, ReservationThemeKey> = {
   minimal_glass: 'minimal',
   minimal: 'minimal',
   elegant: 'elegant',
+  classic_elegant: 'elegant',
   playful_bubbles: 'bubbly',
+  playful_bubble: 'bubbly',
   bubbly: 'bubbly',
 };
 
@@ -174,14 +176,39 @@ export const syncThemeCssVariables = (theme: ReservationThemeTokens) => {
   });
 };
 
+const defaultThemeSettings: ThemeSettings = {
+  primary: '#166534',
+  surface: '#ffffff',
+  background: '#f9fafb',
+  textPrimary: '#1f2937',
+  textSecondary: '#4b5563',
+  accent: '#10b981',
+  success: '#16a34a',
+  danger: '#dc2626',
+  radius: 'lg',
+  elevation: 'mid',
+  typographyScale: 'M',
+};
+
+const isReservationSetting = (value: any): value is ReservationSetting =>
+  value && typeof value === 'object' && 'theme' in value;
+
 export const buildReservationTheme = (
-  settings: ReservationSetting | null
+  settings: ReservationSetting | ThemeSettings | null,
+  uiThemeOverride?: ReservationSetting['uiTheme']
 ): ReservationThemeTokens => {
-  const uiThemeKey = settings?.uiTheme
+  const themeSettings: ThemeSettings = isReservationSetting(settings)
+    ? settings.theme || defaultThemeSettings
+    : settings || defaultThemeSettings;
+
+  const uiThemeKey = uiThemeOverride
+    ? themeKeyMap[uiThemeOverride] || 'minimal'
+    : isReservationSetting(settings) && settings.uiTheme
     ? themeKeyMap[settings.uiTheme] || 'minimal'
     : 'minimal';
+
   const base = basePalettes[uiThemeKey];
-  const overrides = settings?.theme;
+  const overrides = themeSettings;
 
   const radiusValue = overrides?.radius && radiusMap[overrides.radius]
     ? radiusMap[overrides.radius]

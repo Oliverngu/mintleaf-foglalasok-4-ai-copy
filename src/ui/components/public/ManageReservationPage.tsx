@@ -44,7 +44,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
-  const theme = useMemo(() => buildReservationTheme(settings), [settings]);
+  const theme = useMemo(
+    () => buildReservationTheme(settings?.theme || null, settings?.uiTheme),
+    [settings]
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
