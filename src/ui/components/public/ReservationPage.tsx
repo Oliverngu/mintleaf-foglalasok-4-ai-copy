@@ -517,7 +517,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.styles.page}`,
+      wrapper: `${theme.styles.page} relative overflow-hidden`,
       card: `${theme.styles.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto p-6 md:p-8 gap-4`,
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
@@ -530,16 +530,26 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)' }}
+        style={{
+          color: 'var(--color-text-primary)',
+          ...(theme.pageStyle || {}),
+        }}
       >
+        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay}`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={theme.styles.pageInner}>
+        <div className={`${theme.styles.pageInner} relative z-10`}>
           <div className={`${themeClasses.card} text-center`}>
             <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
               Hiba
             </h2>
             <p className="mt-2">{error}</p>
           </div>
+        </div>
+        <div
+          className={`pointer-events-none absolute bottom-4 right-4 text-xs ${theme.styles.watermark || ''}`}
+          style={{ color: theme.colors.textSecondary }}
+        >
+          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
         </div>
       </div>
     );
@@ -549,13 +559,23 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)' }}
+        style={{
+          color: 'var(--color-text-primary)',
+          ...(theme.pageStyle || {}),
+        }}
       >
+        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay}`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={theme.styles.pageInner}>
+        <div className={`${theme.styles.pageInner} relative z-10`}>
           <div className={themeClasses.card}>
             <LoadingSpinner />
           </div>
+        </div>
+        <div
+          className={`pointer-events-none absolute bottom-4 right-4 text-xs ${theme.styles.watermark || ''}`}
+          style={{ color: theme.colors.textSecondary }}
+        >
+          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
         </div>
       </div>
     );
@@ -564,10 +584,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   return (
     <div
       className={themeClasses.wrapper}
-      style={{ color: 'var(--color-text-primary)' }}
+      style={{
+        color: 'var(--color-text-primary)',
+        ...(theme.pageStyle || {}),
+      }}
     >
+      {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay}`} />}
       {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-      <div className={theme.styles.pageInner}>
+      <div className={`${theme.styles.pageInner} relative z-10`}>
         <div className={themeClasses.card}>
         <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
           <button
@@ -670,6 +694,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </div>
         </main>
         </div>
+      </div>
+      <div
+        className={`pointer-events-none absolute bottom-4 right-4 text-xs ${theme.styles.watermark || ''}`}
+        style={{ color: theme.colors.textSecondary }}
+      >
+        {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
       </div>
     </div>
   );

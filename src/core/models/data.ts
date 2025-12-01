@@ -113,6 +113,7 @@ export interface ThemeSettings {
     elevation: 'none' | 'low' | 'medium' | 'mid' | 'high';
     typographyScale: 'S' | 'M' | 'L';
     highlight?: string;
+    backgroundImageUrl?: string;
 }
 
 export interface CustomSelectField {

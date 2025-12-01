@@ -153,11 +153,26 @@ const ColorPickerPopup: React.FC<ColorPickerPopupProps> = ({ color, onChange, on
     );
 };
 
-const SliderControl: React.FC<{label: string, gradient: string, min: number, max: number, value: number, onChange: (v: number) => void}> = ({label, gradient, ...props}) => (
+const SliderControl: React.FC<{
+    label: string;
+    gradient: string;
+    min: number;
+    max: number;
+    value: number;
+    onChange: (v: number) => void;
+}> = ({ label, gradient, min, max, value, onChange }) => (
     <div>
         <label className="text-xs font-semibold text-gray-600">{label}</label>
         <div className="h-6 rounded-full" style={{ background: gradient }}>
-            <input type="range" {...props} className="w-full h-full slider-thumb" />
+            <input
+                type="range"
+                min={min}
+                max={max}
+                value={value}
+                onChange={e => onChange(Number(e.target.value))}
+                onInput={e => onChange(Number((e.target as HTMLInputElement).value))}
+                className="w-full h-full slider-thumb"
+            />
         </div>
         <style>{`
             .slider-thumb { -webkit-appearance: none; appearance: none; width: 100%; height: 100%; background: transparent; cursor: pointer; }

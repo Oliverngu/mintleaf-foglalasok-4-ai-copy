@@ -1,3 +1,4 @@
+import { type CSSProperties } from 'react';
 import { ReservationSetting, ThemeSettings } from '../models/data';
 
 type RadiusKey = 'sm' | 'md' | 'lg' | 'xl';
@@ -8,6 +9,7 @@ export type ReservationUiTheme = 'minimal_glass' | 'classic_elegant' | 'playful_
 export interface ReservationThemeStyles {
   page: string;
   pageInner: string;
+  pageOverlay?: string;
   card: string;
   primaryButton: string;
   secondaryButton: string;
@@ -20,6 +22,7 @@ export interface ReservationThemeStyles {
   stepThumb: string;
   stepActive: string;
   stepInactive: string;
+  watermark?: string;
 }
 
 export interface ReservationThemeTokens {
@@ -39,6 +42,7 @@ export interface ReservationThemeTokens {
   shadowClass: string;
   fontSizeClass: string;
   fontFamilyClass: string;
+  pageStyle?: CSSProperties;
   styles: ReservationThemeStyles;
 }
 
@@ -55,6 +59,7 @@ export const defaultThemeSettings: ThemeSettings = {
   elevation: 'mid',
   typographyScale: 'M',
   highlight: '#38bdf8',
+  backgroundImageUrl: undefined,
 };
 
 const radiusMap: Record<RadiusKey, string> = {
@@ -92,6 +97,7 @@ const uiThemeAlias: Record<string, ReservationUiTheme> = {
 type BasePreset = {
   uiTheme: ReservationUiTheme;
   pageBackground: string;
+  pageOverlay?: string;
   cardBase: string;
   primaryButton: string;
   secondaryButton: string;
@@ -105,17 +111,20 @@ type BasePreset = {
   stepThumb: string;
   stepActive: string;
   stepInactive: string;
+  watermark?: string;
 };
 
 const basePresets: Record<ReservationUiTheme, BasePreset> = {
   minimal_glass: {
     uiTheme: 'minimal_glass',
     pageBackground:
-      'min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white',
+      'min-h-screen flex flex-col bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-slate-900/85 text-white',
+    pageOverlay:
+      'absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-white/5 pointer-events-none mix-blend-screen',
     cardBase:
-      'bg-white/30 backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.12)] text-slate-900',
+      'bg-white/35 backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.12)] text-slate-900',
     primaryButton:
-      'bg-white/20 border border-white/40 text-white hover:bg-white/30 hover:shadow-lg transition transform hover:scale-[1.02] backdrop-blur',
+      'bg-white/25 border border-white/40 text-white hover:bg-white/35 hover:shadow-lg transition transform hover:scale-[1.02] backdrop-blur',
     secondaryButton:
       'bg-transparent border border-white/50 text-white hover:bg-white/10 transition',
     outlineButton:
@@ -131,11 +140,13 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     stepActive:
       'bg-white text-[color:var(--color-primary)] border-2 border-[color:var(--color-primary)] shadow-sm',
     stepInactive: 'bg-white/70 text-white/70 border border-white/40',
+    watermark: 'text-white/70',
   },
   classic_elegant: {
     uiTheme: 'classic_elegant',
     pageBackground:
       'min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50 text-slate-900',
+    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/30 via-white/10 to-white/5 pointer-events-none',
     cardBase: 'bg-white border border-amber-100 shadow-md text-slate-900',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white border border-transparent hover:shadow-md transition',
@@ -154,11 +165,13 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     stepActive:
       'bg-[color:var(--color-primary)] text-white shadow-sm border border-transparent',
     stepInactive: 'bg-white text-slate-500 border border-amber-100',
+    watermark: 'text-slate-500',
   },
   playful_bubble: {
     uiTheme: 'playful_bubble',
     pageBackground:
       'min-h-screen flex flex-col relative overflow-hidden bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100 text-slate-900',
+    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/50 via-white/30 to-white/20 pointer-events-none',
     cardBase:
       'bg-white/90 backdrop-blur-md border border-sky-100 shadow-xl text-slate-900',
     primaryButton:
@@ -178,6 +191,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     stepActive:
       'bg-[color:var(--color-primary)] text-white shadow-md border border-transparent animate-pulse',
     stepInactive: 'bg-white text-slate-500 border border-sky-100',
+    watermark: 'text-slate-600',
   },
 };
 
@@ -218,6 +232,15 @@ const fontSizeFromSetting = (scale?: TypographyKey, fallback?: string) => {
   return fallback || typographyMap.M;
 };
 
+const hexToRgba = (hex: string, alpha: number) => {
+  const parsed = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!parsed) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(parsed[1], 16);
+  const g = parseInt(parsed[2], 16);
+  const b = parseInt(parsed[3], 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 const resolveUiTheme = (settings: ReservationSetting | ThemeSettings | null, override?: ReservationSetting['uiTheme']): ReservationUiTheme => {
   const requested = override || (isReservationSetting(settings) ? settings.uiTheme : undefined) || 'minimal_glass';
   return uiThemeAlias[requested] || 'minimal_glass';
@@ -250,12 +273,28 @@ export const buildReservationTheme = (
     highlight: themeSettings.highlight || defaultThemeSettings.highlight!,
   };
 
-  const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass} bg-[${colors.background}]`;
+  const gradientOverlay = `linear-gradient(135deg, ${hexToRgba(colors.background, 0.78)}, ${hexToRgba(
+    colors.background,
+    0.56
+  )})`;
+
+  const pageStyle: CSSProperties = themeSettings.backgroundImageUrl
+    ? {
+        backgroundImage: `${gradientOverlay}, url(${themeSettings.backgroundImageUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }
+    : {
+        backgroundImage: gradientOverlay,
+      };
+
+  const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass}`;
   const cardBase = `${preset.cardBase} ${radiusClass} ${shadowClass}`;
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
     pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-8 gap-6',
+    pageOverlay: preset.pageOverlay,
     card: `${cardBase} ${preset.fontFamily}`,
     primaryButton: `${preset.primaryButton} ${radiusClass} ${fontSizeClass}`,
     secondaryButton: `${preset.secondaryButton} ${radiusClass} ${fontSizeClass}`,
@@ -268,6 +307,7 @@ export const buildReservationTheme = (
     stepThumb: `${preset.stepThumb}`,
     stepActive: `${preset.stepActive} ${radiusClass}`,
     stepInactive: `${preset.stepInactive} ${radiusClass}`,
+    watermark: preset.watermark,
   };
 
   return {
@@ -277,6 +317,7 @@ export const buildReservationTheme = (
     shadowClass,
     fontSizeClass,
     fontFamilyClass: preset.fontFamily,
+    pageStyle,
     styles,
   };
 };

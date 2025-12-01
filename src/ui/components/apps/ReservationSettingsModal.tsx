@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, FC } from 'react';
 import { ReservationSetting, ThemeSettings, GuestFormSettings, CustomSelectField } from '../../../core/models/data';
-import { db } from '../../../core/firebase/config';
+import { db, storage } from '../../../core/firebase/config';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
@@ -422,6 +423,8 @@ const OptionManager: FC<{options: string[], setOptions: (opts: string[])=>void}>
 const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispatch<React.SetStateAction<ReservationSetting | null>> }> = ({ settings, setSettings }) => {
     const theme = settings.theme!;
     const uiTheme = settings.uiTheme || 'minimal_glass';
+    const [isUploadingBg, setIsUploadingBg] = useState(false);
+    const [backgroundError, setBackgroundError] = useState('');
 
     const handleThemeChange = (key: keyof ThemeSettings, value: string) => {
         setSettings(prev => {
@@ -440,6 +443,42 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
 
     const handleUiThemeChange = (value: string) => {
         setSettings(prev => (prev ? { ...prev, uiTheme: value as ReservationSetting['uiTheme'] } : null));
+    };
+
+    const handleBackgroundUpload = async (file: File) => {
+        if (!settings.id) return;
+        setBackgroundError('');
+        setIsUploadingBg(true);
+        try {
+            const bgRef = ref(storage, `reservation_backgrounds/${settings.id}/background.jpg`);
+            await uploadBytes(bgRef, file);
+            const url = await getDownloadURL(bgRef);
+            handleThemeChange('backgroundImageUrl', url);
+        } catch (err) {
+            console.error('Failed to upload background image', err);
+            setBackgroundError('Nem sikerült feltölteni a háttérképet. Próbáld újra.');
+        } finally {
+            setIsUploadingBg(false);
+        }
+    };
+
+    const handleBackgroundRemove = async () => {
+        if (!settings.id || !theme.backgroundImageUrl) {
+            handleThemeChange('backgroundImageUrl', '');
+            return;
+        }
+        setBackgroundError('');
+        setIsUploadingBg(true);
+        try {
+            const bgRef = ref(storage, `reservation_backgrounds/${settings.id}/background.jpg`);
+            await deleteObject(bgRef).catch(() => undefined);
+            handleThemeChange('backgroundImageUrl', '');
+        } catch (err) {
+            console.error('Failed to remove background image', err);
+            setBackgroundError('Nem sikerült törölni a háttérképet.');
+        } finally {
+            setIsUploadingBg(false);
+        }
     };
 
     const contrastWarning = useMemo(() => {
@@ -485,6 +524,50 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                     <ColorInput label="Highlight" color={theme.highlight || '#38bdf8'} onChange={v => handleThemeChange('highlight', v)} />
                     <ColorInput label="Siker" color={theme.success} onChange={v => handleThemeChange('success', v)} />
                     <ColorInput label="Hiba / Danger" color={theme.danger} onChange={v => handleThemeChange('danger', v)} />
+                </div>
+                <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="font-semibold">Háttérkép</p>
+                            <p className="text-xs text-gray-500">A kártyák mögötti hero kép. A háttérszín overlay-ként maradjon látható.</p>
+                        </div>
+                        <label className={`px-3 py-2 rounded-md font-semibold cursor-pointer ${isUploadingBg ? 'bg-gray-300 text-gray-600' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+                            {isUploadingBg ? 'Feltöltés...' : 'Kép feltöltése'}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) await handleBackgroundUpload(file);
+                                    e.target.value = '';
+                                }}
+                                disabled={isUploadingBg}
+                            />
+                        </label>
+                    </div>
+                    {theme.backgroundImageUrl && (
+                        <div className="flex items-center gap-3 mt-2">
+                            <div className="w-24 h-16 rounded-lg overflow-hidden border bg-white">
+                                <div
+                                    className="w-full h-full bg-cover bg-center"
+                                    style={{ backgroundImage: `url(${theme.backgroundImageUrl})` }}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1 text-sm">
+                                <span className="font-medium">Aktív háttérkép</span>
+                                <button
+                                    type="button"
+                                    className="text-red-600 hover:underline text-xs"
+                                    onClick={handleBackgroundRemove}
+                                    disabled={isUploadingBg}
+                                >
+                                    Eltávolítás
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    {backgroundError && <p className="text-sm text-red-600">{backgroundError}</p>}
                 </div>
                 <div className="p-3 bg-gray-50 rounded-md border">
                     <p className="text-sm font-medium text-gray-800">Szövegszínek (automatikus)</p>
@@ -564,21 +647,30 @@ const ColorInput: FC<{label: string, color: string, onChange: (c: string) => voi
 
 const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ tokens }) => {
     return (
-        <div className={`rounded-2xl overflow-hidden border shadow-sm ${tokens.fontFamilyClass}`} style={{ backgroundColor: tokens.colors.background }}>
-            <div className={`relative p-5`} style={{ minHeight: '320px' }}>
-                {tokens.uiTheme === 'playful_bubble' && (
-                    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                        <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />
-                        <div className="absolute w-56 h-56 bg-white/40 blur-3xl rounded-full right-4 -bottom-10" />
-                    </div>
-                )}
-                <div className={`relative mx-auto max-w-md ${tokens.styles.card}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
-                    <div className={`${tokens.styles.stepWrapper} px-2 pt-2`}>
+        <div
+            className={`relative rounded-2xl overflow-hidden border shadow-sm ${tokens.fontFamilyClass}`}
+            style={{
+                minHeight: '340px',
+                ...(tokens.pageStyle || {}),
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+            }}
+        >
+            {tokens.styles.pageOverlay && <div className={`${tokens.styles.pageOverlay}`} />}
+            {tokens.uiTheme === 'playful_bubble' && (
+                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                    <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />
+                    <div className="absolute w-56 h-56 bg-white/40 blur-3xl rounded-full right-4 -bottom-10" />
+                </div>
+            )}
+            <div className="relative z-10 p-6 flex justify-center items-center h-full">
+                <div className={`relative mx-auto w-full max-w-md ${tokens.styles.card}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
+                    <div className={`${tokens.styles.stepWrapper} px-4 pt-4`}>
                         {[1, 2, 3].map((step, index) => (
                             <React.Fragment key={step}>
                                 <div className="flex flex-col items-center text-center">
                                     <div
-                                        className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${index === 0 ? tokens.styles.stepActive : tokens.styles.stepInactive}`}
+                                        className={`w-10 h-10 flex items-center justify-center font-bold transition-all ${index === 0 ? tokens.styles.stepActive : tokens.styles.stepInactive}`}
                                         style={{
                                             backgroundColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
                                             color: index === 0 ? '#fff' : tokens.colors.textSecondary,
@@ -592,7 +684,7 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                             </React.Fragment>
                         ))}
                     </div>
-                    <div className="space-y-3 p-5">
+                    <div className="space-y-4 p-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-xs uppercase tracking-wide" style={{ color: tokens.colors.textSecondary }}>Foglalás</p>
@@ -610,7 +702,7 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                                 <p className="font-semibold">4 fő</p>
                             </div>
                         </div>
-                        <div className="flex gap-2 justify-end">
+                        <div className="flex gap-3 justify-end">
                             <button className={`${tokens.styles.secondaryButton}`} style={{ backgroundColor: tokens.colors.accent, color: '#fff' }}>Vissza</button>
                             <button className={`${tokens.styles.primaryButton}`} style={{ backgroundColor: tokens.colors.primary }}>Foglalás</button>
                         </div>
