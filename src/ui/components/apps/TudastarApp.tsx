@@ -30,6 +30,7 @@ import TrashIcon from '../../../../components/icons/TrashIcon';
 import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import PlusIcon from '../../../../components/icons/PlusIcon';
 import XIcon from '../../../../components/icons/XIcon';
+import PencilIcon from '../../../../components/icons/PencilIcon';
 
 interface TudastarAppProps {
   currentUser: User;
@@ -485,6 +486,189 @@ const NoteModal: FC<{
   );
 };
 
+const EditNoteModal: FC<{
+  onClose: () => void;
+  categories: knowledgeCategory[];
+  selectedUnitId: string;
+  selectedUnitName?: string;
+  currentUser: User;
+  note: knowledgeNote;
+  onSubcategoryCapture: (categoryId: string, subcategory?: string) => Promise<void>;
+}> = ({ onClose, categories, selectedUnitId, selectedUnitName, currentUser, note, onSubcategoryCapture }) => {
+  const [title, setTitle] = useState(note.title || '');
+  const [content, setContent] = useState(note.content || '');
+  const [categoryId, setCategoryId] = useState(note.categoryId || '');
+  const [subcategory, setSubcategory] = useState(note.subcategory || '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!categoryId && categories.length > 0) {
+      setCategoryId(categories[0].id);
+    }
+  }, [categories, categoryId]);
+
+  useEffect(() => {
+    setTitle(note.title || '');
+    setContent(note.content || '');
+    setCategoryId(note.categoryId || '');
+    setSubcategory(note.subcategory || '');
+  }, [note]);
+
+  const selectedCategory = categories.find(c => c.id === categoryId);
+  const availableSubcategories = selectedCategory?.subcategories || [];
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!title.trim() || !content.trim()) {
+      setError('A cím és a tartalom megadása kötelező.');
+      return;
+    }
+
+    if (!categoryId) {
+      setError('Nincs kategória kiválasztva.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const trimmedSub = subcategory?.trim() || null;
+
+      const data: any = {
+        title: title.trim(),
+        content: content.trim(),
+        categoryId,
+        ...(trimmedSub ? { subcategory: trimmedSub } : { subcategory: null }),
+        modifiedAt: serverTimestamp() as Timestamp,
+        modifiedBy: currentUser.fullName,
+        modifiedByUid: currentUser.id,
+      };
+
+      await updateDoc(doc(db, 'knowledgeNotes', note.id), data);
+
+      if (trimmedSub) {
+        await onSubcategoryCapture(categoryId, trimmedSub);
+      }
+
+      onClose();
+    } catch (err: any) {
+      console.error('Error updating note:', err);
+      setError(err?.message || 'Hiba a jegyzet frissítésekor.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+        <form onSubmit={handleSave} className="divide-y">
+          <div className="p-5">
+            <h2 className="text-xl font-bold text-gray-800">Jegyzet szerkesztése</h2>
+            <p className="text-gray-500 text-sm mt-1">Frissítsd a jegyzet tartalmát és metaadatait.</p>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Cím</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  placeholder="Pl. Új koktél jegyzet"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Kategória</label>
+                <select
+                  value={categoryId}
+                  onChange={e => setCategoryId(e.target.value)}
+                  className="w-full mt-1 p-2 border rounded-lg bg-white"
+                  required
+                >
+                  <option value="" disabled>
+                    Válassz...
+                  </option>
+                  {categories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Alkategória (opcionális)</label>
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={availableSubcategories.includes(subcategory) ? subcategory : ''}
+                    onChange={e => setSubcategory(e.target.value)}
+                    className="flex-1 p-2 border rounded-lg bg-white"
+                  >
+                    <option value="">Nincs megadva</option>
+                    {availableSubcategories.map(sub => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={subcategory}
+                    onChange={e => setSubcategory(e.target.value)}
+                    placeholder="Új alkategória"
+                    className="flex-1 p-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Egység</label>
+                <input
+                  type="text"
+                  value={selectedUnitName || selectedUnitId}
+                  disabled
+                  className="w-full mt-1 p-2 border rounded-lg bg-gray-100 text-gray-600"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Tartalom</label>
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                rows={8}
+                className="w-full mt-1 p-3 border rounded-lg font-mono text-sm leading-6"
+                placeholder="Írd ide a jegyzetet. Üres sorokkal tagolhatod, *dőlt* és **félkövér** jelölés is használható."
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">Alap formázás: sorvégi törés, *dőlt* és **félkövér** csillag jelöléssel.</p>
+            </div>
+            {error && <p className="text-red-500">{error}</p>}
+          </div>
+          <div className="p-4 bg-gray-50 flex justify-end gap-3 rounded-b-2xl">
+            <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-lg font-semibold">
+              Mégse
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+            >
+              {saving ? 'Mentés...' : 'Mentés'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const CategoryManagerModal: FC<{
   onClose: () => void;
   categories: knowledgeCategory[];
@@ -713,6 +897,8 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [isEditNoteModalOpen, setIsEditNoteModalOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<knowledgeNote | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
   const noteRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -769,6 +955,11 @@ const TudastarApp: React.FC<TudastarAppProps> = ({
     },
     [expandedNoteId, scrollToNote]
   );
+
+  const handleEditNote = useCallback((note: knowledgeNote) => {
+    setEditingNote(note);
+    setIsEditNoteModalOpen(true);
+  }, []);
 
   useEffect(() => {
     setSelectedCategoryId(null);
@@ -1098,6 +1289,20 @@ useEffect(() => {
           onSubcategoryCapture={ensureSubcategoryTracked}
         />
       )}
+      {isEditNoteModalOpen && editingNote && selectedUnitId && (
+        <EditNoteModal
+          onClose={() => {
+            setIsEditNoteModalOpen(false);
+            setEditingNote(null);
+          }}
+          categories={categories}
+          selectedUnitId={selectedUnitId}
+          selectedUnitName={selectedUnitName}
+          currentUser={currentUser}
+          note={editingNote}
+          onSubcategoryCapture={ensureSubcategoryTracked}
+        />
+      )}
       {isCategoryModalOpen && (
         <CategoryManagerModal
           onClose={() => setIsCategoryModalOpen(false)}
@@ -1262,6 +1467,19 @@ useEffect(() => {
                               type="button"
                               onClick={event => {
                                 event.stopPropagation();
+                                handleEditNote(note);
+                              }}
+                              className="text-gray-600 hover:text-blue-700"
+                              title="Jegyzet szerkesztése"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canManageContentResolved && (
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
                                 handleDeleteNote(note);
                               }}
                               className="text-red-600 hover:text-red-800"
@@ -1275,21 +1493,26 @@ useEffect(() => {
 
                       {isExpanded && (
                         <>
+                          <div className="sticky top-0 right-2 z-30 ml-auto w-fit">
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                handleCollapseNote(note.id);
+                              }}
+                              className="sticky top-0 right-2 z-30 bg-white/80 backdrop-blur-sm rounded-full shadow p-1 cursor-pointer"
+                              title="Jegyzet bezárása"
+                            >
+                              <XIcon className="h-4 w-4" />
+                            </button>
+                          </div>
                           <div className="prose prose-sm max-w-none">
                             {renderNoteContent(note.content)}
                           </div>
-                          <div className="mt-3 text-xs text-gray-500">Készítette: {note.createdBy}</div>
-                          <button
-                            type="button"
-                            onClick={event => {
-                              event.stopPropagation();
-                              handleCollapseNote(note.id);
-                            }}
-                            className="absolute top-3 right-3 p-2 rounded-full bg-white/80 text-gray-700 shadow hover:bg-white"
-                            title="Jegyzet bezárása"
-                          >
-                            <XIcon className="h-4 w-4" />
-                          </button>
+                          <div className="mt-3 space-y-1 text-xs text-gray-500">
+                            <div>Készítette: {note.createdBy}</div>
+                            {note.modifiedBy && <div>Módosította: {note.modifiedBy}</div>}
+                          </div>
                         </>
                       )}
                     </div>
