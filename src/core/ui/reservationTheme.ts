@@ -284,7 +284,7 @@ export const buildReservationTheme = (
     uiTheme === 'minimal_glass'
       ? hexToRgba(
           colors.surface,
-          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.24 : 0.28
+          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.18 : 0.23
         )
       : uiTheme === 'playful_bubble'
       ? hexToRgba(colors.surface, 0.9)
@@ -313,7 +313,7 @@ export const buildReservationTheme = (
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
-    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-8 gap-6',
+    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-10 gap-6',
     pageOverlay: preset.pageOverlay,
     card: `${cardBase} ${preset.fontFamily}`,
     infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,

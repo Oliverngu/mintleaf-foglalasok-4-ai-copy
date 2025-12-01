@@ -72,6 +72,15 @@ const DEFAULT_GUEST_FORM: GuestFormSettings = {
 
 const defaultReservationTheme = DEFAULT_THEME;
 
+const toRgba = (hex: string, alpha: number) => {
+  const parsed = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!parsed) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(parsed[1], 16);
+  const g = parseInt(parsed[2], 16);
+  const b = parseInt(parsed[3], 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 const generateAdminActionToken = () =>
   `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
@@ -512,6 +521,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       fontSize: theme.fontSizeClass,
       colors: theme.colors,
       infoPanelClass: theme.styles.infoPanel,
+      uiTheme: theme.uiTheme,
     }),
     [theme]
   );
@@ -519,11 +529,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[80vh] max-h-[calc(100vh-2rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[78vh] max-h-[calc(100vh-3rem)] my-6 p-6 md:p-8 gap-4 overflow-hidden`,
       header: 'flex-shrink-0 space-y-4',
       content: 'flex-1 min-h-0 overflow-hidden',
       contentScrollable: 'h-full flex-1 overflow-hidden',
-      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-320px)]',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-360px)]',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
@@ -935,13 +945,22 @@ const Step2Details: React.FC<any> = ({
     buttonClasses?.primary ||
     `font-bold py-2 px-6 ${themeProps.radiusClass} ${themeProps.shadowClass} disabled:opacity-50 disabled:cursor-not-allowed text-lg`;
 
+  const surfaceFill =
+    themeProps.uiTheme === 'minimal_glass'
+      ? toRgba(themeProps.colors.surface, 0.75)
+      : themeProps.colors.surface;
+  const surfaceBorder =
+    themeProps.uiTheme === 'minimal_glass'
+      ? toRgba(themeProps.colors.surface, 0.82)
+      : themeProps.colors.surface;
+
   return (
     <div
       className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
       style={{
-        backgroundColor: themeProps.colors.surface,
+        backgroundColor: surfaceFill,
         color: themeProps.colors.textPrimary,
-        border: `1px solid ${themeProps.colors.surface}`,
+        border: `1px solid ${surfaceBorder}`,
       }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
