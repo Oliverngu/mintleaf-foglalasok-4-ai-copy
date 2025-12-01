@@ -93,9 +93,11 @@ const ColorPickerPopup: React.FC<ColorPickerPopupProps> = ({ color, onChange, on
     const [savedColors, setSavedColors] = useState<string[]>(() => getStoredColors(SAVED_COLORS_KEY));
 
     useEffect(() => {
-        setHsv(hexToHsv(color));
-        setHex(color);
-    }, [color]);
+        if (color.toLowerCase() !== hex.toLowerCase()) {
+            setHsv(hexToHsv(color));
+            setHex(color);
+        }
+    }, [color, hex]);
 
     const handleSliderChange = (part: 'h' | 's' | 'v', value: number) => {
         setHsv(prev => {
@@ -172,7 +174,6 @@ const SliderControl: React.FC<{
                 max={max}
                 value={value}
                 onChange={e => onChange(Number(e.target.value))}
-                onInput={e => onChange(Number((e.target as HTMLInputElement).value))}
                 className="w-full h-full slider-thumb"
             />
         </div>

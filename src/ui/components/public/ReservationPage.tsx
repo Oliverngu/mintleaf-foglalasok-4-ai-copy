@@ -518,7 +518,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto min-h-[calc(100vh-4rem)] max-h-[calc(100vh-3rem)] p-6 md:p-8 gap-4 overflow-hidden`,
       content: 'flex-1 min-h-0 overflow-hidden',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
@@ -547,7 +547,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </div>
         </div>
         <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-30 drop-shadow ${theme.styles.watermark || ''}`}
+          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
           style={{
             color: theme.watermarkStyle?.color || theme.colors.textSecondary,
             ...(theme.watermarkStyle || {}),
@@ -576,7 +576,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </div>
         </div>
         <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-30 drop-shadow ${theme.styles.watermark || ''}`}
+          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
           style={{
             color: theme.watermarkStyle?.color || theme.colors.textSecondary,
             ...(theme.watermarkStyle || {}),
@@ -700,7 +700,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         </div>
       </div>
       <div
-        className={`pointer-events-none absolute bottom-4 right-4 text-xs z-30 drop-shadow ${theme.styles.watermark || ''}`}
+        className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
         style={{
           color: theme.watermarkStyle?.color || theme.colors.textSecondary,
           ...(theme.watermarkStyle || {}),

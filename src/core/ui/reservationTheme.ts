@@ -283,14 +283,14 @@ export const buildReservationTheme = (
       : hexToRgba(colors.surface, 0.98);
   const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.7 : 0.85);
 
-  const gradientOverlay = `linear-gradient(135deg, ${hexToRgba(colors.background, 0.78)}, ${hexToRgba(
+  const gradientOverlay = `linear-gradient(135deg, ${hexToRgba(colors.background, 0.35)}, ${hexToRgba(
     colors.background,
-    0.56
+    0.25
   )})`;
 
   const pageStyle: CSSProperties = themeSettings.backgroundImageUrl
     ? {
-        backgroundImage: `${gradientOverlay}, url(${themeSettings.backgroundImageUrl})`,
+        backgroundImage: `url(${themeSettings.backgroundImageUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundColor: colors.background,
