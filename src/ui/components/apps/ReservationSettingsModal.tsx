@@ -8,17 +8,14 @@ import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import PencilIcon from '../../../../components/icons/PencilIcon';
 import ColorPicker from '../common/ColorPicker';
+import { buildReservationTheme, defaultThemeSettings } from '../../../core/ui/reservationTheme';
 
 interface ReservationSettingsModalProps {
     unitId: string;
     onClose: () => void;
 }
 
-const DEFAULT_THEME: ThemeSettings = {
-    primary: '#16a34a', surface: '#ffffff', background: '#f9fafb', textPrimary: '#1f2937', 
-    textSecondary: '#4b5563', accent: '#10b981', success: '#22c55e', danger: '#ef4444',
-    radius: 'lg', elevation: 'mid', typographyScale: 'M'
-};
+const DEFAULT_THEME: ThemeSettings = defaultThemeSettings;
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
     customSelects: [
@@ -246,19 +243,6 @@ const GeneralSettingsTab: FC<{ settings: ReservationSetting, setSettings: React.
                 </div>
             </div>
             <div className="p-4 bg-white border rounded-lg">
-                <h3 className="font-bold mb-2">Téma</h3>
-                <p className="text-sm text-gray-500 mb-3">Válassz alap stílust a vendég- és kezelőfelülethez. A megadott színek továbbra is felülírják a téma alapértékeit.</p>
-                <select
-                    className="w-full p-2 border rounded-md"
-                    value={settings.uiTheme || 'minimal_glass'}
-                    onChange={e => handleFieldChange('uiTheme', e.target.value)}
-                >
-                    <option value="minimal_glass">Minimal • Glass</option>
-                    <option value="elegant">Elegáns</option>
-                    <option value="bubbly">Buborékos / játékos</option>
-                </select>
-            </div>
-            <div className="p-4 bg-white border rounded-lg">
                 <h3 className="font-bold mb-2">Foglalható időablak</h3>
                  <div className="grid grid-cols-2 gap-4">
                     <div><label className="text-sm">Kezdés</label><input type="time" value={settings.bookableWindow?.from} onChange={e => handleTimeWindowChange('from', e.target.value)} className="w-full p-2 border rounded-md" step="300" /></div>
@@ -437,11 +421,12 @@ const OptionManager: FC<{options: string[], setOptions: (opts: string[])=>void}>
 
 const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispatch<React.SetStateAction<ReservationSetting | null>> }> = ({ settings, setSettings }) => {
     const theme = settings.theme!;
+    const uiTheme = settings.uiTheme || 'minimal_glass';
 
     const handleThemeChange = (key: keyof ThemeSettings, value: string) => {
         setSettings(prev => {
             if (!prev) return null;
-            const newTheme = { ...prev.theme!, [key]: value };
+            const newTheme = { ...prev.theme!, [key]: value } as ThemeSettings;
 
             if (key === 'surface') {
                 const { primary, secondary } = getContrastingTextColors(value);
@@ -451,6 +436,10 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
 
             return { ...prev, theme: newTheme };
         });
+    };
+
+    const handleUiThemeChange = (value: string) => {
+        setSettings(prev => (prev ? { ...prev, uiTheme: value as ReservationSetting['uiTheme'] } : null));
     };
 
     const contrastWarning = useMemo(() => {
@@ -464,21 +453,42 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
         if (checkContrast(theme.primary, '#ffffff')) warnings.push("Gomb / Fehér szöveg");
         return warnings;
     }, [theme]);
-    
+
+    const previewTokens = useMemo(
+        () => buildReservationTheme({ ...settings, theme }, uiTheme),
+        [settings, theme, uiTheme]
+    );
+
     return (
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <div className="bg-white p-4 rounded-lg border space-y-4">
+         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+             <div className="bg-white p-4 rounded-xl border space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-bold text-lg">Alap színek</h3>
+                        <p className="text-sm text-gray-500">Az egység által meghatározott színek felülírják a téma alapértékeit.</p>
+                    </div>
+                    <select
+                        className="p-2 border rounded-md"
+                        value={uiTheme}
+                        onChange={(e) => handleUiThemeChange(e.target.value)}
+                    >
+                        <option value="minimal_glass">Minimal • Glass</option>
+                        <option value="classic_elegant">Classic • Elegáns</option>
+                        <option value="playful_bubble">Buborékos / játékos</option>
+                    </select>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
-                    <ColorInput label="Elsődleges szín (gombok)" color={theme.primary} onChange={v => handleThemeChange('primary', v)} />
-                    <ColorInput label="Kiemelő szín" color={theme.accent} onChange={v => handleThemeChange('accent', v)} />
-                </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <ColorInput label="Felület (kártyák)" color={theme.surface} onChange={v => handleThemeChange('surface', v)} />
+                    <ColorInput label="Elsődleges" color={theme.primary} onChange={v => handleThemeChange('primary', v)} />
+                    <ColorInput label="Kiemelő" color={theme.accent} onChange={v => handleThemeChange('accent', v)} />
+                    <ColorInput label="Felület" color={theme.surface} onChange={v => handleThemeChange('surface', v)} />
                     <ColorInput label="Háttér" color={theme.background} onChange={v => handleThemeChange('background', v)} />
+                    <ColorInput label="Highlight" color={theme.highlight || '#38bdf8'} onChange={v => handleThemeChange('highlight', v)} />
+                    <ColorInput label="Siker" color={theme.success} onChange={v => handleThemeChange('success', v)} />
+                    <ColorInput label="Hiba / Danger" color={theme.danger} onChange={v => handleThemeChange('danger', v)} />
                 </div>
-                <div className="p-3 bg-gray-100 rounded-md">
+                <div className="p-3 bg-gray-50 rounded-md border">
                     <p className="text-sm font-medium text-gray-800">Szövegszínek (automatikus)</p>
-                    <p className="text-xs text-gray-500">A szövegszínek a kártya háttérszínéhez ('Felület') igazodnak a jó olvashatóság érdekében.</p>
+                    <p className="text-xs text-gray-500">A szövegszínek a kártya háttérszínéhez ('Felület') igazodnak.</p>
                     <div className="mt-2 flex items-center gap-4">
                         <div className="flex items-center gap-2">
                             <div className="w-5 h-5 rounded-full border" style={{ backgroundColor: theme.textPrimary }}></div>
@@ -492,29 +502,54 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                 </div>
 
                 {contrastWarning.length > 0 && <div className="text-sm text-amber-700 bg-amber-100 p-2 rounded">Figyelem: alacsony kontraszt a következőknél: {contrastWarning.join(', ')}</div>}
-                 <hr/>
-                <div>
-                    <h4 className="font-bold mb-2">Stílus</h4>
-                     <div className="grid grid-cols-3 gap-2">
-                        {(['low', 'mid', 'high'] as const).map(el => <button key={el} onClick={() => handleThemeChange('elevation', el)} className={`p-2 rounded border ${theme.elevation === el ? 'border-green-600 bg-green-100' : ''}`}>{el}</button>)}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <h4 className="font-bold mb-2">Árnyék (elevation)</h4>
+                        <div className="grid grid-cols-4 gap-2">
+                            {(['none', 'low', 'mid', 'high'] as const).map(el => (
+                                <button
+                                    key={el}
+                                    onClick={() => handleThemeChange('elevation', el)}
+                                    className={`p-2 rounded border text-sm ${theme.elevation === el ? 'border-green-600 bg-green-100' : 'bg-white hover:bg-gray-50'}`}
+                                >
+                                    {el}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
-                <div>
-                     <h4 className="font-bold mb-2">Lekerekítés</h4>
-                     <div className="grid grid-cols-3 gap-2">
-                        {(['sm', 'md', 'lg'] as const).map(r => <button key={r} onClick={() => handleThemeChange('radius', r)} className={`p-2 rounded border ${theme.radius === r ? 'border-green-600 bg-green-100' : ''}`}>{r}</button>)}
+                    <div>
+                        <h4 className="font-bold mb-2">Lekerekítés</h4>
+                        <div className="grid grid-cols-4 gap-2">
+                            {(['sm', 'md', 'lg', 'xl'] as const).map(r => (
+                                <button
+                                    key={r}
+                                    onClick={() => handleThemeChange('radius', r)}
+                                    className={`p-2 rounded border text-sm ${theme.radius === r ? 'border-green-600 bg-green-100' : 'bg-white hover:bg-gray-50'}`}
+                                >
+                                    {r}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
-                 <div>
-                     <h4 className="font-bold mb-2">Betűméret</h4>
-                     <div className="grid grid-cols-3 gap-2">
-                        {(['S', 'M', 'L'] as const).map(s => <button key={s} onClick={() => handleThemeChange('typographyScale', s)} className={`p-2 rounded border ${theme.typographyScale === s ? 'border-green-600 bg-green-100' : ''}`}>{s}</button>)}
+                    <div>
+                        <h4 className="font-bold mb-2">Betűméret</h4>
+                        <div className="grid grid-cols-3 gap-2">
+                            {(['S', 'M', 'L'] as const).map(s => (
+                                <button
+                                    key={s}
+                                    onClick={() => handleThemeChange('typographyScale', s)}
+                                    className={`p-2 rounded border text-sm ${theme.typographyScale === s ? 'border-green-600 bg-green-100' : 'bg-white hover:bg-gray-50'}`}
+                                >
+                                    {s}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
                  <button onClick={() => setSettings(prev => prev ? ({...prev, theme: DEFAULT_THEME}) : null)} className="text-sm text-gray-500 hover:underline">Alapértékek visszaállítása</button>
             </div>
-            <div className="p-4 rounded-lg bg-white border">
-                <ThemePreview theme={theme} />
+            <div className="p-4 rounded-xl bg-white border">
+                <ReservationThemePreview themeSettings={theme} uiTheme={uiTheme} tokens={previewTokens} />
             </div>
          </div>
     );
@@ -527,19 +562,44 @@ const ColorInput: FC<{label: string, color: string, onChange: (c: string) => voi
     </div>
 );
 
-const ThemePreview: FC<{theme: ThemeSettings}> = ({ theme }) => {
-     const radiusClass = { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[theme.radius];
-     const shadowClass = { low: 'shadow-sm', mid: 'shadow-md', high: 'shadow-lg' }[theme.elevation];
-     const fontBaseClass = { S: 'text-sm', M: 'text-base', L: 'text-lg' }[theme.typographyScale];
-
+const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ tokens }) => {
     return (
-        <div className="h-full p-4 rounded" style={{ backgroundColor: theme.background, color: theme.textPrimary }}>
-            <div className={`p-4 ${radiusClass} ${shadowClass}`} style={{ backgroundColor: theme.surface }}>
-                <h3 className={`font-bold text-lg ${fontBaseClass}`} style={{ color: theme.textPrimary }}>Élő előnézet</h3>
-                <p className={`mt-1 text-sm ${fontBaseClass}`} style={{ color: theme.textSecondary }}>Ez a kártya a beállításaidat tükrözi.</p>
-                <div className="flex gap-2 mt-4">
-                    <button className={`py-2 px-4 font-bold text-white ${radiusClass}`} style={{ backgroundColor: theme.primary }}>Elsődleges gomb</button>
-                    <button className={`py-2 px-4 font-bold border ${radiusClass}`} style={{ color: theme.textPrimary, borderColor: theme.textSecondary }}>Másodlagos</button>
+        <div className={`rounded-2xl overflow-hidden border shadow-sm ${tokens.fontFamilyClass}`} style={{ backgroundColor: tokens.colors.background }}>
+            <div className={`relative p-5 ${tokens.pageBg.replace('min-h-screen', '').replace('flex flex-col', '')}`} style={{ minHeight: '320px' }}>
+                {tokens.key === 'bubbly' && (
+                    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                        <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />
+                        <div className="absolute w-56 h-56 bg-white/40 blur-3xl rounded-full right-4 -bottom-10" />
+                    </div>
+                )}
+                <div className={`relative mx-auto max-w-md p-5 ${tokens.card} ${tokens.shadowClass}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
+                    <div className={`${tokens.progressWrapper}`}>
+                        <div className={`${tokens.progressTrack}`} style={{ backgroundColor: tokens.colors.surface }}></div>
+                        <div className={`${tokens.progressThumb}`} style={{ backgroundColor: tokens.colors.primary, width: '40%' }}></div>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">Foglalás</p>
+                                <h3 className="text-xl font-bold">Élő előnézet</h3>
+                            </div>
+                            <span className={`px-3 py-1 text-xs font-semibold ${tokens.outlineButton}`} style={{ borderColor: tokens.colors.accent, color: tokens.colors.accent }}>Ajánlat</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className={`p-3 border ${tokens.radiusClass}`} style={{ borderColor: tokens.colors.accent, backgroundColor: tokens.colors.background }}>
+                                <p className="text-[11px] uppercase text-[color:var(--color-text-secondary)]">Dátum</p>
+                                <p className="font-semibold">2024.10.12.</p>
+                            </div>
+                            <div className={`p-3 border ${tokens.radiusClass}`} style={{ borderColor: tokens.colors.accent, backgroundColor: tokens.colors.background }}>
+                                <p className="text-[11px] uppercase text-[color:var(--color-text-secondary)]">Fő</p>
+                                <p className="font-semibold">4 fő</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <button className={`${tokens.secondaryButton} ${tokens.radiusClass}`} style={{ backgroundColor: tokens.colors.accent, color: '#fff' }}>Vissza</button>
+                            <button className={`${tokens.primaryButton} ${tokens.radiusClass}`} style={{ backgroundColor: tokens.colors.primary }}>Foglalás</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

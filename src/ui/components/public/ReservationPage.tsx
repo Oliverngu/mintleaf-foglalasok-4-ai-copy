@@ -63,6 +63,7 @@ const DEFAULT_THEME: ThemeSettings = {
   radius: 'lg',
   elevation: 'mid',
   typographyScale: 'M',
+  highlight: '#38bdf8',
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {

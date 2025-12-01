@@ -112,6 +112,7 @@ export interface ThemeSettings {
     radius: 'sm' | 'md' | 'lg' | 'xl';
     elevation: 'none' | 'low' | 'medium' | 'mid' | 'high';
     typographyScale: 'S' | 'M' | 'L';
+    highlight?: string;
 }
 
 export interface CustomSelectField {
@@ -135,7 +136,7 @@ export interface ReservationSetting {
     barEndTime?: string | null;
     guestForm?: GuestFormSettings;
     theme?: ThemeSettings;
-    uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly';
+    uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly' | 'classic_elegant' | 'playful_bubble';
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];

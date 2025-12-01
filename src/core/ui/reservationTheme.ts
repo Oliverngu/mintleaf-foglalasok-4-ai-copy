@@ -13,6 +13,7 @@ export interface ReservationThemeTokens {
     textSecondary: string;
     success: string;
     danger: string;
+    highlight: string;
   };
   radiusClass: string;
   shadowClass: string;
@@ -22,6 +23,7 @@ export interface ReservationThemeTokens {
   card: string;
   primaryButton: string;
   secondaryButton: string;
+  outlineButton: string;
   progressWrapper: string;
   progressTrack: string;
   progressThumb: string;
@@ -72,6 +74,7 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       textSecondary: '#cbd5e1',
       success: '#22c55e',
       danger: '#ef4444',
+      highlight: '#38bdf8',
     },
     radiusClass: radiusMap.lg,
     shadowClass: elevationMap.high,
@@ -85,6 +88,8 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       'inline-flex items-center justify-center font-semibold text-white px-4 py-2 transition hover:brightness-110',
     secondaryButton:
       'inline-flex items-center justify-center font-semibold px-4 py-2 bg-white/20 text-white hover:bg-white/30 border border-white/30 transition',
+    outlineButton:
+      'inline-flex items-center justify-center font-semibold px-4 py-2 border border-white/40 text-white/90 hover:bg-white/10 transition backdrop-blur-sm',
     progressWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-2',
     progressTrack: 'h-1 flex-1 rounded-full bg-white/20',
     progressThumb: 'h-1 rounded-full bg-[var(--color-primary)]',
@@ -103,6 +108,7 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       textSecondary: '#4b5563',
       success: '#16a34a',
       danger: '#b91c1c',
+      highlight: '#f59e0b',
     },
     radiusClass: radiusMap.md,
     shadowClass: elevationMap.medium,
@@ -116,6 +122,8 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       'inline-flex items-center justify-center font-semibold text-white px-4 py-2 transition hover:shadow-md border border-transparent',
     secondaryButton:
       'inline-flex items-center justify-center font-semibold px-4 py-2 border border-amber-200 text-amber-900 bg-white hover:bg-amber-50 transition',
+    outlineButton:
+      'inline-flex items-center justify-center font-semibold px-4 py-2 border border-amber-300 text-amber-800 bg-transparent hover:bg-amber-50 transition',
     progressWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-2',
     progressTrack: 'h-1 flex-1 rounded-full bg-amber-100',
     progressThumb: 'h-1 rounded-full bg-[var(--color-primary)] shadow-sm',
@@ -134,6 +142,7 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       textSecondary: '#475569',
       success: '#16a34a',
       danger: '#ef4444',
+      highlight: '#38bdf8',
     },
     radiusClass: radiusMap.xl,
     shadowClass: elevationMap.high,
@@ -147,6 +156,8 @@ const basePalettes: Record<ReservationThemeKey, ReservationThemeTokens> = {
       'inline-flex items-center justify-center font-semibold text-white px-5 py-2 transition transform hover:scale-[1.03] hover:shadow-lg',
     secondaryButton:
       'inline-flex items-center justify-center font-semibold px-4 py-2 bg-white/80 text-[color:var(--color-text-primary)] hover:bg-white shadow-sm border border-sky-100 transition rounded-full',
+    outlineButton:
+      'inline-flex items-center justify-center font-semibold px-4 py-2 border border-sky-200 text-[color:var(--color-primary)] bg-white/60 hover:bg-white transition rounded-full transform hover:translate-y-[-1px]',
     progressWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-3',
     progressTrack: 'h-2 flex-1 rounded-full bg-white/60',
     progressThumb: 'h-2 rounded-full bg-[var(--color-primary)] shadow-md',
@@ -169,6 +180,7 @@ export const syncThemeCssVariables = (theme: ReservationThemeTokens) => {
     textSecondary: theme.colors.textSecondary,
     success: theme.colors.success,
     danger: theme.colors.danger,
+    highlight: theme.colors.highlight,
   };
 
   Object.entries(colorMap).forEach(([key, value]) => {
@@ -176,7 +188,7 @@ export const syncThemeCssVariables = (theme: ReservationThemeTokens) => {
   });
 };
 
-const defaultThemeSettings: ThemeSettings = {
+export const defaultThemeSettings: ThemeSettings = {
   primary: '#166534',
   surface: '#ffffff',
   background: '#f9fafb',
@@ -188,6 +200,7 @@ const defaultThemeSettings: ThemeSettings = {
   radius: 'lg',
   elevation: 'mid',
   typographyScale: 'M',
+  highlight: '#38bdf8',
 };
 
 const isReservationSetting = (value: any): value is ReservationSetting =>
@@ -229,6 +242,7 @@ export const buildReservationTheme = (
     textSecondary: overrides?.textSecondary || base.colors.textSecondary,
     success: overrides?.success || base.colors.success,
     danger: overrides?.danger || base.colors.danger,
+    highlight: overrides?.highlight || base.colors.highlight,
   };
 
   return {
