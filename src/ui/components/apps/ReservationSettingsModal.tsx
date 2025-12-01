@@ -565,39 +565,54 @@ const ColorInput: FC<{label: string, color: string, onChange: (c: string) => voi
 const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ tokens }) => {
     return (
         <div className={`rounded-2xl overflow-hidden border shadow-sm ${tokens.fontFamilyClass}`} style={{ backgroundColor: tokens.colors.background }}>
-            <div className={`relative p-5 ${tokens.pageBg.replace('min-h-screen', '').replace('flex flex-col', '')}`} style={{ minHeight: '320px' }}>
-                {tokens.key === 'bubbly' && (
+            <div className={`relative p-5`} style={{ minHeight: '320px' }}>
+                {tokens.uiTheme === 'playful_bubble' && (
                     <div className="pointer-events-none absolute inset-0 overflow-hidden">
                         <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />
                         <div className="absolute w-56 h-56 bg-white/40 blur-3xl rounded-full right-4 -bottom-10" />
                     </div>
                 )}
-                <div className={`relative mx-auto max-w-md p-5 ${tokens.card} ${tokens.shadowClass}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
-                    <div className={`${tokens.progressWrapper}`}>
-                        <div className={`${tokens.progressTrack}`} style={{ backgroundColor: tokens.colors.surface }}></div>
-                        <div className={`${tokens.progressThumb}`} style={{ backgroundColor: tokens.colors.primary, width: '40%' }}></div>
+                <div className={`relative mx-auto max-w-md ${tokens.styles.card}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
+                    <div className={`${tokens.styles.stepWrapper} px-2 pt-2`}>
+                        {[1, 2, 3].map((step, index) => (
+                            <React.Fragment key={step}>
+                                <div className="flex flex-col items-center text-center">
+                                    <div
+                                        className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${index === 0 ? tokens.styles.stepActive : tokens.styles.stepInactive}`}
+                                        style={{
+                                            backgroundColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
+                                            color: index === 0 ? '#fff' : tokens.colors.textSecondary,
+                                            borderColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
+                                        }}
+                                    >
+                                        {index === 0 ? '1' : index === 1 ? '2' : '3'}
+                                    </div>
+                                </div>
+                                {index < 2 && <div className={`flex-1 h-full mx-1 flex items-center ${tokens.styles.stepTrack}`}></div>}
+                            </React.Fragment>
+                        ))}
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-3 p-5">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-xs uppercase tracking-wide text-[color:var(--color-text-secondary)]">Foglalás</p>
+                                <p className="text-xs uppercase tracking-wide" style={{ color: tokens.colors.textSecondary }}>Foglalás</p>
                                 <h3 className="text-xl font-bold">Élő előnézet</h3>
                             </div>
-                            <span className={`px-3 py-1 text-xs font-semibold ${tokens.outlineButton}`} style={{ borderColor: tokens.colors.accent, color: tokens.colors.accent }}>Ajánlat</span>
+                            <span className={`${tokens.styles.chip}`} style={{ borderColor: tokens.colors.accent, color: tokens.colors.accent }}>Ajánlat</span>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className={`p-3 border ${tokens.radiusClass}`} style={{ borderColor: tokens.colors.accent, backgroundColor: tokens.colors.background }}>
-                                <p className="text-[11px] uppercase text-[color:var(--color-text-secondary)]">Dátum</p>
+                                <p className="text-[11px] uppercase" style={{ color: tokens.colors.textSecondary }}>Dátum</p>
                                 <p className="font-semibold">2024.10.12.</p>
                             </div>
                             <div className={`p-3 border ${tokens.radiusClass}`} style={{ borderColor: tokens.colors.accent, backgroundColor: tokens.colors.background }}>
-                                <p className="text-[11px] uppercase text-[color:var(--color-text-secondary)]">Fő</p>
+                                <p className="text-[11px] uppercase" style={{ color: tokens.colors.textSecondary }}>Fő</p>
                                 <p className="font-semibold">4 fő</p>
                             </div>
                         </div>
                         <div className="flex gap-2 justify-end">
-                            <button className={`${tokens.secondaryButton} ${tokens.radiusClass}`} style={{ backgroundColor: tokens.colors.accent, color: '#fff' }}>Vissza</button>
-                            <button className={`${tokens.primaryButton} ${tokens.radiusClass}`} style={{ backgroundColor: tokens.colors.primary }}>Foglalás</button>
+                            <button className={`${tokens.styles.secondaryButton}`} style={{ backgroundColor: tokens.colors.accent, color: '#fff' }}>Vissza</button>
+                            <button className={`${tokens.styles.primaryButton}`} style={{ backgroundColor: tokens.colors.primary }}>Foglalás</button>
                         </div>
                     </div>
                 </div>

@@ -259,10 +259,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const t = translations[locale];
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.pageBg}`,
-      card: `${theme.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto`,
-      primaryButton: theme.primaryButton,
-      secondaryButton: theme.secondaryButton,
+      wrapper: `${theme.styles.page}`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto p-6 md:p-8 gap-4`,
+      primaryButton: theme.styles.primaryButton,
+      secondaryButton: theme.styles.secondaryButton,
+      outlineButton: theme.styles.outlineButton,
     }),
     [theme]
   );
@@ -286,8 +287,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         className={themeClasses.wrapper}
         style={{ color: theme.colors.textPrimary }}
       >
-        {theme.key === 'bubbly' && <PlayfulBubbles />}
-        <div className="flex-1 flex flex-col items-center w-full">
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={theme.styles.pageInner}>
           <div className={themeClasses.card}>
             <LoadingSpinner />
           </div>
@@ -300,8 +301,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         className={themeClasses.wrapper}
         style={{ color: theme.colors.textPrimary }}
       >
-        {theme.key === 'bubbly' && <PlayfulBubbles />}
-        <div className="flex-1 flex flex-col items-center w-full">
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={theme.styles.pageInner}>
           <div className={`${themeClasses.card} text-center`}>
             <h2 className="text-xl font-bold text-red-600">Hiba</h2>
             <p className="mt-2 text-current">{error}</p>
@@ -346,8 +347,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       className={themeClasses.wrapper}
       style={{ color: theme.colors.textPrimary }}
     >
-      {theme.key === 'bubbly' && <PlayfulBubbles />}
-      <div className="flex-1 flex flex-col items-center w-full">
+      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+      <div className={theme.styles.pageInner}>
         <div className={themeClasses.card}>
           <header className="text-center mb-8 mt-4">
             <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>

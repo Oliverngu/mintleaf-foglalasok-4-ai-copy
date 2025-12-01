@@ -137,7 +137,7 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className={`${theme.progressWrapper} ${theme.fontFamilyClass}`}>
+    <div className={`${theme.styles.stepWrapper}`}>
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
@@ -147,7 +147,7 @@ const ProgressIndicator: React.FC<{
             <div className="flex flex-col items-center text-center">
               <div
                 className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${
-                  isCompleted ? theme.stepActive : isActive ? theme.stepActive : theme.stepIdle
+                  isCompleted ? theme.styles.stepActive : isActive ? theme.styles.stepActive : theme.styles.stepInactive
                 } ${theme.radiusClass}`}
                 style={{
                   backgroundColor: isCompleted
@@ -173,7 +173,7 @@ const ProgressIndicator: React.FC<{
             {index < steps.length - 1 && (
               <div className="flex-1 h-full mx-2 flex items-center">
                 <div
-                  className={`${theme.progressTrack}`}
+                  className={`${theme.styles.stepTrack}`}
                   style={{
                     backgroundColor: isCompleted
                       ? theme.colors.primary
@@ -517,10 +517,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.pageBg}`,
-      card: `${theme.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto`,
-      primaryButton: theme.primaryButton,
-      secondaryButton: theme.secondaryButton,
+      wrapper: `${theme.styles.page}`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto p-6 md:p-8 gap-4`,
+      primaryButton: theme.styles.primaryButton,
+      secondaryButton: theme.styles.secondaryButton,
+      outlineButton: theme.styles.outlineButton,
     }),
     [theme]
   );
@@ -531,8 +532,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         className={themeClasses.wrapper}
         style={{ color: 'var(--color-text-primary)' }}
       >
-        {theme.key === 'bubbly' && <PlayfulBubbles />}
-        <div className="flex-1 flex flex-col items-center w-full">
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={theme.styles.pageInner}>
           <div className={`${themeClasses.card} text-center`}>
             <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
               Hiba
@@ -550,8 +551,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         className={themeClasses.wrapper}
         style={{ color: 'var(--color-text-primary)' }}
       >
-        {theme.key === 'bubbly' && <PlayfulBubbles />}
-        <div className="flex-1 flex flex-col items-center w-full">
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={theme.styles.pageInner}>
           <div className={themeClasses.card}>
             <LoadingSpinner />
           </div>
@@ -565,8 +566,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       className={themeClasses.wrapper}
       style={{ color: 'var(--color-text-primary)' }}
     >
-      {theme.key === 'bubbly' && <PlayfulBubbles />}
-      <div className="flex-1 flex flex-col items-center">
+      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+      <div className={theme.styles.pageInner}>
         <div className={themeClasses.card}>
         <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
           <button
