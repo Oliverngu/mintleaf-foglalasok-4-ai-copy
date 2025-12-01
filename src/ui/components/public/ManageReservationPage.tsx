@@ -6,7 +6,7 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import {
-  resolveReservationTheme,
+  buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 
@@ -44,7 +44,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
-  const theme = useMemo(() => resolveReservationTheme(settings), [settings]);
+  const theme = useMemo(() => buildReservationTheme(settings), [settings]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -256,10 +256,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const t = translations[locale];
   const themeClasses = useMemo(
     () => ({
-      wrapper: theme.pageWrapperClass,
-      card: `${theme.cardClass} flex flex-col max-h-[90vh] w-full mx-auto`,
-      primaryButton: theme.buttonPrimaryClass,
-      secondaryButton: theme.buttonSecondaryClass,
+      wrapper: `${theme.pageBg}`,
+      card: `${theme.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto`,
+      primaryButton: theme.primaryButton,
+      secondaryButton: theme.secondaryButton,
     }),
     [theme]
   );
@@ -281,7 +281,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+        style={{ color: theme.colors.textPrimary }}
       >
         {theme.key === 'bubbly' && <PlayfulBubbles />}
         <div className="flex-1 flex flex-col items-center w-full">
@@ -295,7 +295,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+        style={{ color: theme.colors.textPrimary }}
       >
         {theme.key === 'bubbly' && <PlayfulBubbles />}
         <div className="flex-1 flex flex-col items-center w-full">
@@ -309,15 +309,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   if (!booking || !unit) return null;
 
   const getStatusChip = (status: Booking['status']) => {
-    const styles = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800',
-    } as const;
     const text = (t as any)[`status_${status}`] || status;
+    const backgroundColor =
+      status === 'pending'
+        ? theme.colors.accent + '20'
+        : status === 'confirmed'
+        ? theme.colors.primary + '20'
+        : theme.colors.danger + '20';
+    const textColor =
+      status === 'pending'
+        ? theme.colors.accent
+        : status === 'confirmed'
+        ? theme.colors.primary
+        : theme.colors.danger;
     return (
       <span
-        className={`px-3 py-1 text-sm font-bold rounded-full ${styles[status]}`}
+        className={`px-3 py-1 text-sm font-bold rounded-full ${theme.radiusClass}`}
+        style={{ backgroundColor, color: textColor }}
       >
         {text}
       </span>
@@ -333,7 +341,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   return (
     <div
       className={themeClasses.wrapper}
-      style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      style={{ color: theme.colors.textPrimary }}
     >
       {theme.key === 'bubbly' && <PlayfulBubbles />}
       <div className="flex-1 flex flex-col items-center w-full">
@@ -358,7 +366,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           <div className="space-y-3 flex-1 overflow-y-auto pr-1" style={{ color: 'var(--color-text-primary)' }}>
             <p>
               <strong>{t.referenceCode}:</strong>{' '}
-              <span className="font-mono bg-gray-200 px-2 py-1 rounded text-sm text-gray-800">
+              <span
+                className={`font-mono px-2 py-1 text-sm ${theme.radiusClass}`}
+                style={{
+                  backgroundColor: theme.colors.surface,
+                  color: theme.colors.textPrimary,
+                  border: `1px solid ${theme.colors.surface}`,
+                }}
+              >
                 {booking.referenceCode?.substring(0, 8).toUpperCase()}
               </span>
             </p>
@@ -397,16 +412,34 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           </div>
 
           {booking.status === 'pending' && (
-            <div className="mt-6 p-4 border rounded-xl bg-yellow-50 text-yellow-900">
-              <p className="font-semibold">{t.pendingApproval}</p>
-              <p className="text-sm mt-1">{t.pendingApprovalHint}</p>
+            <div
+              className={`mt-6 p-4 ${theme.radiusClass} border`}
+              style={{
+                backgroundColor: theme.colors.background,
+                color: theme.colors.textPrimary,
+                borderColor: theme.colors.surface,
+              }}
+            >
+              <p className="font-semibold" style={{ color: theme.colors.textPrimary }}>
+                {t.pendingApproval}
+              </p>
+              <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
+                {t.pendingApprovalHint}
+              </p>
             </div>
           )}
 
           {booking.status === 'pending' &&
             adminToken &&
             booking.adminActionToken !== adminToken && (
-              <div className="mt-4 p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
+              <div
+                className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
+                style={{
+                  backgroundColor: `${theme.colors.danger}10`,
+                  color: theme.colors.danger,
+                  borderColor: `${theme.colors.danger}50`,
+                }}
+              >
                 {t.invalidAdminToken}
               </div>
             )}
@@ -414,15 +447,36 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           {booking.status === 'pending' &&
             adminToken &&
             booking.adminActionToken === adminToken && (
-              <div className="mt-6 p-4 border rounded-xl bg-green-50 text-green-900 space-y-3">
+              <div
+                className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
+                style={{
+                  backgroundColor: `${theme.colors.accent}10`,
+                  color: theme.colors.textPrimary,
+                  borderColor: `${theme.colors.accent}40`,
+                }}
+              >
                 <p className="font-semibold">{t.adminActionTitle}</p>
                 {actionMessage && (
-                  <p className="text-sm text-green-800 bg-white/60 p-2 rounded-md border border-green-200">
+                  <p
+                    className={`text-sm p-2 ${theme.radiusClass} border`}
+                    style={{
+                      color: theme.colors.primary,
+                      backgroundColor: theme.colors.surface,
+                      borderColor: `${theme.colors.primary}40`,
+                    }}
+                  >
                     {actionMessage}
                   </p>
                 )}
                 {actionError && (
-                  <p className="text-sm text-red-700 bg-white/60 p-2 rounded-md border border-red-200">
+                  <p
+                    className={`text-sm p-2 ${theme.radiusClass} border`}
+                    style={{
+                      color: theme.colors.danger,
+                      backgroundColor: theme.colors.surface,
+                      borderColor: `${theme.colors.danger}40`,
+                    }}
+                  >
                     {actionError}
                   </p>
                 )}
@@ -430,14 +484,16 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button
                       onClick={() => handleAdminDecision('approve')}
-                      className={`${themeClasses.primaryButton} flex-1 bg-green-600 text-white hover:bg-green-700`}
+                      className={`${themeClasses.primaryButton} flex-1`}
+                      style={{ backgroundColor: theme.colors.primary }}
                       disabled={isProcessingAction}
                     >
                       {t.adminApprove}
                     </button>
                     <button
                       onClick={() => handleAdminDecision('reject')}
-                      className={`${themeClasses.primaryButton} flex-1 bg-red-600 text-white hover:bg-red-700`}
+                      className={`${themeClasses.primaryButton} flex-1`}
+                      style={{ backgroundColor: theme.colors.danger }}
                       disabled={isProcessingAction}
                     >
                       {t.adminReject}
@@ -451,20 +507,26 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             <div className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4">
               <button
                 disabled
-                className={`${themeClasses.secondaryButton} w-full bg-gray-300 text-gray-500 cursor-not-allowed`}
+                className={`${themeClasses.secondaryButton} w-full cursor-not-allowed`}
+                style={{
+                  backgroundColor: theme.colors.surface,
+                  color: theme.colors.textSecondary,
+                  opacity: 0.6,
+                }}
               >
                 {t.modifyReservation}
               </button>
               <button
                 onClick={() => setIsCancelModalOpen(true)}
-                className={`${themeClasses.primaryButton} w-full bg-red-600 text-white hover:bg-red-700`}
+                className={`${themeClasses.primaryButton} w-full`}
+                style={{ backgroundColor: theme.colors.danger }}
               >
                 {t.cancelReservation}
               </button>
             </div>
           ) : (
             <div className="mt-8 pt-6 border-t text-center">
-              <p className="text-lg font-semibold text-red-700">
+              <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
                 {t.reservationCancelledSuccess}
               </p>
             </div>
@@ -475,23 +537,32 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
       {isCancelModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <h2 className="text-xl font-bold text-gray-800">
+          <div
+            className={`rounded-2xl shadow-xl w-full max-w-sm p-6 text-center ${theme.radiusClass}`}
+            style={{ backgroundColor: theme.colors.surface, color: theme.colors.textPrimary }}
+          >
+            <h2 className="text-xl font-bold" style={{ color: theme.colors.textPrimary }}>
               {t.areYouSureCancel}
             </h2>
-            <p className="text-gray-600 my-4">
+            <p className="my-4" style={{ color: theme.colors.textSecondary }}>
               {t.cancelConfirmationBody}
             </p>
             <div className="flex justify-center gap-4">
               <button
                 onClick={() => setIsCancelModalOpen(false)}
-                className={`${themeClasses.secondaryButton} bg-gray-200 text-gray-800 hover:bg-gray-300`}
+                className={`${themeClasses.secondaryButton}`}
+                style={{
+                  backgroundColor: theme.colors.surface,
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.surface,
+                }}
               >
                 {t.noKeep}
               </button>
               <button
                 onClick={handleCancelReservation}
-                className={`${themeClasses.primaryButton} bg-red-600 text-white hover:bg-red-700`}
+                className={`${themeClasses.primaryButton}`}
+                style={{ backgroundColor: theme.colors.danger }}
               >
                 {t.yesCancel}
               </button>

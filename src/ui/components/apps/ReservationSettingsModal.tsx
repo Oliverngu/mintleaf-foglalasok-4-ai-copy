@@ -255,7 +255,7 @@ const GeneralSettingsTab: FC<{ settings: ReservationSetting, setSettings: React.
                 >
                     <option value="minimal_glass">Minimal • Glass</option>
                     <option value="elegant">Elegáns</option>
-                    <option value="playful_bubbles">Buborékos / játékos</option>
+                    <option value="bubbly">Buborékos / játékos</option>
                 </select>
             </div>
             <div className="p-4 bg-white border rounded-lg">

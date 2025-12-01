@@ -24,7 +24,7 @@ import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
 import {
   ReservationThemeTokens,
-  resolveReservationTheme,
+  buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 
@@ -134,7 +134,7 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className={theme.progressWrapperClass}>
+    <div className={`${theme.progressWrapper} ${theme.fontFamilyClass}`}>
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
@@ -144,21 +144,25 @@ const ProgressIndicator: React.FC<{
             <div className="flex flex-col items-center text-center">
               <div
                 className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${
-                  isCompleted
-                    ? 'bg-[var(--color-primary)] text-white shadow'
-                    : isActive
-                    ? 'bg-white text-[var(--color-primary)] border-2 border-[var(--color-primary)] shadow-sm'
-                    : 'bg-white/50 text-gray-600 border border-gray-200'
+                  isCompleted ? theme.stepActive : isActive ? theme.stepActive : theme.stepIdle
                 } ${theme.radiusClass}`}
+                style={{
+                  backgroundColor: isCompleted
+                    ? theme.colors.primary
+                    : isActive
+                    ? theme.colors.surface
+                    : theme.colors.surface,
+                  color: isCompleted ? '#fff' : isActive ? theme.colors.primary : theme.colors.textSecondary,
+                  borderColor: isActive ? theme.colors.primary : theme.colors.surface,
+                }}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
               <p
-                className={`mt-2 text-sm font-semibold transition-colors ${
-                  isActive
-                    ? 'text-[var(--color-text-primary)]'
-                    : 'text-gray-400'
-                } ${theme.fontClass}`}
+                className={`mt-2 text-sm font-semibold transition-colors ${theme.fontFamilyClass}`}
+                style={{
+                  color: isActive ? theme.colors.textPrimary : theme.colors.textSecondary,
+                }}
               >
                 {label}
               </p>
@@ -166,9 +170,12 @@ const ProgressIndicator: React.FC<{
             {index < steps.length - 1 && (
               <div className="flex-1 h-full mx-2 flex items-center">
                 <div
-                  className={`${theme.progressTrackClass} ${
-                    isCompleted ? 'bg-[var(--color-primary)]' : ''
-                  }`}
+                  className={`${theme.progressTrack}`}
+                  style={{
+                    backgroundColor: isCompleted
+                      ? theme.colors.primary
+                      : theme.colors.surface,
+                  }}
                 />
               </div>
             )}
@@ -210,7 +217,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     new Map()
   );
 
-  const theme = useMemo(() => resolveReservationTheme(settings), [settings]);
+  const theme = useMemo(() => buildReservationTheme(settings), [settings]);
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -495,17 +502,19 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     () => ({
       radiusClass: theme.radiusClass,
       shadowClass: theme.shadowClass,
-      fontBaseClass: theme.fontBaseClass,
+      fontFamily: theme.fontFamilyClass,
+      fontSize: theme.fontSizeClass,
+      colors: theme.colors,
     }),
     [theme]
   );
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: theme.pageWrapperClass,
-      card: `${theme.cardClass} flex flex-col max-h-[90vh] w-full mx-auto`,
-      primaryButton: theme.buttonPrimaryClass,
-      secondaryButton: theme.buttonSecondaryClass,
+      wrapper: `${theme.pageBg}`,
+      card: `${theme.card} flex flex-col w-full mx-auto max-h-[calc(100vh-4rem)] overflow-y-auto`,
+      primaryButton: theme.primaryButton,
+      secondaryButton: theme.secondaryButton,
     }),
     [theme]
   );
@@ -514,7 +523,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+        style={{ color: 'var(--color-text-primary)' }}
       >
         {theme.key === 'bubbly' && <PlayfulBubbles />}
         <div className="flex-1 flex flex-col items-center w-full">
@@ -533,7 +542,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return (
       <div
         className={themeClasses.wrapper}
-        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+        style={{ color: 'var(--color-text-primary)' }}
       >
         {theme.key === 'bubbly' && <PlayfulBubbles />}
         <div className="flex-1 flex flex-col items-center w-full">
@@ -548,30 +557,38 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   return (
     <div
       className={themeClasses.wrapper}
-      style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      style={{ color: 'var(--color-text-primary)' }}
     >
       {theme.key === 'bubbly' && <PlayfulBubbles />}
       <div className="flex-1 flex flex-col items-center">
         <div className={themeClasses.card}>
-          <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-            <button
-              onClick={() => setLocale('hu')}
+        <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+          <button
+            onClick={() => setLocale('hu')}
             className={
               locale === 'hu'
-                ? 'font-bold text-[var(--color-primary)]'
-                : 'text-gray-300'
+                ? 'font-bold'
+                : ''
             }
+            style={{
+              color:
+                locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
+            }}
           >
             Magyar
           </button>
-          <span className="text-gray-300">|</span>
+          <span style={{ color: theme.colors.textSecondary }}>|</span>
           <button
             onClick={() => setLocale('en')}
             className={
               locale === 'en'
-                ? 'font-bold text-[var(--color-primary)]'
-                : 'text-gray-300'
+                ? 'font-bold'
+                : ''
             }
+            style={{
+              color:
+                locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
+            }}
           >
             English
           </button>
@@ -693,7 +710,12 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${themeProps.colors.surface}`,
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
         {t.step1Title}
@@ -706,7 +728,11 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className={`p-2 ${themeProps.radiusClass} transition-colors`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+          }}
         >
           &lt;
         </button>
@@ -720,7 +746,11 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className={`p-2 ${themeProps.radiusClass} transition-colors`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+          }}
         >
           &gt;
         </button>
@@ -749,14 +779,13 @@ const Step1Date: React.FC<{
 
           if (isDisabled) {
             if (isFull) {
-              buttonClass +=
-                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
+              buttonClass += ' line-through cursor-not-allowed';
               titleText = t.errorCapacityFull;
             } else {
-              buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
+              buttonClass += ' cursor-not-allowed opacity-50';
             }
           } else {
-            buttonClass += ' hover:bg-green-100';
+            buttonClass += ' hover:opacity-90';
           }
 
           return (
@@ -852,14 +881,19 @@ const Step2Details: React.FC<any> = ({
 
   const secondaryButtonClass =
     buttonClasses?.secondary ||
-    `bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`;
+    `font-bold py-2 px-4 ${themeProps.radiusClass} ${themeProps.shadowClass}`;
   const primaryButtonClass =
     buttonClasses?.primary ||
-    `text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`;
+    `font-bold py-2 px-6 ${themeProps.radiusClass} ${themeProps.shadowClass} disabled:opacity-50 disabled:cursor-not-allowed text-lg`;
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${themeProps.colors.surface}`,
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
         {t.step2Title}
@@ -873,7 +907,12 @@ const Step2Details: React.FC<any> = ({
         settings.kitchenStartTime ||
         settings.barStartTime) && (
         <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
+          className={`p-3 mb-4 ${themeProps.radiusClass} text-sm space-y-2`}
+          style={{
+            backgroundColor: themeProps.colors.background,
+            color: themeProps.colors.textSecondary,
+            border: `1px solid ${themeProps.colors.surface}`,
+          }}
         >
           {bookingWindowText && (
             <p className="flex items-start gap-2">
@@ -912,7 +951,12 @@ const Step2Details: React.FC<any> = ({
             month: 'long',
             day: 'numeric',
           })}
-          className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
+          className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
+          style={{
+            backgroundColor: themeProps.colors.background,
+            color: themeProps.colors.textPrimary,
+            borderColor: themeProps.colors.surface,
+          }}
         />
         <div>
           <label className="block text-sm font-medium">{t.name}</label>
@@ -1123,20 +1167,40 @@ const Step3Confirmation: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
+      className={`p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} text-center`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${themeProps.colors.surface}`,
+      }}
     >
       <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
         {titleText}
       </h2>
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
-      <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
+      <p className="text-sm mt-2" style={{ color: themeProps.colors.textSecondary }}>
+        {t.emailConfirmationSent}
+      </p>
 
       {submittedData && (
-        <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
+        <div
+          className="mt-6 text-left p-4 border"
+          style={{
+            backgroundColor: themeProps.colors.background,
+            color: themeProps.colors.textPrimary,
+            borderColor: themeProps.colors.surface,
+          }}
+        >
           <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
           <p>
             <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded">
+            <span
+              className={`font-mono px-2 py-1 ${themeProps.radiusClass}`}
+              style={{
+                backgroundColor: themeProps.colors.surface,
+                color: themeProps.colors.textPrimary,
+              }}
+            >
               {submittedData.referenceCode.substring(0, 8).toUpperCase()}
             </span>
           </p>
@@ -1187,19 +1251,36 @@ const Step3Confirmation: React.FC<{
         </div>
       )}
 
-      <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
+      <div
+        className="mt-6 text-left p-4 rounded-lg border"
+        style={{
+          backgroundColor: themeProps.colors.background,
+          color: themeProps.colors.textPrimary,
+          borderColor: themeProps.colors.surface,
+        }}
+      >
         <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
-        <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
+        <p className="text-sm mb-2" style={{ color: themeProps.colors.textSecondary }}>
+          {t.manageLinkBody}
+        </p>
+        <div
+          className={`flex items-center gap-2 p-2 ${themeProps.radiusClass} border`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            borderColor: themeProps.colors.surface,
+          }}
+        >
           <input
             type="text"
             value={manageLink}
             readOnly
-            className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"
+            className="w-full bg-transparent text-sm focus:outline-none"
+            style={{ color: themeProps.colors.textPrimary }}
           />
           <button
             onClick={handleCopy}
-            className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+            className={`${themeProps.radiusClass} font-semibold text-sm px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 ${theme.shadowClass}`}
+            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
@@ -1214,14 +1295,16 @@ const Step3Confirmation: React.FC<{
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className={`font-semibold py-2 px-4 flex items-center gap-2 ${themeProps.radiusClass}`}
+            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className={`font-semibold py-2 px-4 flex items-center gap-2 ${themeProps.radiusClass}`}
+            style={{ backgroundColor: themeProps.colors.accent, color: '#fff' }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
@@ -1231,7 +1314,7 @@ const Step3Confirmation: React.FC<{
       <button
         onClick={onReset}
         className={`${primaryButtonClass} mt-8`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
+        style={{ backgroundColor: themeProps.colors.primary }}
       >
         {t.newBooking}
       </button>
