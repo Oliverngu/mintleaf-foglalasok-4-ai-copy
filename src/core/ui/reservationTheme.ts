@@ -282,7 +282,10 @@ export const buildReservationTheme = (
 
   const cardBackground =
     uiTheme === 'minimal_glass'
-      ? hexToRgba(colors.surface, colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.28 : 0.32)
+      ? hexToRgba(
+          colors.surface,
+          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.24 : 0.28
+        )
       : uiTheme === 'playful_bubble'
       ? hexToRgba(colors.surface, 0.9)
       : hexToRgba(colors.surface, 0.98);

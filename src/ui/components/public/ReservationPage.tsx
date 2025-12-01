@@ -519,8 +519,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto flex-1 h-[calc(100vh-3rem)] max-h-[calc(100vh-2rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[80vh] max-h-[calc(100vh-2rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      header: 'flex-shrink-0 space-y-4',
       content: 'flex-1 min-h-0 overflow-hidden',
+      contentScrollable: 'h-full flex-1 overflow-hidden',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-320px)]',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
@@ -598,10 +601,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       }}
     >
       {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-      <div className={`${theme.styles.pageInner} relative z-10`}>
-        <div className={themeClasses.card} style={theme.cardStyle}>
-          <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+          {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+          <div className={`${theme.styles.pageInner} relative z-10`}>
+            <div className={themeClasses.card} style={theme.cardStyle}>
+              <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
             <button
               onClick={() => setLocale('hu')}
               className={locale === 'hu' ? 'font-bold' : ''}
@@ -623,13 +626,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             >
               English
             </button>
-          </div>
+              </div>
 
-          <div className="flex flex-col gap-4 flex-1 overflow-hidden">
-            <header className="text-center pt-2 flex-shrink-0">
-              <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-                {unit.name}
-              </h1>
+              <div className="flex flex-col gap-4 flex-1 overflow-hidden">
+                <header className={`text-center pt-2 ${themeClasses.header}`}>
+                  <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                    {unit.name}
+                  </h1>
               <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
                 {t.title}
               </p>
@@ -639,16 +642,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               <ProgressIndicator currentStep={step} t={t} theme={theme} />
             </div>
 
-            <div className={`${themeClasses.content}`}>
-              <div className="relative h-full flex-1 overflow-hidden">
-                <div
-                  className="flex transition-transform duration-500 ease-in-out h-full"
-                  style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
-                >
-                  <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1">
-                    <Step1Date
-                      settings={settings}
-                      onDateSelect={handleDateSelect}
+                <div className={`${themeClasses.content}`}>
+                  <div className={`${themeClasses.contentScrollable}`}>
+                    <div
+                      className="flex transition-transform duration-500 ease-in-out h-full"
+                      style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+                    >
+                      <div className={themeClasses.stepPane}>
+                        <Step1Date
+                          settings={settings}
+                          onDateSelect={handleDateSelect}
                       themeProps={themeClassProps}
                       t={t}
                       currentMonth={currentMonth}
@@ -656,10 +659,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                       dailyHeadcounts={dailyHeadcounts}
                     />
                   </div>
-                  <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1">
-                    <Step2Details
-                      selectedDate={selectedDate}
-                      formData={formData}
+                      <div className={themeClasses.stepPane}>
+                        <Step2Details
+                          selectedDate={selectedDate}
+                          formData={formData}
                       setFormData={setFormData}
                       onBack={() => {
                         setStep(1);
@@ -678,10 +681,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                       }}
                     />
                   </div>
-                  <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1">
-                    <Step3Confirmation
-                      onReset={resetFlow}
-                      theme={theme}
+                      <div className={themeClasses.stepPane}>
+                        <Step3Confirmation
+                          onReset={resetFlow}
+                          theme={theme}
                       themeProps={themeClassProps}
                       t={t}
                       submittedData={submittedData}
@@ -959,7 +962,7 @@ const Step2Details: React.FC<any> = ({
           {bookingWindowText && (
             <div className="space-y-1">
               <div className="font-semibold">{t.bookableWindowLabel}</div>
-              <div className="font-medium">{bookingWindowText}</div>
+              <div className="font-medium italic">{bookingWindowText}</div>
               <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
                 {t.bookableWindowHint}
               </div>
@@ -968,7 +971,7 @@ const Step2Details: React.FC<any> = ({
           {settings.kitchenStartTime && (
             <div className="space-y-1">
               <div className="font-semibold">{t.kitchenHours}</div>
-              <div className="font-medium">
+              <div className="font-medium italic">
                 {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
               </div>
             </div>
@@ -976,7 +979,7 @@ const Step2Details: React.FC<any> = ({
           {settings.barStartTime && (
             <div className="space-y-1">
               <div className="font-semibold">{t.barHours}</div>
-              <div className="font-medium">
+              <div className="font-medium italic">
                 {settings.barStartTime} – {settings.barEndTime || t.untilClose}
               </div>
             </div>
@@ -993,52 +996,26 @@ const Step2Details: React.FC<any> = ({
             month: 'long',
             day: 'numeric',
           })}
-      className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
-      style={{
-        backgroundColor: themeProps.colors.surface,
-        color: themeProps.colors.textPrimary,
-        borderColor: themeProps.colors.surface,
-      }}
+          className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+            borderColor: themeProps.colors.surface,
+          }}
         />
-        <div>
-          <label className="block text-sm font-medium">{t.name}</label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleStandardChange}
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-          {formErrors.name && (
-            <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm font-medium">{t.headcount}</label>
-          <input
-            type="number"
-            name="headcount"
-            value={formData.headcount}
-            onChange={handleStandardChange}
-            min="1"
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">{t.email}</label>
+            <label className="block text-sm font-medium">{t.name}</label>
             <input
-              type="email"
-              name="email"
-              value={formData.email}
+              type="text"
+              name="name"
+              value={formData.name}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
             />
-            {formErrors.email && (
-              <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
+            {formErrors.name && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
             )}
           </div>
           <div>
@@ -1049,11 +1026,37 @@ const Step2Details: React.FC<any> = ({
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
             />
             {formErrors.phone && (
               <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium">{t.headcount}</label>
+            <input
+              type="number"
+              name="headcount"
+              value={formData.headcount}
+              onChange={handleStandardChange}
+              min="1"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">{t.email}</label>
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleStandardChange}
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              required
+            />
+            {formErrors.email && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
             )}
           </div>
         </div>
@@ -1065,7 +1068,7 @@ const Step2Details: React.FC<any> = ({
               name="startTime"
               value={formData.startTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
               min={settings.bookableWindow?.from}
               max={settings.bookableWindow?.to}
@@ -1078,7 +1081,7 @@ const Step2Details: React.FC<any> = ({
               name="endTime"
               value={formData.endTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               min={formData.startTime}
             />
           </div>
