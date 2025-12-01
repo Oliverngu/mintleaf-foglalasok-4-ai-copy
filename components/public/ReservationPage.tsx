@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, ReservationSetting, User, ThemeSettings, GuestFormSettings, CustomSelectField } from '../../data/mockData';
+import { Unit, ReservationSetting, User, ThemeSettings, GuestFormSettings, CustomSelectField, DEFAULT_THEME } from '../../data/mockData';
 import { db, Timestamp } from '../../firebase/config';
 import { doc, getDoc, collection, addDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import LoadingSpinner from '../LoadingSpinner';
@@ -22,12 +22,6 @@ const toDateKey = (date: Date): string => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-};
-
-const DEFAULT_THEME: ThemeSettings = {
-    primary: '#166534', surface: '#ffffff', background: '#f9fafb', textPrimary: '#1f2937', 
-    textSecondary: '#4b5563', accent: '#10b981', success: '#16a34a', danger: '#dc2626',
-    radius: 'lg', elevation: 'mid', typographyScale: 'M',
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
