@@ -81,6 +81,20 @@ const toRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const resolveTimeWindowLogoUrl = (
+  settings: ReservationSetting,
+  unit?: Unit | null
+): string | null => {
+  const mode = settings.theme?.timeWindowLogoMode || 'none';
+  if (mode === 'custom' && settings.theme?.timeWindowLogoUrl) {
+    return settings.theme.timeWindowLogoUrl;
+  }
+  if (mode === 'unit' && (unit?.logoUrl || unit?.logo)) {
+    return (unit.logoUrl || unit.logo) ?? null;
+  }
+  return null;
+};
+
 const generateAdminActionToken = () =>
   `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
@@ -526,17 +540,24 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     [theme]
   );
 
+  const timeWindowLogoUrl = useMemo(
+    () => (settings ? resolveTimeWindowLogoUrl(settings, unit) : null),
+    [settings, unit]
+  );
+
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[78vh] max-h-[calc(100vh-3rem)] my-6 p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[78vh] max-h-[calc(100vh-4rem)] md:max-h-[calc(100vh-5rem)] my-4 md:my-8 p-6 md:p-8 gap-4 overflow-hidden`,
       header: 'flex-shrink-0 space-y-4',
       content: 'flex-1 min-h-0 overflow-hidden',
       contentScrollable: 'h-full flex-1 overflow-hidden',
-      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-360px)]',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-320px)]',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
+      watermark:
+        'pointer-events-none select-none absolute bottom-3 right-4 text-xs md:text-sm z-40 drop-shadow',
     }),
     [theme]
   );
@@ -558,16 +579,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               Hiba
             </h2>
             <p className="mt-2">{error}</p>
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+            </div>
           </div>
-        </div>
-        <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
-          style={{
-            color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-            ...(theme.watermarkStyle || {}),
-          }}
-        >
-          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
         </div>
       </div>
     );
@@ -587,16 +608,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         <div className={`${theme.styles.pageInner} relative z-10`}>
           <div className={themeClasses.card} style={theme.cardStyle}>
             <LoadingSpinner />
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+            </div>
           </div>
-        </div>
-        <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
-          style={{
-            color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-            ...(theme.watermarkStyle || {}),
-          }}
-        >
-          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
         </div>
       </div>
     );
@@ -669,11 +690,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                       dailyHeadcounts={dailyHeadcounts}
                     />
                   </div>
-                      <div className={themeClasses.stepPane}>
-                        <Step2Details
-                          selectedDate={selectedDate}
-                          formData={formData}
-                      setFormData={setFormData}
+                    <div className={themeClasses.stepPane}>
+                      <Step2Details
+                        selectedDate={selectedDate}
+                        formData={formData}
+                        setFormData={setFormData}
                       onBack={() => {
                         setStep(1);
                         setError('');
@@ -683,14 +704,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                       settings={settings}
                       themeProps={themeClassProps}
                       t={t}
-                      locale={locale}
-                      error={error}
-                      buttonClasses={{
-                        primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                        secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                      }}
-                    />
-                  </div>
+                        locale={locale}
+                        error={error}
+                        buttonClasses={{
+                          primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                          secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                        }}
+                        unit={unit}
+                        timeWindowLogoUrl={timeWindowLogoUrl}
+                      />
+                    </div>
                       <div className={themeClasses.stepPane}>
                         <Step3Confirmation
                           onReset={resetFlow}
@@ -710,17 +733,17 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 </div>
               </div>
             </div>
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+            </div>
           </div>
         </div>
-      </div>
-      <div
-        className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
-        style={{
-          color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-          ...(theme.watermarkStyle || {}),
-        }}
-      >
-        {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
       </div>
     </div>
   );
@@ -866,7 +889,24 @@ const Step1Date: React.FC<{
   );
 };
 
-const Step2Details: React.FC<any> = ({
+interface Step2DetailsProps {
+  selectedDate: Date | null;
+  formData: any;
+  setFormData: React.Dispatch<React.SetStateAction<any>>;
+  onBack: () => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  isSubmitting: boolean;
+  settings: ReservationSetting;
+  themeProps: any;
+  t: any;
+  locale: Locale;
+  error: string;
+  buttonClasses: { primary: string; secondary: string };
+  unit: Unit;
+  timeWindowLogoUrl: string | null;
+}
+
+const Step2Details: React.FC<Step2DetailsProps> = ({
   selectedDate,
   formData,
   setFormData,
@@ -879,6 +919,8 @@ const Step2Details: React.FC<any> = ({
   locale,
   error,
   buttonClasses,
+  unit,
+  timeWindowLogoUrl,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -947,12 +989,16 @@ const Step2Details: React.FC<any> = ({
 
   const surfaceFill =
     themeProps.uiTheme === 'minimal_glass'
-      ? toRgba(themeProps.colors.surface, 0.75)
+      ? toRgba(themeProps.colors.surface, 0.68)
       : themeProps.colors.surface;
   const surfaceBorder =
     themeProps.uiTheme === 'minimal_glass'
-      ? toRgba(themeProps.colors.surface, 0.82)
+      ? toRgba(themeProps.colors.surface, 0.78)
       : themeProps.colors.surface;
+
+  const hasTimeWindowInfo =
+    bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
+  const logoUrl = timeWindowLogoUrl || null;
 
   return (
     <div
@@ -971,38 +1017,47 @@ const Step2Details: React.FC<any> = ({
           {error}
         </div>
       )}
-      {(bookingWindowText ||
-        settings.kitchenStartTime ||
-        settings.barStartTime) && (
+      {hasTimeWindowInfo && (
         <div
-          className={`${themeProps.infoPanelClass} mb-4 text-center space-y-3`}
+          className={`${themeProps.infoPanelClass} mb-4 flex items-center gap-4 md:gap-6`}
           style={{ color: themeProps.colors.textPrimary }}
         >
-          {bookingWindowText && (
-            <div className="space-y-1">
-              <div className="font-semibold">{t.bookableWindowLabel}</div>
-              <div className="font-medium italic">{bookingWindowText}</div>
-              <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
-                {t.bookableWindowHint}
-              </div>
+          {logoUrl && (
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden bg-white/40 flex items-center justify-center shrink-0">
+              <img
+                src={logoUrl}
+                alt={unit?.name || 'Unit logo'}
+                className="w-full h-full object-cover"
+              />
             </div>
           )}
-          {settings.kitchenStartTime && (
-            <div className="space-y-1">
-              <div className="font-semibold">{t.kitchenHours}</div>
-              <div className="font-medium italic">
-                {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
+          <div className="flex-1 text-center space-y-3">
+            {bookingWindowText && (
+              <div className="space-y-1">
+                <div className="font-semibold">{t.bookableWindowLabel}</div>
+                <div className="font-medium italic">{bookingWindowText}</div>
+                <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
+                  {t.bookableWindowHint}
+                </div>
               </div>
-            </div>
-          )}
-          {settings.barStartTime && (
-            <div className="space-y-1">
-              <div className="font-semibold">{t.barHours}</div>
-              <div className="font-medium italic">
-                {settings.barStartTime} – {settings.barEndTime || t.untilClose}
+            )}
+            {settings.kitchenStartTime && (
+              <div className="space-y-1">
+                <div className="font-semibold">{t.kitchenHours}</div>
+                <div className="font-medium italic">
+                  {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+            {settings.barStartTime && (
+              <div className="space-y-1">
+                <div className="font-semibold">{t.barHours}</div>
+                <div className="font-medium italic">
+                  {settings.barStartTime} – {settings.barEndTime || t.untilClose}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">

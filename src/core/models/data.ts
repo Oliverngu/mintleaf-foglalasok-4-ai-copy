@@ -114,6 +114,8 @@ export interface ThemeSettings {
     typographyScale: 'S' | 'M' | 'L';
     highlight?: string;
     backgroundImageUrl?: string;
+    timeWindowLogoMode?: 'unit' | 'custom' | 'none';
+    timeWindowLogoUrl?: string;
 }
 
 export interface CustomSelectField {

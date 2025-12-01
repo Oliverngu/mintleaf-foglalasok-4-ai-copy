@@ -284,12 +284,12 @@ export const buildReservationTheme = (
     uiTheme === 'minimal_glass'
       ? hexToRgba(
           colors.surface,
-          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.18 : 0.23
+          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.15 : 0.2
         )
       : uiTheme === 'playful_bubble'
       ? hexToRgba(colors.surface, 0.9)
       : hexToRgba(colors.surface, 0.98);
-  const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.7 : 0.85);
+  const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.6 : 0.85);
 
   const gradientOverlay = `linear-gradient(135deg, ${hexToRgba(colors.background, 0.35)}, ${hexToRgba(
     colors.background,
