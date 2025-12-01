@@ -22,58 +22,12 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
+import {
+  ReservationThemeTokens,
+  resolveReservationTheme,
+} from '../../../core/ui/reservationTheme';
 
 type Locale = 'hu' | 'en';
-type UITheme = 'minimal_glass' | 'elegant' | 'playful_bubbles';
-
-const getPageWrapperClasses = (theme: UITheme) => {
-  const base =
-    'min-h-screen flex items-center justify-center px-4 py-8 relative overflow-hidden';
-  switch (theme) {
-    case 'elegant':
-      return `${base} bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50`;
-    case 'playful_bubbles':
-      return `${base} bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100`;
-    default:
-      return `${base} bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900`;
-  }
-};
-
-const getMainCardClasses = (theme: UITheme) => {
-  switch (theme) {
-    case 'elegant':
-      return 'relative w-full max-w-3xl rounded-3xl bg-white shadow-xl border border-amber-100 text-slate-900 p-6 md:p-8';
-    case 'playful_bubbles':
-      return 'relative w-full max-w-3xl rounded-[28px] bg-white/80 backdrop-blur-md shadow-xl border border-sky-100 text-slate-900 p-6 md:p-8';
-    default:
-      return 'relative w-full max-w-3xl rounded-3xl bg-white/15 backdrop-blur-xl border border-white/20 shadow-2xl text-white p-6 md:p-8';
-  }
-};
-
-const getPrimaryButtonClasses = (theme: UITheme) => {
-  const base =
-    'text-white font-bold py-2 px-6 transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed text-lg shadow-sm';
-  switch (theme) {
-    case 'elegant':
-      return `${base} rounded-xl hover:shadow-md`;
-    case 'playful_bubbles':
-      return `${base} rounded-full transform hover:scale-[1.02] hover:shadow-lg`;
-    default:
-      return `${base} rounded-xl backdrop-blur`;
-  }
-};
-
-const getSecondaryButtonClasses = (theme: UITheme) => {
-  const base = 'font-bold py-2 px-4 transition duration-200';
-  switch (theme) {
-    case 'elegant':
-      return `${base} rounded-xl border border-amber-200 text-amber-900 bg-white hover:bg-amber-50`;
-    case 'playful_bubbles':
-      return `${base} rounded-full bg-white/80 text-slate-800 hover:bg-white shadow-sm border border-sky-100`;
-    default:
-      return `${base} rounded-xl bg-white/20 text-white hover:bg-white/30 border border-white/30`;
-  }
-};
 
 const PlayfulBubbles = () => (
   <>
@@ -175,10 +129,11 @@ const writeGuestLog = async (
 const ProgressIndicator: React.FC<{
   currentStep: number;
   t: typeof translations['hu'];
-}> = ({ currentStep, t }) => {
+  theme: ReservationThemeTokens;
+}> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
+    <div className={theme.progressWrapperClass}>
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
@@ -187,32 +142,34 @@ const ProgressIndicator: React.FC<{
           <React.Fragment key={stepNumber}>
             <div className="flex flex-col items-center text-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
+                className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${
                   isCompleted
-                    ? 'bg-[var(--color-primary)] text-white'
+                    ? 'bg-[var(--color-primary)] text-white shadow'
                     : isActive
-                    ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
-                    : 'bg-gray-200 text-gray-500'
-                }`}
+                    ? 'bg-white text-[var(--color-primary)] border-2 border-[var(--color-primary)] shadow-sm'
+                    : 'bg-white/50 text-gray-600 border border-gray-200'
+                } ${theme.radiusClass}`}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
               <p
                 className={`mt-2 text-sm font-semibold transition-colors ${
-                  isActive || isCompleted
+                  isActive
                     ? 'text-[var(--color-text-primary)]'
                     : 'text-gray-400'
-                }`}
+                } ${theme.fontClass}`}
               >
                 {label}
               </p>
             </div>
             {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 transition-colors ${
-                  isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
-                }`}
-              ></div>
+              <div className="flex-1 h-full mx-2 flex items-center">
+                <div
+                  className={`${theme.progressTrackClass} ${
+                    isCompleted ? 'bg-[var(--color-primary)]' : ''
+                  }`}
+                />
+              </div>
             )}
           </React.Fragment>
         );
@@ -251,6 +208,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
     new Map()
   );
+
+  const theme = useMemo(() => resolveReservationTheme(settings), [settings]);
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -365,19 +324,22 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, [unitId, currentMonth, settings?.dailyCapacity]);
 
   useEffect(() => {
-    if (settings?.theme) {
-      const root = document.documentElement;
-      Object.entries(settings.theme).forEach(([key, value]) => {
-        if (
-          key !== 'radius' &&
-          key !== 'elevation' &&
-          key !== 'typographyScale'
-        ) {
-          root.style.setProperty(`--color-${key}`, value as string);
-        }
-      });
-    }
-  }, [settings?.theme]);
+    const root = document.documentElement;
+    const colorMap: Record<string, string> = {
+      primary: theme.primaryColor,
+      accent: theme.accentColor,
+      surface: theme.surfaceColor,
+      background: theme.backgroundColor,
+      textPrimary: theme.textPrimaryColor,
+      textSecondary: theme.textSecondaryColor,
+      success: theme.successColor,
+      danger: theme.dangerColor,
+    };
+
+    Object.entries(colorMap).forEach(([key, value]) => {
+      root.style.setProperty(`--color-${key}`, value);
+    });
+  }, [theme]);
 
   const resetFlow = () => {
     setSelectedDate(null);
@@ -542,48 +504,39 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     }
   };
 
-  const themeClassProps = useMemo(() => {
-    if (!settings?.theme) {
-      return {
-        radiusClass: 'rounded-lg',
-        shadowClass: 'shadow-md',
-        fontBaseClass: 'text-base',
-      };
-    }
-    const { radius, elevation, typographyScale } = settings.theme;
-    return {
-      radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[
-        radius
-      ],
-      shadowClass: { low: 'shadow-sm', mid: 'shadow-md', high: 'shadow-lg' }[
-        elevation
-      ],
-      fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[
-        typographyScale
-      ],
-    };
-  }, [settings?.theme]);
+  const themeClassProps = useMemo(
+    () => ({
+      radiusClass: theme.radiusClass,
+      shadowClass: theme.shadowClass,
+      fontBaseClass: theme.fontBaseClass,
+    }),
+    [theme]
+  );
 
-  const uiTheme: UITheme = settings?.uiTheme || 'minimal_glass';
   const themeClasses = useMemo(
     () => ({
-      wrapper: getPageWrapperClasses(uiTheme),
-      card: getMainCardClasses(uiTheme),
-      primaryButton: getPrimaryButtonClasses(uiTheme),
-      secondaryButton: getSecondaryButtonClasses(uiTheme),
+      wrapper: theme.pageWrapperClass,
+      card: `${theme.cardClass} flex flex-col max-h-[90vh] w-full mx-auto`,
+      primaryButton: theme.buttonPrimaryClass,
+      secondaryButton: theme.buttonSecondaryClass,
     }),
-    [uiTheme]
+    [theme]
   );
 
   if (error && step !== 2) {
     return (
-      <div className={themeClasses.wrapper} style={{ color: 'var(--color-text-primary)' }}>
-        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-        <div className={`${themeClasses.card} text-center`}>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
-            Hiba
-          </h2>
-          <p className="mt-2">{error}</p>
+      <div
+        className={themeClasses.wrapper}
+        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      >
+        {theme.key === 'bubbly' && <PlayfulBubbles />}
+        <div className="flex-1 flex flex-col items-center w-full">
+          <div className={`${themeClasses.card} text-center`}>
+            <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
+              Hiba
+            </h2>
+            <p className="mt-2">{error}</p>
+          </div>
         </div>
       </div>
     );
@@ -591,22 +544,31 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (loading || !unit || !settings) {
     return (
-      <div className={themeClasses.wrapper}>
-        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-        <div className={themeClasses.card}>
-          <LoadingSpinner />
+      <div
+        className={themeClasses.wrapper}
+        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      >
+        {theme.key === 'bubbly' && <PlayfulBubbles />}
+        <div className="flex-1 flex flex-col items-center w-full">
+          <div className={themeClasses.card}>
+            <LoadingSpinner />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={themeClasses.wrapper} style={{ color: 'var(--color-text-primary)' }}>
-      {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-      <div className={themeClasses.card}>
-        <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-          <button
-            onClick={() => setLocale('hu')}
+    <div
+      className={themeClasses.wrapper}
+      style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+    >
+      {theme.key === 'bubbly' && <PlayfulBubbles />}
+      <div className="flex-1 flex flex-col items-center">
+        <div className={themeClasses.card}>
+          <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+            <button
+              onClick={() => setLocale('hu')}
             className={
               locale === 'hu'
                 ? 'font-bold text-[var(--color-primary)]'
@@ -637,14 +599,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </p>
         </header>
 
-        <main className="w-full">
-          <ProgressIndicator currentStep={step} t={t} />
-          <div className="relative overflow-hidden mt-4">
+        <main className="w-full flex-1 flex flex-col gap-4">
+          <ProgressIndicator currentStep={step} t={t} theme={theme} />
+          <div className="relative overflow-hidden mt-2 flex-1">
             <div
-              className="flex transition-transform duration-500 ease-in-out"
+              className="flex transition-transform duration-500 ease-in-out h-full"
               style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
             >
-              <div className="w-full flex-shrink-0">
+              <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6">
                 <Step1Date
                   settings={settings}
                   onDateSelect={handleDateSelect}
@@ -655,7 +617,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                   dailyHeadcounts={dailyHeadcounts}
                 />
               </div>
-              <div className="w-full flex-shrink-0">
+              <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6">
                 <Step2Details
                   selectedDate={selectedDate}
                   formData={formData}
@@ -677,7 +639,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                   }}
                 />
               </div>
-              <div className="w-full flex-shrink-0">
+              <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6">
                 <Step3Confirmation
                   onReset={resetFlow}
                   themeProps={themeClassProps}
@@ -695,6 +657,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             </div>
           </div>
         </main>
+        </div>
       </div>
     </div>
   );

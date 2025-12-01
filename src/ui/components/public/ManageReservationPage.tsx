@@ -5,57 +5,9 @@ import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
+import { resolveReservationTheme } from '../../../core/ui/reservationTheme';
 
 type Locale = 'hu' | 'en';
-type UITheme = 'minimal_glass' | 'elegant' | 'playful_bubbles';
-
-const getManagerWrapperClasses = (theme: UITheme) => {
-  const base =
-    'min-h-screen flex flex-col items-center px-4 py-8 relative overflow-hidden';
-  switch (theme) {
-    case 'elegant':
-      return `${base} bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50`;
-    case 'playful_bubbles':
-      return `${base} bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100`;
-    default:
-      return `${base} bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900`;
-  }
-};
-
-const getManagerCardClasses = (theme: UITheme) => {
-  switch (theme) {
-    case 'elegant':
-      return 'relative w-full max-w-3xl rounded-3xl bg-white shadow-xl border border-amber-100 text-slate-900 p-6 md:p-8';
-    case 'playful_bubbles':
-      return 'relative w-full max-w-3xl rounded-[28px] bg-white/80 backdrop-blur-md shadow-xl border border-sky-100 text-slate-900 p-6 md:p-8';
-    default:
-      return 'relative w-full max-w-3xl rounded-3xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl text-white p-6 md:p-8';
-  }
-};
-
-const getManagerPrimaryButtonClasses = (theme: UITheme) => {
-  const base = 'font-bold py-2 px-4 transition duration-200 disabled:opacity-60';
-  switch (theme) {
-    case 'elegant':
-      return `${base} rounded-xl shadow-sm hover:shadow-md`;
-    case 'playful_bubbles':
-      return `${base} rounded-full transform hover:scale-[1.02] hover:shadow-lg`;
-    default:
-      return `${base} rounded-xl backdrop-blur`;
-  }
-};
-
-const getManagerSecondaryButtonClasses = (theme: UITheme) => {
-  const base = 'font-bold py-2 px-4 transition duration-200';
-  switch (theme) {
-    case 'elegant':
-      return `${base} rounded-xl border border-amber-200 text-amber-900 bg-white hover:bg-amber-50`;
-    case 'playful_bubbles':
-      return `${base} rounded-full bg-white/80 text-slate-800 hover:bg-white shadow-sm border border-sky-100`;
-    default:
-      return `${base} rounded-xl bg-white/20 text-white hover:bg-white/30 border border-white/30`;
-  }
-};
 
 const PlayfulBubbles = () => (
   <>
@@ -88,6 +40,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+
+  const theme = useMemo(() => resolveReservationTheme(settings), [settings]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -183,6 +137,24 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
     fetchSettings();
   }, [unit]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const colorMap: Record<string, string> = {
+      primary: theme.primaryColor,
+      accent: theme.accentColor,
+      surface: theme.surfaceColor,
+      background: theme.backgroundColor,
+      textPrimary: theme.textPrimaryColor,
+      textSecondary: theme.textSecondaryColor,
+      success: theme.successColor,
+      danger: theme.dangerColor,
+    };
+
+    Object.entries(colorMap).forEach(([key, value]) => {
+      root.style.setProperty(`--color-${key}`, value);
+    });
+  }, [theme]);
 
   const writeDecisionLog = async (status: 'confirmed' | 'cancelled') => {
     if (!booking || !unit) return;
@@ -293,15 +265,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   };
 
   const t = translations[locale];
-  const uiTheme: UITheme = settings?.uiTheme || 'minimal_glass';
   const themeClasses = useMemo(
     () => ({
-      wrapper: getManagerWrapperClasses(uiTheme),
-      card: getManagerCardClasses(uiTheme),
-      primaryButton: getManagerPrimaryButtonClasses(uiTheme),
-      secondaryButton: getManagerSecondaryButtonClasses(uiTheme),
+      wrapper: theme.pageWrapperClass,
+      card: `${theme.cardClass} flex flex-col max-h-[90vh] w-full mx-auto`,
+      primaryButton: theme.buttonPrimaryClass,
+      secondaryButton: theme.buttonSecondaryClass,
     }),
-    [uiTheme]
+    [theme]
   );
 
   useEffect(() => {
@@ -319,20 +290,30 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   if (loading)
     return (
-      <div className={themeClasses.wrapper}>
-        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-        <div className={themeClasses.card}>
-          <LoadingSpinner />
+      <div
+        className={themeClasses.wrapper}
+        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      >
+        {theme.key === 'bubbly' && <PlayfulBubbles />}
+        <div className="flex-1 flex flex-col items-center w-full">
+          <div className={themeClasses.card}>
+            <LoadingSpinner />
+          </div>
         </div>
       </div>
     );
   if (error)
     return (
-      <div className={themeClasses.wrapper}>
-        {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-        <div className={`${themeClasses.card} text-center`}>
-          <h2 className="text-xl font-bold text-red-600">Hiba</h2>
-          <p className="mt-2 text-current">{error}</p>
+      <div
+        className={themeClasses.wrapper}
+        style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+      >
+        {theme.key === 'bubbly' && <PlayfulBubbles />}
+        <div className="flex-1 flex flex-col items-center w-full">
+          <div className={`${themeClasses.card} text-center`}>
+            <h2 className="text-xl font-bold text-red-600">Hiba</h2>
+            <p className="mt-2 text-current">{error}</p>
+          </div>
         </div>
       </div>
     );
@@ -361,27 +342,31 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   };
 
   return (
-    <div className={themeClasses.wrapper}>
-      {uiTheme === 'playful_bubbles' && <PlayfulBubbles />}
-      <div className={themeClasses.card}>
-        <header className="text-center mb-8 mt-4">
-          <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {unit.name}
-          </h1>
-          <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            {t.manageTitle}
-          </p>
-        </header>
+    <div
+      className={themeClasses.wrapper}
+      style={{ color: 'var(--color-text-primary)', fontSize: `${theme.fontSizeScale}rem` }}
+    >
+      {theme.key === 'bubbly' && <PlayfulBubbles />}
+      <div className="flex-1 flex flex-col items-center w-full">
+        <div className={themeClasses.card}>
+          <header className="text-center mb-8 mt-4">
+            <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+              {unit.name}
+            </h1>
+            <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+              {t.manageTitle}
+            </p>
+          </header>
 
-        <main className="w-full">
-          <div className="flex justify-between items-center mb-6 pb-4 border-b border-white/20">
+        <main className="w-full flex-1 flex flex-col gap-4">
+          <div className="flex justify-between items-center mb-2 pb-4 border-b border-white/20">
             <h2 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {t.reservationDetails}
             </h2>
             {getStatusChip(booking.status)}
           </div>
 
-          <div className="space-y-3" style={{ color: 'var(--color-text-primary)' }}>
+          <div className="space-y-3 flex-1 overflow-y-auto pr-1" style={{ color: 'var(--color-text-primary)' }}>
             <p>
               <strong>{t.referenceCode}:</strong>{' '}
               <span className="font-mono bg-gray-200 px-2 py-1 rounded text-sm text-gray-800">
@@ -496,6 +481,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             </div>
           )}
         </main>
+      </div>
       </div>
 
       {isCancelModalOpen && (
