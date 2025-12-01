@@ -360,13 +360,18 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   }, [selectedUnitIds]);
 
   useEffect(() => {
-    const currentMap: Record<string, string> = {};
-    selectedUnitIds.forEach(unitId => {
-      (currentStocksByUnit[unitId] || []).forEach(stock => {
-        currentMap[`${unitId}:${stock.productId}`] = stock.currentQuantity?.toString() ?? '';
+    setCurrentInputs(prev => {
+      const next: Record<string, string> = { ...prev };
+      selectedUnitIds.forEach(unitId => {
+        (currentStocksByUnit[unitId] || []).forEach(stock => {
+          const key = `${unitId}:${stock.productId}`;
+          if (next[key] === undefined) {
+            next[key] = '';
+          }
+        });
       });
+      return next;
     });
-    setCurrentInputs(currentMap);
   }, [selectedUnitIds, currentStocksByUnit]);
 
   useEffect(() => {
@@ -599,13 +604,17 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
 
   const handleSaveCurrent = async (unitId: string, productId: string) => {
     if (isReadOnly) return;
-    const value = parseFloat(currentInputs[`${unitId}:${productId}`] ?? '0');
-    if (isNaN(value)) return;
-    setSavingCurrent(prev => ({ ...prev, [`${unitId}:${productId}`]: true }));
+    const key = `${unitId}:${productId}`;
+    const delta = parseFloat(currentInputs[key] ?? '');
+    if (isNaN(delta) || delta === 0) return;
+    const currentValue = currentMap[key] ?? 0;
+    const updatedValue = currentValue + delta;
+    setSavingCurrent(prev => ({ ...prev, [key]: true }));
     try {
-      await InventoryService.setCurrentStock(unitId, productId, value, currentUserId);
+      await InventoryService.setCurrentStock(unitId, productId, updatedValue, currentUserId);
     } finally {
-      setSavingCurrent(prev => ({ ...prev, [`${unitId}:${productId}`]: false }));
+      setSavingCurrent(prev => ({ ...prev, [key]: false }));
+      setCurrentInputs(prev => ({ ...prev, [key]: '' }));
     }
   };
 
@@ -1140,9 +1149,9 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                               {!isMultiUnit && row.entries[0] && (() => {
                                 const entry = row.entries[0];
                                 const currentKey = `${entry.unitId}:${entry.product.id}`;
-                                const currentInputValue = currentInputs[currentKey] ?? entry.currentQuantity.toString();
-                                const currentSavedValue = currentMap[currentKey] ?? entry.currentQuantity;
-                                const isCurrentDirty = parseFloat(currentInputValue) !== currentSavedValue;
+                                const currentInputValue = currentInputs[currentKey] ?? '';
+                                const deltaValue = parseFloat(currentInputValue || '0');
+                                const isCurrentDirty = !isNaN(deltaValue) && deltaValue !== 0;
                                 const updatedLabel = entry.currentMeta?.updatedAt
                                   ? new Date(entry.currentMeta.updatedAt.toDate()).toLocaleString()
                                   : 'N/A';
@@ -1153,6 +1162,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                                   : 'Ismeretlen';
                                 return (
                                   <div className="flex flex-col gap-1 pt-2">
+                                    <span className="text-xs text-gray-500">Hozzáadás a készlethez</span>
                                     <div className="flex items-center gap-2">
                                       <input
                                         type="number"
@@ -1200,9 +1210,9 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                           <div className="bg-gray-50 border rounded-lg p-3 space-y-3">
                             {row.entries.map(entry => {
                               const currentKey = `${entry.unitId}:${entry.product.id}`;
-                              const currentInputValue = currentInputs[currentKey] ?? entry.currentQuantity.toString();
-                              const currentSavedValue = currentMap[currentKey] ?? entry.currentQuantity;
-                              const isCurrentDirty = parseFloat(currentInputValue) !== currentSavedValue;
+                              const currentInputValue = currentInputs[currentKey] ?? '';
+                              const deltaValue = parseFloat(currentInputValue || '0');
+                              const isCurrentDirty = !isNaN(deltaValue) && deltaValue !== 0;
                               const updatedLabel = entry.currentMeta?.updatedAt
                                 ? new Date(entry.currentMeta.updatedAt.toDate()).toLocaleString()
                                 : 'N/A';
@@ -1218,7 +1228,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
                                     {renderUnitBadge(entry.unitId)}
                                     <div>
                                       <div className="font-semibold text-gray-800">{unit?.name || entry.unitId}</div>
-                                      <div className="text-xs text-gray-500">Aktuális készlet</div>
+                                      <div className="text-xs text-gray-500">Hozzáadás a készlethez</div>
                                     </div>
                                   </div>
                                   <div className="flex-1 flex items-center gap-2">
@@ -1476,7 +1486,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
 
       {canManageInventory && isProductModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full p-6 space-y-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-4 md:p-6 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Új termék</h3>
