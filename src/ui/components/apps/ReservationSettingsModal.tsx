@@ -663,7 +663,7 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                 backgroundPosition: 'center',
             }}
         >
-            {tokens.styles.pageOverlay && <div className={`${tokens.styles.pageOverlay}`} />}
+            {tokens.styles.pageOverlay && <div className={`${tokens.styles.pageOverlay} z-0`} />}
             {tokens.uiTheme === 'playful_bubble' && (
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
                     <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />
@@ -671,27 +671,43 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                 </div>
             )}
             <div className="relative z-10 p-6 flex justify-center items-center h-full">
-                <div className={`relative mx-auto w-full max-w-md ${tokens.styles.card}`} style={{ backgroundColor: tokens.colors.surface, color: tokens.colors.textPrimary }}>
-                    <div className={`${tokens.styles.stepWrapper} px-4 pt-4`}>
-                        {[1, 2, 3].map((step, index) => (
-                            <React.Fragment key={step}>
-                                <div className="flex flex-col items-center text-center">
-                                    <div
-                                        className={`w-10 h-10 flex items-center justify-center font-bold transition-all ${index === 0 ? tokens.styles.stepActive : tokens.styles.stepInactive}`}
-                                        style={{
-                                            backgroundColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
-                                            color: index === 0 ? '#fff' : tokens.colors.textSecondary,
-                                            borderColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
-                                        }}
-                                    >
-                                        {index === 0 ? '1' : index === 1 ? '2' : '3'}
-                                    </div>
-                                </div>
-                                {index < 2 && <div className={`flex-1 h-full mx-1 flex items-center ${tokens.styles.stepTrack}`}></div>}
-                            </React.Fragment>
-                        ))}
+                <div
+                    className={`relative mx-auto w-full max-w-md ${tokens.styles.card} flex flex-col overflow-hidden`}
+                    style={{
+                        ...(tokens.cardStyle || {}),
+                        color: tokens.colors.textPrimary,
+                    }}
+                >
+                    <div className="flex-shrink-0 text-center pt-2">
+                        <h3 className="text-2xl font-bold" style={{ color: tokens.colors.textPrimary }}>
+                            Asztalfoglalás
+                        </h3>
+                        <p className="text-sm" style={{ color: tokens.colors.textSecondary }}>
+                            Élő előnézet
+                        </p>
                     </div>
-                    <div className="space-y-4 p-6">
+                    <div className="flex-shrink-0 px-4 pt-4">
+                        <div className={`${tokens.styles.stepWrapper}`}>
+                            {[1, 2, 3].map((step, index) => (
+                                <React.Fragment key={step}>
+                                    <div className="flex flex-col items-center text-center">
+                                        <div
+                                            className={`w-10 h-10 flex items-center justify-center font-bold transition-all ${index === 0 ? tokens.styles.stepActive : tokens.styles.stepInactive}`}
+                                            style={{
+                                                backgroundColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
+                                                color: index === 0 ? '#fff' : tokens.colors.textSecondary,
+                                                borderColor: index === 0 ? tokens.colors.primary : tokens.colors.surface,
+                                            }}
+                                        >
+                                            {index + 1}
+                                        </div>
+                                    </div>
+                                    {index < 2 && <div className={`flex-1 h-full mx-1 flex items-center ${tokens.styles.stepTrack}`}></div>}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-4 p-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-xs uppercase tracking-wide" style={{ color: tokens.colors.textSecondary }}>Foglalás</p>
@@ -713,6 +729,12 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                             <button className={`${tokens.styles.secondaryButton}`} style={{ backgroundColor: tokens.colors.accent, color: '#fff' }}>Vissza</button>
                             <button className={`${tokens.styles.primaryButton}`} style={{ backgroundColor: tokens.colors.primary }}>Foglalás</button>
                         </div>
+                    </div>
+                    <div
+                        className={`pointer-events-none absolute bottom-3 right-4 text-[11px] z-20 drop-shadow ${tokens.styles.watermark || ''}`}
+                        style={{ color: tokens.watermarkStyle?.color || tokens.colors.textSecondary, ...(tokens.watermarkStyle || {}) }}
+                    >
+                        MintLeaf reservation system
                     </div>
                 </div>
             </div>

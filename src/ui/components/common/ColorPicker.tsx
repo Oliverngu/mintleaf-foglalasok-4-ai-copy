@@ -98,11 +98,13 @@ const ColorPickerPopup: React.FC<ColorPickerPopupProps> = ({ color, onChange, on
     }, [color]);
 
     const handleSliderChange = (part: 'h' | 's' | 'v', value: number) => {
-        const newHsv = { ...hsv, [part]: value };
-        setHsv(newHsv);
-        const newHex = hsvToHex(newHsv.h, newHsv.s, newHsv.v);
-        setHex(newHex);
-        onChange(newHex);
+        setHsv(prev => {
+            const next = { ...prev, [part]: value };
+            const newHex = hsvToHex(next.h, next.s, next.v);
+            setHex(newHex);
+            onChange(newHex);
+            return next;
+        });
     };
 
     const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -43,6 +43,8 @@ export interface ReservationThemeTokens {
   fontSizeClass: string;
   fontFamilyClass: string;
   pageStyle?: CSSProperties;
+  cardStyle?: CSSProperties;
+  watermarkStyle?: CSSProperties;
   styles: ReservationThemeStyles;
 }
 
@@ -122,7 +124,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     pageOverlay:
       'absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-white/5 pointer-events-none mix-blend-screen',
     cardBase:
-      'bg-white/35 backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.12)] text-slate-900',
+      'relative overflow-hidden backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
     primaryButton:
       'bg-white/25 border border-white/40 text-white hover:bg-white/35 hover:shadow-lg transition transform hover:scale-[1.02] backdrop-blur',
     secondaryButton:
@@ -147,7 +149,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     pageBackground:
       'min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50 text-slate-900',
     pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/30 via-white/10 to-white/5 pointer-events-none',
-    cardBase: 'bg-white border border-amber-100 shadow-md text-slate-900',
+    cardBase: 'relative overflow-hidden border border-amber-100 shadow-md text-[color:var(--color-text-primary)]',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white border border-transparent hover:shadow-md transition',
     secondaryButton:
@@ -173,7 +175,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
       'min-h-screen flex flex-col relative overflow-hidden bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100 text-slate-900',
     pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/50 via-white/30 to-white/20 pointer-events-none',
     cardBase:
-      'bg-white/90 backdrop-blur-md border border-sky-100 shadow-xl text-slate-900',
+      'relative overflow-hidden backdrop-blur-md border border-sky-100 shadow-xl text-[color:var(--color-text-primary)]',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white rounded-full px-5 py-3 transition transform hover:scale-[1.04] hover:shadow-xl',
     secondaryButton:
@@ -273,6 +275,14 @@ export const buildReservationTheme = (
     highlight: themeSettings.highlight || defaultThemeSettings.highlight!,
   };
 
+  const cardBackground =
+    uiTheme === 'minimal_glass'
+      ? hexToRgba(colors.surface, 0.55)
+      : uiTheme === 'playful_bubble'
+      ? hexToRgba(colors.surface, 0.9)
+      : hexToRgba(colors.surface, 0.98);
+  const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.7 : 0.85);
+
   const gradientOverlay = `linear-gradient(135deg, ${hexToRgba(colors.background, 0.78)}, ${hexToRgba(
     colors.background,
     0.56
@@ -283,9 +293,11 @@ export const buildReservationTheme = (
         backgroundImage: `${gradientOverlay}, url(${themeSettings.backgroundImageUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        backgroundColor: colors.background,
       }
     : {
         backgroundImage: gradientOverlay,
+        backgroundColor: colors.background,
       };
 
   const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass}`;
@@ -318,6 +330,15 @@ export const buildReservationTheme = (
     fontSizeClass,
     fontFamilyClass: preset.fontFamily,
     pageStyle,
+    cardStyle: {
+      backgroundColor: cardBackground,
+      borderColor: cardBorder,
+      color: colors.textPrimary,
+    },
+    watermarkStyle: {
+      color: hexToRgba(colors.textSecondary, 0.8),
+      textShadow: uiTheme === 'minimal_glass' ? '0 1px 6px rgba(0,0,0,0.35)' : undefined,
+    },
     styles,
   };
 };
