@@ -11,6 +11,7 @@ export interface ReservationThemeStyles {
   pageInner: string;
   pageOverlay?: string;
   card: string;
+  infoPanel: string;
   primaryButton: string;
   secondaryButton: string;
   outlineButton: string;
@@ -101,6 +102,7 @@ type BasePreset = {
   pageBackground: string;
   pageOverlay?: string;
   cardBase: string;
+  infoPanel: string;
   primaryButton: string;
   secondaryButton: string;
   outlineButton: string;
@@ -124,7 +126,8 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     pageOverlay:
       'absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-white/5 pointer-events-none mix-blend-screen',
     cardBase:
-      'relative overflow-hidden backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
+      'relative overflow-hidden backdrop-blur-2xl border border-white/50 shadow-[0_18px_45px_rgba(0,0,0,0.25)] text-[color:var(--color-text-primary)]',
+    infoPanel: 'bg-white/20 border border-white/40 backdrop-blur text-white/90',
     primaryButton:
       'bg-white/25 border border-white/40 text-white hover:bg-white/35 hover:shadow-lg transition transform hover:scale-[1.02] backdrop-blur',
     secondaryButton:
@@ -150,6 +153,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
       'min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50 text-slate-900',
     pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/30 via-white/10 to-white/5 pointer-events-none',
     cardBase: 'relative overflow-hidden border border-amber-100 shadow-md text-[color:var(--color-text-primary)]',
+    infoPanel: 'bg-amber-50 border border-amber-200 text-amber-900',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white border border-transparent hover:shadow-md transition',
     secondaryButton:
@@ -176,6 +180,7 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/50 via-white/30 to-white/20 pointer-events-none',
     cardBase:
       'relative overflow-hidden backdrop-blur-md border border-sky-100 shadow-xl text-[color:var(--color-text-primary)]',
+    infoPanel: 'bg-white/85 border border-sky-100 text-slate-900',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white rounded-full px-5 py-3 transition transform hover:scale-[1.04] hover:shadow-xl',
     secondaryButton:
@@ -277,7 +282,7 @@ export const buildReservationTheme = (
 
   const cardBackground =
     uiTheme === 'minimal_glass'
-      ? hexToRgba(colors.surface, 0.55)
+      ? hexToRgba(colors.surface, colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.28 : 0.32)
       : uiTheme === 'playful_bubble'
       ? hexToRgba(colors.surface, 0.9)
       : hexToRgba(colors.surface, 0.98);
@@ -308,6 +313,7 @@ export const buildReservationTheme = (
     pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-8 gap-6',
     pageOverlay: preset.pageOverlay,
     card: `${cardBase} ${preset.fontFamily}`,
+    infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,
     primaryButton: `${preset.primaryButton} ${radiusClass} ${fontSizeClass}`,
     secondaryButton: `${preset.secondaryButton} ${radiusClass} ${fontSizeClass}`,
     outlineButton: `${preset.outlineButton} ${radiusClass} ${fontSizeClass}`,
@@ -334,6 +340,7 @@ export const buildReservationTheme = (
       backgroundColor: cardBackground,
       borderColor: cardBorder,
       color: colors.textPrimary,
+      boxShadow: uiTheme === 'minimal_glass' ? '0 18px 45px rgba(0,0,0,0.25)' : undefined,
     },
     watermarkStyle: {
       color: hexToRgba(colors.textSecondary, 0.8),

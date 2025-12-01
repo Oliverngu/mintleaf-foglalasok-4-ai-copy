@@ -511,6 +511,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       fontFamily: theme.fontFamilyClass,
       fontSize: theme.fontSizeClass,
       colors: theme.colors,
+      infoPanelClass: theme.styles.infoPanel,
     }),
     [theme]
   );
@@ -518,7 +519,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto min-h-[calc(100vh-4rem)] max-h-[calc(100vh-3rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto flex-1 h-[calc(100vh-3rem)] max-h-[calc(100vh-2rem)] p-6 md:p-8 gap-4 overflow-hidden`,
       content: 'flex-1 min-h-0 overflow-hidden',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
@@ -639,7 +640,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             </div>
 
             <div className={`${themeClasses.content}`}>
-              <div className="relative h-full">
+              <div className="relative h-full flex-1 overflow-hidden">
                 <div
                   className="flex transition-transform duration-500 ease-in-out h-full"
                   style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
@@ -952,37 +953,33 @@ const Step2Details: React.FC<any> = ({
         settings.kitchenStartTime ||
         settings.barStartTime) && (
         <div
-          className={`p-3 mb-4 ${themeProps.radiusClass} text-sm space-y-2`}
-          style={{
-            backgroundColor: themeProps.colors.background,
-            color: themeProps.colors.textSecondary,
-            border: `1px solid ${themeProps.colors.surface}`,
-          }}
+          className={`${themeProps.infoPanelClass} mb-4 text-center space-y-3`}
+          style={{ color: themeProps.colors.textPrimary }}
         >
           {bookingWindowText && (
-            <p className="flex items-start gap-2">
-              <span className="font-semibold whitespace-nowrap">
-                {t.bookableWindowLabel}:
-              </span>
-              <span>
-                {bookingWindowText}
-                <span className="block text-xs text-gray-500">
-                  {t.bookableWindowHint}
-                </span>
-              </span>
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.bookableWindowLabel}</div>
+              <div className="font-medium">{bookingWindowText}</div>
+              <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
+                {t.bookableWindowHint}
+              </div>
+            </div>
           )}
           {settings.kitchenStartTime && (
-            <p>
-              <strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} -{' '}
-              {settings.kitchenEndTime || t.untilClose}
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.kitchenHours}</div>
+              <div className="font-medium">
+                {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
+              </div>
+            </div>
           )}
           {settings.barStartTime && (
-            <p>
-              <strong>{t.barHours}:</strong> {settings.barStartTime} -{' '}
-              {settings.barEndTime || t.untilClose}
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.barHours}</div>
+              <div className="font-medium">
+                {settings.barStartTime} – {settings.barEndTime || t.untilClose}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -996,12 +993,12 @@ const Step2Details: React.FC<any> = ({
             month: 'long',
             day: 'numeric',
           })}
-          className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
-          style={{
-            backgroundColor: themeProps.colors.background,
-            color: themeProps.colors.textPrimary,
-            borderColor: themeProps.colors.surface,
-          }}
+      className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        borderColor: themeProps.colors.surface,
+      }}
         />
         <div>
           <label className="block text-sm font-medium">{t.name}</label>
@@ -1235,7 +1232,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
         <div
           className="mt-6 text-left p-4 border"
           style={{
-            backgroundColor: themeProps.colors.background,
+            backgroundColor: themeProps.colors.surface,
             color: themeProps.colors.textPrimary,
             borderColor: themeProps.colors.surface,
           }}
@@ -1303,7 +1300,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       <div
         className="mt-6 text-left p-4 rounded-lg border"
         style={{
-          backgroundColor: themeProps.colors.background,
+          backgroundColor: themeProps.colors.surface,
           color: themeProps.colors.textPrimary,
           borderColor: themeProps.colors.surface,
         }}
