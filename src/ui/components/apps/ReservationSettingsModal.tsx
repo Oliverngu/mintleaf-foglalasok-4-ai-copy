@@ -133,12 +133,19 @@ const ReservationSettingsModal: FC<ReservationSettingsModalProps> = ({ unitId, o
         setIsSaving(true);
         try {
             const { occasionOptions, heardFromOptions, ...cleanGuestForm } = settings.guestForm as any;
-            const { backgroundImageUrl, timeWindowLogoUrl, timeWindowLogoMode, ...restTheme } = settings.theme || DEFAULT_THEME;
+            const {
+                backgroundImageUrl,
+                timeWindowLogoUrl,
+                timeWindowLogoMode,
+                headerBrandMode,
+                ...restTheme
+            } = settings.theme || DEFAULT_THEME;
             const sanitizedTheme = {
                 ...restTheme,
                 ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
                 ...(timeWindowLogoMode ? { timeWindowLogoMode } : {}),
                 ...(timeWindowLogoUrl ? { timeWindowLogoUrl } : {}),
+                headerBrandMode: headerBrandMode || 'text',
             } as ThemeSettings;
             const settingsToSave = {
                 ...settings,
@@ -617,6 +624,39 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                 )}
                 {backgroundError && <p className="text-sm text-red-600">{backgroundError}</p>}
             </div>
+            <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-2">
+                <div>
+                    <p className="font-semibold">Fejléc márkajelzés</p>
+                    <p className="text-xs text-gray-500">Válaszd ki, hogy a foglalási oldal tetején logó vagy egységnév jelenjen meg.</p>
+                </div>
+                <div className="flex flex-col gap-2 text-sm">
+                    <label className="flex items-center gap-2">
+                        <input
+                            type="radio"
+                            name="headerBrandMode"
+                            value="text"
+                            checked={!theme.headerBrandMode || theme.headerBrandMode === 'text'}
+                            onChange={() => handleThemeChange('headerBrandMode', 'text')}
+                        />
+                        Csak egységnév
+                    </label>
+                    <label className="flex items-center gap-2">
+                        <input
+                            type="radio"
+                            name="headerBrandMode"
+                            value="logo"
+                            checked={theme.headerBrandMode === 'logo'}
+                            onChange={() => handleThemeChange('headerBrandMode', 'logo')}
+                        />
+                        Logo (egység vagy egyedi)
+                    </label>
+                    {theme.headerBrandMode === 'logo' && (
+                        <p className="text-xs text-gray-500 pl-6">
+                            A fejlécben a választott időablak logó jelenik meg (egységlogó vagy egyedi feltöltés).
+                        </p>
+                    )}
+                </div>
+            </div>
             <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-3">
                 <div className="flex items-center justify-between">
                     <div>
@@ -785,7 +825,16 @@ const ColorInput: FC<{label: string, color: string, onChange: (c: string) => voi
     </div>
 );
 
-const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ tokens }) => {
+const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ themeSettings, tokens }) => {
+    const brandMode = themeSettings.headerBrandMode || 'text';
+    const logoUrl =
+        brandMode === 'logo'
+            ? themeSettings.timeWindowLogoMode === 'custom'
+                ? themeSettings.timeWindowLogoUrl
+                : themeSettings.timeWindowLogoMode === 'unit'
+                ? themeSettings.timeWindowLogoUrl || ''
+                : ''
+            : '';
     return (
         <div
             className={`relative rounded-2xl overflow-hidden border shadow-sm ${tokens.fontFamilyClass}`}
@@ -811,11 +860,22 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                         color: tokens.colors.textPrimary,
                     }}
                 >
-                    <div className="flex-shrink-0 text-center pt-2">
-                        <h3 className="text-2xl font-bold" style={{ color: tokens.colors.textPrimary }}>
+                    <div className="flex-shrink-0 text-center pt-2 flex flex-col items-center gap-1">
+                        {brandMode === 'logo' && logoUrl ? (
+                            <img
+                                src={logoUrl}
+                                alt="Preview logo"
+                                className="max-h-12 md:max-h-16 max-w-[70%] object-contain"
+                            />
+                        ) : (
+                            <h3 className="text-2xl font-bold" style={{ color: tokens.colors.textPrimary }}>
+                                Egységnév
+                            </h3>
+                        )}
+                        <p className="text-sm font-semibold" style={{ color: tokens.colors.textPrimary }}>
                             Asztalfoglalás
-                        </h3>
-                        <p className="text-sm" style={{ color: tokens.colors.textSecondary }}>
+                        </p>
+                        <p className="text-xs" style={{ color: tokens.colors.textSecondary }}>
                             Élő előnézet
                         </p>
                     </div>

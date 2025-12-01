@@ -63,6 +63,7 @@ export const defaultThemeSettings: ThemeSettings = {
   typographyScale: 'M',
   highlight: '#38bdf8',
   backgroundImageUrl: undefined,
+  headerBrandMode: 'text',
 };
 
 const radiusMap: Record<RadiusKey, string> = {

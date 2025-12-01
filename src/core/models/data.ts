@@ -116,6 +116,7 @@ export interface ThemeSettings {
     backgroundImageUrl?: string;
     timeWindowLogoMode?: 'unit' | 'custom' | 'none';
     timeWindowLogoUrl?: string;
+    headerBrandMode?: 'text' | 'logo';
 }
 
 export interface CustomSelectField {

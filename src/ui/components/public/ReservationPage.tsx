@@ -64,6 +64,10 @@ const DEFAULT_THEME: ThemeSettings = {
   elevation: 'mid',
   typographyScale: 'M',
   highlight: '#38bdf8',
+  backgroundImageUrl: undefined,
+  timeWindowLogoMode: 'none',
+  timeWindowLogoUrl: undefined,
+  headerBrandMode: 'text',
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
@@ -545,14 +549,20 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     [settings, unit]
   );
 
+  const headerBrandMode = settings?.theme?.headerBrandMode || 'text';
+  const brandLogoUrl = headerBrandMode === 'logo' ? timeWindowLogoUrl : null;
+
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl min-h-[78vh] max-h-[calc(100vh-4rem)] md:max-h-[calc(100vh-5rem)] my-4 md:my-8 p-6 md:p-8 gap-4 overflow-hidden`,
-      header: 'flex-shrink-0 space-y-4',
+      card:
+        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl my-4 md:my-8 px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
+        'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[72vh]',
+      header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
       content: 'flex-1 min-h-0 overflow-hidden',
-      contentScrollable: 'h-full flex-1 overflow-hidden',
-      stepPane: 'w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6 pr-1 max-h-[calc(100vh-320px)]',
+      contentScrollable: 'h-full flex-1 overflow-hidden pb-6',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0',
+      stepContent: 'flex-1 overflow-y-auto pb-24 pr-1',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
@@ -660,18 +670,26 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               </div>
 
               <div className="flex flex-col gap-4 flex-1 overflow-hidden">
-                <header className={`text-center pt-2 ${themeClasses.header}`}>
-                  <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-                    {unit.name}
-                  </h1>
-              <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                {t.title}
-              </p>
-            </header>
+                <header className={`pt-2 ${themeClasses.header}`}>
+                  {brandLogoUrl ? (
+                    <img
+                      src={brandLogoUrl}
+                      alt={unit.name}
+                      className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
+                    />
+                  ) : (
+                    <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                      {unit.name}
+                    </h1>
+                  )}
+                  <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {t.title}
+                  </p>
+                </header>
 
-            <div className="flex-shrink-0">
-              <ProgressIndicator currentStep={step} t={t} theme={theme} />
-            </div>
+                <div className="flex-shrink-0">
+                  <ProgressIndicator currentStep={step} t={t} theme={theme} />
+                </div>
 
                 <div className={`${themeClasses.content}`}>
                   <div className={`${themeClasses.contentScrollable}`}>
@@ -680,59 +698,64 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                       style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
                     >
                       <div className={themeClasses.stepPane}>
-                        <Step1Date
-                          settings={settings}
-                          onDateSelect={handleDateSelect}
-                      themeProps={themeClassProps}
-                      t={t}
-                      currentMonth={currentMonth}
-                      onMonthChange={setCurrentMonth}
-                      dailyHeadcounts={dailyHeadcounts}
-                    />
-                  </div>
-                    <div className={themeClasses.stepPane}>
-                      <Step2Details
-                        selectedDate={selectedDate}
-                        formData={formData}
-                        setFormData={setFormData}
-                      onBack={() => {
-                        setStep(1);
-                        setError('');
-                      }}
-                      onSubmit={handleSubmit}
-                      isSubmitting={isSubmitting}
-                      settings={settings}
-                      themeProps={themeClassProps}
-                      t={t}
-                        locale={locale}
-                        error={error}
-                        buttonClasses={{
-                          primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                          secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                        }}
-                        unit={unit}
-                        timeWindowLogoUrl={timeWindowLogoUrl}
-                      />
-                    </div>
+                        <div className={themeClasses.stepContent}>
+                          <Step1Date
+                            settings={settings}
+                            onDateSelect={handleDateSelect}
+                            themeProps={themeClassProps}
+                            t={t}
+                            currentMonth={currentMonth}
+                            onMonthChange={setCurrentMonth}
+                            dailyHeadcounts={dailyHeadcounts}
+                          />
+                        </div>
+                      </div>
                       <div className={themeClasses.stepPane}>
-                        <Step3Confirmation
-                          onReset={resetFlow}
-                          theme={theme}
-                      themeProps={themeClassProps}
-                      t={t}
-                      submittedData={submittedData}
-                      unit={unit}
-                      locale={locale}
-                      settings={settings}
-                      buttonClasses={{
-                        primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                        secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                      }}
-                    />
+                        <div className={themeClasses.stepContent}>
+                          <Step2Details
+                            selectedDate={selectedDate}
+                            formData={formData}
+                            setFormData={setFormData}
+                            onBack={() => {
+                              setStep(1);
+                              setError('');
+                            }}
+                            onSubmit={handleSubmit}
+                            isSubmitting={isSubmitting}
+                            settings={settings}
+                            themeProps={themeClassProps}
+                            t={t}
+                            locale={locale}
+                            error={error}
+                            buttonClasses={{
+                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                            }}
+                            unit={unit}
+                          />
+                        </div>
+                      </div>
+                      <div className={themeClasses.stepPane}>
+                        <div className={themeClasses.stepContent}>
+                          <Step3Confirmation
+                            onReset={resetFlow}
+                            theme={theme}
+                            themeProps={themeClassProps}
+                            t={t}
+                            submittedData={submittedData}
+                            unit={unit}
+                            locale={locale}
+                            settings={settings}
+                            buttonClasses={{
+                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
             <div
               className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
               style={{
@@ -903,7 +926,6 @@ interface Step2DetailsProps {
   error: string;
   buttonClasses: { primary: string; secondary: string };
   unit: Unit;
-  timeWindowLogoUrl: string | null;
 }
 
 const Step2Details: React.FC<Step2DetailsProps> = ({
@@ -920,7 +942,6 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   error,
   buttonClasses,
   unit,
-  timeWindowLogoUrl,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -998,7 +1019,6 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
 
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
-  const logoUrl = timeWindowLogoUrl || null;
 
   return (
     <div
@@ -1019,45 +1039,34 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
       )}
       {hasTimeWindowInfo && (
         <div
-          className={`${themeProps.infoPanelClass} mb-4 flex items-center gap-4 md:gap-6`}
+          className={`${themeProps.infoPanelClass} mb-4 text-center space-y-3`}
           style={{ color: themeProps.colors.textPrimary }}
         >
-          {logoUrl && (
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden bg-white/40 flex items-center justify-center shrink-0">
-              <img
-                src={logoUrl}
-                alt={unit?.name || 'Unit logo'}
-                className="w-full h-full object-cover"
-              />
+          {bookingWindowText && (
+            <div className="space-y-1">
+              <div className="font-semibold">{t.bookableWindowLabel}</div>
+              <div className="font-medium italic">{bookingWindowText}</div>
+              <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
+                {t.bookableWindowHint}
+              </div>
             </div>
           )}
-          <div className="flex-1 text-center space-y-3">
-            {bookingWindowText && (
-              <div className="space-y-1">
-                <div className="font-semibold">{t.bookableWindowLabel}</div>
-                <div className="font-medium italic">{bookingWindowText}</div>
-                <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
-                  {t.bookableWindowHint}
-                </div>
+          {settings.kitchenStartTime && (
+            <div className="space-y-1">
+              <div className="font-semibold">{t.kitchenHours}</div>
+              <div className="font-medium italic">
+                {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
               </div>
-            )}
-            {settings.kitchenStartTime && (
-              <div className="space-y-1">
-                <div className="font-semibold">{t.kitchenHours}</div>
-                <div className="font-medium italic">
-                  {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
-                </div>
+            </div>
+          )}
+          {settings.barStartTime && (
+            <div className="space-y-1">
+              <div className="font-semibold">{t.barHours}</div>
+              <div className="font-medium italic">
+                {settings.barStartTime} – {settings.barEndTime || t.untilClose}
               </div>
-            )}
-            {settings.barStartTime && (
-              <div className="space-y-1">
-                <div className="font-semibold">{t.barHours}</div>
-                <div className="font-medium italic">
-                  {settings.barStartTime} – {settings.barEndTime || t.untilClose}
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">
