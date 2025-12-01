@@ -4,7 +4,11 @@ import { ReservationSetting, ThemeSettings } from '../models/data';
 type RadiusKey = 'sm' | 'md' | 'lg' | 'xl';
 type ElevationKey = 'none' | 'low' | 'medium' | 'mid' | 'high';
 type TypographyKey = 'S' | 'M' | 'L';
-export type ReservationUiTheme = 'minimal_glass' | 'classic_elegant' | 'playful_bubble';
+export type ReservationUiTheme =
+  | 'minimal_glass'
+  | 'classic_elegant'
+  | 'playful_bubble'
+  | 'smooth_touch';
 
 export interface ReservationThemeStyles {
   page: string;
@@ -96,6 +100,8 @@ const uiThemeAlias: Record<string, ReservationUiTheme> = {
   playful_bubble: 'playful_bubble',
   playful_bubbles: 'playful_bubble',
   bubbly: 'playful_bubble',
+  smooth_touch: 'smooth_touch',
+  smooth: 'smooth_touch',
 };
 
 type BasePreset = {
@@ -147,6 +153,34 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
       'bg-white text-[color:var(--color-primary)] border-2 border-[color:var(--color-primary)] shadow-sm',
     stepInactive: 'bg-white/70 text-white/70 border border-white/40',
     watermark: 'text-white/70',
+  },
+  smooth_touch: {
+    uiTheme: 'smooth_touch',
+    pageBackground:
+      'min-h-screen flex flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900',
+    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/40 via-white/30 to-white/10 pointer-events-none',
+    cardBase:
+      'relative overflow-hidden border border-slate-100 shadow-[0_22px_60px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
+    infoPanel:
+      'bg-[color:var(--color-surface)]/85 border border-slate-200 text-[color:var(--color-text-primary)] shadow-inner',
+    primaryButton:
+      'bg-[color:var(--color-primary)]/90 text-white rounded-full px-6 py-3 font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.12)] transition transform hover:scale-[1.03] active:scale-95',
+    secondaryButton:
+      'bg-[color:var(--color-accent)]/10 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full px-5 py-2.5 transition transform hover:scale-[1.02] active:scale-95',
+    outlineButton:
+      'bg-white/70 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/30 rounded-full transition hover:shadow-md',
+    input:
+      'bg-white/90 border border-slate-200 text-slate-900 rounded-full focus:ring-2 focus:ring-[color:var(--color-primary)] shadow-sm',
+    badge: 'bg-[color:var(--color-accent)]/15 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full',
+    chip: 'bg-white text-slate-800 rounded-full shadow-inner',
+    fontFamily: 'font-sans',
+    stepWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-3',
+    stepTrack: 'h-2 flex-1 rounded-full bg-[color:var(--color-accent)]/20',
+    stepThumb: 'h-2 rounded-full bg-[color:var(--color-primary)]/80 shadow-md',
+    stepActive:
+      'bg-[color:var(--color-primary)]/90 text-white shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-[color:var(--color-primary)]/70 rounded-full',
+    stepInactive: 'bg-white text-slate-500 border border-slate-200 rounded-full',
+    watermark: 'text-slate-600',
   },
   classic_elegant: {
     uiTheme: 'classic_elegant',
@@ -285,9 +319,11 @@ export const buildReservationTheme = (
     uiTheme === 'minimal_glass'
       ? hexToRgba(
           colors.surface,
-          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.15 : 0.2
+          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.13 : 0.18
         )
       : uiTheme === 'playful_bubble'
+      ? hexToRgba(colors.surface, 0.9)
+      : uiTheme === 'smooth_touch'
       ? hexToRgba(colors.surface, 0.9)
       : hexToRgba(colors.surface, 0.98);
   const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.6 : 0.85);
@@ -314,7 +350,7 @@ export const buildReservationTheme = (
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
-    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-10 gap-6',
+    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-12 md:py-14 gap-6',
     pageOverlay: preset.pageOverlay,
     card: `${cardBase} ${preset.fontFamily}`,
     infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,

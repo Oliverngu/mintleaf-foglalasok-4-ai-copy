@@ -140,7 +140,7 @@ export interface ReservationSetting {
     barEndTime?: string | null;
     guestForm?: GuestFormSettings;
     theme?: ThemeSettings;
-    uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly' | 'classic_elegant' | 'playful_bubble';
+    uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly' | 'classic_elegant' | 'playful_bubble' | 'smooth_touch';
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];

@@ -85,12 +85,12 @@ const toRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const resolveTimeWindowLogoUrl = (
-  settings: ReservationSetting,
+const resolveHeaderLogoUrl = (
+  settings?: ReservationSetting | null,
   unit?: Unit | null
 ): string | null => {
-  const mode = settings.theme?.timeWindowLogoMode || 'none';
-  if (mode === 'custom' && settings.theme?.timeWindowLogoUrl) {
+  const mode = settings?.theme?.timeWindowLogoMode || 'none';
+  if (mode === 'custom' && settings?.theme?.timeWindowLogoUrl) {
     return settings.theme.timeWindowLogoUrl;
   }
   if (mode === 'unit' && (unit?.logoUrl || unit?.logo)) {
@@ -544,23 +544,21 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     [theme]
   );
 
-  const timeWindowLogoUrl = useMemo(
-    () => (settings ? resolveTimeWindowLogoUrl(settings, unit) : null),
-    [settings, unit]
-  );
-
   const headerBrandMode = settings?.theme?.headerBrandMode || 'text';
-  const brandLogoUrl = headerBrandMode === 'logo' ? timeWindowLogoUrl : null;
+  const brandLogoUrl = useMemo(() => {
+    if (headerBrandMode !== 'logo') return null;
+    return resolveHeaderLogoUrl(settings, unit);
+  }, [headerBrandMode, settings, unit]);
 
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden`,
       card:
-        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl my-4 md:my-8 px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
-        'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[72vh]',
+        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl my-4 md:my-6 px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
+        'max-h-[calc(100vh-4.5rem)] md:max-h-[calc(100vh-5.5rem)] min-h-[70vh]',
       header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
       content: 'flex-1 min-h-0 overflow-hidden',
-      contentScrollable: 'h-full flex-1 overflow-hidden pb-6',
+      contentScrollable: 'h-full flex-1 overflow-hidden pb-10',
       stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0',
       stepContent: 'flex-1 overflow-y-auto pb-24 pr-1',
       primaryButton: theme.styles.primaryButton,

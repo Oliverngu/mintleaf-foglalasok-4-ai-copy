@@ -569,6 +569,7 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                         <option value="minimal_glass">Minimal • Glass</option>
                         <option value="classic_elegant">Classic • Elegáns</option>
                         <option value="playful_bubble">Buborékos / játékos</option>
+                        <option value="smooth_touch">Smooth Touch</option>
                     </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -624,23 +625,28 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                 )}
                 {backgroundError && <p className="text-sm text-red-600">{backgroundError}</p>}
             </div>
-            <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-2">
-                <div>
-                    <p className="font-semibold">Fejléc márkajelzés</p>
-                    <p className="text-xs text-gray-500">Válaszd ki, hogy a foglalási oldal tetején logó vagy egységnév jelenjen meg.</p>
+            <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="font-semibold">Fejléc márkajelzés</p>
+                        <p className="text-xs text-gray-500">Válaszd ki, hogy a fejlécben név vagy logó jelenjen meg.</p>
+                    </div>
                 </div>
-                <div className="flex flex-col gap-2 text-sm">
-                    <label className="flex items-center gap-2">
+                <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm">
                         <input
                             type="radio"
                             name="headerBrandMode"
                             value="text"
                             checked={!theme.headerBrandMode || theme.headerBrandMode === 'text'}
-                            onChange={() => handleThemeChange('headerBrandMode', 'text')}
+                            onChange={() => {
+                                handleThemeChange('headerBrandMode', 'text');
+                                handleThemeChange('timeWindowLogoMode', 'none');
+                            }}
                         />
                         Csak egységnév
                     </label>
-                    <label className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm">
                         <input
                             type="radio"
                             name="headerBrandMode"
@@ -648,105 +654,82 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                             checked={theme.headerBrandMode === 'logo'}
                             onChange={() => handleThemeChange('headerBrandMode', 'logo')}
                         />
-                        Logo (egység vagy egyedi)
+                        Logó használata a fejlécben
                     </label>
+
                     {theme.headerBrandMode === 'logo' && (
-                        <p className="text-xs text-gray-500 pl-6">
-                            A fejlécben a választott időablak logó jelenik meg (egységlogó vagy egyedi feltöltés).
-                        </p>
-                    )}
-                </div>
-            </div>
-            <div className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-3">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <p className="font-semibold">Időablak logó</p>
-                        <p className="text-xs text-gray-500">Válaszd ki, hogy a foglalási időblokknál melyik logó jelenjen meg.</p>
-                    </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="radio"
-                            name="timeWindowLogoMode"
-                            value="none"
-                            checked={!theme.timeWindowLogoMode || theme.timeWindowLogoMode === 'none'}
-                            onChange={() => {
-                                handleThemeChange('timeWindowLogoMode', 'none');
-                                handleThemeChange('timeWindowLogoUrl', '');
-                            }}
-                        />
-                        Nincs logó
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="radio"
-                            name="timeWindowLogoMode"
-                            value="unit"
-                            checked={theme.timeWindowLogoMode === 'unit'}
-                            onChange={() => {
-                                handleThemeChange('timeWindowLogoMode', 'unit');
-                                handleThemeChange('timeWindowLogoUrl', '');
-                            }}
-                        />
-                        Üzlet logó használata
-                    </label>
-                    <div className="flex flex-col gap-2">
-                        <label className="flex items-center gap-2 text-sm">
-                            <input
-                                type="radio"
-                                name="timeWindowLogoMode"
-                                value="custom"
-                                checked={theme.timeWindowLogoMode === 'custom'}
-                                onChange={() => handleThemeChange('timeWindowLogoMode', 'custom')}
-                            />
-                            Egyedi logó feltöltése
-                        </label>
-                        <div className="flex items-center gap-3">
-                            <label
-                                className={`px-3 py-2 rounded-md font-semibold cursor-pointer ${
-                                    isUploadingLogo || theme.timeWindowLogoMode !== 'custom'
-                                        ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                                        : 'bg-green-600 text-white hover:bg-green-700'
-                                }`}
-                            >
-                                {isUploadingLogo ? 'Feltöltés...' : 'Logó feltöltése'}
+                        <div className="pl-6 space-y-2">
+                            <label className="flex items-center gap-2 text-sm">
                                 <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    disabled={isUploadingLogo || theme.timeWindowLogoMode !== 'custom'}
-                                    onChange={async (e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) await handleLogoUpload(file);
-                                        e.target.value = '';
+                                    type="radio"
+                                    name="timeWindowLogoMode"
+                                    value="unit"
+                                    checked={!theme.timeWindowLogoMode || theme.timeWindowLogoMode === 'unit'}
+                                    onChange={() => {
+                                        handleThemeChange('timeWindowLogoMode', 'unit');
+                                        handleThemeChange('timeWindowLogoUrl', '');
                                     }}
                                 />
+                                Üzlet logó használata
                             </label>
-                            {theme.timeWindowLogoUrl && (
-                                <div className="flex items-center gap-2 text-sm">
-                                    <div className="w-12 h-12 rounded-full overflow-hidden border bg-white">
-                                        <div
-                                            className="w-full h-full bg-cover bg-center"
-                                            style={{ backgroundImage: `url(${theme.timeWindowLogoUrl})` }}
-                                        />
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="text-red-600 hover:underline text-xs"
-                                        onClick={handleLogoRemove}
-                                        disabled={isUploadingLogo}
+                            <div className="flex flex-col gap-2">
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="radio"
+                                        name="timeWindowLogoMode"
+                                        value="custom"
+                                        checked={theme.timeWindowLogoMode === 'custom'}
+                                        onChange={() => handleThemeChange('timeWindowLogoMode', 'custom')}
+                                    />
+                                    Egyedi logó feltöltése
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <label
+                                        className={`px-3 py-2 rounded-md font-semibold cursor-pointer ${
+                                            isUploadingLogo || theme.timeWindowLogoMode !== 'custom'
+                                                ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                                                : 'bg-green-600 text-white hover:bg-green-700'
+                                        }`}
                                     >
-                                        Eltávolítás
-                                    </button>
+                                        {isUploadingLogo ? 'Feltöltés...' : 'Logó feltöltése'}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            disabled={isUploadingLogo || theme.timeWindowLogoMode !== 'custom'}
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) await handleLogoUpload(file);
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                    {theme.timeWindowLogoUrl && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <div className="w-12 h-12 rounded-full overflow-hidden border bg-white">
+                                                <div
+                                                    className="w-full h-full bg-cover bg-center"
+                                                    style={{ backgroundImage: `url(${theme.timeWindowLogoUrl})` }}
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="text-red-600 hover:underline text-xs"
+                                                onClick={handleLogoRemove}
+                                                disabled={isUploadingLogo}
+                                            >
+                                                Eltávolítás
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                                {logoError && <p className="text-sm text-red-600">{logoError}</p>}
+                                {theme.timeWindowLogoMode === 'unit' && (
+                                    <p className="text-xs text-gray-500">Az egység logóját használjuk, ha elérhető.</p>
+                                )}
+                            </div>
                         </div>
-                        {logoError && <p className="text-sm text-red-600">{logoError}</p>}
-                        {theme.timeWindowLogoMode === 'unit' && (
-                            <p className="text-xs text-gray-500">Az egység logóját használjuk, ha elérhető.</p>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>
             <div className="p-3 bg-gray-50 rounded-md border">
