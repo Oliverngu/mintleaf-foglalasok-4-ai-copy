@@ -6,6 +6,29 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return isSignedIn() && (request.auth.token.admin == true || request.auth.token.role == 'Admin');
+    }
+
+    function hasUnit(unitId) {
+      return isSignedIn()
+        && unitId != null
+        && ((request.auth.token.unitIds != null && unitId in request.auth.token.unitIds)
+          || (request.auth.token.unitIDs != null && unitId in request.auth.token.unitIDs)
+          || (request.auth.token.unitPermissions != null && request.auth.token.unitPermissions[unitId] != null)
+          || (request.auth.token.permissions != null && request.auth.token.permissions[unitId] != null));
+    }
+
+    function canManageUnitTheme(unitId) {
+      return isAdmin()
+        || (isSignedIn()
+          && (request.auth.token.role == 'Unit Admin'
+            || request.auth.token.unitAdmin == true
+            || (request.auth.token.unitPermissions != null && request.auth.token.unitPermissions[unitId] != null)
+            || (request.auth.token.permissions != null && request.auth.token.permissions[unitId] != null))
+          && hasUnit(unitId));
+    }
+
     function canManageKnowledgeBase(unitId) {
       return isSignedIn() && (
         request.auth.token.admin == true ||
@@ -25,6 +48,11 @@ service firebase.storage {
     // Tudástár: Storage objects per unit
     match /units/{unitId}/knowledge_base/{allPaths=**} {
       allow read, write: if canManageKnowledgeBase(unitId);
+    }
+
+    match /units/{unitId}/themes/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write, delete: if canManageUnitTheme(unitId);
     }
   }
 }

@@ -133,9 +133,15 @@ const ReservationSettingsModal: FC<ReservationSettingsModalProps> = ({ unitId, o
         setIsSaving(true);
         try {
             const { occasionOptions, heardFromOptions, ...cleanGuestForm } = settings.guestForm as any;
+            const { backgroundImageUrl, ...restTheme } = settings.theme || DEFAULT_THEME;
+            const sanitizedTheme = {
+                ...restTheme,
+                ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
+            } as ThemeSettings;
             const settingsToSave = {
                 ...settings,
-                guestForm: cleanGuestForm
+                guestForm: cleanGuestForm,
+                theme: sanitizedTheme
             };
             
             await setDoc(doc(db, 'reservation_settings', unitId), settingsToSave, { merge: true });
@@ -450,7 +456,8 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
         setBackgroundError('');
         setIsUploadingBg(true);
         try {
-            const bgRef = ref(storage, `reservation_backgrounds/${settings.id}/background.jpg`);
+            const fileName = `background_${Date.now()}_${file.name}`;
+            const bgRef = ref(storage, `units/${settings.id}/themes/${fileName}`);
             await uploadBytes(bgRef, file);
             const url = await getDownloadURL(bgRef);
             handleThemeChange('backgroundImageUrl', url);
@@ -470,7 +477,7 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
         setBackgroundError('');
         setIsUploadingBg(true);
         try {
-            const bgRef = ref(storage, `reservation_backgrounds/${settings.id}/background.jpg`);
+            const bgRef = ref(storage, theme.backgroundImageUrl);
             await deleteObject(bgRef).catch(() => undefined);
             handleThemeChange('backgroundImageUrl', '');
         } catch (err) {
