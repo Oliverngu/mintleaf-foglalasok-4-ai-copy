@@ -69,6 +69,8 @@ const DEFAULT_GUEST_FORM: GuestFormSettings = {
   customSelects: [],
 };
 
+const defaultReservationTheme = DEFAULT_THEME;
+
 const generateAdminActionToken = () =>
   `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
@@ -217,7 +219,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     new Map()
   );
 
-  const theme = useMemo(() => buildReservationTheme(settings), [settings]);
+  const theme = useMemo(
+    () =>
+      buildReservationTheme(
+        settings
+          ? ({ ...settings, theme: settings.theme || defaultReservationTheme } as ReservationSetting)
+          : ({ theme: defaultReservationTheme } as ReservationSetting)
+      ),
+    [settings]
+  );
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -646,6 +656,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               <div className="w-full flex-shrink-0 flex flex-col h-full overflow-y-auto pb-6">
                 <Step3Confirmation
                   onReset={resetFlow}
+                  theme={theme}
                   themeProps={themeClassProps}
                   t={t}
                   submittedData={submittedData}
@@ -1084,8 +1095,9 @@ const Step2Details: React.FC<any> = ({
   );
 };
 
-const Step3Confirmation: React.FC<{
+interface Step3ConfirmationProps {
   onReset: () => void;
+  theme: ReservationThemeTokens;
   themeProps: any;
   t: any;
   submittedData: any;
@@ -1093,8 +1105,11 @@ const Step3Confirmation: React.FC<{
   locale: Locale;
   settings: ReservationSetting;
   buttonClasses: { primary: string; secondary: string };
-}> = ({
+}
+
+const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
   onReset,
+  theme,
   themeProps,
   t,
   submittedData,
