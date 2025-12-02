@@ -135,17 +135,19 @@ const ReservationSettingsModal: FC<ReservationSettingsModalProps> = ({ unitId, o
             const { occasionOptions, heardFromOptions, ...cleanGuestForm } = settings.guestForm as any;
             const {
                 backgroundImageUrl,
-                timeWindowLogoUrl,
-                timeWindowLogoMode,
                 headerBrandMode,
+                headerLogoMode,
+                headerLogoUrl,
                 ...restTheme
             } = settings.theme || DEFAULT_THEME;
+            const effectiveLogoMode = headerLogoMode || settings.theme?.timeWindowLogoMode;
+            const effectiveLogoUrl = headerLogoUrl || settings.theme?.timeWindowLogoUrl;
             const sanitizedTheme = {
                 ...restTheme,
                 ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
-                ...(timeWindowLogoMode ? { timeWindowLogoMode } : {}),
-                ...(timeWindowLogoUrl ? { timeWindowLogoUrl } : {}),
                 headerBrandMode: headerBrandMode || 'text',
+                ...(effectiveLogoMode ? { headerLogoMode: effectiveLogoMode } : {}),
+                ...(effectiveLogoUrl ? { headerLogoUrl: effectiveLogoUrl } : {}),
             } as ThemeSettings;
             const settingsToSave = {
                 ...settings,
@@ -504,14 +506,14 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
         setLogoError('');
         setIsUploadingLogo(true);
         try {
-            const fileName = `timeWindowLogo_${Date.now()}_${file.name}`;
+            const fileName = `headerLogo_${Date.now()}_${file.name}`;
             const logoRef = ref(storage, `units/${settings.id}/themes/${fileName}`);
             await uploadBytes(logoRef, file);
             const url = await getDownloadURL(logoRef);
-            handleThemeChange('timeWindowLogoMode', 'custom');
-            handleThemeChange('timeWindowLogoUrl', url);
+            handleThemeChange('headerLogoMode', 'custom');
+            handleThemeChange('headerLogoUrl', url);
         } catch (err) {
-            console.error('Failed to upload time window logo', err);
+            console.error('Failed to upload header logo', err);
             setLogoError('Nem sikerült feltölteni a logót. Próbáld újra.');
         } finally {
             setIsUploadingLogo(false);
@@ -523,13 +525,14 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
         setLogoError('');
         setIsUploadingLogo(true);
         try {
-            if (theme.timeWindowLogoUrl) {
-                const logoRef = ref(storage, theme.timeWindowLogoUrl);
+            const effectiveUrl = theme.headerLogoUrl || theme.timeWindowLogoUrl;
+            if (effectiveUrl) {
+                const logoRef = ref(storage, effectiveUrl);
                 await deleteObject(logoRef).catch(() => undefined);
             }
-            handleThemeChange('timeWindowLogoUrl', '');
+            handleThemeChange('headerLogoUrl', '');
         } catch (err) {
-            console.error('Failed to remove time window logo', err);
+            console.error('Failed to remove header logo', err);
             setLogoError('Nem sikerült törölni a logót.');
         } finally {
             setIsUploadingLogo(false);
@@ -641,7 +644,7 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                             checked={!theme.headerBrandMode || theme.headerBrandMode === 'text'}
                             onChange={() => {
                                 handleThemeChange('headerBrandMode', 'text');
-                                handleThemeChange('timeWindowLogoMode', 'none');
+                                handleThemeChange('headerLogoMode', 'none');
                             }}
                         />
                         Csak egységnév
@@ -662,12 +665,12 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                             <label className="flex items-center gap-2 text-sm">
                                 <input
                                     type="radio"
-                                    name="timeWindowLogoMode"
+                                    name="headerLogoMode"
                                     value="unit"
-                                    checked={!theme.timeWindowLogoMode || theme.timeWindowLogoMode === 'unit'}
+                                    checked={!theme.headerLogoMode || theme.headerLogoMode === 'unit'}
                                     onChange={() => {
-                                        handleThemeChange('timeWindowLogoMode', 'unit');
-                                        handleThemeChange('timeWindowLogoUrl', '');
+                                        handleThemeChange('headerLogoMode', 'unit');
+                                        handleThemeChange('headerLogoUrl', '');
                                     }}
                                 />
                                 Üzlet logó használata
@@ -676,17 +679,17 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                                 <label className="flex items-center gap-2 text-sm">
                                     <input
                                         type="radio"
-                                        name="timeWindowLogoMode"
+                                        name="headerLogoMode"
                                         value="custom"
-                                        checked={theme.timeWindowLogoMode === 'custom'}
-                                        onChange={() => handleThemeChange('timeWindowLogoMode', 'custom')}
+                                        checked={theme.headerLogoMode === 'custom'}
+                                        onChange={() => handleThemeChange('headerLogoMode', 'custom')}
                                     />
                                     Egyedi logó feltöltése
                                 </label>
                                 <div className="flex items-center gap-3">
                                     <label
                                         className={`px-3 py-2 rounded-md font-semibold cursor-pointer ${
-                                            isUploadingLogo || theme.timeWindowLogoMode !== 'custom'
+                                            isUploadingLogo || theme.headerLogoMode !== 'custom'
                                                 ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                                                 : 'bg-green-600 text-white hover:bg-green-700'
                                         }`}
@@ -696,7 +699,7 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                                             type="file"
                                             accept="image/*"
                                             className="hidden"
-                                            disabled={isUploadingLogo || theme.timeWindowLogoMode !== 'custom'}
+                                            disabled={isUploadingLogo || theme.headerLogoMode !== 'custom'}
                                             onChange={async (e) => {
                                                 const file = e.target.files?.[0];
                                                 if (file) await handleLogoUpload(file);
@@ -704,12 +707,14 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                                             }}
                                         />
                                     </label>
-                                    {theme.timeWindowLogoUrl && (
+                                    {(theme.headerLogoUrl || theme.timeWindowLogoUrl) && (
                                         <div className="flex items-center gap-2 text-sm">
                                             <div className="w-12 h-12 rounded-full overflow-hidden border bg-white">
                                                 <div
                                                     className="w-full h-full bg-cover bg-center"
-                                                    style={{ backgroundImage: `url(${theme.timeWindowLogoUrl})` }}
+                                                    style={{
+                                                        backgroundImage: `url(${theme.headerLogoUrl || theme.timeWindowLogoUrl})`,
+                                                    }}
                                                 />
                                             </div>
                                             <button
@@ -724,7 +729,7 @@ const ThemeStyleTab: FC<{ settings: ReservationSetting, setSettings: React.Dispa
                                     )}
                                 </div>
                                 {logoError && <p className="text-sm text-red-600">{logoError}</p>}
-                                {theme.timeWindowLogoMode === 'unit' && (
+                                {(!theme.headerLogoMode || theme.headerLogoMode === 'unit') && (
                                     <p className="text-xs text-gray-500">Az egység logóját használjuk, ha elérhető.</p>
                                 )}
                             </div>
@@ -810,12 +815,14 @@ const ColorInput: FC<{label: string, color: string, onChange: (c: string) => voi
 
 const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: string; tokens: ReturnType<typeof buildReservationTheme> }> = ({ themeSettings, tokens }) => {
     const brandMode = themeSettings.headerBrandMode || 'text';
+    const logoMode =
+        themeSettings.headerLogoMode || themeSettings.timeWindowLogoMode || 'none';
     const logoUrl =
         brandMode === 'logo'
-            ? themeSettings.timeWindowLogoMode === 'custom'
-                ? themeSettings.timeWindowLogoUrl
-                : themeSettings.timeWindowLogoMode === 'unit'
-                ? themeSettings.timeWindowLogoUrl || ''
+            ? logoMode === 'custom'
+                ? themeSettings.headerLogoUrl || themeSettings.timeWindowLogoUrl || ''
+                : logoMode === 'unit'
+                ? themeSettings.headerLogoUrl || themeSettings.timeWindowLogoUrl || ''
                 : ''
             : '';
     return (

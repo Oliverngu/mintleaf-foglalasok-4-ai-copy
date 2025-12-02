@@ -68,6 +68,8 @@ export const defaultThemeSettings: ThemeSettings = {
   highlight: '#38bdf8',
   backgroundImageUrl: undefined,
   headerBrandMode: 'text',
+  headerLogoMode: 'none',
+  headerLogoUrl: undefined,
 };
 
 const radiusMap: Record<RadiusKey, string> = {
@@ -160,17 +162,17 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
       'min-h-screen flex flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900',
     pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/40 via-white/30 to-white/10 pointer-events-none',
     cardBase:
-      'relative overflow-hidden border border-slate-100 shadow-[0_22px_60px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
+      'relative overflow-hidden backdrop-blur-2xl border border-slate-100 shadow-[0_22px_60px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
     infoPanel:
       'bg-[color:var(--color-surface)]/85 border border-slate-200 text-[color:var(--color-text-primary)] shadow-inner',
     primaryButton:
-      'bg-[color:var(--color-primary)]/90 text-white rounded-full px-6 py-3 font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.12)] transition transform hover:scale-[1.03] active:scale-95',
+      'bg-[color:var(--color-primary)]/85 text-white rounded-full px-6 py-3 font-semibold shadow-[0_12px_30px_rgba(0,0,0,0.12)] transition transform hover:scale-[1.03] active:scale-95',
     secondaryButton:
       'bg-[color:var(--color-accent)]/10 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full px-5 py-2.5 transition transform hover:scale-[1.02] active:scale-95',
     outlineButton:
       'bg-white/70 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/30 rounded-full transition hover:shadow-md',
     input:
-      'bg-white/90 border border-slate-200 text-slate-900 rounded-full focus:ring-2 focus:ring-[color:var(--color-primary)] shadow-sm',
+      'bg-white/85 border border-slate-200 text-slate-900 rounded-full focus:ring-2 focus:ring-[color:var(--color-primary)] shadow-sm',
     badge: 'bg-[color:var(--color-accent)]/15 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full',
     chip: 'bg-white text-slate-800 rounded-full shadow-inner',
     fontFamily: 'font-sans',
@@ -319,12 +321,12 @@ export const buildReservationTheme = (
     uiTheme === 'minimal_glass'
       ? hexToRgba(
           colors.surface,
-          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.13 : 0.18
+          colors.surface.toLowerCase() === colors.background.toLowerCase() ? 0.1 : 0.15
         )
-      : uiTheme === 'playful_bubble'
+    : uiTheme === 'playful_bubble'
       ? hexToRgba(colors.surface, 0.9)
-      : uiTheme === 'smooth_touch'
-      ? hexToRgba(colors.surface, 0.9)
+    : uiTheme === 'smooth_touch'
+      ? hexToRgba(colors.surface, 0.15)
       : hexToRgba(colors.surface, 0.98);
   const cardBorder = hexToRgba(colors.surface, uiTheme === 'minimal_glass' ? 0.6 : 0.85);
 
@@ -350,7 +352,7 @@ export const buildReservationTheme = (
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
-    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-12 md:py-14 gap-6',
+    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-10 md:py-12 gap-6 justify-center',
     pageOverlay: preset.pageOverlay,
     card: `${cardBase} ${preset.fontFamily}`,
     infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,

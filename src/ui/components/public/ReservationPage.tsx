@@ -65,9 +65,9 @@ const DEFAULT_THEME: ThemeSettings = {
   typographyScale: 'M',
   highlight: '#38bdf8',
   backgroundImageUrl: undefined,
-  timeWindowLogoMode: 'none',
-  timeWindowLogoUrl: undefined,
   headerBrandMode: 'text',
+  headerLogoMode: 'none',
+  headerLogoUrl: undefined,
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
@@ -89,13 +89,18 @@ const resolveHeaderLogoUrl = (
   settings?: ReservationSetting | null,
   unit?: Unit | null
 ): string | null => {
-  const mode = settings?.theme?.timeWindowLogoMode || 'none';
-  if (mode === 'custom' && settings?.theme?.timeWindowLogoUrl) {
-    return settings.theme.timeWindowLogoUrl;
+  const mode =
+    settings?.theme?.headerLogoMode || settings?.theme?.timeWindowLogoMode || 'none';
+
+  if (mode === 'custom') {
+    if (settings?.theme?.headerLogoUrl) return settings.theme.headerLogoUrl;
+    if (settings?.theme?.timeWindowLogoUrl) return settings.theme.timeWindowLogoUrl;
   }
+
   if (mode === 'unit' && (unit?.logoUrl || unit?.logo)) {
     return (unit.logoUrl || unit.logo) ?? null;
   }
+
   return null;
 };
 
@@ -552,15 +557,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden`,
+      wrapper: `${theme.styles.page} relative overflow-hidden` ,
       card:
-        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl my-4 md:my-6 px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
-        'max-h-[calc(100vh-4.5rem)] md:max-h-[calc(100vh-5.5rem)] min-h-[70vh]',
+        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
+        'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[calc(100vh-6rem)]',
       header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
-      content: 'flex-1 min-h-0 overflow-hidden',
-      contentScrollable: 'h-full flex-1 overflow-hidden pb-10',
+      content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
+      contentScrollable: 'flex-1 overflow-y-auto pb-16 pr-1',
       stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0',
-      stepContent: 'flex-1 overflow-y-auto pb-24 pr-1',
+      stepContent: 'flex-1 overflow-y-auto pb-12 pr-1',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
