@@ -22,8 +22,21 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
+import {
+  ReservationThemeTokens,
+  buildReservationTheme,
+  syncThemeCssVariables,
+} from '../../../core/ui/reservationTheme';
 
 type Locale = 'hu' | 'en';
+
+const PlayfulBubbles = () => (
+  <>
+    <div className="pointer-events-none absolute w-64 h-64 bg-white/40 blur-3xl rounded-full -top-10 -left-10" />
+    <div className="pointer-events-none absolute w-52 h-52 bg-white/30 blur-2xl rounded-full top-20 right-10" />
+    <div className="pointer-events-none absolute w-40 h-40 bg-white/25 blur-2xl rounded-full bottom-10 left-1/4" />
+  </>
+);
 
 interface ReservationPageProps {
   unitId: string;
@@ -50,10 +63,45 @@ const DEFAULT_THEME: ThemeSettings = {
   radius: 'lg',
   elevation: 'mid',
   typographyScale: 'M',
+  highlight: '#38bdf8',
+  backgroundImageUrl: undefined,
+  headerBrandMode: 'text',
+  headerLogoMode: 'none',
+  headerLogoUrl: undefined,
 };
 
 const DEFAULT_GUEST_FORM: GuestFormSettings = {
   customSelects: [],
+};
+
+const defaultReservationTheme = DEFAULT_THEME;
+
+const toRgba = (hex: string, alpha: number) => {
+  const parsed = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!parsed) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(parsed[1], 16);
+  const g = parseInt(parsed[2], 16);
+  const b = parseInt(parsed[3], 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const resolveHeaderLogoUrl = (
+  settings?: ReservationSetting | null,
+  unit?: Unit | null
+): string | null => {
+  const mode =
+    settings?.theme?.headerLogoMode || settings?.theme?.timeWindowLogoMode || 'none';
+
+  if (mode === 'custom') {
+    if (settings?.theme?.headerLogoUrl) return settings.theme.headerLogoUrl;
+    if (settings?.theme?.timeWindowLogoUrl) return settings.theme.timeWindowLogoUrl;
+  }
+
+  if (mode === 'unit' && (unit?.logoUrl || unit?.logo)) {
+    return (unit.logoUrl || unit.logo) ?? null;
+  }
+
+  return null;
 };
 
 const generateAdminActionToken = () =>
@@ -117,10 +165,11 @@ const writeGuestLog = async (
 const ProgressIndicator: React.FC<{
   currentStep: number;
   t: typeof translations['hu'];
-}> = ({ currentStep, t }) => {
+  theme: ReservationThemeTokens;
+}> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className="flex items-center justify-center w-full max-w-xl mx-auto mb-8">
+    <div className={`${theme.styles.stepWrapper}`}>
       {steps.map((label, index) => {
         const stepNumber = index + 1;
         const isCompleted = currentStep > stepNumber;
@@ -129,32 +178,41 @@ const ProgressIndicator: React.FC<{
           <React.Fragment key={stepNumber}>
             <div className="flex flex-col items-center text-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${
-                  isCompleted
-                    ? 'bg-[var(--color-primary)] text-white'
+                className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${
+                  isCompleted ? theme.styles.stepActive : isActive ? theme.styles.stepActive : theme.styles.stepInactive
+                } ${theme.radiusClass}`}
+                style={{
+                  backgroundColor: isCompleted
+                    ? theme.colors.primary
                     : isActive
-                    ? 'bg-green-200 text-[var(--color-primary)] border-2 border-[var(--color-primary)]'
-                    : 'bg-gray-200 text-gray-500'
-                }`}
+                    ? theme.colors.surface
+                    : theme.colors.surface,
+                  color: isCompleted ? '#fff' : isActive ? theme.colors.primary : theme.colors.textSecondary,
+                  borderColor: isActive ? theme.colors.primary : theme.colors.surface,
+                }}
               >
                 {isCompleted ? '✓' : stepNumber}
               </div>
               <p
-                className={`mt-2 text-sm font-semibold transition-colors ${
-                  isActive || isCompleted
-                    ? 'text-[var(--color-text-primary)]'
-                    : 'text-gray-400'
-                }`}
+                className={`mt-2 text-sm font-semibold transition-colors ${theme.fontFamilyClass}`}
+                style={{
+                  color: isActive ? theme.colors.textPrimary : theme.colors.textSecondary,
+                }}
               >
                 {label}
               </p>
             </div>
             {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 transition-colors ${
-                  isCompleted ? 'bg-[var(--color-primary)]' : 'bg-gray-200'
-                }`}
-              ></div>
+              <div className="flex-1 h-full mx-2 flex items-center">
+                <div
+                  className={`${theme.styles.stepTrack}`}
+                  style={{
+                    backgroundColor: isCompleted
+                      ? theme.colors.primary
+                      : theme.colors.surface,
+                  }}
+                />
+              </div>
             )}
           </React.Fragment>
         );
@@ -194,6 +252,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     new Map()
   );
 
+  const theme = useMemo(
+    () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
+    [settings]
+  );
+
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
     if (browserLang === 'en') {
@@ -228,6 +291,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           barEndTime: null,
           guestForm: DEFAULT_GUEST_FORM,
           theme: DEFAULT_THEME,
+          uiTheme: 'minimal_glass',
           reservationMode: 'request',
           notificationEmails: [],
         };
@@ -306,19 +370,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, [unitId, currentMonth, settings?.dailyCapacity]);
 
   useEffect(() => {
-    if (settings?.theme) {
-      const root = document.documentElement;
-      Object.entries(settings.theme).forEach(([key, value]) => {
-        if (
-          key !== 'radius' &&
-          key !== 'elevation' &&
-          key !== 'typographyScale'
-        ) {
-          root.style.setProperty(`--color-${key}`, value as string);
-        }
-      });
-    }
-  }, [settings?.theme]);
+    syncThemeCssVariables(theme);
+  }, [theme]);
 
   const resetFlow = () => {
     setSelectedDate(null);
@@ -483,34 +536,72 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     }
   };
 
-  const themeClassProps = useMemo(() => {
-    if (!settings?.theme) {
-      return {
-        radiusClass: 'rounded-lg',
-        shadowClass: 'shadow-md',
-        fontBaseClass: 'text-base',
-      };
-    }
-    const { radius, elevation, typographyScale } = settings.theme;
-    return {
-      radiusClass: { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg' }[
-        radius
-      ],
-      shadowClass: { low: 'shadow-sm', mid: 'shadow-md', high: 'shadow-lg' }[
-        elevation
-      ],
-      fontBaseClass: { S: 'text-sm', M: 'text-base', L: 'text-lg' }[
-        typographyScale
-      ],
-    };
-  }, [settings?.theme]);
+  const themeClassProps = useMemo(
+    () => ({
+      radiusClass: theme.radiusClass,
+      shadowClass: theme.shadowClass,
+      fontFamily: theme.fontFamilyClass,
+      fontSize: theme.fontSizeClass,
+      colors: theme.colors,
+      infoPanelClass: theme.styles.infoPanel,
+      uiTheme: theme.uiTheme,
+    }),
+    [theme]
+  );
+
+  const headerBrandMode = settings?.theme?.headerBrandMode || 'text';
+  const brandLogoUrl = useMemo(() => {
+    if (headerBrandMode !== 'logo') return null;
+    return resolveHeaderLogoUrl(settings, unit);
+  }, [headerBrandMode, settings, unit]);
+
+  const themeClasses = useMemo(
+    () => ({
+      wrapper: `${theme.styles.page} relative overflow-hidden` ,
+      card:
+        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
+        'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[calc(100vh-6rem)]',
+      header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
+      content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
+      contentScrollable: 'flex-1 overflow-y-auto pb-16 pr-1',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0',
+      stepContent: 'flex-1 overflow-y-auto pb-12 pr-1',
+      primaryButton: theme.styles.primaryButton,
+      secondaryButton: theme.styles.secondaryButton,
+      outlineButton: theme.styles.outlineButton,
+      watermark:
+        'pointer-events-none select-none absolute bottom-3 right-4 text-xs md:text-sm z-40 drop-shadow',
+    }),
+    [theme]
+  );
 
   if (error && step !== 2) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center p-4 text-center">
-        <div className="bg-[var(--color-surface)] p-8 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-[var(--color-danger)]">Hiba</h2>
-          <p className="text-[var(--color-text-primary)] mt-2">{error}</p>
+      <div
+        className={themeClasses.wrapper}
+        style={{
+          color: 'var(--color-text-primary)',
+          ...(theme.pageStyle || {}),
+        }}
+      >
+        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={`${theme.styles.pageInner} relative z-10`}>
+          <div className={`${themeClasses.card} text-center`} style={theme.cardStyle}>
+            <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
+              Hiba
+            </h2>
+            <p className="mt-2">{error}</p>
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -518,100 +609,168 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   if (loading || !unit || !settings) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center">
-        <LoadingSpinner />
+      <div
+        className={themeClasses.wrapper}
+        style={{
+          color: 'var(--color-text-primary)',
+          ...(theme.pageStyle || {}),
+        }}
+      >
+        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
+        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+        <div className={`${theme.styles.pageInner} relative z-10`}>
+          <div className={themeClasses.card} style={theme.cardStyle}>
+            <LoadingSpinner />
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div
-      className="h-full overflow-y-auto bg-[var(--color-background)] flex flex-col items-center p-4 sm:p-6 md:p-8"
-      style={{ color: 'var(--color-text-primary)' }}
+      className={themeClasses.wrapper}
+      style={{
+        color: 'var(--color-text-primary)',
+        ...(theme.pageStyle || {}),
+      }}
     >
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-        <button
-          onClick={() => setLocale('hu')}
-          className={
-            locale === 'hu'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          Magyar
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setLocale('en')}
-          className={
-            locale === 'en'
-              ? 'font-bold text-[var(--color-primary)]'
-              : 'text-gray-500'
-          }
-        >
-          English
-        </button>
-      </div>
+      {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
+          {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+          <div className={`${theme.styles.pageInner} relative z-10`}>
+            <div className={themeClasses.card} style={theme.cardStyle}>
+              <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+            <button
+              onClick={() => setLocale('hu')}
+              className={locale === 'hu' ? 'font-bold' : ''}
+              style={{
+                color:
+                  locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
+              }}
+            >
+              Magyar
+            </button>
+            <span style={{ color: theme.colors.textSecondary }}>|</span>
+            <button
+              onClick={() => setLocale('en')}
+              className={locale === 'en' ? 'font-bold' : ''}
+              style={{
+                color:
+                  locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
+              }}
+            >
+              English
+            </button>
+              </div>
 
-      <header className="text-center mb-8 mt-8">
-        <h1 className="text-4xl font-bold text-[var(--color-text-primary)]">
-          {unit.name}
-        </h1>
-        <p className="text-lg text-[var(--color-text-secondary)] mt-1">
-          {t.title}
-        </p>
-      </header>
+              <div className="flex flex-col gap-4 flex-1 overflow-hidden">
+                <header className={`pt-2 ${themeClasses.header}`}>
+                  {brandLogoUrl ? (
+                    <img
+                      src={brandLogoUrl}
+                      alt={unit.name}
+                      className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
+                    />
+                  ) : (
+                    <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                      {unit.name}
+                    </h1>
+                  )}
+                  <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {t.title}
+                  </p>
+                </header>
 
-      <main className="w-full max-w-2xl">
-        <ProgressIndicator currentStep={step} t={t} />
-        <div className="relative overflow-hidden">
-          <div
-            className="flex transition-transform duration-500 ease-in-out"
-            style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
-          >
-            <div className="w-full flex-shrink-0">
-              <Step1Date
-                settings={settings}
-                onDateSelect={handleDateSelect}
-                themeProps={themeClassProps}
-                t={t}
-                currentMonth={currentMonth}
-                onMonthChange={setCurrentMonth}
-                dailyHeadcounts={dailyHeadcounts}
-              />
-            </div>
-            <div className="w-full flex-shrink-0">
-              <Step2Details
-                selectedDate={selectedDate}
-                formData={formData}
-                setFormData={setFormData}
-                onBack={() => {
-                  setStep(1);
-                  setError('');
-                }}
-                onSubmit={handleSubmit}
-                isSubmitting={isSubmitting}
-                settings={settings}
-                themeProps={themeClassProps}
-                t={t}
-                locale={locale}
-                error={error}
-              />
-            </div>
-            <div className="w-full flex-shrink-0">
-              <Step3Confirmation
-                onReset={resetFlow}
-                themeProps={themeClassProps}
-                t={t}
-                submittedData={submittedData}
-                unit={unit}
-                locale={locale}
-                settings={settings}
-              />
+                <div className="flex-shrink-0">
+                  <ProgressIndicator currentStep={step} t={t} theme={theme} />
+                </div>
+
+                <div className={`${themeClasses.content}`}>
+                  <div className={`${themeClasses.contentScrollable}`}>
+                    <div
+                      className="flex transition-transform duration-500 ease-in-out h-full"
+                      style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+                    >
+                      <div className={themeClasses.stepPane}>
+                        <div className={themeClasses.stepContent}>
+                          <Step1Date
+                            settings={settings}
+                            onDateSelect={handleDateSelect}
+                            themeProps={themeClassProps}
+                            t={t}
+                            currentMonth={currentMonth}
+                            onMonthChange={setCurrentMonth}
+                            dailyHeadcounts={dailyHeadcounts}
+                          />
+                        </div>
+                      </div>
+                      <div className={themeClasses.stepPane}>
+                        <div className={themeClasses.stepContent}>
+                          <Step2Details
+                            selectedDate={selectedDate}
+                            formData={formData}
+                            setFormData={setFormData}
+                            onBack={() => {
+                              setStep(1);
+                              setError('');
+                            }}
+                            onSubmit={handleSubmit}
+                            isSubmitting={isSubmitting}
+                            settings={settings}
+                            themeProps={themeClassProps}
+                            t={t}
+                            locale={locale}
+                            error={error}
+                            buttonClasses={{
+                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                            }}
+                            unit={unit}
+                          />
+                        </div>
+                      </div>
+                      <div className={themeClasses.stepPane}>
+                        <div className={themeClasses.stepContent}>
+                          <Step3Confirmation
+                            onReset={resetFlow}
+                            theme={theme}
+                            themeProps={themeClassProps}
+                            t={t}
+                            submittedData={submittedData}
+                            unit={unit}
+                            locale={locale}
+                            settings={settings}
+                            buttonClasses={{
+                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+            <div
+              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+              style={{
+                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                ...(theme.watermarkStyle || {}),
+              }}
+            >
+              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };
@@ -659,7 +818,12 @@ const Step1Date: React.FC<{
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${themeProps.colors.surface}`,
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
         {t.step1Title}
@@ -672,7 +836,11 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className={`p-2 ${themeProps.radiusClass} transition-colors`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+          }}
         >
           &lt;
         </button>
@@ -686,7 +854,11 @@ const Step1Date: React.FC<{
               new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
             )
           }
-          className="p-2 rounded-full hover:bg-gray-100"
+          className={`p-2 ${themeProps.radiusClass} transition-colors`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+          }}
         >
           &gt;
         </button>
@@ -715,14 +887,13 @@ const Step1Date: React.FC<{
 
           if (isDisabled) {
             if (isFull) {
-              buttonClass +=
-                ' bg-red-50 text-red-400 line-through cursor-not-allowed';
+              buttonClass += ' line-through cursor-not-allowed';
               titleText = t.errorCapacityFull;
             } else {
-              buttonClass += ' text-gray-300 bg-gray-50 cursor-not-allowed';
+              buttonClass += ' cursor-not-allowed opacity-50';
             }
           } else {
-            buttonClass += ' hover:bg-green-100';
+            buttonClass += ' hover:opacity-90';
           }
 
           return (
@@ -744,7 +915,23 @@ const Step1Date: React.FC<{
   );
 };
 
-const Step2Details: React.FC<any> = ({
+interface Step2DetailsProps {
+  selectedDate: Date | null;
+  formData: any;
+  setFormData: React.Dispatch<React.SetStateAction<any>>;
+  onBack: () => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  isSubmitting: boolean;
+  settings: ReservationSetting;
+  themeProps: any;
+  t: any;
+  locale: Locale;
+  error: string;
+  buttonClasses: { primary: string; secondary: string };
+  unit: Unit;
+}
+
+const Step2Details: React.FC<Step2DetailsProps> = ({
   selectedDate,
   formData,
   setFormData,
@@ -756,6 +943,8 @@ const Step2Details: React.FC<any> = ({
   t,
   locale,
   error,
+  buttonClasses,
+  unit,
 }) => {
   const [formErrors, setFormErrors] = useState({
     name: '',
@@ -815,9 +1004,33 @@ const Step2Details: React.FC<any> = ({
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
 
+  const secondaryButtonClass =
+    buttonClasses?.secondary ||
+    `font-bold py-2 px-4 ${themeProps.radiusClass} ${themeProps.shadowClass}`;
+  const primaryButtonClass =
+    buttonClasses?.primary ||
+    `font-bold py-2 px-6 ${themeProps.radiusClass} ${themeProps.shadowClass} disabled:opacity-50 disabled:cursor-not-allowed text-lg`;
+
+  const surfaceFill =
+    themeProps.uiTheme === 'minimal_glass'
+      ? toRgba(themeProps.colors.surface, 0.68)
+      : themeProps.colors.surface;
+  const surfaceBorder =
+    themeProps.uiTheme === 'minimal_glass'
+      ? toRgba(themeProps.colors.surface, 0.78)
+      : themeProps.colors.surface;
+
+  const hasTimeWindowInfo =
+    bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
+
   return (
     <div
-      className={`bg-[var(--color-surface)] p-6 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100`}
+      className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
+      style={{
+        backgroundColor: surfaceFill,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${surfaceBorder}`,
+      }}
     >
       <h2 className="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
         {t.step2Title}
@@ -827,36 +1040,35 @@ const Step2Details: React.FC<any> = ({
           {error}
         </div>
       )}
-      {(bookingWindowText ||
-        settings.kitchenStartTime ||
-        settings.barStartTime) && (
+      {hasTimeWindowInfo && (
         <div
-          className={`p-3 mb-4 bg-gray-50 border ${themeProps.radiusClass} text-sm text-gray-700 space-y-2`}
+          className={`${themeProps.infoPanelClass} mb-4 text-center space-y-3`}
+          style={{ color: themeProps.colors.textPrimary }}
         >
           {bookingWindowText && (
-            <p className="flex items-start gap-2">
-              <span className="font-semibold whitespace-nowrap">
-                {t.bookableWindowLabel}:
-              </span>
-              <span>
-                {bookingWindowText}
-                <span className="block text-xs text-gray-500">
-                  {t.bookableWindowHint}
-                </span>
-              </span>
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.bookableWindowLabel}</div>
+              <div className="font-medium italic">{bookingWindowText}</div>
+              <div className="text-xs" style={{ color: themeProps.colors.textSecondary }}>
+                {t.bookableWindowHint}
+              </div>
+            </div>
           )}
           {settings.kitchenStartTime && (
-            <p>
-              <strong>{t.kitchenHours}:</strong> {settings.kitchenStartTime} -{' '}
-              {settings.kitchenEndTime || t.untilClose}
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.kitchenHours}</div>
+              <div className="font-medium italic">
+                {settings.kitchenStartTime} – {settings.kitchenEndTime || t.untilClose}
+              </div>
+            </div>
           )}
           {settings.barStartTime && (
-            <p>
-              <strong>{t.barHours}:</strong> {settings.barStartTime} -{' '}
-              {settings.barEndTime || t.untilClose}
-            </p>
+            <div className="space-y-1">
+              <div className="font-semibold">{t.barHours}</div>
+              <div className="font-medium italic">
+                {settings.barStartTime} – {settings.barEndTime || t.untilClose}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -870,47 +1082,26 @@ const Step2Details: React.FC<any> = ({
             month: 'long',
             day: 'numeric',
           })}
-          className="w-full p-2 border rounded-lg bg-gray-100 text-center font-semibold"
+          className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+            borderColor: themeProps.colors.surface,
+          }}
         />
-        <div>
-          <label className="block text-sm font-medium">{t.name}</label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleStandardChange}
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-          {formErrors.name && (
-            <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm font-medium">{t.headcount}</label>
-          <input
-            type="number"
-            name="headcount"
-            value={formData.headcount}
-            onChange={handleStandardChange}
-            min="1"
-            className="w-full mt-1 p-2 border rounded-lg"
-            required
-          />
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium">{t.email}</label>
+            <label className="block text-sm font-medium">{t.name}</label>
             <input
-              type="email"
-              name="email"
-              value={formData.email}
+              type="text"
+              name="name"
+              value={formData.name}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
             />
-            {formErrors.email && (
-              <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
+            {formErrors.name && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
             )}
           </div>
           <div>
@@ -921,11 +1112,37 @@ const Step2Details: React.FC<any> = ({
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
             />
             {formErrors.phone && (
               <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium">{t.headcount}</label>
+            <input
+              type="number"
+              name="headcount"
+              value={formData.headcount}
+              onChange={handleStandardChange}
+              min="1"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">{t.email}</label>
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleStandardChange}
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              required
+            />
+            {formErrors.email && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
             )}
           </div>
         </div>
@@ -937,7 +1154,7 @@ const Step2Details: React.FC<any> = ({
               name="startTime"
               value={formData.startTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               required
               min={settings.bookableWindow?.from}
               max={settings.bookableWindow?.to}
@@ -950,7 +1167,7 @@ const Step2Details: React.FC<any> = ({
               name="endTime"
               value={formData.endTime}
               onChange={handleStandardChange}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
               min={formData.startTime}
             />
           </div>
@@ -980,14 +1197,14 @@ const Step2Details: React.FC<any> = ({
           <button
             type="button"
             onClick={onBack}
-            className={`bg-gray-200 text-gray-800 font-bold py-2 px-4 ${themeProps.radiusClass} hover:bg-gray-300`}
+            className={secondaryButtonClass}
           >
             {t.back}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !isFormValid}
-            className={`text-white font-bold py-2 px-6 ${themeProps.radiusClass} disabled:bg-gray-400 disabled:cursor-not-allowed text-lg`}
+            className={primaryButtonClass}
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
             {isSubmitting ? t.submitting : t.next}
@@ -998,15 +1215,29 @@ const Step2Details: React.FC<any> = ({
   );
 };
 
-const Step3Confirmation: React.FC<{
+interface Step3ConfirmationProps {
   onReset: () => void;
+  theme: ReservationThemeTokens;
   themeProps: any;
   t: any;
   submittedData: any;
   unit: Unit;
   locale: Locale;
   settings: ReservationSetting;
-}> = ({ onReset, themeProps, t, submittedData, unit, locale, settings }) => {
+  buttonClasses: { primary: string; secondary: string };
+}
+
+const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
+  onReset,
+  theme,
+  themeProps,
+  t,
+  submittedData,
+  unit,
+  locale,
+  settings,
+  buttonClasses,
+}) => {
   const [copied, setCopied] = useState(false);
 
   const { googleLink, icsLink, manageLink } = useMemo(() => {
@@ -1065,23 +1296,46 @@ const Step3Confirmation: React.FC<{
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const primaryButtonClass =
+    buttonClasses?.primary ||
+    `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
 
   return (
     <div
-      className={`bg-[var(--color-surface)] p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} border border-gray-100 text-center`}
+      className={`p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} text-center`}
+      style={{
+        backgroundColor: themeProps.colors.surface,
+        color: themeProps.colors.textPrimary,
+        border: `1px solid ${themeProps.colors.surface}`,
+      }}
     >
       <h2 className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
         {titleText}
       </h2>
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
-      <p className="text-sm text-gray-500 mt-2">{t.emailConfirmationSent}</p>
+      <p className="text-sm mt-2" style={{ color: themeProps.colors.textSecondary }}>
+        {t.emailConfirmationSent}
+      </p>
 
       {submittedData && (
-        <div className="mt-6 text-left bg-gray-50 p-4 rounded-lg border">
+        <div
+          className="mt-6 text-left p-4 border"
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            color: themeProps.colors.textPrimary,
+            borderColor: themeProps.colors.surface,
+          }}
+        >
           <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
           <p>
             <strong>{t.referenceCode}:</strong>{' '}
-            <span className="font-mono bg-gray-200 px-2 py-1 rounded">
+            <span
+              className={`font-mono px-2 py-1 ${themeProps.radiusClass}`}
+              style={{
+                backgroundColor: themeProps.colors.surface,
+                color: themeProps.colors.textPrimary,
+              }}
+            >
               {submittedData.referenceCode.substring(0, 8).toUpperCase()}
             </span>
           </p>
@@ -1132,19 +1386,36 @@ const Step3Confirmation: React.FC<{
         </div>
       )}
 
-      <div className="mt-6 text-left bg-blue-50 p-4 rounded-lg border border-blue-200">
+      <div
+        className="mt-6 text-left p-4 rounded-lg border"
+        style={{
+          backgroundColor: themeProps.colors.surface,
+          color: themeProps.colors.textPrimary,
+          borderColor: themeProps.colors.surface,
+        }}
+      >
         <h3 className="font-semibold mb-2">{t.manageLinkTitle}</h3>
-        <p className="text-sm text-blue-800 mb-2">{t.manageLinkBody}</p>
-        <div className="flex items-center gap-2 bg-white p-2 rounded-lg border">
+        <p className="text-sm mb-2" style={{ color: themeProps.colors.textSecondary }}>
+          {t.manageLinkBody}
+        </p>
+        <div
+          className={`flex items-center gap-2 p-2 ${themeProps.radiusClass} border`}
+          style={{
+            backgroundColor: themeProps.colors.surface,
+            borderColor: themeProps.colors.surface,
+          }}
+        >
           <input
             type="text"
             value={manageLink}
             readOnly
-            className="w-full bg-transparent text-sm text-gray-700 focus:outline-none"
+            className="w-full bg-transparent text-sm focus:outline-none"
+            style={{ color: themeProps.colors.textPrimary }}
           />
           <button
             onClick={handleCopy}
-            className="bg-blue-600 text-white font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5"
+            className={`${themeProps.radiusClass} font-semibold text-sm px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 ${theme.shadowClass}`}
+            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
@@ -1159,14 +1430,16 @@ const Step3Confirmation: React.FC<{
             href={googleLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            className={`font-semibold py-2 px-4 flex items-center gap-2 ${themeProps.radiusClass}`}
+            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.googleCalendar}
           </a>
           <a
             href={icsLink}
             download={`${unit.name}-reservation.ics`}
-            className="bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+            className={`font-semibold py-2 px-4 flex items-center gap-2 ${themeProps.radiusClass}`}
+            style={{ backgroundColor: themeProps.colors.accent, color: '#fff' }}
           >
             <CalendarIcon className="h-5 w-5" /> {t.otherCalendar}
           </a>
@@ -1175,8 +1448,8 @@ const Step3Confirmation: React.FC<{
 
       <button
         onClick={onReset}
-        className={`mt-8 text-white font-bold py-3 px-6 ${themeProps.radiusClass}`}
-        style={{ backgroundColor: 'var(--color-primary)' }}
+        className={`${primaryButtonClass} mt-8`}
+        style={{ backgroundColor: themeProps.colors.primary }}
       >
         {t.newBooking}
       </button>
