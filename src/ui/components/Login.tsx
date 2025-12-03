@@ -3,9 +3,9 @@ import MintLeafLogo from '../../../components/icons/AppleLogo';
 import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
-import { auth, db } from '../../core/firebase/config';
-import { setPersistence, signInWithEmailAndPassword, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth';
-import { collection, query, where, limit, getDocs } from 'firebase/firestore';
+import { auth } from '../../core/firebase/config';
+import { setPersistence, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth';
+import { AUTH_USERNAME_NOT_FOUND, loginWithEmailOrNickname } from '../../core/auth/authHelpers';
 
 interface LoginProps {
   loginMessage?: { type: 'success' | 'error'; text: string } | null;
@@ -31,47 +31,26 @@ const Login: React.FC<LoginProps> = ({ loginMessage }) => {
           : browserSessionPersistence;
         await setPersistence(auth, persistence);
 
-        let emailToLogin = loginInput.trim();
-        const userName = loginInput.trim();
-
-        // If input doesn't look like an email, assume it's a username and find the email
-        if (!emailToLogin.includes('@')) {
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('name', '==', emailToLogin), limit(1));
-          const snapshot = await getDocs(q);
-          
-          if (snapshot.empty) {
-            setError('Hibás felhasználónév vagy jelszó.');
-            setIsLoading(false);
-            return;
-          }
-          const userData = snapshot.docs[0].data();
-          emailToLogin = userData.email;
-
-          if (!emailToLogin) {
-            setError(`A(z) '${userName}' nevű felhasználói fiókhoz nem tartozik email cím. A bejelentkezés nem lehetséges. Kérjük, vedd fel a kapcsolatot egy adminisztrátorral.`);
-            console.error(`User with name '${userName}' found, but has no email address in Firestore.`);
-            setIsLoading(false);
-            return;
-          }
-        }
-
-        await signInWithEmailAndPassword(auth, emailToLogin, password);
+        await loginWithEmailOrNickname(loginInput, password);
         // onAuthStateChanged in App.tsx will handle successful login
       } catch (err: any) {
-        switch (err.code) {
-          case 'auth/user-not-found':
-          case 'auth/wrong-password':
-          case 'auth/invalid-credential':
-            setError('Hibás felhasználónév/email vagy jelszó.');
-            break;
-          case 'auth/invalid-email':
-            setError('Érvénytelen email formátum.');
-            break;
-          default:
-            setError('Hiba a bejelentkezés során. Próbáld újra később.');
-            console.error(err);
-            break;
+        if (err.code === AUTH_USERNAME_NOT_FOUND) {
+          setError('Nincs ilyen felhasználónév.');
+        } else {
+          switch (err.code) {
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+            case 'auth/invalid-credential':
+              setError('Hibás felhasználónév/email vagy jelszó.');
+              break;
+            case 'auth/invalid-email':
+              setError('Érvénytelen email formátum.');
+              break;
+            default:
+              setError('Hiba a bejelentkezés során. Próbáld újra később.');
+              console.error(err);
+              break;
+          }
         }
         setIsLoading(false);
       }

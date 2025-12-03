@@ -37,6 +37,8 @@ export interface ExportStyleSettings {
 export interface User {
   id: string;
   name: string;
+  nickname?: string;
+  nicknameLower?: string;
   lastName: string;
   firstName: string;
   fullName: string;
