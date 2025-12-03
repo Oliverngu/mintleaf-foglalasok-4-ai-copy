@@ -1260,6 +1260,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return activeUnitIds.sort().join('_');
   }, [activeUnitIds]);
 
+  const usersWithShiftsInActiveUnits = useMemo(() => {
+    const userIds = new Set<string>();
+
+    schedule.forEach(shift => {
+      if (shift.unitId && activeUnitIds.includes(shift.unitId)) {
+        userIds.add(shift.userId);
+      }
+    });
+
+    return userIds;
+  }, [activeUnitIds, schedule]);
+
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
       setAllAppUsers(
@@ -1363,14 +1375,54 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    return allAppUsers
-      .filter(
-        u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+    const userMap = new Map(allAppUsers.map(user => [user.id, user]));
+    const usersWithMatchingUnits = allAppUsers.filter(
+      u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+    );
+    const usersReferencedByShifts = Array.from(usersWithShiftsInActiveUnits)
+      .map(id => {
+        const existing = userMap.get(id);
+        if (existing) return existing;
+
+        const shiftForUser = schedule.find(
+          s => s.userId === id && (!s.unitId || activeUnitIds.includes(s.unitId))
+        );
+        if (!shiftForUser) return null;
+
+        const placeholderName = shiftForUser.userName || 'Ismeretlen felhasználó';
+        const placeholder: User = {
+          id,
+          name: placeholderName,
+          lastName: '',
+          firstName: '',
+          fullName: placeholderName,
+          email: '',
+          role: 'User',
+          unitIds: shiftForUser.unitId ? [shiftForUser.unitId] : [],
+          position: shiftForUser.position || undefined
+        };
+
+        userMap.set(id, placeholder);
+        return placeholder;
+      })
+      .filter((u): u is User => Boolean(u));
+
+    const mergedUsers = [
+      ...usersWithMatchingUnits,
+      ...usersReferencedByShifts.filter(
+        user => !usersWithMatchingUnits.some(u => u.id === user.id)
       )
-      .sort((a, b) =>
-        (a.position || '').localeCompare(b.position || '')
-      );
-  }, [allAppUsers, activeUnitIds]);
+    ];
+
+    return mergedUsers.sort((a, b) =>
+      (a.position || '').localeCompare(b.position || '')
+    );
+  }, [
+    activeUnitIds,
+    allAppUsers,
+    schedule,
+    usersWithShiftsInActiveUnits
+  ]);
 
   useEffect(() => {
     if (!settingsDocId) return;
