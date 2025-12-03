@@ -26,7 +26,8 @@ import {
   addDoc,
   deleteDoc,
   setDoc,
-  query
+  query,
+  getDoc
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PencilIcon from '../../../../components/icons/PencilIcon';
@@ -47,17 +48,19 @@ import UnitLogoBadge from '../common/UnitLogoBadge';
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
-  dailyClosingTime?: string | null
+  options?: { closingTime?: string | null; referenceDate?: Date }
 ): number => {
   if (shift.isDayOff || !shift.start) return 0;
 
   let end = shift.end?.toDate();
-  if (!end && dailyClosingTime) {
-    const [hours, minutes] = dailyClosingTime.split(':').map(Number);
-    const startDate = shift.start.toDate();
-    end = new Date(startDate);
+  const referenceDate = options?.referenceDate || shift.start.toDate();
+
+  if (!end && options?.closingTime && referenceDate) {
+    const [hours, minutes] = options.closingTime.split(':').map(Number);
+    end = new Date(referenceDate);
     end.setHours(hours, minutes, 0, 0);
-    // Handle overnight closing times (e.g., opens at 22:00, closes at 02:00)
+
+    const startDate = shift.start.toDate();
     if (end < startDate) {
       end.setDate(end.getDate() + 1);
     }
@@ -1212,6 +1215,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     useState<ExportStyleSettings>(DEFAULT_EXPORT_SETTINGS);
   const [isSavingExportSettings, setIsSavingExportSettings] =
     useState(false);
+  const [unitWeekSettings, setUnitWeekSettings] = useState<
+    Record<string, ScheduleSettings>
+  >({});
   const exportSettingsHaveChanged = useMemo(
     () =>
       JSON.stringify(exportSettings) !==
@@ -1254,6 +1260,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return activeUnitIds.sort().join('_');
   }, [activeUnitIds]);
 
+  const usersWithShiftsInActiveUnits = useMemo(() => {
+    const userIds = new Set<string>();
+
+    schedule.forEach(shift => {
+      if (shift.unitId && activeUnitIds.includes(shift.unitId)) {
+        userIds.add(shift.userId);
+      }
+    });
+
+    return userIds;
+  }, [activeUnitIds, schedule]);
+
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
       setAllAppUsers(
@@ -1291,21 +1309,95 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (weekSettings) {
+      setUnitWeekSettings(prev => ({
+        ...prev,
+        [weekSettings.unitId]: weekSettings
+      }));
+    }
+  }, [weekSettings]);
+
   const weekDays = useMemo(
     () => getWeekDays(currentDate),
     [currentDate]
   );
 
+  useEffect(() => {
+    if (!activeUnitIds || activeUnitIds.length === 0) {
+      setUnitWeekSettings({});
+      return;
+    }
+
+    let isMounted = true;
+    const weekStartDateStr = toDateString(weekDays[0]);
+
+    const loadSettings = async () => {
+      const entries = await Promise.all(
+        activeUnitIds.map(async unitId => {
+          try {
+            const settingsId = `${unitId}_${weekStartDateStr}`;
+            const snap = await getDoc(
+              doc(db, 'schedule_settings', settingsId)
+            );
+            if (snap.exists()) {
+              return snap.data() as ScheduleSettings;
+            }
+            return createDefaultSettings(unitId, weekStartDateStr);
+          } catch (error) {
+            console.error(
+              'Failed to load schedule settings for unit',
+              unitId,
+              error
+            );
+            return null;
+          }
+        })
+      );
+
+      if (!isMounted) return;
+
+      const map: Record<string, ScheduleSettings> = {};
+      entries.forEach(settings => {
+        if (settings) {
+          map[settings.unitId] = settings;
+        }
+      });
+      setUnitWeekSettings(map);
+    };
+
+    loadSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeUnitIds, weekDays]);
+
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    return allAppUsers
-      .filter(
-        u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+    const userMap = new Map(allAppUsers.map(user => [user.id, user]));
+    const usersWithMatchingUnits = allAppUsers.filter(
+      u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+    );
+    const usersReferencedByShifts = Array.from(usersWithShiftsInActiveUnits)
+      .map(id => userMap.get(id))
+      .filter((u): u is User => Boolean(u));
+
+    const mergedUsers = [
+      ...usersWithMatchingUnits,
+      ...usersReferencedByShifts.filter(
+        user => !usersWithMatchingUnits.some(u => u.id === user.id)
       )
-      .sort((a, b) =>
-        (a.position || '').localeCompare(b.position || '')
-      );
-  }, [allAppUsers, activeUnitIds]);
+    ];
+
+    return mergedUsers.sort((a, b) =>
+      (a.position || '').localeCompare(b.position || '')
+    );
+  }, [
+    activeUnitIds,
+    allAppUsers,
+    usersWithShiftsInActiveUnits
+  ]);
 
   useEffect(() => {
     if (!settingsDocId) return;
@@ -1443,8 +1535,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [activeUnitIds, weekDays, canManage]);
 
   const activeShifts = useMemo(
-    () => schedule.filter(s => (s.status || 'draft') === viewMode),
-    [schedule, viewMode]
+    () =>
+      schedule.filter(
+        s =>
+          (s.status || 'draft') === viewMode &&
+          (!s.unitId || activeUnitIds.includes(s.unitId))
+      ),
+    [schedule, viewMode, activeUnitIds]
+  );
+
+  const getUnitClosingTimeForDay = useCallback(
+    (shift: Shift, dayIndex: number): string | null => {
+      if (!shift.unitId) return null;
+
+      const unitSettings =
+        unitWeekSettings[shift.unitId] ||
+        (weekSettings?.unitId === shift.unitId ? weekSettings : undefined);
+
+      return (
+        unitSettings?.dailySettings?.[dayIndex]?.closingTime ||
+        weekSettings?.dailySettings?.[dayIndex]?.closingTime ||
+        null
+      );
+    },
+    [unitWeekSettings, weekSettings]
   );
 
   const shiftsByUserDay = useMemo(() => {
@@ -1493,12 +1607,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         const dayKey = toDateString(day);
         const dayShifts =
           shiftsByUserDay.get(user.id)?.get(dayKey) || [];
-        const dailyClosingTime =
-          weekSettings?.dailySettings[dayIndex]?.closingTime;
 
         const dayHours = dayShifts.reduce(
           (sum, shift) =>
-            sum + calculateShiftDuration(shift, dailyClosingTime),
+            sum +
+            calculateShiftDuration(shift, {
+              closingTime: getUnitClosingTimeForDay(shift, dayIndex),
+              referenceDate: weekDays[dayIndex]
+            }),
           0
         );
         userTotals[user.id] += dayHours;
@@ -1514,7 +1630,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     hiddenUserIds,
     weekDays,
     shiftsByUserDay,
-    weekSettings
+    weekSettings,
+    getUnitClosingTimeForDay
   ]);
 
   const visibleUsersByPosition = useMemo(() => {
