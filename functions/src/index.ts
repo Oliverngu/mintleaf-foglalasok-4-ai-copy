@@ -164,6 +164,7 @@ interface ReservationSettings {
   };
   publicBaseUrl?: string;
   themeMode?: 'light' | 'dark';
+  uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly';
 }
 
 const decisionLabels: Record<

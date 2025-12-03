@@ -110,19 +110,25 @@ service cloud.firestore {
     // --- units + subcollections ---
 
     match /units/{unitId} {
-      // egységek meta – minden belépett user láthatja (selectorhez)
-      allow read: if isSignedIn();
+      // egységek meta – publikus olvasás a vendég foglalóhoz
+      allow read: if true;
       allow write: if canManageUnit(unitId);
 
       match /reservations/{reservationId} {
-        allow read: if canViewUnit(unitId);
-        allow create: if canViewUnit(unitId);
+        // publikus foglalás beküldés; módosítás továbbra is csak staffnak
+        allow read: if true;
+        allow create: if request.resource.data.unitId == unitId
+          && request.resource.data.name is string
+          && request.resource.data.guests is int
+          && request.resource.data.date is string
+          && request.resource.data.time is string;
         allow update, delete: if canManageUnit(unitId)
           || (isUnitLeader() && hasUnit(unitId));
       }
 
       match /reservation_logs/{logId} {
-        allow read, create: if canViewUnit(unitId);
+        allow read: if true;
+        allow create: if request.resource.data.unitId == unitId;
         allow update, delete: if canManageUnit(unitId);
       }
 
@@ -486,7 +492,13 @@ service cloud.firestore {
 
     match /email_queue/{emailId} {
       allow read: if isAdmin();
-      allow create: if isSignedIn();
+      // Vendég foglalásnál is lehessen e-mailt sorba állítani, minimális mezőellenőrzéssel
+      allow create: if request.resource.data.unitId is string
+        && request.resource.data.template is string
+        && request.resource.data.to is string
+        && request.resource.data.unitId.size() > 0
+        && request.resource.data.template.size() > 0
+        && request.resource.data.to.size() > 0;
       allow update, delete: if isAdmin();
     }
 

@@ -109,9 +109,16 @@ export interface ThemeSettings {
     accent: string;
     success: string;
     danger: string;
-    radius: 'sm' | 'md' | 'lg';
-    elevation: 'low' | 'mid' | 'high';
+    radius: 'sm' | 'md' | 'lg' | 'xl';
+    elevation: 'none' | 'low' | 'medium' | 'mid' | 'high';
     typographyScale: 'S' | 'M' | 'L';
+    highlight?: string;
+    backgroundImageUrl?: string;
+    timeWindowLogoMode?: 'unit' | 'custom' | 'none';
+    timeWindowLogoUrl?: string;
+    headerBrandMode?: 'text' | 'logo';
+    headerLogoMode?: 'unit' | 'custom' | 'none';
+    headerLogoUrl?: string;
 }
 
 export interface CustomSelectField {
@@ -135,6 +142,7 @@ export interface ReservationSetting {
     barEndTime?: string | null;
     guestForm?: GuestFormSettings;
     theme?: ThemeSettings;
+    uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly' | 'classic_elegant' | 'playful_bubble' | 'smooth_touch';
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];

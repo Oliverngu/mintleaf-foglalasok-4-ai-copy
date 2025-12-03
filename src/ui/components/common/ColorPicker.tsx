@@ -93,16 +93,20 @@ const ColorPickerPopup: React.FC<ColorPickerPopupProps> = ({ color, onChange, on
     const [savedColors, setSavedColors] = useState<string[]>(() => getStoredColors(SAVED_COLORS_KEY));
 
     useEffect(() => {
-        setHsv(hexToHsv(color));
-        setHex(color);
-    }, [color]);
+        if (color.toLowerCase() !== hex.toLowerCase()) {
+            setHsv(hexToHsv(color));
+            setHex(color);
+        }
+    }, [color, hex]);
 
     const handleSliderChange = (part: 'h' | 's' | 'v', value: number) => {
-        const newHsv = { ...hsv, [part]: value };
-        setHsv(newHsv);
-        const newHex = hsvToHex(newHsv.h, newHsv.s, newHsv.v);
-        setHex(newHex);
-        onChange(newHex);
+        setHsv(prev => {
+            const next = { ...prev, [part]: value };
+            const newHex = hsvToHex(next.h, next.s, next.v);
+            setHex(newHex);
+            onChange(newHex);
+            return next;
+        });
     };
 
     const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,11 +157,25 @@ const ColorPickerPopup: React.FC<ColorPickerPopupProps> = ({ color, onChange, on
     );
 };
 
-const SliderControl: React.FC<{label: string, gradient: string, min: number, max: number, value: number, onChange: (v: number) => void}> = ({label, gradient, ...props}) => (
+const SliderControl: React.FC<{
+    label: string;
+    gradient: string;
+    min: number;
+    max: number;
+    value: number;
+    onChange: (v: number) => void;
+}> = ({ label, gradient, min, max, value, onChange }) => (
     <div>
         <label className="text-xs font-semibold text-gray-600">{label}</label>
         <div className="h-6 rounded-full" style={{ background: gradient }}>
-            <input type="range" {...props} className="w-full h-full slider-thumb" />
+            <input
+                type="range"
+                min={min}
+                max={max}
+                value={value}
+                onChange={e => onChange(Number(e.target.value))}
+                className="w-full h-full slider-thumb"
+            />
         </div>
         <style>{`
             .slider-thumb { -webkit-appearance: none; appearance: none; width: 100%; height: 100%; background: transparent; cursor: pointer; }
