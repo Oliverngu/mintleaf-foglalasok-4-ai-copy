@@ -3,6 +3,7 @@ import { User } from '../../core/models/data';
 import { auth, db } from '../../core/firebase/config';
 import { EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePassword } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
+import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
 import EyeIcon from './icons/EyeIcon';
 import EyeSlashIcon from './icons/EyeSlashIcon';
 
@@ -52,7 +53,8 @@ const UserSettingsApp: React.FC<UserSettingsAppProps> = ({ user, onLogout }) => 
     clearMessages();
 
     const isNameChanged = newLastName.trim() !== user.lastName || newFirstName.trim() !== user.firstName;
-    const isUsernameChanged = newUsername.trim() !== "" && newUsername.trim() !== user.name;
+    const trimmedUsername = newUsername.trim();
+    const isUsernameChanged = trimmedUsername !== "" && trimmedUsername !== user.name;
     
     if (!isNameChanged && !isUsernameChanged) {
         setError('Nem történt módosítás.');
@@ -62,15 +64,21 @@ const UserSettingsApp: React.FC<UserSettingsAppProps> = ({ user, onLogout }) => 
     setIsLoading(true);
 
     try {
-        const updates: { lastName?: string; firstName?: string; fullName?: string; name?: string } = {};
+        const updates: { lastName?: string; firstName?: string; fullName?: string } = {};
         if (isNameChanged) {
             updates.lastName = newLastName.trim();
             updates.firstName = newFirstName.trim();
             updates.fullName = `${newLastName.trim()} ${newFirstName.trim()}`;
         }
-        if (isUsernameChanged) updates.name = newUsername.trim();
 
-        await updateDoc(doc(db, 'users', user.id), updates);
+        if (Object.keys(updates).length > 0) {
+            await updateDoc(doc(db, 'users', user.id), updates);
+        }
+
+        if (isUsernameChanged) {
+            const previousNicknameLower = user.nicknameLower || (user.name ? user.name.toLowerCase() : null);
+            await saveNicknameForUser(user.id, user.email, trimmedUsername, { previousNicknameLower });
+        }
         
         if (isNameChanged && updates.fullName) {
             const currentUser = auth.currentUser;
@@ -82,9 +90,13 @@ const UserSettingsApp: React.FC<UserSettingsAppProps> = ({ user, onLogout }) => 
         setSuccess('A fiók adatai sikeresen frissültek!');
         setTimeout(() => setSuccess(null), 3000);
 
-    } catch(err) {
-        console.error("Error updating user settings:", err);
-        setError("Hiba történt a mentés során.");
+    } catch(err: any) {
+        if (err.code === NICKNAME_TAKEN) {
+            setError('Ez a felhasználónév már foglalt.');
+        } else {
+            console.error("Error updating user settings:", err);
+            setError("Hiba történt a mentés során.");
+        }
     } finally {
         setIsLoading(false);
     }

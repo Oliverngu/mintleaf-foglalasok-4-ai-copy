@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, serverTimestamp } from '../../core/firebase/config';
 import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, addDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, updateDoc, addDoc } from 'firebase/firestore';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
-import { User } from '../../core/models/data';
+import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
 
 interface RegisterProps {
   inviteCode: string;
@@ -78,19 +78,15 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     setError('');
 
     try {
-      // 1. Check if username is already taken
-      const usernameQuery = query(collection(db, 'users'), where('name', '==', username.trim()));
-      const usernameSnapshot = await getDocs(usernameQuery);
-      if (!usernameSnapshot.empty) {
-        setError('Ez a felhasználónév már foglalt. Kérlek, válassz másikat.');
-        setIsLoading(false);
-        return;
-      }
-      
-      // 2. Create user in Firebase Auth
+      const trimmedUsername = username.trim();
+
+      // 1. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
       if (!user) throw new Error("User creation failed.");
+
+      // 2. Persist nickname with uniqueness check
+      await saveNicknameForUser(user.uid, email.trim(), trimmedUsername);
 
       // 3. Send verification email
       await sendEmailVerification(user);
@@ -103,7 +99,9 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
 
       // 5. Create user document in Firestore
       const userDataForDb = {
-        name: username.trim(),
+        name: trimmedUsername,
+        nickname: trimmedUsername,
+        nicknameLower: trimmedUsername.toLowerCase(),
         lastName: lastName.trim(),
         firstName: firstName.trim(),
         fullName: userFullName,
@@ -141,6 +139,9 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       onRegisterSuccess();
     } catch (err: any) {
       switch (err.code) {
+        case NICKNAME_TAKEN:
+          setError('Ez a felhasználónév már foglalt.');
+          break;
         case 'auth/email-already-in-use':
           setError('Ezzel az email címmel már regisztráltak.');
           break;
