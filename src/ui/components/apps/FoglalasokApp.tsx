@@ -4,13 +4,14 @@ import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
   query,
-  where,
   orderBy,
   onSnapshot,
   addDoc,
   doc,
   updateDoc,
   limit,
+  startAt,
+  endAt,
 } from 'firebase/firestore';
 import BookingIcon from '../../../../components/icons/BookingIcon';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -315,11 +316,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       0
     );
 
+    const inclusiveEnd = new Date(
+      endOfMonth.getFullYear(),
+      endOfMonth.getMonth(),
+      endOfMonth.getDate(),
+      23,
+      59,
+      59,
+      999
+    );
+
     const qBookings = query(
       collection(db, 'units', activeUnitId, 'reservations'),
-      where('startTime', '>=', Timestamp.fromDate(startOfMonth)),
-      where('startTime', '<=', Timestamp.fromDate(endOfMonth)),
-      orderBy('startTime', 'asc')
+      orderBy('startTime', 'asc'),
+      startAt(Timestamp.fromDate(startOfMonth)),
+      endAt(Timestamp.fromDate(inclusiveEnd))
     );
 
     const unsubscribeBookings = onSnapshot(

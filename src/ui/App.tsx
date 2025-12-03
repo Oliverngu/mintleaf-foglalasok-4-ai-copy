@@ -262,13 +262,47 @@ const App: React.FC = () => {
     }
 
     // Shifts
-    let shiftsQueryRef;
+    let unsubShifts: () => void = () => {};
     if (currentUser.role !== 'Admin' && currentUser.unitIds && currentUser.unitIds.length > 0) {
-      shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
+      const unitShiftCache = new Map<string, Shift[]>();
+      const unitSubscriptions = currentUser.unitIds.map(unitId => {
+        const unitQuery = query(
+          collection(db, 'shifts'),
+          where('unitId', '==', unitId)
+        );
+
+        return onSnapshot(
+          unitQuery,
+          snapshot => {
+            unitShiftCache.set(
+              unitId,
+              snapshot.docs.map(docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
+              } as Shift))
+            );
+
+            const mergedShifts = Array.from(unitShiftCache.values()).flat();
+            setShifts(mergedShifts);
+          },
+          firestoreErrorHandler('Shifts')
+        );
+      });
+
+      unsubShifts = () => unitSubscriptions.forEach(unsub => unsub());
     } else {
-      shiftsQueryRef = collection(db, 'shifts');
+      const shiftsQueryRef = collection(db, 'shifts');
+      unsubShifts = onSnapshot(
+        shiftsQueryRef,
+        snapshot =>
+          setShifts(
+            snapshot.docs.map(
+              docSnap => ({ id: docSnap.id, ...docSnap.data() } as Shift)
+            )
+          ),
+        firestoreErrorHandler('Shifts')
+      );
     }
-    const unsubShifts = onSnapshot(shiftsQueryRef, snapshot => setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))));
 
     // Requests
     let requestsQueryRef;
