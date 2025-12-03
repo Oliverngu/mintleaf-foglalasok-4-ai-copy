@@ -1380,7 +1380,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
     );
     const usersReferencedByShifts = Array.from(usersWithShiftsInActiveUnits)
-      .map(id => userMap.get(id))
+      .map(id => {
+        const existing = userMap.get(id);
+        if (existing) return existing;
+
+        const shiftForUser = schedule.find(
+          s => s.userId === id && (!s.unitId || activeUnitIds.includes(s.unitId))
+        );
+        if (!shiftForUser) return null;
+
+        const placeholderName = shiftForUser.userName || 'Ismeretlen felhasználó';
+        const placeholder: User = {
+          id,
+          name: placeholderName,
+          lastName: '',
+          firstName: '',
+          fullName: placeholderName,
+          email: '',
+          role: 'User',
+          unitIds: shiftForUser.unitId ? [shiftForUser.unitId] : [],
+          position: shiftForUser.position || undefined
+        };
+
+        userMap.set(id, placeholder);
+        return placeholder;
+      })
       .filter((u): u is User => Boolean(u));
 
     const mergedUsers = [
@@ -1396,6 +1420,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [
     activeUnitIds,
     allAppUsers,
+    schedule,
     usersWithShiftsInActiveUnits
   ]);
 
