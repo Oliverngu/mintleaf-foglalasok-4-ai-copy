@@ -12,10 +12,12 @@ export interface SaveNicknameOptions {
 export async function loginWithEmailOrNickname(identifier: string, password: string) {
   const trimmed = identifier.trim();
 
+  // Ha emailnek tűnik → sima email+jelszó login
   if (trimmed.includes('@')) {
     return signInWithEmailAndPassword(auth, trimmed, password);
   }
 
+  // Különben nickname → email lookup a "nicknames" collectionből
   const nickLower = trimmed.toLowerCase();
   const nicknameRef = doc(db, 'nicknames', nickLower);
   const nicknameSnap = await getDoc(nicknameRef);
@@ -27,33 +29,16 @@ export async function loginWithEmailOrNickname(identifier: string, password: str
   }
 
   const data = nicknameSnap.data();
-  const uidFromNickname = data.uid as string | undefined;
+  const emailFromNickname = data.email as string | undefined;
 
-  if (!uidFromNickname) {
+  if (!emailFromNickname) {
     const error: any = new Error('Nincs ilyen felhasználónév.');
     error.code = AUTH_USERNAME_NOT_FOUND;
     throw error;
   }
 
-  const userRef = doc(db, 'users', uidFromNickname);
-  const userSnap = await getDoc(userRef);
-
-  if (!userSnap.exists()) {
-    const error: any = new Error('Nincs ilyen felhasználónév.');
-    error.code = AUTH_USERNAME_NOT_FOUND;
-    throw error;
-  }
-
-  const userData = userSnap.data();
-  const emailFromUser = userData.email as string | undefined;
-
-  if (!emailFromUser) {
-    const error: any = new Error('A felhasználóhoz nem tartozik email.');
-    error.code = AUTH_USERNAME_NOT_FOUND;
-    throw error;
-  }
-
-  return signInWithEmailAndPassword(auth, emailFromUser, password);
+  // Itt már emailt találtunk → sima email login
+  return signInWithEmailAndPassword(auth, emailFromNickname, password);
 }
 
 export async function saveNicknameForUser(
