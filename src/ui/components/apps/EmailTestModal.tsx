@@ -76,10 +76,14 @@ const EmailTestModal: React.FC<EmailTestModalProps> = ({
         body: JSON.stringify(body),
       });
 
-      const data = await response.json();
       if (!response.ok) {
-        throw new Error(data?.error || 'Ismeretlen hiba');
+        const errorBody = await response
+          .json()
+          .catch(() => ({ error: `Request failed with status ${response.status}` }));
+        throw new Error(errorBody?.error || `Request failed with status ${response.status}`);
       }
+
+      const data = await response.json();
 
       setPreviewHtml(data.previewHtml || '');
       setPayload(data.payload || null);

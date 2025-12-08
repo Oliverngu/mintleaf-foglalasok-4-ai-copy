@@ -114,14 +114,16 @@ export const sendTestReservationEmails = onRequest(
   async (req, res) => {
     try {
       if (req.method !== 'POST') {
-        res.status(405).send('Only POST allowed');
+        res.status(405).json({ error: 'Only POST allowed' });
         return;
       }
 
       const { unitId, adminEmail, guestEmail, locale = 'hu' } = req.body || {};
 
       if (!unitId || !guestEmail || !adminEmail) {
-        res.status(400).json({ error: 'unitId, adminEmail és guestEmail kötelező' });
+        res
+          .status(400)
+          .json({ error: 'unitId, adminEmail és guestEmail kötelező mezők' });
         return;
       }
 
@@ -140,54 +142,61 @@ export const sendTestReservationEmails = onRequest(
         locale,
         reservationMode: 'request',
         adminActionToken: 'test-admin-token',
+        customData: { testMode: true },
       };
 
-      const guestAllowed = await shouldSendEmail('booking_created_guest', unitId);
-      const adminAllowed = await shouldSendEmail('booking_created_admin', unitId);
-
-      const guestContent = await buildGuestCreatedEmailContent(
-        unitId,
-        booking,
-        unitName,
-        bookingId
-      );
-      if (guestContent && guestAllowed) {
-        await sendEmail({
-          typeId: 'booking_created_guest',
-          unitId,
-          to: guestContent.to,
-          subject: guestContent.subject,
-          html: guestContent.html,
-          payload: guestContent.payload,
-        });
-      }
-
-      const adminContent = await buildAdminCreatedEmailContent(
+      const guestSendPromise = sendGuestCreatedEmail(unitId, booking, unitName, bookingId);
+      const adminSendPromise = sendAdminCreatedEmail(
         unitId,
         booking,
         unitName,
         bookingId,
         [adminEmail]
       );
-      if (adminContent && adminAllowed) {
-        await Promise.all(
-          adminContent.recipients.map(to =>
-            sendEmail({
-              typeId: 'booking_created_admin',
-              unitId,
-              to,
-              subject: adminContent.subject,
-              html: adminContent.html,
-              payload: adminContent.payload,
-            })
-          )
-        );
+
+      const guestPreviewPromise = buildGuestCreatedEmailContent(
+        unitId,
+        booking,
+        unitName,
+        bookingId
+      );
+      const adminPreviewPromise = buildAdminCreatedEmailContent(
+        unitId,
+        booking,
+        unitName,
+        bookingId,
+        [adminEmail]
+      );
+
+      const [guestSendResult, adminSendResult, guestContent, adminContent] = await Promise.allSettled([
+        guestSendPromise,
+        adminSendPromise,
+        guestPreviewPromise,
+        adminPreviewPromise,
+      ]);
+
+      const previewHtml = guestContent.status === 'fulfilled' && guestContent.value
+        ? guestContent.value.html
+        : adminContent.status === 'fulfilled' && adminContent.value
+        ? adminContent.value.html
+        : '';
+
+      const payload =
+        (guestContent.status === 'fulfilled' && guestContent.value?.payload) ||
+        (adminContent.status === 'fulfilled' && adminContent.value?.payload) ||
+        buildPayload(booking, unitName, booking.locale || 'hu', '', { bookingId });
+
+      if (guestSendResult.status === 'rejected') {
+        logger.error('Test guest email send failed', guestSendResult.reason);
+      }
+      if (adminSendResult.status === 'rejected') {
+        logger.error('Test admin email send failed', adminSendResult.reason);
       }
 
-      res.json({
+      res.status(200).json({
         status: 'ok',
-        previewHtml: guestContent?.html || adminContent?.html || '',
-        payload: { bookingId, booking },
+        previewHtml,
+        payload,
       });
     } catch (err: any) {
       logger.error('sendTestReservationEmails error', { message: err?.message, stack: err?.stack });
@@ -201,14 +210,14 @@ export const sendTestFeedbackEmail = onRequest(
   async (req, res) => {
     try {
       if (req.method !== 'POST') {
-        res.status(405).send('Only POST allowed');
+        res.status(405).json({ error: 'Only POST allowed' });
         return;
       }
 
       const { unitId, guestEmail, locale = 'hu' } = req.body || {};
 
       if (!unitId || !guestEmail) {
-        res.status(400).json({ error: 'unitId és guestEmail kötelező' });
+        res.status(400).json({ error: 'unitId és guestEmail kötelező mezők' });
         return;
       }
 
@@ -226,26 +235,24 @@ export const sendTestFeedbackEmail = onRequest(
         contact: { email: guestEmail, phoneE164: '' },
         locale,
         reservationMode: 'auto',
+        customData: { testMode: true },
       };
 
-      const allowed = await shouldSendEmail('booking_feedback_guest', unitId);
-      const content = await buildFeedbackEmailContent(unitId, booking, unitName, bookingId);
+      const [sendResult, previewResult] = await Promise.allSettled([
+        sendFeedbackEmail(unitId, booking, unitName, bookingId),
+        buildFeedbackEmailContent(unitId, booking, unitName, bookingId),
+      ]);
 
-      if (content && allowed) {
-        await sendEmail({
-          typeId: 'booking_feedback_guest',
-          unitId,
-          to: content.to,
-          subject: content.subject,
-          html: content.html,
-          payload: content.payload,
-        });
+      if (sendResult.status === 'rejected') {
+        logger.error('Test feedback email send failed', sendResult.reason);
       }
 
-      res.json({
+      const content = previewResult.status === 'fulfilled' ? previewResult.value : null;
+
+      res.status(200).json({
         status: 'ok',
         previewHtml: content?.html || '',
-        payload: { bookingId, booking },
+        payload: { bookingId, booking: content?.payload || booking },
       });
     } catch (err: any) {
       logger.error('sendTestFeedbackEmail error', { message: err?.message, stack: err?.stack });
