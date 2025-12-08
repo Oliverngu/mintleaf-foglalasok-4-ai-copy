@@ -1,5 +1,6 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { onRequest } from "firebase-functions/v2/https";
 
@@ -114,7 +115,7 @@ interface BookingRecord {
   occasion?: string;
   startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
-  status: 'confirmed' | 'pending' | 'cancelled';
+  status: 'confirmed' | 'pending' | 'cancelled' | 'rejected' | 'modified';
   createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   notes?: string;
   phone?: string;
@@ -132,7 +133,10 @@ interface BookingRecord {
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  customData?: Record<string, any>; 
+  customData?: Record<string, any>;
+  feedbackEmailScheduledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
+  feedbackEmailSentAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
+  feedbackEmailSkipped?: boolean;
 }
 
 interface QueuedEmail {
@@ -149,6 +153,14 @@ interface EmailSettingsDocument {
   adminRecipients?: Record<string, string[]>;
   templateOverrides?: Record<string, { subject: string; html: string }>;
   adminDefaultEmail?: string;
+  feedbackSettings?: FeedbackSettings;
+}
+
+interface FeedbackSettings {
+  enabled?: boolean;
+  offsetMinutes?: number;
+  templateId?: string;
+  notificationEmails?: string[];
 }
 
 interface CustomSelectField {
@@ -169,17 +181,19 @@ interface ReservationSettings {
 
 const decisionLabels: Record<
   'hu' | 'en',
-  { approved: string; rejected: string; cancelled: string }
+  { approved: string; rejected: string; cancelled: string; modified: string }
 > = {
   hu: {
     approved: 'Elfogadva',
     rejected: 'Elutasítva',
     cancelled: 'Lemondva vendég által',
+    modified: 'Módosítva',
   },
   en: {
     approved: 'Approved',
     rejected: 'Rejected',
     cancelled: 'Cancelled by guest',
+    modified: 'Modified',
   },
 };
 
@@ -290,6 +304,18 @@ const defaultTemplates = {
       <p>Ref: <strong>{{bookingRef}}</strong></p>
     `,
   },
+
+  booking_feedback_guest: {
+    subject: 'Köszönjük a látogatást – visszajelzésedre kíváncsiak vagyunk!',
+    html: `
+      <h2>Köszönjük, hogy minket választottál!</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>Bízunk benne, hogy jól érezted magad a(z) <strong>{{unitName}}</strong> egységben.</p>
+      <p>Kérjük, oszd meg velünk a tapasztalataidat, hogy még jobbá tehessük a szolgáltatásainkat.</p>
+      {{#if feedbackUrl}}<p><a class="mintleaf-btn" href="{{feedbackUrl}}">Visszajelzés küldése</a></p>{{/if}}
+      <p>Foglalás dátuma: {{bookingDate}} {{bookingTimeRange}}</p>
+    `,
+  },
 };
 
 const queuedEmailTemplates: Record<
@@ -386,6 +412,7 @@ const getEmailSettingsForUnit = async (
     adminRecipients: {},
     templateOverrides: {},
     adminDefaultEmail: '',
+    feedbackSettings: {},
   };
 
   try {
@@ -397,6 +424,7 @@ const getEmailSettingsForUnit = async (
       adminRecipients: data.adminRecipients || {},
       templateOverrides: data.templateOverrides || {},
       adminDefaultEmail: data.adminDefaultEmail || '',
+      feedbackSettings: data.feedbackSettings || {},
     };
   } catch (err) {
     logger.error('Failed to fetch email settings', { unitId, err });
@@ -416,6 +444,27 @@ const shouldSendEmail = async (typeId: string, unitId: string | null) => {
     return defaultSettings.enabledTypes[typeId];
   }
   return true;
+};
+
+const DEFAULT_FEEDBACK_OFFSET_MINUTES = 30;
+
+const getFeedbackSettings = async (unitId: string): Promise<Required<FeedbackSettings>> => {
+  const unitSettings = await getEmailSettingsForUnit(unitId);
+  const defaultSettings = await getEmailSettingsForUnit('default');
+
+  const effectiveSettings = unitSettings.feedbackSettings || {};
+  const fallbackSettings = defaultSettings.feedbackSettings || {};
+
+  return {
+    enabled: effectiveSettings.enabled ?? fallbackSettings.enabled ?? false,
+    offsetMinutes:
+      effectiveSettings.offsetMinutes ??
+      fallbackSettings.offsetMinutes ??
+      DEFAULT_FEEDBACK_OFFSET_MINUTES,
+    templateId: effectiveSettings.templateId || fallbackSettings.templateId || '',
+    notificationEmails:
+      effectiveSettings.notificationEmails || fallbackSettings.notificationEmails || [],
+  };
 };
 
 const getAdminRecipientsOverride = async (
@@ -1113,7 +1162,11 @@ const sendGuestStatusEmail = async (
   const decisionLabel =
     booking.status === 'confirmed'
       ? decisionLabels[locale].approved
-      : decisionLabels[locale].rejected;
+      : booking.status === 'rejected'
+      ? decisionLabels[locale].rejected
+      : booking.status === 'modified'
+      ? decisionLabels[locale].modified
+      : decisionLabels[locale].cancelled;
 
   const payload = buildPayload(booking, unitName, locale, decisionLabel, {
     bookingId,
@@ -1321,6 +1374,126 @@ const sendAdminModifiedEmail = async (
   );
 };
 
+const parseDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
+    return (value as admin.firestore.Timestamp).toDate();
+  }
+  const parsed = new Date(value as any);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const scheduleFeedbackEmail = async (
+  unitId: string,
+  bookingId: string,
+  booking: BookingRecord
+) => {
+  const feedbackSettings = await getFeedbackSettings(unitId);
+  const ref = db.doc(`units/${unitId}/reservations/${bookingId}`);
+
+  if (booking.feedbackEmailSentAt) {
+    return;
+  }
+
+  if (!feedbackSettings.enabled) {
+    await ref.update({
+      feedbackEmailSkipped: true,
+      feedbackEmailScheduledAt: null,
+    });
+    return;
+  }
+
+  if (booking.status === 'cancelled') {
+    await ref.update({
+      feedbackEmailSkipped: true,
+      feedbackEmailScheduledAt: null,
+    });
+    return;
+  }
+
+  const endDate = parseDate(booking.endTime);
+  if (!endDate) {
+    await ref.update({
+      feedbackEmailSkipped: true,
+      feedbackEmailScheduledAt: null,
+    });
+    return;
+  }
+
+  const scheduledAtDate = new Date(
+    endDate.getTime() + feedbackSettings.offsetMinutes * 60 * 1000
+  );
+
+  await ref.update({
+    feedbackEmailScheduledAt: Timestamp.fromDate(scheduledAtDate),
+    feedbackEmailSentAt: booking.feedbackEmailSentAt || null,
+    feedbackEmailSkipped: false,
+  });
+};
+
+const sendFeedbackEmail = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string
+) => {
+  const guestEmail = booking.contact?.email || booking.email;
+  if (!guestEmail) return;
+
+  const feedbackSettings = await getFeedbackSettings(unitId);
+  if (!feedbackSettings.enabled) return;
+
+  const allowed = await shouldSendEmail('booking_feedback_guest', unitId);
+  if (!allowed) return;
+
+  const settings = await getReservationSettings(unitId);
+  const locale = booking.locale || 'hu';
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const feedbackUrl = `${publicBaseUrl}/feedback?bookingId=${bookingId}`;
+
+  const payload = {
+    ...buildPayload(booking, unitName, locale, '', {
+      bookingId,
+      customSelects,
+      publicBaseUrl,
+    }),
+    feedbackUrl,
+  };
+
+  const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
+    unitId,
+    'booking_feedback_guest',
+    payload
+  );
+
+  const subject = renderTemplate(
+    rawSubject || defaultTemplates.booking_feedback_guest.subject,
+    payload
+  );
+  const baseHtmlRendered = renderTemplate(
+    rawHtml || defaultTemplates.booking_feedback_guest.html,
+    payload
+  );
+
+  const finalHtml = appendHtmlSafely(
+    baseHtmlRendered,
+    buildDetailsCardHtml(payload, theme)
+  );
+
+  await sendEmail({
+    typeId: 'booking_feedback_guest',
+    unitId,
+    to: guestEmail,
+    subject,
+    html: finalHtml,
+    payload,
+  });
+};
+
 // ---------- CHANGE DETECTOR ----------
 
 const hasMeaningfulEdit = (before: BookingRecord, after: BookingRecord) => {
@@ -1376,6 +1549,12 @@ export const onReservationCreated = onDocumentCreated(
       )
     );
 
+    tasks.push(
+      scheduleFeedbackEmail(unitId, bookingId, booking).catch(err =>
+        logger.error("Failed to schedule feedback email", { unitId, err })
+      )
+    );
+
     await Promise.all(tasks);
   }
 );
@@ -1413,10 +1592,13 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     const unitName = await getUnitName(unitId);
 
-    const adminDecision =
-      statusChanged &&
-      before.status === "pending" &&
-      (after.status === "confirmed" || after.status === "cancelled");
+  const adminDecision =
+    statusChanged &&
+    before.status === "pending" &&
+    (after.status === "confirmed" ||
+      after.status === "rejected" ||
+      after.status === "modified" ||
+      after.status === "cancelled");
 
     const guestCancelled =
       statusChanged &&
@@ -1454,6 +1636,81 @@ export const onReservationStatusChange = onDocumentUpdated(
       );
     }
 
+    const endTimeChanged = (() => {
+      const b = parseDate(before.endTime)?.getTime();
+      const a = parseDate(after.endTime)?.getTime();
+      return b !== a;
+    })();
+
+    if (statusChanged || endTimeChanged) {
+      tasks.push(
+        scheduleFeedbackEmail(unitId, bookingId, after).catch(err =>
+          logger.error("Failed to schedule feedback email", { unitId, err })
+        )
+      );
+    }
+
     await Promise.all(tasks);
+  }
+);
+
+export const sendFeedbackEmailWorker = onSchedule(
+  {
+    region: REGION,
+    schedule: "every 5 minutes",
+    timeZone: "Etc/UTC",
+  },
+  async () => {
+    const now = Timestamp.now();
+
+    const snap = await db
+      .collectionGroup('reservations')
+      .where('feedbackEmailScheduledAt', '<=', now)
+      .where('feedbackEmailSentAt', '==', null)
+      .limit(50)
+      .get();
+
+    await Promise.all(
+      snap.docs.map(async docSnap => {
+        const booking = docSnap.data() as BookingRecord;
+        const unitId = docSnap.ref.parent.parent?.id;
+        const bookingId = docSnap.id;
+
+        if (!unitId) return;
+
+        if (booking.feedbackEmailSkipped) return;
+
+        if (booking.status === 'cancelled') {
+          await docSnap.ref.update({
+            feedbackEmailSkipped: true,
+            feedbackEmailScheduledAt: null,
+          });
+          return;
+        }
+
+        const feedbackSettings = await getFeedbackSettings(unitId);
+        if (!feedbackSettings.enabled) {
+          await docSnap.ref.update({
+            feedbackEmailSkipped: true,
+          });
+          return;
+        }
+
+        try {
+          const unitName = await getUnitName(unitId);
+          await sendFeedbackEmail(unitId, booking, unitName, bookingId);
+          await docSnap.ref.update({
+            feedbackEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            feedbackEmailSkipped: false,
+          });
+        } catch (err) {
+          logger.error('Failed to send feedback email', {
+            unitId,
+            bookingId,
+            message: (err as Error)?.message,
+          });
+        }
+      })
+    );
   }
 );
