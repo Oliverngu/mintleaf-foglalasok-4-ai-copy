@@ -109,6 +109,151 @@ export const guestUpdateReservation = onRequest(
   }
 );
 
+export const sendTestReservationEmails = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, adminEmail, guestEmail, locale = 'hu' } = req.body || {};
+
+      if (!unitId || !guestEmail || !adminEmail) {
+        res.status(400).json({ error: 'unitId, adminEmail és guestEmail kötelező' });
+        return;
+      }
+
+      const bookingId = `test-booking-${Date.now()}`;
+      const unitName = await getUnitName(unitId);
+      const now = Date.now();
+
+      const booking: BookingRecord = {
+        name: 'Teszt Vendég',
+        headcount: 2,
+        occasion: 'Teszt foglalás',
+        startTime: Timestamp.fromDate(new Date(now + 2 * 60 * 60 * 1000)),
+        endTime: Timestamp.fromDate(new Date(now + 4 * 60 * 60 * 1000)),
+        status: 'pending',
+        contact: { email: guestEmail, phoneE164: '' },
+        locale,
+        reservationMode: 'request',
+        adminActionToken: 'test-admin-token',
+      };
+
+      const guestAllowed = await shouldSendEmail('booking_created_guest', unitId);
+      const adminAllowed = await shouldSendEmail('booking_created_admin', unitId);
+
+      const guestContent = await buildGuestCreatedEmailContent(
+        unitId,
+        booking,
+        unitName,
+        bookingId
+      );
+      if (guestContent && guestAllowed) {
+        await sendEmail({
+          typeId: 'booking_created_guest',
+          unitId,
+          to: guestContent.to,
+          subject: guestContent.subject,
+          html: guestContent.html,
+          payload: guestContent.payload,
+        });
+      }
+
+      const adminContent = await buildAdminCreatedEmailContent(
+        unitId,
+        booking,
+        unitName,
+        bookingId,
+        [adminEmail]
+      );
+      if (adminContent && adminAllowed) {
+        await Promise.all(
+          adminContent.recipients.map(to =>
+            sendEmail({
+              typeId: 'booking_created_admin',
+              unitId,
+              to,
+              subject: adminContent.subject,
+              html: adminContent.html,
+              payload: adminContent.payload,
+            })
+          )
+        );
+      }
+
+      res.json({
+        status: 'ok',
+        previewHtml: guestContent?.html || adminContent?.html || '',
+        payload: { bookingId, booking },
+      });
+    } catch (err: any) {
+      logger.error('sendTestReservationEmails error', { message: err?.message, stack: err?.stack });
+      res.status(500).json({ error: 'Szerverhiba', message: err?.message });
+    }
+  }
+);
+
+export const sendTestFeedbackEmail = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, guestEmail, locale = 'hu' } = req.body || {};
+
+      if (!unitId || !guestEmail) {
+        res.status(400).json({ error: 'unitId és guestEmail kötelező' });
+        return;
+      }
+
+      const bookingId = `test-feedback-${Date.now()}`;
+      const unitName = await getUnitName(unitId);
+      const now = Date.now();
+
+      const booking: BookingRecord = {
+        name: 'Teszt Vendég',
+        headcount: 2,
+        occasion: 'Teszt feedback',
+        startTime: Timestamp.fromDate(new Date(now - 2 * 60 * 60 * 1000)),
+        endTime: Timestamp.fromDate(new Date(now - 1 * 60 * 60 * 1000)),
+        status: 'confirmed',
+        contact: { email: guestEmail, phoneE164: '' },
+        locale,
+        reservationMode: 'auto',
+      };
+
+      const allowed = await shouldSendEmail('booking_feedback_guest', unitId);
+      const content = await buildFeedbackEmailContent(unitId, booking, unitName, bookingId);
+
+      if (content && allowed) {
+        await sendEmail({
+          typeId: 'booking_feedback_guest',
+          unitId,
+          to: content.to,
+          subject: content.subject,
+          html: content.html,
+          payload: content.payload,
+        });
+      }
+
+      res.json({
+        status: 'ok',
+        previewHtml: content?.html || '',
+        payload: { bookingId, booking },
+      });
+    } catch (err: any) {
+      logger.error('sendTestFeedbackEmail error', { message: err?.message, stack: err?.stack });
+      res.status(500).json({ error: 'Szerverhiba', message: err?.message });
+    }
+  }
+);
+
 interface BookingRecord {
   name?: string;
   headcount?: number;
@@ -998,7 +1143,7 @@ const buildButtonBlock = (
   `;
 };
 
-const sendGuestCreatedEmail = async (
+const buildGuestCreatedEmailContent = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
@@ -1006,10 +1151,7 @@ const sendGuestCreatedEmail = async (
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
-  if (!guestEmail) return;
-
-  const allowed = await shouldSendEmail('booking_created_guest', unitId);
-  if (!allowed) return;
+  if (!guestEmail) return null;
 
   const settings = await getReservationSettings(unitId);
   const customSelects = settings.guestForm?.customSelects || [];
@@ -1049,33 +1191,44 @@ const sendGuestCreatedEmail = async (
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
-  await sendEmail({
-    typeId: 'booking_created_guest',
-    unitId,
-    to: guestEmail,
-    subject,
-    html: finalHtml,
-    payload,
-  });
+  return { subject, html: finalHtml, payload, to: guestEmail };
 };
 
-const sendAdminCreatedEmail = async (
+const sendGuestCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
   bookingId: string
 ) => {
+  const allowed = await shouldSendEmail('booking_created_guest', unitId);
+  if (!allowed) return;
+
+  const content = await buildGuestCreatedEmailContent(unitId, booking, unitName, bookingId);
+  if (!content) return;
+
+  await sendEmail({
+    typeId: 'booking_created_guest',
+    unitId,
+    to: content.to,
+    subject: content.subject,
+    html: content.html,
+    payload: content.payload,
+  });
+};
+
+const buildAdminCreatedEmailContent = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string,
+  overrideRecipients?: string[]
+) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
-  const recipients = await getAdminRecipientsOverride(
-    unitId,
-    'booking_created_admin',
-    legacyRecipients
-  );
-  if (!recipients.length) return;
+  const recipients = overrideRecipients?.filter(Boolean) ||
+    (await getAdminRecipientsOverride(unitId, 'booking_created_admin', legacyRecipients));
 
-  const allowed = await shouldSendEmail('booking_created_admin', unitId);
-  if (!allowed) return;
+  if (!recipients.length) return null;
 
   const locale = booking.locale || 'hu';
   const customSelects = settings.guestForm?.customSelects || [];
@@ -1127,15 +1280,37 @@ const sendAdminCreatedEmail = async (
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
+  return { recipients, subject, html: finalHtml, payload };
+};
+
+const sendAdminCreatedEmail = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string,
+  overrideRecipients?: string[]
+) => {
+  const allowed = await shouldSendEmail('booking_created_admin', unitId);
+  if (!allowed) return;
+
+  const content = await buildAdminCreatedEmailContent(
+    unitId,
+    booking,
+    unitName,
+    bookingId,
+    overrideRecipients
+  );
+  if (!content) return;
+
   await Promise.all(
-    recipients.map(to =>
+    content.recipients.map(to =>
       sendEmail({
         typeId: 'booking_created_admin',
         unitId,
         to,
-        subject,
-        html: finalHtml,
-        payload,
+        subject: content.subject,
+        html: content.html,
+        payload: content.payload,
       })
     )
   );
@@ -1432,20 +1607,17 @@ const scheduleFeedbackEmail = async (
   });
 };
 
-const sendFeedbackEmail = async (
+const buildFeedbackEmailContent = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
   bookingId: string
 ) => {
   const guestEmail = booking.contact?.email || booking.email;
-  if (!guestEmail) return;
+  if (!guestEmail) return null;
 
   const feedbackSettings = await getFeedbackSettings(unitId);
-  if (!feedbackSettings.enabled) return;
-
-  const allowed = await shouldSendEmail('booking_feedback_guest', unitId);
-  if (!allowed) return;
+  if (!feedbackSettings.enabled) return null;
 
   const settings = await getReservationSettings(unitId);
   const locale = booking.locale || 'hu';
@@ -1484,13 +1656,28 @@ const sendFeedbackEmail = async (
     buildDetailsCardHtml(payload, theme)
   );
 
+  return { subject, html: finalHtml, payload, to: guestEmail };
+};
+
+const sendFeedbackEmail = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string
+) => {
+  const allowed = await shouldSendEmail('booking_feedback_guest', unitId);
+  if (!allowed) return;
+
+  const content = await buildFeedbackEmailContent(unitId, booking, unitName, bookingId);
+  if (!content) return;
+
   await sendEmail({
     typeId: 'booking_feedback_guest',
     unitId,
-    to: guestEmail,
-    subject,
-    html: finalHtml,
-    payload,
+    to: content.to,
+    subject: content.subject,
+    html: content.html,
+    payload: content.payload,
   });
 };
 

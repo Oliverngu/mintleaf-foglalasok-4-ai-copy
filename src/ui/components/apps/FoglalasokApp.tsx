@@ -19,6 +19,7 @@ import PlusIcon from '../../../../components/icons/PlusIcon';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
+import EmailTestModal from './EmailTestModal';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType = 'created' | 'cancelled' | 'updated' | 'guest_created' | 'guest_cancelled';
@@ -291,6 +292,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const [isEmailTestModalOpen, setEmailTestModalOpen] = useState(false);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
@@ -653,6 +655,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           )}
           {isAdmin && activeUnitId && (
             <button
+              onClick={() => setEmailTestModalOpen(true)}
+              className="bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-purple-700"
+            >
+              Teszt email
+            </button>
+          )}
+          {isAdmin && activeUnitId && (
+            <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300"
               title="Foglalási beállítások"
@@ -712,6 +722,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         <ReservationSettingsModal
           unitId={activeUnitId}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+      {isEmailTestModalOpen && activeUnitId && (
+        <EmailTestModal
+          open={isEmailTestModalOpen}
+          onClose={() => setEmailTestModalOpen(false)}
+          unitId={activeUnitId}
+          defaultAdminEmail={currentUser.email}
         />
       )}
       {bookingToDelete && (
