@@ -1592,13 +1592,12 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     const unitName = await getUnitName(unitId);
 
-  const adminDecision =
-    statusChanged &&
-    before.status === "pending" &&
-    (after.status === "confirmed" ||
-      after.status === "rejected" ||
-      after.status === "modified" ||
-      after.status === "cancelled");
+    const adminDecision =
+      statusChanged &&
+      before.status === "pending" &&
+      (after.status === "confirmed" ||
+        after.status === "rejected" ||
+        after.status === "modified");
 
     const guestCancelled =
       statusChanged &&
