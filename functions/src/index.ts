@@ -1,7 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-import { onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
 admin.initializeApp();
@@ -288,6 +288,26 @@ const defaultTemplates = {
         <li><strong>Telefon:</strong> {{guestPhone}}</li>
       </ul>
       <p>Ref: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+
+  feedback_request_guest: {
+    subject: 'Kérjük a visszajelzésedet: {{unitName}}',
+    html: `
+      <h2>Hogyan érezted magad nálunk?</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>Köszönjük, hogy a(z) <strong>{{unitName}}</strong> vendége voltál. Pár kattintással megoszthatod a tapasztalataidat.</p>
+      <p><a href="{{feedbackLink}}">Visszajelzés beküldése</a></p>
+    `,
+  },
+
+  feedback_request_admin: {
+    subject: 'Feedback kérés elküldve: {{guestName}} – {{bookingDate}}',
+    html: `
+      <h2>Feedback kérés kiküldve</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+      <p>Vendég: {{guestName}} ({{bookingDate}} {{bookingTimeRange}})</p>
+      <p>Feedback link: <a href="{{feedbackLink}}">Megnyitás</a></p>
     `,
   },
 };
@@ -898,6 +918,235 @@ const buildPayload = (
   };
 };
 
+interface EmailPreview {
+  typeId: TemplateId;
+  subject: string;
+  html: string;
+  payload: Record<string, any>;
+}
+
+const buildDummyBooking = (
+  guestEmail?: string,
+  adminEmail?: string
+): BookingRecord => {
+  const now = Timestamp.now();
+  const end = Timestamp.fromMillis(now.toMillis() + 90 * 60 * 1000);
+  const referenceCode = `TEST-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+  return {
+    name: 'Teszt Vendég',
+    headcount: 4,
+    occasion: 'Születésnap',
+    startTime: now,
+    endTime: end,
+    status: 'pending',
+    createdAt: now,
+    notes: 'Ez csak egy teszt foglalás előnézethez.',
+    phone: '+36 30 123 4567',
+    email: guestEmail || 'guest@example.com',
+    contact: {
+      phoneE164: '+36301234567',
+      email: guestEmail || 'guest@example.com',
+    },
+    locale: 'hu',
+    referenceCode,
+    reservationMode: 'request',
+    adminActionToken: Math.random().toString(36).substring(2, 10),
+    customData: {
+      table: `T-${Math.floor(Math.random() * 20) + 1}`,
+      salesChannel: 'online',
+      adminTestRecipient: adminEmail,
+    },
+  };
+};
+
+const buildFeedbackLink = (baseUrl: string, unitId: string, bookingId: string) =>
+  `${baseUrl}/feedback?unit=${unitId}&booking=${bookingId}`;
+
+const buildBookingEmailPreviews = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string
+): Promise<{ guest: EmailPreview; admin: EmailPreview }> => {
+  const locale = booking.locale || 'hu';
+  const settings = await getReservationSettings(unitId);
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+
+  const guestTemplate = await resolveEmailTemplate(
+    unitId,
+    'booking_created_guest',
+    payload
+  );
+  const guestSubject = renderTemplate(
+    guestTemplate.subject || defaultTemplates.booking_created_guest.subject,
+    payload
+  );
+  const guestBaseHtml = renderTemplate(
+    guestTemplate.html || defaultTemplates.booking_created_guest.html,
+    payload
+  );
+  const guestHtml = appendHtmlSafely(
+    guestBaseHtml,
+    `${buildButtonBlock(
+      [
+        {
+          label: 'FOGLALÁS MÓDOSÍTÁSA',
+          url: `${publicBaseUrl}/manage?token=${payload.bookingId}`,
+        },
+      ],
+      theme
+    )}${buildDetailsCardHtml(payload, theme)}`
+  );
+
+  const manageApproveUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
+    payload.adminActionToken || ''
+  }&action=approve`;
+  const manageRejectUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
+    payload.adminActionToken || ''
+  }&action=reject`;
+
+  const adminTemplate = await resolveEmailTemplate(
+    unitId,
+    'booking_created_admin',
+    payload
+  );
+  const adminSubject = renderTemplate(
+    adminTemplate.subject || defaultTemplates.booking_created_admin.subject,
+    payload
+  );
+  const adminBaseHtml = renderTemplate(
+    adminTemplate.html || defaultTemplates.booking_created_admin.html,
+    payload
+  );
+  const adminButtons =
+    booking.reservationMode === 'request' && !!payload.adminActionToken
+      ? buildButtonBlock(
+          [
+            { label: 'ELFOGADÁS', url: manageApproveUrl },
+            { label: 'ELUTASÍTÁS', url: manageRejectUrl, variant: 'danger' },
+          ],
+          theme
+        )
+      : '';
+  const adminHtml = appendHtmlSafely(
+    adminBaseHtml,
+    `${adminButtons}${buildDetailsCardHtml(payload, theme)}`
+  );
+
+  return {
+    guest: {
+      typeId: 'booking_created_guest',
+      subject: guestSubject,
+      html: guestHtml,
+      payload,
+    },
+    admin: {
+      typeId: 'booking_created_admin',
+      subject: adminSubject,
+      html: adminHtml,
+      payload,
+    },
+  };
+};
+
+const buildFeedbackEmailPreviews = async (
+  unitId: string,
+  booking: BookingRecord,
+  unitName: string,
+  bookingId: string
+): Promise<{ guest: EmailPreview; admin: EmailPreview }> => {
+  const locale = booking.locale || 'hu';
+  const settings = await getReservationSettings(unitId);
+  const customSelects = settings.guestForm?.customSelects || [];
+  const publicBaseUrl = getPublicBaseUrl(settings);
+  const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
+
+  const payload = buildPayload(booking, unitName, locale, '', {
+    bookingId,
+    customSelects,
+    publicBaseUrl,
+  });
+
+  const feedbackLink = buildFeedbackLink(publicBaseUrl, unitId, bookingId);
+  const payloadWithFeedback = { ...payload, feedbackLink };
+
+  const guestTemplate = await resolveEmailTemplate(
+    unitId,
+    'feedback_request_guest',
+    payloadWithFeedback
+  );
+  const guestSubject = renderTemplate(
+    guestTemplate.subject || defaultTemplates.feedback_request_guest.subject,
+    payloadWithFeedback
+  );
+  const guestBaseHtml = renderTemplate(
+    guestTemplate.html || defaultTemplates.feedback_request_guest.html,
+    payloadWithFeedback
+  );
+  const guestHtml = appendHtmlSafely(
+    guestBaseHtml,
+    `${buildButtonBlock(
+      [
+        {
+          label: 'VISSZAJELZÉS KÜLDÉSE',
+          url: feedbackLink,
+        },
+      ],
+      theme
+    )}${buildDetailsCardHtml(payloadWithFeedback, theme)}`
+  );
+
+  const adminTemplate = await resolveEmailTemplate(
+    unitId,
+    'feedback_request_admin',
+    payloadWithFeedback
+  );
+  const adminSubject = renderTemplate(
+    adminTemplate.subject || defaultTemplates.feedback_request_admin.subject,
+    payloadWithFeedback
+  );
+  const adminBaseHtml = renderTemplate(
+    adminTemplate.html || defaultTemplates.feedback_request_admin.html,
+    payloadWithFeedback
+  );
+  const adminHtml = appendHtmlSafely(
+    adminBaseHtml,
+    `${buildButtonBlock(
+      [
+        {
+          label: 'VISSZAJELZÉS LINK MEGNYITÁSA',
+          url: feedbackLink,
+        },
+      ],
+      theme
+    )}${buildDetailsCardHtml(payloadWithFeedback, theme)}`
+  );
+
+  return {
+    guest: {
+      typeId: 'feedback_request_guest',
+      subject: guestSubject,
+      html: guestHtml,
+      payload: payloadWithFeedback,
+    },
+    admin: {
+      typeId: 'feedback_request_admin',
+      subject: adminSubject,
+      html: adminHtml,
+      payload: payloadWithFeedback,
+    },
+  };
+};
+
 const getUnitName = async (unitId: string) => {
   try {
     const snap = await db.doc(`units/${unitId}`).get();
@@ -923,6 +1172,121 @@ const getReservationSettings = async (
     return {};
   }
 };
+
+export const sendTestSystemEmail = onCall(
+  { region: REGION },
+  async request => {
+    const { unitId, type, targetAdminEmail, targetGuestEmail, previewOnly } =
+      (request.data as {
+        unitId?: string;
+        type?: 'booking' | 'feedback';
+        targetAdminEmail?: string;
+        targetGuestEmail?: string;
+        previewOnly?: boolean;
+      }) || {};
+
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Bejelentkezés szükséges.');
+    }
+
+    if (!unitId) {
+      throw new HttpsError('invalid-argument', 'unitId mező kötelező.');
+    }
+
+    if (type !== 'booking' && type !== 'feedback') {
+      throw new HttpsError('invalid-argument', 'Érvénytelen teszt típus.');
+    }
+
+    if (!previewOnly && !targetAdminEmail && !targetGuestEmail) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Küldéshez adj meg legalább egy teszt email címet.'
+      );
+    }
+
+    const role = `${(request.auth.token.role as string | undefined) || ''}`.toLowerCase();
+    const roles = ((request.auth.token.roles as string[] | undefined) || []).map(r =>
+      r.toLowerCase()
+    );
+    const unitRoles =
+      (request.auth.token.unitRoles as Record<string, string> | undefined) || {};
+    const unitRole =
+      unitId && unitRoles[unitId]
+        ? String(unitRoles[unitId]).toLowerCase()
+        : '';
+
+    const isAdmin =
+      role.includes('admin') ||
+      roles.some(r => r.includes('admin')) ||
+      unitRole.includes('admin');
+
+    if (!isAdmin) {
+      throw new HttpsError(
+        'permission-denied',
+        'A teszt funkció csak admin jogosultsággal érhető el.'
+      );
+    }
+
+    const booking = buildDummyBooking(targetGuestEmail || undefined, targetAdminEmail || undefined);
+    const unitName = await getUnitName(unitId);
+    const bookingId = booking.referenceCode || 'test-booking';
+
+    const previews =
+      type === 'feedback'
+        ? await buildFeedbackEmailPreviews(unitId, booking, unitName, bookingId)
+        : await buildBookingEmailPreviews(unitId, booking, unitName, bookingId);
+
+    const adminAllowed = await shouldSendEmail(previews.admin.typeId, unitId);
+    const guestAllowed = await shouldSendEmail(previews.guest.typeId, unitId);
+    const skippedTypes: string[] = [];
+
+    if (!adminAllowed) skippedTypes.push(previews.admin.typeId);
+    if (!guestAllowed) skippedTypes.push(previews.guest.typeId);
+
+    if (previewOnly) {
+      return { previewOnly: true, previews, skippedTypes };
+    }
+
+    const sendTasks: Promise<void>[] = [];
+
+    if (targetGuestEmail && guestAllowed) {
+      sendTasks.push(
+        sendEmail({
+          typeId: previews.guest.typeId,
+          unitId,
+          to: targetGuestEmail,
+          subject: previews.guest.subject,
+          html: previews.guest.html,
+          payload: previews.guest.payload,
+        })
+      );
+    }
+
+    if (targetAdminEmail && adminAllowed) {
+      sendTasks.push(
+        sendEmail({
+          typeId: previews.admin.typeId,
+          unitId,
+          to: targetAdminEmail,
+          subject: previews.admin.subject,
+          html: previews.admin.html,
+          payload: previews.admin.payload,
+        })
+      );
+    }
+
+    if (sendTasks.length) {
+      await Promise.all(sendTasks);
+    }
+
+    return {
+      previewOnly: false,
+      sent: sendTasks.length > 0,
+      previews,
+      skippedTypes,
+    };
+  }
+);
 
 // ---------- EMAIL SENDERS ----------
 

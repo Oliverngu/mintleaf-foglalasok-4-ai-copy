@@ -9,6 +9,7 @@ import PlusIcon from '../icons/PlusIcon';
 import SettingsIcon from '../icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../icons/TrashIcon';
+import EmailTestModal from './EmailTestModal';
 
 interface FoglalasokAppProps {
   currentUser: User;
@@ -117,6 +118,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isEmailTestOpen, setIsEmailTestOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
@@ -311,7 +313,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
                 </button>
             )}
             {isAdmin && activeUnitId && (
-                 <button 
+                <button
+                    onClick={() => setIsEmailTestOpen(true)}
+                    className="bg-indigo-100 text-indigo-700 font-semibold py-2 px-4 rounded-lg hover:bg-indigo-200"
+                >
+                    Teszt Email Modal
+                </button>
+            )}
+            {isAdmin && activeUnitId && (
+                 <button
                     onClick={() => setIsSettingsOpen(true)}
                     className="p-2 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300"
                     title="Foglalási beállítások"
@@ -355,6 +365,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
             booking={bookingToDelete}
             onClose={() => setBookingToDelete(null)}
             onConfirm={handleConfirmDelete}
+        />
+      )}
+      {isEmailTestOpen && activeUnitId && (
+        <EmailTestModal
+          unitId={activeUnitId}
+          onClose={() => setIsEmailTestOpen(false)}
+          defaultAdminEmail={currentUser.email}
         />
       )}
     </div>
