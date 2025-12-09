@@ -905,7 +905,6 @@ const buildBookingEmailPreviews = async (
   const customSelects = settings.guestForm?.customSelects || [];
   const publicBaseUrl = getPublicBaseUrl(settings);
   const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
-
   const payload = buildPayload(booking, unitName, locale, '', {
     bookingId,
     customSelects,
@@ -997,6 +996,7 @@ const buildFeedbackEmailPreviews = async (
   const publicBaseUrl = getPublicBaseUrl(settings);
   const theme = settings.themeMode === 'dark' ? 'dark' : 'light';
 
+  const locale = booking.locale || 'hu';
   const payload = buildPayload(booking, unitName, locale, '', {
     bookingId,
     customSelects,
@@ -1016,7 +1016,7 @@ const buildFeedbackEmailPreviews = async (
   const adminHtml = appendHtmlSafely(
     `<div style="font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; line-height: 1.6;">
       <h2>Visszajelzés kérése elküldve</h2>
-      <p>Vendég: ${payload.guestName || payload.name || 'Ismeretlen vendég'}</p>
+      <p>Vendég: ${payload.guestName || 'Ismeretlen vendég'}</p>
       <p>Egység: ${unitName}</p>
       <p>Dátum: ${payload.bookingDate || booking.date || ''}</p>
     </div>`,
