@@ -685,105 +685,6 @@ const buildCustomFieldsHtml = (
   `;
 };
 
-const buildDetailsCardHtml = (
-  payload: Record<string, any>,
-  theme: 'light' | 'dark' = 'light'
-) => {
-  const isDark = theme === 'dark';
-  const background = isDark ? '#111827' : '#f9fafb';
-  const cardBackground = isDark ? '#1f2937' : '#ffffff';
-  const borderColor = isDark ? '#374151' : '#e5e7eb';
-  const textColor = isDark ? '#e5e7eb' : '#111827';
-  const mutedColor = isDark ? '#9ca3af' : '#4b5563';
-
-  const customFieldsHtml = buildCustomFieldsHtml(
-    payload.customSelects,
-    payload.customData || {},
-    mutedColor
-  );
-
-  const statusRow = payload.decisionLabel
-    ? `<div style="display: flex; gap: 8px; align-items: center;"><strong>Státusz:</strong><span style="display: inline-flex; padding: 4px 10px; border-radius: 9999px; background: ${
-        payload.status === 'confirmed' ? '#dcfce7' : '#fee2e2'
-      }; color: ${payload.status === 'confirmed' ? '#166534' : '#991b1b'}; font-weight: 700;">${
-        payload.decisionLabel
-      }</span></div>`
-    : '';
-
-  const occasionRow = payload.occasion
-    ? `<div><strong>Alkalom:</strong> <span style="color: ${mutedColor};">${payload.occasion}</span></div>`
-    : '';
-
-  const occasionOtherRow = payload.occasionOther
-    ? `<div><strong>Alkalom (egyéb):</strong> <span style="color: ${mutedColor};">${payload.occasionOther}</span></div>`
-    : '';
-
-  const notesRow = payload.notes
-    ? `<div style="margin-top: 12px;"><strong>Megjegyzés:</strong><div style="margin-top: 4px; color: ${mutedColor}; white-space: pre-line;">${payload.notes}</div></div>`
-    : '';
-
-  const autoConfirmRow =
-    payload.reservationMode === 'auto'
-      ? payload.locale === 'en'
-        ? 'Yes'
-        : 'Igen'
-      : payload.locale === 'en'
-      ? 'No'
-      : 'Nem';
-
-  return `
-    <div class="mintleaf-card-wrapper" style="background: ${background}; padding: 16px;">
-      <div
-        class="mintleaf-card"
-        style="background: ${cardBackground}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 24px; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: ${textColor};"
-      >
-        <h3 style="margin: 0 0 12px 0; font-size: 20px;">Foglalás részletei</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 14px; line-height: 1.5;">
-          <div><strong>Egység neve:</strong> <span style="color: ${mutedColor};">${payload.unitName}</span></div>
-          <div><strong>Vendég neve:</strong> <span style="color: ${mutedColor};">${payload.guestName}</span></div>
-          <div><strong>Dátum:</strong> <span style="color: ${mutedColor};">${payload.bookingDate}</span></div>
-          <div><strong>Időpont:</strong> <span style="color: ${mutedColor};">${payload.bookingTimeRange}</span></div>
-          <div><strong>Létszám:</strong> <span style="color: ${mutedColor};">${payload.headcount}</span></div>
-          ${occasionRow}
-          ${occasionOtherRow}
-          <div><strong>Email:</strong> <span style="color: ${mutedColor};">${payload.guestEmail}</span></div>
-          <div><strong>Telefon:</strong> <span style="color: ${mutedColor};">${payload.guestPhone}</span></div>
-          <div><strong>Foglalás azonosító:</strong> <span style="color: ${mutedColor};">${payload.bookingRef}</span></div>
-          <div><strong>Automatikus megerősítés:</strong> <span style="color: ${mutedColor};">${autoConfirmRow}</span></div>
-        </div>
-        ${statusRow}
-        ${customFieldsHtml}
-        ${notesRow}
-      </div>
-    </div>
-    <style>
-      .mintleaf-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 12px 18px;
-        border-radius: 9999px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        text-decoration: none;
-        background: #16a34a;
-        color: #ffffff;
-        border: 1px solid transparent;
-      }
-      .mintleaf-btn-danger {
-        background: #dc2626;
-      }
-      @media (prefers-color-scheme: dark) {
-        .mintleaf-card-wrapper { background-color: #111827 !important; }
-        .mintleaf-card { background-color: #1f2937 !important; border-color: #374151 !important; color: #e5e7eb !important; }
-        .mintleaf-card strong { color: #e5e7eb !important; }
-        .mintleaf-card span { color: #d1d5db !important; }
-        .mintleaf-btn { color: #ffffff !important; }
-      }
-    </style>
-  `;
-};
-
 export const onQueuedEmailCreated = onDocumentCreated(
   {
     region: REGION,
@@ -854,18 +755,14 @@ export const onQueuedEmailCreated = onDocumentCreated(
   }
 );
 
-const appendHtmlSafely = (baseHtml: string, extraHtml: string): string => {
-  if (!baseHtml) return extraHtml;
-
-  if (/<\/body>/i.test(baseHtml)) {
-    return baseHtml.replace(/<\/body>/i, `${extraHtml}</body>`);
+const appendHtmlSafely = (baseHtml: string, contentToAppend: string): string => {
+  if (!baseHtml) return contentToAppend;
+  // Ha van </body> tag, elé szúrjuk be
+  if (baseHtml.includes('</body>')) {
+    return baseHtml.replace('</body>', `${contentToAppend}</body>`);
   }
-
-  if (/<\/html>/i.test(baseHtml)) {
-    return baseHtml.replace(/<\/html>/i, `${extraHtml}</html>`);
-  }
-
-  return `${baseHtml}${extraHtml}`;
+  // Ha nincs, csak a végére csapjuk
+  return baseHtml + contentToAppend;
 };
 
 const getPublicBaseUrl = (settings?: ReservationSettings) => {
@@ -885,9 +782,12 @@ const buildPayload = (
     publicBaseUrl?: string;
   } = {}
 ) => {
+  const start = (booking as any).startTime || (booking as any).start || new Date();
+  const end = (booking as any).endTime || (booking as any).end || null;
+
   const { bookingDate, bookingTimeFrom, bookingTimeTo, bookingTimeRange } = buildTimeFields(
-    booking.startTime,
-    booking.endTime,
+    start,
+    end,
     locale
   );
 
@@ -895,28 +795,30 @@ const buildPayload = (
   const occasion = (customData.occasion as string) || booking.occasion || '';
   const occasionOther = (customData.occasionOther as string) || '';
 
-  const bookingRef =
-    booking.referenceCode?.substring(0, 8).toUpperCase() || booking.referenceCode || '';
+  const refBase =
+    booking.referenceCode || (customData.bookingRef as string) || (booking as any).bookingRef || '';
+  const bookingRef = refBase ? refBase.substring(0, 8).toUpperCase() : '';
 
   return {
-    guestName: booking.name || '',
+    guestName: booking.guestName || booking.name || 'Teszt Vendég',
     unitName,
     bookingDate,
     bookingTimeFrom,
     bookingTimeTo,
     bookingTimeRange,
-    headcount: booking.headcount || 0,
+    headcount: booking.headcount || (customData.headcount as number) || 0,
     decisionLabel,
     bookingRef,
-    guestEmail: booking.contact?.email || booking.email || '',
-    guestPhone: booking.contact?.phoneE164 || booking.phone || '',
+    guestEmail:
+      booking.contact?.email || booking.email || (customData.guestEmail as string) || 'guest@example.com',
+    guestPhone: booking.contact?.phoneE164 || booking.phone || (customData.phone as string) || '',
     occasion,
     occasionOther,
-    notes: booking.notes || '',
+    notes: booking.notes || (customData.notes as string) || '',
     reservationMode: booking.reservationMode,
     adminActionToken: booking.adminActionToken,
     status: booking.status,
-    bookingId: options.bookingId || bookingRef,
+    bookingId: options.bookingId || bookingRef || refBase || 'test-booking',
     customSelects: options.customSelects || [],
     customData,
     locale,
@@ -941,9 +843,11 @@ const buildDummyBooking = (
 
   return {
     name: 'Teszt Vendég',
+    guestName: 'Teszt Vendég',
     headcount: 4,
     occasion: 'Születésnap',
     startTime: now,
+    date: new Date(now.toMillis()).toISOString().slice(0, 10),
     endTime: end,
     status: 'pending',
     createdAt: now,
@@ -964,6 +868,41 @@ const buildDummyBooking = (
       adminTestRecipient: adminEmail,
     },
   };
+};
+
+const buildDetailsCardHtml = (payload: any, theme: string): string => {
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#1f2937' : '#f3f4f6';
+  const textColor = isDark ? '#e5e7eb' : '#374151';
+
+  let rows = '';
+  const fields = [
+    { label: 'Dátum', val: payload.bookingDate },
+    { label: 'Időpont', val: payload.bookingTimeRange },
+    { label: 'Vendég', val: payload.guestName },
+    { label: 'Létszám', val: `${payload.headcount} fő` },
+    { label: 'Ref', val: payload.bookingRef },
+  ];
+
+  fields.forEach(f => {
+    if (f.val) {
+      rows += `
+        <tr>
+          <td style="padding: 4px 0; color: #9ca3af; font-size: 12px;">${f.label}:</td>
+          <td style="padding: 4px 0 4px 8px; color: ${textColor}; font-weight: 600;">${f.val}</td>
+        </tr>
+      `;
+    }
+  });
+
+  return `
+    <div style="margin-top: 20px; background-color: ${bgColor}; padding: 16px; border-radius: 8px;">
+      <h3 style="margin: 0 0 10px 0; color: ${textColor}; font-size: 14px; text-transform: uppercase;">Foglalás adatai</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        ${rows}
+      </table>
+    </div>
+  `;
 };
 
 const buildFeedbackLink = (baseUrl: string, unitId: string, bookingId: string) =>
@@ -1293,7 +1232,7 @@ export const sendTestSystemEmail = onCall(
         skippedTypes,
       };
     } catch (err: any) {
-      logger.error('sendTestSystemEmail failed', err);
+      logger.error("TEST EMAIL FAILED", err);
       throw new HttpsError('internal', err?.message || 'sendTestSystemEmail failed');
     }
   }
