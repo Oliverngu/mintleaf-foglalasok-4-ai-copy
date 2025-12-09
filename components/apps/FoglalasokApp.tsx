@@ -9,6 +9,8 @@ import PlusIcon from '../icons/PlusIcon';
 import SettingsIcon from '../icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../icons/TrashIcon';
+import EmailTestModal from './EmailTestModal';
+import InvitationIcon from '../icons/InvitationIcon';
 
 interface FoglalasokAppProps {
   currentUser: User;
@@ -118,6 +120,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const [showEmailTestModal, setShowEmailTestModal] = useState(false);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
@@ -295,14 +298,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Foglalások</h1>
         <div className="flex items-center gap-3">
-             <button 
-                onClick={openGuestPage}
-                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-            >
-                Vendégoldal megnyitása
-            </button>
+            <button
+               onClick={openGuestPage}
+               className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+           >
+               Vendégoldal megnyitása
+           </button>
+            {isAdmin && activeUnitId && (
+                <button
+                    onClick={() => setShowEmailTestModal(true)}
+                    className="bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center gap-2"
+                >
+                    <InvitationIcon className="h-5 w-5" />
+                    Teszt email
+                </button>
+            )}
             {canAddBookings && (
-                <button 
+                <button
                     onClick={() => setIsAddModalOpen(true)}
                     className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
                 >
@@ -336,7 +348,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
           onDelete={setBookingToDelete}
         />
       )}
-       {isAddModalOpen && (
+      {isAddModalOpen && (
         <AddBookingModal
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
@@ -349,6 +361,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
             unitId={activeUnitId}
             onClose={() => setIsSettingsOpen(false)}
         />
+      )}
+      {showEmailTestModal && activeUnitId && (
+        <EmailTestModal unitId={activeUnitId} onClose={() => setShowEmailTestModal(false)} />
       )}
       {bookingToDelete && (
         <DeleteConfirmationModal
