@@ -1146,62 +1146,55 @@ const getReservationSettings = async (
 export const sendTestSystemEmail = onCall(
   { region: REGION },
   async request => {
-    logger.info("Starting sendTestSystemEmail", { auth: request.auth?.uid });
+    // 1. CHECKPOINT
+    logger.info("DEBUG: sendTestSystemEmail started", { uid: request.auth?.uid });
 
     try {
-      const { unitId, type, targetAdminEmail, targetGuestEmail, previewOnly } =
-        (request.data as {
-          unitId?: string;
-          type?: 'booking' | 'feedback';
-          targetAdminEmail?: string;
-          targetGuestEmail?: string;
-          previewOnly?: boolean;
-        }) || {};
+      // Auth ellenőrzés
+      if (!request.auth) throw new Error('Nem vagy bejelentkezve (No Auth).');
 
-      if (!request.auth) throw new HttpsError('unauthenticated', 'Auth required.');
-      if (!unitId) throw new HttpsError('invalid-argument', 'UnitId required.');
+      const { unitId, type, targetAdminEmail, targetGuestEmail, previewOnly } = request.data || {};
+      if (!unitId) throw new Error('Hiányzó unitId.');
 
-      // 1. Jogosultság ellenőrzés
-      // (Egyszerűsített check a debug kedvéért, de maradhat a te logikád is)
-      logger.info("Checking permissions...");
-      const token = request.auth.token;
-      // ... (Itt hagyd meg az eredeti permission logikát) ...
+      // 2. CHECKPOINT
+      logger.info("DEBUG: Data extracted", { unitId, type, previewOnly });
 
-      // 2. Dummy Data Generálás
-      logger.info("Building dummy booking...");
+      // Dummy Data
+      // (Feltételezzük, hogy a buildDummyBooking már létezik és helyes)
       const booking = buildDummyBooking(targetGuestEmail, targetAdminEmail);
       const unitName = await getUnitName(unitId);
-      const bookingId = booking.referenceCode || 'TEST-BOOKING';
+      const bookingId = booking.referenceCode || 'DBG-BOOKING';
 
-      // 3. Preview Generálás (Itt szokott elszállni a helper hiba miatt)
-      logger.info(`Generating previews for type: ${type}`);
+      // 3. CHECKPOINT - Itt szokott elszállni a template/helper hiba miatt
+      logger.info("DEBUG: Generating previews...");
+
       let previews;
+      // Külön try-catch a preview generálásra, hogy pontosítsuk a hibát
       try {
         if (type === 'feedback') {
           previews = await buildFeedbackEmailPreviews(unitId, booking, unitName, bookingId);
         } else {
           previews = await buildBookingEmailPreviews(unitId, booking, unitName, bookingId);
         }
-        logger.info("Previews generated successfully", {
-          guestSubject: previews.guest.subject,
-          adminSubject: previews.admin.subject,
-        });
-      } catch (previewError: any) {
-        logger.error("Preview generation failed", previewError);
-        throw new HttpsError('internal', `Preview generation failed: ${previewError.message}`);
+      } catch (previewErr: any) {
+        throw new Error(`PREVIEW GENERATION FAILED: ${previewErr.message}`);
       }
 
-      // 4. Return Preview Only
+      if (!previews) throw new Error('Previews object is null/undefined');
+
+      logger.info("DEBUG: Previews generated OK");
+
+      // Ha csak preview kell, itt megállunk
       if (previewOnly) {
         return { previewOnly: true, previews, skippedTypes: [] };
       }
 
-      // 5. Sending Emails
-      logger.info("Sending emails...");
+      // Küldés
+      logger.info("DEBUG: Sending emails via Gateway...");
+
       const sendTasks: Promise<void>[] = [];
 
       if (targetGuestEmail) {
-        logger.info(`Queueing guest email to: ${targetGuestEmail}`);
         sendTasks.push(
           sendEmail({
             typeId: previews.guest.typeId,
@@ -1215,7 +1208,6 @@ export const sendTestSystemEmail = onCall(
       }
 
       if (targetAdminEmail) {
-        logger.info(`Queueing admin email to: ${targetAdminEmail}`);
         sendTasks.push(
           sendEmail({
             typeId: previews.admin.typeId,
@@ -1229,7 +1221,7 @@ export const sendTestSystemEmail = onCall(
       }
 
       await Promise.all(sendTasks);
-      logger.info("Emails sent successfully.");
+      logger.info("DEBUG: Emails sent successfully");
 
       return {
         previewOnly: false,
@@ -1238,9 +1230,11 @@ export const sendTestSystemEmail = onCall(
         skippedTypes: [],
       };
     } catch (err: any) {
-      logger.error("TEST EMAIL CRITICAL FAILURE", err);
-      // FONTOS: Visszaküldjük a hiba üzenetét a kliensnek
-      throw new HttpsError('internal', `System Error: ${err.message}`);
+      // 4. CRITICAL ERROR LOGGING
+      logger.error("DEBUG: CRITICAL FAILURE", { message: err.message, stack: err.stack });
+
+      // ITT A LÉNYEG: Visszaküldjük a hiba szövegét a kliensnek!
+      throw new HttpsError('internal', `DEBUG ERROR: ${err.message}`);
     }
   }
 );
