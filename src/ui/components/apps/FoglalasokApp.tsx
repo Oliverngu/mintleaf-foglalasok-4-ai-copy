@@ -19,6 +19,8 @@ import PlusIcon from '../../../../components/icons/PlusIcon';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
+import InvitationIcon from '../../../../components/icons/InvitationIcon';
+import EmailTestModal from '../../../../components/apps/EmailTestModal';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType = 'created' | 'cancelled' | 'updated' | 'guest_created' | 'guest_cancelled';
@@ -290,6 +292,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showEmailTestModal, setShowEmailTestModal] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
@@ -636,6 +639,16 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Foglalások</h1>
         <div className="flex items-center gap-3">
+          {isAdmin && activeUnitId && (
+            <button
+              onClick={() => setShowEmailTestModal(true)}
+              className="bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-lg hover:bg-indigo-200 flex items-center gap-2"
+              title="Email értesítések tesztelése"
+            >
+              <InvitationIcon className="h-5 w-5" />
+              <span className="hidden md:inline">Email teszt</span>
+            </button>
+          )}
           <button
             onClick={openGuestPage}
             className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
@@ -719,6 +732,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           booking={bookingToDelete}
           onClose={() => setBookingToDelete(null)}
           onConfirm={handleConfirmDelete}
+        />
+      )}
+      {showEmailTestModal && activeUnitId && (
+        <EmailTestModal
+          unitId={activeUnitId}
+          onClose={() => setShowEmailTestModal(false)}
+          defaultAdminEmail={currentUser.email}
         />
       )}
     </div>
