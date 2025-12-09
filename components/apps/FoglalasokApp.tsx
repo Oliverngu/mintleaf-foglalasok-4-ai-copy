@@ -316,8 +316,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
                 <button
                     onClick={() => setIsEmailTestOpen(true)}
                     className="bg-indigo-100 text-indigo-700 font-semibold py-2 px-4 rounded-lg hover:bg-indigo-200"
+                    title="Email értesítések tesztelése"
                 >
-                    Teszt Email Modal
+                    Email teszt
                 </button>
             )}
             {isAdmin && activeUnitId && (
