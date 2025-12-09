@@ -297,21 +297,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Foglalások</h1>
         <div className="flex items-center gap-3">
-             <button 
-                onClick={openGuestPage}
-                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-            >
-                Vendégoldal megnyitása
-            </button>
-            {canAddBookings && (
-                <button 
-                    onClick={() => setIsAddModalOpen(true)}
-                    className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
-                >
-                    <PlusIcon className="h-5 w-5" />
-                    Új foglalás
-                </button>
-            )}
             {isAdmin && activeUnitId && (
                 <button
                     onClick={() => setIsEmailTestOpen(true)}
@@ -319,6 +304,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
                     title="Email értesítések tesztelése"
                 >
                     Email teszt
+                </button>
+            )}
+            <button
+                onClick={openGuestPage}
+                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+                Vendégoldal megnyitása
+            </button>
+            {canAddBookings && (
+                <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
+                >
+                    <PlusIcon className="h-5 w-5" />
+                    Új foglalás
                 </button>
             )}
             {isAdmin && activeUnitId && (
