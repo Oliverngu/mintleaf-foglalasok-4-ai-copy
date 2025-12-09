@@ -10,6 +10,7 @@ import SettingsIcon from '../icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../icons/TrashIcon';
 import EmailTestModal from './EmailTestModal';
+import InvitationIcon from '../icons/InvitationIcon';
 
 interface FoglalasokAppProps {
   currentUser: User;
@@ -118,7 +119,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isEmailTestOpen, setIsEmailTestOpen] = useState(false);
+  const [showEmailTestModal, setShowEmailTestModal] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
@@ -299,11 +300,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
         <div className="flex items-center gap-3">
             {isAdmin && activeUnitId && (
                 <button
-                    onClick={() => setIsEmailTestOpen(true)}
-                    className="bg-indigo-100 text-indigo-700 font-semibold py-2 px-4 rounded-lg hover:bg-indigo-200"
+                    onClick={() => setShowEmailTestModal(true)}
+                    className="bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-lg hover:bg-indigo-200 flex items-center gap-2"
                     title="Email értesítések tesztelése"
                 >
-                    Email teszt
+                    <InvitationIcon className="h-5 w-5" />
+                    <span className="hidden md:inline">Email teszt</span>
                 </button>
             )}
             <button
@@ -368,10 +370,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({ currentUser, canAddBookin
             onConfirm={handleConfirmDelete}
         />
       )}
-      {isEmailTestOpen && activeUnitId && (
+      {showEmailTestModal && activeUnitId && (
         <EmailTestModal
           unitId={activeUnitId}
-          onClose={() => setIsEmailTestOpen(false)}
+          onClose={() => setShowEmailTestModal(false)}
           defaultAdminEmail={currentUser.email}
         />
       )}
