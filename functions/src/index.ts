@@ -479,9 +479,15 @@ const resolveEmailTemplate = async (
   const hardcoded = defaultTemplates[typeId];
 
   const subjectTemplate =
-    unitOverride?.subject || defaultOverride?.subject || hardcoded.subject;
+    unitOverride?.subject ||
+    defaultOverride?.subject ||
+    hardcoded?.subject ||
+    '[MintLeaf] Teszt email';
   const htmlTemplate =
-    unitOverride?.html || defaultOverride?.html || hardcoded.html;
+    unitOverride?.html ||
+    defaultOverride?.html ||
+    hardcoded?.html ||
+    '<h3>Email sablon nem található</h3><p>Ez egy alapértelmezett teszt tartalom.</p>';
 
   return {
     subject: subjectTemplate,
@@ -1176,115 +1182,120 @@ const getReservationSettings = async (
 export const sendTestSystemEmail = onCall(
   { region: REGION },
   async request => {
-    const { unitId, type, targetAdminEmail, targetGuestEmail, previewOnly } =
-      (request.data as {
-        unitId?: string;
-        type?: 'booking' | 'feedback';
-        targetAdminEmail?: string;
-        targetGuestEmail?: string;
-        previewOnly?: boolean;
-      }) || {};
+    try {
+      const { unitId, type, targetAdminEmail, targetGuestEmail, previewOnly } =
+        (request.data as {
+          unitId?: string;
+          type?: 'booking' | 'feedback';
+          targetAdminEmail?: string;
+          targetGuestEmail?: string;
+          previewOnly?: boolean;
+        }) || {};
 
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Bejelentkezés szükséges.');
-    }
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Bejelentkezés szükséges.');
+      }
 
-    if (!unitId) {
-      throw new HttpsError('invalid-argument', 'unitId mező kötelező.');
-    }
+      if (!unitId) {
+        throw new HttpsError('invalid-argument', 'unitId mező kötelező.');
+      }
 
-    if (type !== 'booking' && type !== 'feedback') {
-      throw new HttpsError('invalid-argument', 'Érvénytelen teszt típus.');
-    }
+      if (type !== 'booking' && type !== 'feedback') {
+        throw new HttpsError('invalid-argument', 'Érvénytelen teszt típus.');
+      }
 
-    if (!previewOnly && !targetAdminEmail && !targetGuestEmail) {
-      throw new HttpsError(
-        'invalid-argument',
-        'Küldéshez adj meg legalább egy teszt email címet.'
+      if (!previewOnly && !targetAdminEmail && !targetGuestEmail) {
+        throw new HttpsError(
+          'invalid-argument',
+          'Küldéshez adj meg legalább egy teszt email címet.'
+        );
+      }
+
+      const role = `${(request.auth.token.role as string | undefined) || ''}`.toLowerCase();
+      const roles = ((request.auth.token.roles as string[] | undefined) || []).map(r =>
+        r.toLowerCase()
       );
+      const unitRoles =
+        (request.auth.token.unitRoles as Record<string, string> | undefined) || {};
+      const unitRole =
+        unitId && unitRoles[unitId]
+          ? String(unitRoles[unitId]).toLowerCase()
+          : '';
+
+      const isAdmin =
+        role.includes('admin') ||
+        roles.some(r => r.includes('admin')) ||
+        unitRole.includes('admin');
+
+      if (!isAdmin) {
+        throw new HttpsError(
+          'permission-denied',
+          'A teszt funkció csak admin jogosultsággal érhető el.'
+        );
+      }
+
+      const booking = buildDummyBooking(targetGuestEmail || undefined, targetAdminEmail || undefined);
+      const unitName = await getUnitName(unitId);
+      const bookingId = booking.referenceCode || 'test-booking';
+
+      const previews =
+        type === 'feedback'
+          ? await buildFeedbackEmailPreviews(unitId, booking, unitName, bookingId)
+          : await buildBookingEmailPreviews(unitId, booking, unitName, bookingId);
+
+      const adminAllowed = await shouldSendEmail(previews.admin.typeId, unitId);
+      const guestAllowed = await shouldSendEmail(previews.guest.typeId, unitId);
+      const skippedTypes: string[] = [];
+
+      if (!adminAllowed) skippedTypes.push(previews.admin.typeId);
+      if (!guestAllowed) skippedTypes.push(previews.guest.typeId);
+
+      if (previewOnly) {
+        return { previewOnly: true, previews, skippedTypes };
+      }
+
+      const sendTasks: Promise<void>[] = [];
+
+      if (targetGuestEmail && guestAllowed) {
+        sendTasks.push(
+          sendEmail({
+            typeId: previews.guest.typeId,
+            unitId,
+            to: targetGuestEmail,
+            subject: previews.guest.subject,
+            html: previews.guest.html,
+            payload: previews.guest.payload,
+          })
+        );
+      }
+
+      if (targetAdminEmail && adminAllowed) {
+        sendTasks.push(
+          sendEmail({
+            typeId: previews.admin.typeId,
+            unitId,
+            to: targetAdminEmail,
+            subject: previews.admin.subject,
+            html: previews.admin.html,
+            payload: previews.admin.payload,
+          })
+        );
+      }
+
+      if (sendTasks.length) {
+        await Promise.all(sendTasks);
+      }
+
+      return {
+        previewOnly: false,
+        sent: sendTasks.length > 0,
+        previews,
+        skippedTypes,
+      };
+    } catch (err: any) {
+      logger.error('sendTestSystemEmail failed', err);
+      throw new HttpsError('internal', err?.message || 'sendTestSystemEmail failed');
     }
-
-    const role = `${(request.auth.token.role as string | undefined) || ''}`.toLowerCase();
-    const roles = ((request.auth.token.roles as string[] | undefined) || []).map(r =>
-      r.toLowerCase()
-    );
-    const unitRoles =
-      (request.auth.token.unitRoles as Record<string, string> | undefined) || {};
-    const unitRole =
-      unitId && unitRoles[unitId]
-        ? String(unitRoles[unitId]).toLowerCase()
-        : '';
-
-    const isAdmin =
-      role.includes('admin') ||
-      roles.some(r => r.includes('admin')) ||
-      unitRole.includes('admin');
-
-    if (!isAdmin) {
-      throw new HttpsError(
-        'permission-denied',
-        'A teszt funkció csak admin jogosultsággal érhető el.'
-      );
-    }
-
-    const booking = buildDummyBooking(targetGuestEmail || undefined, targetAdminEmail || undefined);
-    const unitName = await getUnitName(unitId);
-    const bookingId = booking.referenceCode || 'test-booking';
-
-    const previews =
-      type === 'feedback'
-        ? await buildFeedbackEmailPreviews(unitId, booking, unitName, bookingId)
-        : await buildBookingEmailPreviews(unitId, booking, unitName, bookingId);
-
-    const adminAllowed = await shouldSendEmail(previews.admin.typeId, unitId);
-    const guestAllowed = await shouldSendEmail(previews.guest.typeId, unitId);
-    const skippedTypes: string[] = [];
-
-    if (!adminAllowed) skippedTypes.push(previews.admin.typeId);
-    if (!guestAllowed) skippedTypes.push(previews.guest.typeId);
-
-    if (previewOnly) {
-      return { previewOnly: true, previews, skippedTypes };
-    }
-
-    const sendTasks: Promise<void>[] = [];
-
-    if (targetGuestEmail && guestAllowed) {
-      sendTasks.push(
-        sendEmail({
-          typeId: previews.guest.typeId,
-          unitId,
-          to: targetGuestEmail,
-          subject: previews.guest.subject,
-          html: previews.guest.html,
-          payload: previews.guest.payload,
-        })
-      );
-    }
-
-    if (targetAdminEmail && adminAllowed) {
-      sendTasks.push(
-        sendEmail({
-          typeId: previews.admin.typeId,
-          unitId,
-          to: targetAdminEmail,
-          subject: previews.admin.subject,
-          html: previews.admin.html,
-          payload: previews.admin.payload,
-        })
-      );
-    }
-
-    if (sendTasks.length) {
-      await Promise.all(sendTasks);
-    }
-
-    return {
-      previewOnly: false,
-      sent: sendTasks.length > 0,
-      previews,
-      skippedTypes,
-    };
   }
 );
 
