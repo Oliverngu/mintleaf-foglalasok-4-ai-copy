@@ -110,9 +110,11 @@ export const guestUpdateReservation = onRequest(
 
 interface BookingRecord {
   name?: string;
+  guestName?: string; // <--- ADDED
   headcount?: number;
   occasion?: string;
   startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  date?: string;      // <--- ADDED
   endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';
   createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
