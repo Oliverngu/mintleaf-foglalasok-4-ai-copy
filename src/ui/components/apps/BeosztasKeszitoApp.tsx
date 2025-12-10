@@ -38,6 +38,7 @@ import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import { generateExcelExport } from './ExportModal';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import html2canvas from 'html2canvas';
+import ColorPicker from '../common/ColorPicker';
 import ImageIcon from '../../../../components/icons/ImageIcon';
 import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
@@ -724,25 +725,11 @@ const ExportSettingsPanel: FC<{
     id,
     label
   }) => (
-    <div>
-      <label className="block text-sm font-medium text-gray-700">
-        {label}
-      </label>
-      <div className="flex items-center gap-3 mt-1">
-        <input
-          type="color"
-          value={settings[id] as string}
-          onChange={e => handleColorChange(id, e.target.value)}
-          className="h-10 w-14 p-0 border rounded cursor-pointer"
-        />
-        <input
-          type="text"
-          value={settings[id] as string}
-          onChange={e => handleColorChange(id, e.target.value)}
-          className="flex-1 p-2 border rounded"
-        />
-      </div>
-    </div>
+    <ColorPicker
+      label={label}
+      value={settings[id] as string}
+      onChange={value => handleColorChange(id, value)}
+    />
   );
 
   return (

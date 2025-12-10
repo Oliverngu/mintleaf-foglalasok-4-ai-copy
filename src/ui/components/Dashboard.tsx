@@ -28,6 +28,7 @@ import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
 import { KeszletApp } from './apps/KeszletApp';
+import UnitSettingsPage from '../pages/UnitSettingsPage';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -51,6 +52,7 @@ import ChatIcon from '../../../components/icons/ChatIcon';
 import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
+import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -83,6 +85,7 @@ type AppName =
   | 'keszlet'
   | 'velemenyek'
   | 'berezesem'
+  | 'unit_settings'
   | 'adminisztracio'
   | 'szavazasok'
   | 'chat';
@@ -471,6 +474,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
           />
         );
+      case 'unit_settings':
+        if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
+        return (
+          <UnitSettingsPage
+            currentUser={currentUser}
+            allUnits={allUnits}
+            allPermissions={permissions}
+            unitPermissions={unitPermissions}
+            activeUnitIds={activeUnitIds}
+          />
+        );
       case 'adminisztracio':
         if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
         return (
@@ -561,6 +575,13 @@ const Dashboard: React.FC<DashboardProps> = ({
             <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
           </CategoryItem>
 
+          <NavItem
+            app="unit_settings"
+            icon={Cog6ToothIcon}
+            label="Üzlet Beállítások"
+            permission="canManageAdminPage"
+            disabledAppCheck={false}
+          />
           <NavItem
             app="adminisztracio"
             icon={AdminIcon}
