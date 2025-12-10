@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Unit } from '../models/data';
+import { BrandColorConfig, BrandTarget, Unit } from '../models/data';
 
 interface ThemeManagerProps {
   allUnits: Unit[];
@@ -11,7 +11,11 @@ const DEFAULT_PALETTE = {
   secondary: '#166534',
   accent: '#22c55e',
   surface: '#ecfdf3',
+  background: '#f8fafc',
+  text: '#0f172a',
   textOnPrimary: '#ffffff',
+  sidebarBg: '#0f172a',
+  sidebarText: '#ffffff',
 };
 
 const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
@@ -20,18 +24,23 @@ const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
   rootStyle.setProperty('--color-secondary', palette.secondary);
   rootStyle.setProperty('--color-accent', palette.accent);
   rootStyle.setProperty('--color-surface-brand', palette.surface);
+  rootStyle.setProperty('--color-background', palette.background);
+  rootStyle.setProperty('--color-text', palette.text);
+  rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
+  rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
   rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
 };
 
 const hexToRgb = (hex: string) => {
   const normalized = hex.replace('#', '');
   if (![3, 6].includes(normalized.length)) return null;
-  const expanded = normalized.length === 3
-    ? normalized
-        .split('')
-        .map(c => c + c)
-        .join('')
-    : normalized;
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map(c => c + c)
+          .join('')
+      : normalized;
 
   const int = parseInt(expanded, 16);
   return {
@@ -60,26 +69,78 @@ const getContrastText = (hexColor: string | undefined) => {
   return lum > 0.5 ? '#0f172a' : '#ffffff';
 };
 
+const LEGACY_TARGETS: BrandTarget[] = [
+  'primary',
+  'secondary',
+  'accent',
+  'background',
+  'surface',
+];
+
+const mapLegacyColorsToConfigs = (colors: string[]): BrandColorConfig[] =>
+  colors.slice(0, 5).map((color, idx) => ({
+    id: `legacy-${idx}`,
+    color,
+    target: LEGACY_TARGETS[idx] || 'accent',
+  }));
+
 const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) => {
   useEffect(() => {
     const primaryUnit = activeUnitIds.length
       ? allUnits.find(u => u.id === activeUnitIds[0])
       : undefined;
 
-    if (primaryUnit?.uiTheme === 'brand' && primaryUnit.brandColors?.length) {
-      const brandColors = primaryUnit.brandColors;
-      const palette = {
-        primary: brandColors[0] || DEFAULT_PALETTE.primary,
-        secondary: brandColors[1] || brandColors[0] || DEFAULT_PALETTE.secondary,
-        accent: brandColors[2] || brandColors[0] || DEFAULT_PALETTE.accent,
-        surface: brandColors[3] || DEFAULT_PALETTE.surface,
-        textOnPrimary: getContrastText(brandColors[0]),
-      };
+    const basePalette = { ...DEFAULT_PALETTE };
 
-      setCssVariables(palette);
-    } else {
-      setCssVariables(DEFAULT_PALETTE);
+    if (primaryUnit?.uiTheme === 'brand') {
+      const configs =
+        primaryUnit.brandColorConfigs?.length
+          ? primaryUnit.brandColorConfigs
+          : (primaryUnit as any).brandColors?.length
+          ? mapLegacyColorsToConfigs((primaryUnit as any).brandColors)
+          : [];
+
+      if (configs.length) {
+        const targetMap = configs.reduce<Partial<Record<BrandTarget, string>>>(
+          (acc, cfg) => {
+            if (cfg.color) acc[cfg.target] = cfg.color;
+            return acc;
+          },
+          {}
+        );
+
+        const palette = { ...basePalette };
+
+        if (targetMap.primary) {
+          palette.primary = targetMap.primary;
+          palette.textOnPrimary = getContrastText(targetMap.primary);
+        }
+        if (targetMap.secondary) {
+          palette.secondary = targetMap.secondary;
+        }
+        if (targetMap.accent) {
+          palette.accent = targetMap.accent;
+        }
+        if (targetMap.surface) {
+          palette.surface = targetMap.surface;
+        }
+        if (targetMap.background) {
+          palette.background = targetMap.background;
+        }
+        if (targetMap.sidebar) {
+          palette.sidebarBg = targetMap.sidebar;
+          palette.sidebarText = getContrastText(targetMap.sidebar);
+        }
+        if (targetMap.text) {
+          palette.text = targetMap.text;
+        }
+
+        setCssVariables(palette);
+        return;
+      }
     }
+
+    setCssVariables(basePalette);
   }, [allUnits, activeUnitIds]);
 
   return null;

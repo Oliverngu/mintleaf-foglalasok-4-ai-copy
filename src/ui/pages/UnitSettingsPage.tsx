@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
-import { RolePermissions, Unit, User } from '../../core/models/data';
+import { BrandColorConfig, BrandTarget, RolePermissions, Unit, User } from '../../core/models/data';
 import EmailSettingsApp from '../components/admin/EmailSettingsApp';
 import PoziciokApp from '../components/apps/PoziciokApp';
 import JogosultsagokApp from '../components/apps/JogosultsagokApp';
@@ -8,6 +8,8 @@ import ReservationSettingsForm from '../components/apps/ReservationSettingsForm'
 import { useUnitContext } from '../context/UnitContext';
 import ColorPicker from '../components/common/ColorPicker';
 import { db } from '../../core/firebase/config';
+import TrashIcon from '../../../components/icons/TrashIcon';
+import PlusIcon from '../../../components/icons/PlusIcon';
 
 export type UnitSettingsTab =
   | 'branding'
@@ -16,28 +18,75 @@ export type UnitSettingsTab =
   | 'permissions'
   | 'reservations';
 
-interface UnitSettingsPageProps {
+const DEFAULT_BRAND_COLORS = ['#0F172A', '#22C55E', '#15803D', '#0EA5E9', '#F97316'];
+const LEGACY_TARGETS: BrandTarget[] = [
+  'primary',
+  'secondary',
+  'accent',
+  'background',
+  'surface',
+];
+
+const BRAND_TARGET_OPTIONS: { value: BrandTarget; label: string }[] = [
+  { value: 'primary', label: 'Elsődleges (gombok, fejléc)' },
+  { value: 'secondary', label: 'Másodlagos (kiemelések)' },
+  { value: 'accent', label: 'Accent / CTA' },
+  { value: 'background', label: 'Háttér' },
+  { value: 'surface', label: 'Kártya / surface' },
+  { value: 'sidebar', label: 'Oldalsáv' },
+  { value: 'text', label: 'Alap szöveg' },
+];
+
+const createDefaultConfigs = (): BrandColorConfig[] =>
+  DEFAULT_BRAND_COLORS.map((color, idx) => ({
+    id: `default-${idx}`,
+    color,
+    target: LEGACY_TARGETS[idx] || 'accent',
+  }));
+
+const normalizeConfigs = (
+  configs?: BrandColorConfig[] | null,
+  legacyColors?: string[] | null
+): BrandColorConfig[] => {
+  if (configs && configs.length) {
+    return configs.slice(0, 5).map((cfg, idx) => ({
+      id: cfg.id || `brand-${idx}-${Date.now()}`,
+      color: cfg.color || DEFAULT_BRAND_COLORS[idx % DEFAULT_BRAND_COLORS.length],
+      target: cfg.target || LEGACY_TARGETS[idx] || 'primary',
+    }));
+  }
+
+  if (legacyColors && legacyColors.length) {
+    return legacyColors.slice(0, 5).map((color, idx) => ({
+      id: `legacy-${idx}`,
+      color,
+      target: LEGACY_TARGETS[idx] || 'accent',
+    }));
+  }
+
+  return createDefaultConfigs();
+};
+
+const UnitSettingsPage: React.FC<{
   currentUser: User;
   allUnits: Unit[];
   allPermissions: RolePermissions;
   unitPermissions: Record<string, any>;
   activeUnitIds: string[];
   unitId?: string;
-}
-
-const DEFAULT_BRAND_COLORS = ['#0F172A', '#22C55E', '#15803D', '#0EA5E9', '#F97316'];
-
-const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
+}> = ({
   currentUser,
   allUnits,
   allPermissions,
   unitPermissions,
   activeUnitIds,
-  unitId
+  unitId,
 }) => {
   const { selectedUnits } = useUnitContext();
   const [activeTab, setActiveTab] = useState<UnitSettingsTab>('branding');
-  const [brandColors, setBrandColors] = useState<string[]>(DEFAULT_BRAND_COLORS);
+  const [brandConfigs, setBrandConfigs] = useState<BrandColorConfig[]>(
+    createDefaultConfigs()
+  );
   const [uiTheme, setUiTheme] = useState<'default' | 'brand'>('default');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -59,33 +108,39 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
 
   useEffect(() => {
     if (resolvedUnit) {
-      const sourceColors =
-        resolvedUnit.brandColors && resolvedUnit.brandColors.length
-          ? resolvedUnit.brandColors
-          : DEFAULT_BRAND_COLORS;
-      const padded = [...DEFAULT_BRAND_COLORS];
-      sourceColors.forEach((color, idx) => {
-        if (color) {
-          if (idx < padded.length) {
-            padded[idx] = color;
-          } else {
-            padded.push(color);
-          }
-        }
-      });
-      setBrandColors(padded);
+      const normalized = normalizeConfigs(
+        resolvedUnit.brandColorConfigs,
+        (resolvedUnit as any).brandColors || null
+      );
+      setBrandConfigs(normalized);
       setUiTheme(resolvedUnit.uiTheme || 'default');
     }
   }, [resolvedUnit]);
 
-  const handleBrandColorChange = (index: number, value: string) => {
-    setBrandColors(prev => {
-      const next = [...prev];
-      while (next.length <= index) {
-        next.push(DEFAULT_BRAND_COLORS[next.length] || '#000000');
-      }
-      next[index] = value;
-      return next;
+  const handleBrandColorChange = (id: string, value: string) => {
+    setBrandConfigs(prev => prev.map(cfg => (cfg.id === id ? { ...cfg, color: value } : cfg)));
+  };
+
+  const handleTargetChange = (id: string, target: BrandTarget) => {
+    setBrandConfigs(prev => prev.map(cfg => (cfg.id === id ? { ...cfg, target } : cfg)));
+  };
+
+  const handleAddBrandColor = () => {
+    setBrandConfigs(prev => {
+      if (prev.length >= 5) return prev;
+      const nextId = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `brand-${Date.now()}-${prev.length}`;
+      const nextTarget = LEGACY_TARGETS[prev.length] || 'accent';
+      const nextColor = DEFAULT_BRAND_COLORS[prev.length % DEFAULT_BRAND_COLORS.length];
+      return [...prev, { id: nextId, color: nextColor, target: nextTarget }];
+    });
+  };
+
+  const handleRemoveBrandColor = (id: string) => {
+    setBrandConfigs(prev => {
+      if (prev.length <= 1) return prev;
+      return prev.filter(cfg => cfg.id !== id);
     });
   };
 
@@ -95,8 +150,8 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
     setSaveMessage(null);
     try {
       await updateDoc(doc(db, 'units', effectiveUnitId), {
-        brandColors,
-        uiTheme
+        brandColorConfigs: brandConfigs,
+        uiTheme,
       });
       setSaveMessage('Sikeresen elmentve.');
     } catch (error) {
@@ -112,7 +167,7 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
     { id: 'email-notifications', label: 'Email & Értesítések' },
     { id: 'positions', label: 'Pozíciók' },
     { id: 'permissions', label: 'Jogosultságok' },
-    { id: 'reservations', label: 'Foglalások' }
+    { id: 'reservations', label: 'Foglalások' },
   ];
 
   const renderContent = () => {
@@ -148,19 +203,64 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-800">Brand színek</h3>
-                <span className="text-sm text-gray-500">Slot 1 - Slot 5</span>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Brand színek</h3>
+                  <p className="text-sm text-gray-500">Max. 5 szín, mindhez választható célterület.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddBrandColor}
+                  disabled={brandConfigs.length >= 5}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-300 text-sm font-medium text-gray-700 hover:border-gray-400 disabled:opacity-60"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  Új szín hozzáadása
+                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {brandColors.map((color, idx) => (
-                  <ColorPicker
-                    key={idx}
-                    label={`Slot ${idx + 1}`}
-                    value={color}
-                    onChange={val => handleBrandColorChange(idx, val)}
-                    presetColors={brandColors.filter(Boolean)}
-                    hidePresets
-                  />
+
+              <div className="space-y-3">
+                {brandConfigs.map((config, idx) => (
+                  <div
+                    key={config.id}
+                    className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center p-3 rounded-lg border bg-gray-50"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm font-medium text-gray-700">Szín {idx + 1}</span>
+                      <ColorPicker
+                        value={config.color}
+                        onChange={val => handleBrandColorChange(config.id, val)}
+                        presetColors={brandConfigs.map(cfg => cfg.color)}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-full">
+                      <label className="text-sm font-medium text-gray-700">Célterület</label>
+                      <select
+                        value={config.target}
+                        onChange={e => handleTargetChange(config.id, e.target.value as BrandTarget)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        {BRAND_TARGET_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex justify-end w-full">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBrandColor(config.id)}
+                        disabled={brandConfigs.length <= 1}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 border border-red-100 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                        title="Szín törlése"
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                        Törlés
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -242,7 +342,7 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
         ))}
       </div>
 
-      <div className="min-h-[60vh]">{renderContent()}</div>
+      {renderContent()}
     </div>
   );
 };

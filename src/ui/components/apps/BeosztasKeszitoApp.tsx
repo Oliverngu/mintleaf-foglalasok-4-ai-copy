@@ -1355,10 +1355,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const activeBrandColors = useMemo(() => {
     for (const unitId of activeUnitIds) {
-      const colors = unitMap.get(unitId)?.brandColors;
+      const unit = unitMap.get(unitId);
+      const colors = unit?.brandColorConfigs
+        ?.map(cfg => cfg.color)
+        .filter(Boolean);
       if (colors && colors.length) return colors;
+
+      const legacy = (unit as any)?.brandColors as string[] | undefined;
+      if (legacy?.length) return legacy;
     }
-    return unitMap.get(activeUnitIds[0] || '')?.brandColors || [];
+
+    const fallbackUnit = unitMap.get(activeUnitIds[0] || '');
+    if (fallbackUnit?.brandColorConfigs?.length) {
+      return fallbackUnit.brandColorConfigs
+        .map(cfg => cfg.color)
+        .filter(Boolean);
+    }
+
+    const fallbackLegacy = (fallbackUnit as any)?.brandColors as
+      | string[]
+      | undefined;
+    return fallbackLegacy?.length ? fallbackLegacy : [];
   }, [activeUnitIds, unitMap]);
 
   const settingsDocId = useMemo(() => {
