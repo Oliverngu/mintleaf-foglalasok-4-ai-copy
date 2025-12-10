@@ -329,6 +329,21 @@ export interface InventorySettings {
   safetyDaysForSupplyRisk?: number;
 }
 
+export type BrandTarget =
+  | 'primary'
+  | 'secondary'
+  | 'accent'
+  | 'background'
+  | 'surface'
+  | 'sidebar'
+  | 'text';
+
+export interface BrandColorConfig {
+  id: string; // Egyedi azonosító a törléshez/módosításhoz
+  color: string; // HEX kód
+  target: BrandTarget; // Mit színezzen ez a szín?
+}
+
 export interface Unit {
     id: string;
     name: string;
@@ -336,6 +351,10 @@ export interface Unit {
     logoFileId?: string;
     logo?: string;
     sheetId?: string;
+    brandColorConfigs?: BrandColorConfig[]; // ÚJ MEZŐ (a régi brandColors helyett)
+    uiTheme?: 'default' | 'brand';
+    uiHeaderImageUrl?: string;
+    uiBackgroundImageUrl?: string;
 }
 
 export interface Position {
@@ -347,6 +366,7 @@ export interface DailySetting {
     isOpen: boolean;
     openingTime: string;
     closingTime: string;
+    closingOffsetMinutes?: number;
     quotas: { [position: string]: number };
 }
 

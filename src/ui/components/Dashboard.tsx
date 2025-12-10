@@ -28,6 +28,7 @@ import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
 import { KeszletApp } from './apps/KeszletApp';
+import UnitSettingsPage from '../pages/UnitSettingsPage';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -51,6 +52,7 @@ import ChatIcon from '../../../components/icons/ChatIcon';
 import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
+import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -83,6 +85,7 @@ type AppName =
   | 'keszlet'
   | 'velemenyek'
   | 'berezesem'
+  | 'unit_settings'
   | 'adminisztracio'
   | 'szavazasok'
   | 'chat';
@@ -282,7 +285,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         }}
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
           activeApp === app
-            ? 'bg-green-700 text-white shadow-inner'
+            ? 'bg-[var(--color-secondary)] text-white shadow-inner'
             : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
         }`}
         title={label}
@@ -471,6 +474,17 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
           />
         );
+      case 'unit_settings':
+        if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
+        return (
+          <UnitSettingsPage
+            currentUser={currentUser}
+            allUnits={allUnits}
+            allPermissions={permissions}
+            unitPermissions={unitPermissions}
+            activeUnitIds={activeUnitIds}
+          />
+        );
       case 'adminisztracio':
         if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
         return (
@@ -506,26 +520,40 @@ const Dashboard: React.FC<DashboardProps> = ({
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
   return (
-    <div className="relative h-full bg-gray-50 overflow-hidden">
-      {/* Backdrop for sidebar */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden="true"
-        ></div>
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-30 bg-white border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } w-64`}
+    <>
+      <div
+        className="relative h-full overflow-hidden"
+        style={{
+          backgroundColor: 'var(--color-background)',
+          backgroundImage: 'var(--ui-bg-image)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+          color: 'var(--color-text-main)',
+        }}
       >
+        {/* Backdrop for sidebar */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-20"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          ></div>
+        )}
+
+        {/* Sidebar */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } w-64`}
+          style={{ backgroundColor: 'var(--color-sidebar-bg)', color: 'var(--color-sidebar-text)' }}
+        >
         <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
           <div className="flex items-center gap-2">
             <MintLeafLogo className="h-8 w-8" />
-            <span className="font-bold text-xl text-gray-800">MintLeaf</span>
+            <span className="font-bold text-xl" style={{ color: 'var(--color-sidebar-text)' }}>
+              MintLeaf
+            </span>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -562,6 +590,13 @@ const Dashboard: React.FC<DashboardProps> = ({
           </CategoryItem>
 
           <NavItem
+            app="unit_settings"
+            icon={Cog6ToothIcon}
+            label="Üzlet Beállítások"
+            permission="canManageAdminPage"
+            disabledAppCheck={false}
+          />
+          <NavItem
             app="adminisztracio"
             icon={AdminIcon}
             label="Adminisztráció"
@@ -577,7 +612,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             }}
             className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
               activeApp === 'settings'
-                ? 'bg-green-700 text-white shadow-inner'
+                ? 'bg-[var(--color-secondary)] text-white shadow-inner'
                 : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
             }`}
             title="Beállítások"
@@ -592,7 +627,16 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Main Content */}
       <div className="flex flex-col h-full w-full">
-        <header className="h-16 bg-green-800 shadow-md text-white flex items-center justify-between px-6 z-10 flex-shrink-0">
+        <header
+          className="h-16 shadow-md flex items-center justify-between px-6 z-10 flex-shrink-0"
+          style={{
+            backgroundColor: 'var(--color-primary)',
+            color: 'var(--color-text-on-primary)',
+            backgroundImage: 'var(--ui-header-image)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
           <div className="flex items-center gap-4 min-w-0">
             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2">
               <MenuIcon />
@@ -600,9 +644,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             <UnitSelector />
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-right">
+            <div className="text-right" style={{ color: 'var(--color-text-on-primary)' }}>
               <div className="font-semibold">{currentUser.fullName}</div>
-              <div className="text-sm text-green-200">{currentUser.role}</div>
+              <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
             <button
               onClick={onLogout}
@@ -615,7 +659,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         </header>
 
         <main
-          className={`flex-1 min-h-0 overflow-x-hidden bg-gray-100 ${mainOverflowClass}`}
+          className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass}`}
+          style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
         >
           {firestoreError && (
             <div className="sticky top-0 z-20 m-4 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-lg">
@@ -627,6 +672,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </main>
       </div>
     </div>
+  </>
   );
 };
 

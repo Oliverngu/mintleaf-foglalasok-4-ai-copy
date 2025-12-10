@@ -9,12 +9,18 @@ import { auth, db } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy } from 'firebase/firestore';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import { UnitProvider } from './context/UnitContext';
+import { UnitProvider, useUnitContext } from './context/UnitContext';
+import ThemeManager from '../core/theme/ThemeManager';
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 // Bővítettük a PublicPage típust a 'manage' állapottal
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
+
+const ThemeManagerBridge: React.FC<{ allUnits: Unit[] }> = ({ allUnits }) => {
+  const { selectedUnits } = useUnitContext();
+  return <ThemeManager allUnits={allUnits} activeUnitIds={selectedUnits} />;
+};
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('loading');
@@ -385,17 +391,37 @@ const App: React.FC = () => {
         if (publicPage?.type === 'manage') {
             return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
         }
-        return (
-            <div className="fixed inset-0 flex items-center justify-center bg-gray-50 p-4">
+            return (
+            <div
+              className="fixed inset-0 flex items-center justify-center p-4"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                backgroundImage: 'var(--ui-bg-image)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed',
+                color: 'var(--color-text-main)',
+              }}
+            >
                 <div className="text-center">
                     <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
-                    <p className="mt-2 text-gray-700">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
+                    <p className="mt-2">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
                 </div>
             </div>
         );
     case 'loading':
       return (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{
+            backgroundColor: 'var(--color-background)',
+            backgroundImage: 'var(--ui-bg-image)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed',
+            color: 'var(--color-text-main)',
+          }}
+        >
           <LoadingSpinner />
         </div>
       );
@@ -408,23 +434,24 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-            <Dashboard 
-              currentUser={currentUser} 
-              onLogout={handleLogout} 
-              isDemoMode={isDemoMode}
-              requests={requests}
-              shifts={shifts}
-              todos={todos}
-              adminTodos={adminTodos}
-              allUnits={allUnits}
-              allUsers={allUsers}
-              permissions={permissions}
-              unitPermissions={unitPermissions}
-              timeEntries={timeEntries}
-              feedbackList={feedbackList}
-              polls={polls}
-              firestoreError={firestoreError}
-            />
+          <ThemeManagerBridge allUnits={allUnits} />
+          <Dashboard
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            isDemoMode={isDemoMode}
+            requests={requests}
+            shifts={shifts}
+            todos={todos}
+            adminTodos={adminTodos}
+            allUnits={allUnits}
+            allUsers={allUsers}
+            permissions={permissions}
+            unitPermissions={unitPermissions}
+            timeEntries={timeEntries}
+            feedbackList={feedbackList}
+            polls={polls}
+            firestoreError={firestoreError}
+          />
         </UnitProvider>
       );
     case 'login':

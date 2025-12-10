@@ -13,7 +13,8 @@ import {
   Unit,
   Position,
   ScheduleSettings,
-  ExportStyleSettings
+  ExportStyleSettings,
+  DailySetting
 } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
@@ -37,28 +38,40 @@ import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import { generateExcelExport } from './ExportModal';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import html2canvas from 'html2canvas';
+import ColorPicker from '../common/ColorPicker';
 import ImageIcon from '../../../../components/icons/ImageIcon';
 import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
-import ColorPicker from '../common/ColorPicker';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
-  options?: { closingTime?: string | null; referenceDate?: Date }
+  options?: {
+    closingTime?: string | null;
+    closingOffsetMinutes?: number;
+    referenceDate?: Date;
+  }
 ): number => {
   if (shift.isDayOff || !shift.start) return 0;
 
   let end = shift.end?.toDate();
   const referenceDate = options?.referenceDate || shift.start.toDate();
 
-  if (!end && options?.closingTime && referenceDate) {
-    const [hours, minutes] = options.closingTime.split(':').map(Number);
+  if (!end && referenceDate) {
+    const closingTime = options?.closingTime;
+    if (!closingTime) return 0;
+
+    const [hours, minutes] = closingTime.split(':').map(Number);
     end = new Date(referenceDate);
-    end.setHours(hours, minutes, 0, 0);
+    end.setHours(
+      hours,
+      minutes + (options?.closingOffsetMinutes || 0),
+      0,
+      0
+    );
 
     const startDate = shift.start.toDate();
     if (end < startDate) {
@@ -81,6 +94,7 @@ interface ShiftModalProps {
   userId: string;
   date: Date;
   users: User[];
+  schedule: Shift[];
   viewMode: 'draft' | 'published';
 }
 
@@ -93,6 +107,7 @@ const ShiftModal: FC<ShiftModalProps> = ({
   userId,
   date,
   users,
+  schedule,
   viewMode
 }) => {
   const [formData, setFormData] = useState({
@@ -126,6 +141,58 @@ const ShiftModal: FC<ShiftModalProps> = ({
     const user = users.find(u => u.id === formData.userId);
     return user ? user.fullName : '';
   }, [users, formData.userId]);
+
+  const recentShifts = useMemo(() => {
+    return schedule
+      .filter(
+        s =>
+          s.userId === formData.userId &&
+          !!s.start &&
+          !s.isDayOff
+      )
+      .sort(
+        (a, b) =>
+          (b.start?.toMillis() || 0) - (a.start?.toMillis() || 0)
+      )
+      .slice(0, 5);
+  }, [schedule, formData.userId]);
+
+  const formatTime = (timestamp?: Timestamp | null) =>
+    timestamp?.toDate().toTimeString().substring(0, 5) || '';
+
+  const computeTopTimes = useCallback(
+    (getter: (shift: Shift) => string) => {
+      const counts = new Map<string, { count: number; firstIndex: number }>();
+      recentShifts.forEach((shift, idx) => {
+        const time = getter(shift);
+        if (!time) return;
+        const existing = counts.get(time);
+        counts.set(time, {
+          count: (existing?.count || 0) + 1,
+          firstIndex: existing?.firstIndex ?? idx
+        });
+      });
+
+      return Array.from(counts.entries())
+        .sort(
+          (a, b) =>
+            b[1].count - a[1].count || a[1].firstIndex - b[1].firstIndex
+        )
+        .slice(0, 2)
+        .map(([time]) => time);
+    },
+    [recentShifts]
+  );
+
+  const startPresets = useMemo(
+    () => computeTopTimes(shift => formatTime(shift.start)),
+    [computeTopTimes]
+  );
+
+  const endPresets = useMemo(
+    () => computeTopTimes(shift => formatTime(shift.end)),
+    [computeTopTimes]
+  );
 
   if (!isOpen) return null;
 
@@ -185,7 +252,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg"
+        className="rounded-2xl shadow-xl w-full max-w-lg"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <form onSubmit={handleSubmit}>
@@ -236,6 +304,22 @@ const ShiftModal: FC<ShiftModalProps> = ({
                   disabled={isDayOff}
                   required={!isDayOff}
                 />
+                {startPresets.length > 0 && !isDayOff && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {startPresets.map(time => (
+                      <button
+                        type="button"
+                        key={`start-${time}`}
+                        onClick={() =>
+                          setFormData(f => ({ ...f, startTime: time }))
+                        }
+                        className="px-2 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">
@@ -250,6 +334,22 @@ const ShiftModal: FC<ShiftModalProps> = ({
                   className="w-full mt-1 p-2 border rounded-lg"
                   disabled={isDayOff}
                 />
+                {endPresets.length > 0 && !isDayOff && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {endPresets.map(time => (
+                      <button
+                        type="button"
+                        key={`end-${time}`}
+                        onClick={() =>
+                          setFormData(f => ({ ...f, endTime: time }))
+                        }
+                        className="px-2 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div>
@@ -286,7 +386,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
+                className="text-white px-4 py-2 rounded-lg font-semibold"
+                style={{ backgroundColor: 'var(--color-primary)' }}
               >
                 Mentés
               </button>
@@ -339,7 +440,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg"
+        className="rounded-2xl shadow-xl w-full max-w-lg"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
@@ -390,7 +492,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || selectedIds.length === 0}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+            className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             {isSubmitting
               ? 'Publikálás...'
@@ -445,6 +548,7 @@ const createDefaultSettings = (
     isOpen: true,
     openingTime: '08:00',
     closingTime: '22:00',
+    closingOffsetMinutes: 0,
     quotas: {}
   })).reduce(
     (acc, curr, i) => ({
@@ -534,7 +638,8 @@ const getContrastRatio = (hex1: string, hex2: string) => {
 const ExportSettingsPanel: FC<{
   settings: ExportStyleSettings;
   setSettings: React.Dispatch<React.SetStateAction<ExportStyleSettings>>;
-}> = ({ settings, setSettings }) => {
+  presetColors?: string[];
+}> = ({ settings, setSettings, presetColors }) => {
   const handleColorChange = (
     key: keyof ExportStyleSettings,
     value: string
@@ -625,15 +730,12 @@ const ExportSettingsPanel: FC<{
     id,
     label
   }) => (
-    <div>
-      <label className="block text-sm font-medium text-gray-700">
-        {label}
-      </label>
-      <ColorPicker
-        value={settings[id] as string}
-        onChange={newColor => handleColorChange(id, newColor)}
-      />
-    </div>
+    <ColorPicker
+      label={label}
+      value={settings[id] as string}
+      onChange={value => handleColorChange(id, value)}
+      presetColors={presetColors}
+    />
   );
 
   return (
@@ -1068,7 +1170,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-xl"
+        className="rounded-2xl shadow-xl w-full max-w-xl"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
@@ -1125,7 +1228,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
           <button
             onClick={handleConfirmClick}
             disabled={isExporting}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400 flex items-center gap-2"
+            className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400 flex items-center gap-2"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             {isExporting && (
               <svg
@@ -1255,6 +1359,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [allUnits]
   );
 
+  const activeBrandColors = useMemo(() => {
+    for (const unitId of activeUnitIds) {
+      const unit = unitMap.get(unitId);
+      const colors = unit?.brandColorConfigs
+        ?.map(cfg => cfg.color)
+        .filter(Boolean);
+      if (colors && colors.length) return colors;
+
+      const legacy = (unit as any)?.brandColors as string[] | undefined;
+      if (legacy?.length) return legacy;
+    }
+
+    const fallbackUnit = unitMap.get(activeUnitIds[0] || '');
+    if (fallbackUnit?.brandColorConfigs?.length) {
+      return fallbackUnit.brandColorConfigs
+        .map(cfg => cfg.color)
+        .filter(Boolean);
+    }
+
+    const fallbackLegacy = (fallbackUnit as any)?.brandColors as
+      | string[]
+      | undefined;
+    return fallbackLegacy?.length ? fallbackLegacy : [];
+  }, [activeUnitIds, unitMap]);
+
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
     return activeUnitIds.sort().join('_');
@@ -1311,6 +1440,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [currentDate]
   );
 
+  const weekStartDateStr = useMemo(
+    () => toDateString(weekDays[0]),
+    [weekDays]
+  );
+
+  const openingSettings = useMemo(
+    () =>
+      weekSettings ||
+      createDefaultSettings(activeUnitIds[0] || 'default', weekStartDateStr),
+    [weekSettings, activeUnitIds, weekStartDateStr]
+  );
+
   useEffect(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) {
       setUnitWeekSettings({});
@@ -1318,7 +1459,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     let isMounted = true;
-    const weekStartDateStr = toDateString(weekDays[0]);
 
     const loadSettings = async () => {
       const entries = await Promise.all(
@@ -1359,7 +1499,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeUnitIds, weekDays]);
+  }, [activeUnitIds, weekDays, weekStartDateStr]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -1517,8 +1657,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [schedule, viewMode, activeUnitIds]
   );
 
-  const getUnitClosingTimeForDay = useCallback(
-    (shift: Shift, dayIndex: number): string | null => {
+  const getUnitDaySetting = useCallback(
+    (shift: Shift, dayIndex: number): DailySetting | null => {
       if (!shift.unitId) return null;
 
       const unitSettings =
@@ -1526,8 +1666,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         (weekSettings?.unitId === shift.unitId ? weekSettings : undefined);
 
       return (
-        unitSettings?.dailySettings?.[dayIndex]?.closingTime ||
-        weekSettings?.dailySettings?.[dayIndex]?.closingTime ||
+        unitSettings?.dailySettings?.[dayIndex] ||
+        weekSettings?.dailySettings?.[dayIndex] ||
         null
       );
     },
@@ -1585,7 +1725,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           (sum, shift) =>
             sum +
             calculateShiftDuration(shift, {
-              closingTime: getUnitClosingTimeForDay(shift, dayIndex),
+              closingTime:
+                getUnitDaySetting(shift, dayIndex)?.closingTime || null,
+              closingOffsetMinutes:
+                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
               referenceDate: weekDays[dayIndex]
             }),
           0
@@ -1604,7 +1747,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     weekDays,
     shiftsByUserDay,
     weekSettings,
-    getUnitClosingTimeForDay
+    getUnitDaySetting
   ]);
 
   const visibleUsersByPosition = useMemo(() => {
@@ -1821,23 +1964,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   };
 
   const handleSettingsChange = useCallback(
-    async (newSettings: ScheduleSettings) => {
-      setWeekSettings(newSettings);
-      if (!canManage || activeUnitIds.length !== 1) return;
-      try {
-        await setDoc(
-          doc(db, 'schedule_settings', newSettings.id),
-          newSettings
-        );
-      } catch (error) {
-        console.error('Failed to save settings:', error);
-      }
+    (updater: (prev: ScheduleSettings) => ScheduleSettings) => {
+      setWeekSettings(prev => {
+        const baseSettings =
+          prev ||
+          createDefaultSettings(
+            activeUnitIds[0] || 'default',
+            weekStartDateStr
+          );
+
+        const updated = updater(baseSettings);
+        if (canManage && activeUnitIds.length === 1) {
+          setDoc(doc(db, 'schedule_settings', updated.id), updated).catch(
+            error => {
+              console.error('Failed to save settings:', error);
+            }
+          );
+        }
+        return updated;
+      });
     },
-    [canManage, activeUnitIds]
+    [canManage, activeUnitIds, weekStartDateStr]
   );
 
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
       reject(new Error('Table ref not found'));
@@ -1865,6 +2016,40 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
     tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+    tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+      el.style.whiteSpace = 'pre-wrap';
+      el.style.maxWidth = 'none';
+      el.style.overflow = 'visible';
+      el.style.textOverflow = 'unset';
+    });
+
+    const dayHeaderTextColor = getContrastingTextColor(
+      exportSettings.dayHeaderBgColor
+    );
+    const nameHeaderTextColor = getContrastingTextColor(
+      exportSettings.nameColumnColor
+    );
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('thead th')
+      .forEach((th, idx) => {
+        const isNameHeader = idx === 0;
+        const bg = isNameHeader
+          ? exportSettings.nameColumnColor
+          : exportSettings.dayHeaderBgColor;
+        th.style.background = bg;
+        th.style.color = isNameHeader
+          ? nameHeaderTextColor
+          : dayHeaderTextColor;
+      });
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
+      .forEach(td => {
+        td.style.background = exportSettings.categoryHeaderBgColor;
+        td.style.color = exportSettings.categoryHeaderTextColor;
+      });
 
     // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
     if (hideEmptyUsers) {
@@ -2100,7 +2285,20 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return (
     <div className="p-4 md:p-8">
       <style>
-        {`.toggle-checkbox:checked { right: 0; border-color: #16a34a; } .toggle-checkbox:checked + .toggle-label { background-color: #16a34a; }`}
+        {`@import url('https://fonts.googleapis.com/css2?family=Kalam&display=swap');
+        .toggle-checkbox:checked { right: 0; border-color: #16a34a; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #16a34a; }
+        .handwritten-note {
+          font-family: 'Kalam', cursive;
+          transform: rotate(-1deg);
+          color: #334155;
+          display: inline-block;
+          max-width: 100%;
+          white-space: normal;
+          line-height: 1.1;
+          letter-spacing: -0.5px;
+          font-size: 0.9em;
+        }`}
       </style>
 
       <ShiftModal
@@ -2112,6 +2310,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
         userId={editingShift?.userId || ''}
         date={editingShift?.date || new Date()}
         users={filteredUsers}
+        schedule={schedule}
         viewMode={viewMode}
       />
 
@@ -2315,98 +2514,123 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
               </div>
             </div>
             <div className="p-6 overflow-y-auto">
-              {activeSettingsTab === 'opening' &&
-                weekSettings && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <label className="flex items-center gap-2">
+              {activeSettingsTab === 'opening' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={openingSettings.showOpeningTime}
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            showOpeningTime: e.target.checked
+                          }))
+                        }
+                        className="h-4 w-4 rounded"
+                      />{' '}
+                      Nyitás megjelenítése
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={openingSettings.showClosingTime}
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            showClosingTime: e.target.checked
+                          }))
+                        }
+                        className="h-4 w-4 rounded"
+                      />{' '}
+                      Zárás megjelenítése
+                    </label>
+                  </div>
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
+                    >
+                      <span className="font-semibold w-24">
+                        {weekDays[i].toLocaleDateString('hu-HU', {
+                          weekday: 'long'
+                        })}
+                      </span>
+                      <input
+                        type="time"
+                        value={
+                          openingSettings.dailySettings[i]?.openingTime || ''
+                        }
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            dailySettings: {
+                              ...prev.dailySettings,
+                              [i]: {
+                                ...prev.dailySettings[i],
+                                openingTime: e.target.value
+                              }
+                            }
+                          }))
+                        }
+                        className="p-1 border rounded"
+                      />
+                      <input
+                        type="time"
+                        value={
+                          openingSettings.dailySettings[i]?.closingTime || ''
+                        }
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            dailySettings: {
+                              ...prev.dailySettings,
+                              [i]: {
+                                ...prev.dailySettings[i],
+                                closingTime: e.target.value
+                              }
+                            }
+                          }))
+                        }
+                        className="p-1 border rounded"
+                      />
+                      <div className="flex flex-col">
                         <input
-                          type="checkbox"
-                          checked={weekSettings.showOpeningTime}
-                          onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
-                              showOpeningTime: e.target.checked
-                            })
+                          type="number"
+                          min={0}
+                          value={
+                            openingSettings.dailySettings[i]?.closingOffsetMinutes
+                              ?.toString() ?? ''
                           }
-                          className="h-4 w-4 rounded"
-                        />{' '}
-                        Nyitás megjelenítése
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={weekSettings.showClosingTime}
-                          onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
-                              showClosingTime: e.target.checked
-                            })
-                          }
-                          className="h-4 w-4 rounded"
-                        />{' '}
-                        Zárás megjelenítése
-                      </label>
-                    </div>
-                    {Array.from({ length: 7 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
-                      >
-                        <span className="font-semibold w-24">
-                          {weekDays[i].toLocaleDateString(
-                            'hu-HU',
-                            { weekday: 'long' }
-                          )}
+                          onChange={e => {
+                            const val = Number(e.target.value) || 0;
+                            handleSettingsChange(prev => ({
+                              ...prev,
+                              dailySettings: {
+                                ...prev.dailySettings,
+                                [i]: {
+                                  ...prev.dailySettings[i],
+                                  closingOffsetMinutes: val
+                                }
+                              }
+                            }));
+                          }}
+                          className="p-1 border rounded w-28"
+                          placeholder="Offset (perc)"
+                        />
+                        <span className="text-xs text-gray-500 mt-1">
+                          Zárás utáni munka (pl. takarítás)
                         </span>
-                        <input
-                          type="time"
-                          value={
-                            weekSettings.dailySettings[i]
-                              ?.openingTime || ''
-                          }
-                          onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
-                              dailySettings: {
-                                ...weekSettings.dailySettings,
-                                [i]: {
-                                  ...weekSettings.dailySettings[i],
-                                  openingTime: e.target.value
-                                }
-                              }
-                            })
-                          }
-                          className="p-1 border rounded"
-                        />
-                        <input
-                          type="time"
-                          value={
-                            weekSettings.dailySettings[i]
-                              ?.closingTime || ''
-                          }
-                          onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
-                              dailySettings: {
-                                ...weekSettings.dailySettings,
-                                [i]: {
-                                  ...weekSettings.dailySettings[i],
-                                  closingTime: e.target.value
-                                }
-                              }
-                            })
-                          }
-                          className="p-1 border rounded"
-                        />
                       </div>
-                    ))}
-                  </>
-                )}
+                    </div>
+                  ))}
+                </>
+              )}
               {activeSettingsTab === 'export' && (
                 <ExportSettingsPanel
                   settings={exportSettings}
                   setSettings={setExportSettings}
+                  presetColors={activeBrandColors}
                 />
               )}
             </div>
@@ -2433,7 +2657,8 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                       !exportSettingsHaveChanged ||
                       isSavingExportSettings
                     }
-                    className="bg-green-700 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+                    className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+                    style={{ backgroundColor: 'var(--color-primary)' }}
                   >
                     {isSavingExportSettings
                       ? 'Mentés...'
@@ -2450,7 +2675,8 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
         <div className="mb-4 text-center">
           <button
             onClick={handlePublishWeek}
-            className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700"
+            className="text-white font-bold py-2 px-6 rounded-lg"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             Hét publikálása
           </button>
@@ -2474,7 +2700,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div
+        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
+        style={{ backgroundColor: 'var(--color-surface)' }}
+      >
         <table
           ref={tableRef}
           className="min-w-full text-sm"
@@ -2681,6 +2910,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           let display = '';
                           let isDayOff = false;
                           let isLeave = false;
+                          const shiftNote =
+                            userDayShifts.find(
+                              s => s.note && !s.isDayOff
+                            )?.note || '';
 
                           if (userDayShifts.length > 0) {
                             const dayOffShift = userDayShifts.find(
@@ -2716,6 +2949,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
                           const canEditCell = canManage;
                           const hasContent = !!display;
+                          const hasNote = !!shiftNote;
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -2749,10 +2983,15 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                                 )
                               }
                             >
-                              <div className="relative flex items-center justify-center px-1 py-2 min-h-[40px]">
+                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
                                   <span className="whitespace-pre-wrap leading-tight">
                                     {display}
+                                  </span>
+                                )}
+                                {hasNote && (
+                                  <span className="handwritten-note tracking-tighter">
+                                    {`"${shiftNote}"`}
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
