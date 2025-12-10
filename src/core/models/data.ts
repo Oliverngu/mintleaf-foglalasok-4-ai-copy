@@ -347,6 +347,7 @@ export interface DailySetting {
     isOpen: boolean;
     openingTime: string;
     closingTime: string;
+    closingOffsetMinutes?: number;
     quotas: { [position: string]: number };
 }
 

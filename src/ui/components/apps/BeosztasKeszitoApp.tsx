@@ -13,7 +13,8 @@ import {
   Unit,
   Position,
   ScheduleSettings,
-  ExportStyleSettings
+  ExportStyleSettings,
+  DailySetting
 } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
@@ -48,7 +49,11 @@ import UnitLogoBadge from '../common/UnitLogoBadge';
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
-  options?: { closingTime?: string | null; referenceDate?: Date }
+  options?: {
+    closingTime?: string | null;
+    closingOffsetMinutes?: number;
+    referenceDate?: Date;
+  }
 ): number => {
   if (shift.isDayOff || !shift.start) return 0;
 
@@ -58,7 +63,12 @@ const calculateShiftDuration = (
   if (!end && options?.closingTime && referenceDate) {
     const [hours, minutes] = options.closingTime.split(':').map(Number);
     end = new Date(referenceDate);
-    end.setHours(hours, minutes, 0, 0);
+    end.setHours(
+      hours,
+      minutes + (options?.closingOffsetMinutes || 0),
+      0,
+      0
+    );
 
     const startDate = shift.start.toDate();
     if (end < startDate) {
@@ -81,6 +91,7 @@ interface ShiftModalProps {
   userId: string;
   date: Date;
   users: User[];
+  schedule: Shift[];
   viewMode: 'draft' | 'published';
 }
 
@@ -93,6 +104,7 @@ const ShiftModal: FC<ShiftModalProps> = ({
   userId,
   date,
   users,
+  schedule,
   viewMode
 }) => {
   const [formData, setFormData] = useState({
@@ -126,6 +138,58 @@ const ShiftModal: FC<ShiftModalProps> = ({
     const user = users.find(u => u.id === formData.userId);
     return user ? user.fullName : '';
   }, [users, formData.userId]);
+
+  const recentShifts = useMemo(() => {
+    return schedule
+      .filter(
+        s =>
+          s.userId === formData.userId &&
+          !!s.start &&
+          !s.isDayOff
+      )
+      .sort(
+        (a, b) =>
+          (b.start?.toMillis() || 0) - (a.start?.toMillis() || 0)
+      )
+      .slice(0, 5);
+  }, [schedule, formData.userId]);
+
+  const formatTime = (timestamp?: Timestamp | null) =>
+    timestamp?.toDate().toTimeString().substring(0, 5) || '';
+
+  const computeTopTimes = useCallback(
+    (getter: (shift: Shift) => string) => {
+      const counts = new Map<string, { count: number; firstIndex: number }>();
+      recentShifts.forEach((shift, idx) => {
+        const time = getter(shift);
+        if (!time) return;
+        const existing = counts.get(time);
+        counts.set(time, {
+          count: (existing?.count || 0) + 1,
+          firstIndex: existing?.firstIndex ?? idx
+        });
+      });
+
+      return Array.from(counts.entries())
+        .sort(
+          (a, b) =>
+            b[1].count - a[1].count || a[1].firstIndex - b[1].firstIndex
+        )
+        .slice(0, 2)
+        .map(([time]) => time);
+    },
+    [recentShifts]
+  );
+
+  const startPresets = useMemo(
+    () => computeTopTimes(shift => formatTime(shift.start)),
+    [computeTopTimes]
+  );
+
+  const endPresets = useMemo(
+    () => computeTopTimes(shift => formatTime(shift.end)),
+    [computeTopTimes]
+  );
 
   if (!isOpen) return null;
 
@@ -236,6 +300,22 @@ const ShiftModal: FC<ShiftModalProps> = ({
                   disabled={isDayOff}
                   required={!isDayOff}
                 />
+                {startPresets.length > 0 && !isDayOff && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {startPresets.map(time => (
+                      <button
+                        type="button"
+                        key={`start-${time}`}
+                        onClick={() =>
+                          setFormData(f => ({ ...f, startTime: time }))
+                        }
+                        className="px-2 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">
@@ -250,6 +330,22 @@ const ShiftModal: FC<ShiftModalProps> = ({
                   className="w-full mt-1 p-2 border rounded-lg"
                   disabled={isDayOff}
                 />
+                {endPresets.length > 0 && !isDayOff && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {endPresets.map(time => (
+                      <button
+                        type="button"
+                        key={`end-${time}`}
+                        onClick={() =>
+                          setFormData(f => ({ ...f, endTime: time }))
+                        }
+                        className="px-2 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div>
@@ -445,6 +541,7 @@ const createDefaultSettings = (
     isOpen: true,
     openingTime: '08:00',
     closingTime: '22:00',
+    closingOffsetMinutes: 0,
     quotas: {}
   })).reduce(
     (acc, curr, i) => ({
@@ -1517,8 +1614,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [schedule, viewMode, activeUnitIds]
   );
 
-  const getUnitClosingTimeForDay = useCallback(
-    (shift: Shift, dayIndex: number): string | null => {
+  const getUnitDaySetting = useCallback(
+    (shift: Shift, dayIndex: number): DailySetting | null => {
       if (!shift.unitId) return null;
 
       const unitSettings =
@@ -1526,8 +1623,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         (weekSettings?.unitId === shift.unitId ? weekSettings : undefined);
 
       return (
-        unitSettings?.dailySettings?.[dayIndex]?.closingTime ||
-        weekSettings?.dailySettings?.[dayIndex]?.closingTime ||
+        unitSettings?.dailySettings?.[dayIndex] ||
+        weekSettings?.dailySettings?.[dayIndex] ||
         null
       );
     },
@@ -1585,7 +1682,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           (sum, shift) =>
             sum +
             calculateShiftDuration(shift, {
-              closingTime: getUnitClosingTimeForDay(shift, dayIndex),
+              closingTime:
+                getUnitDaySetting(shift, dayIndex)?.closingTime || null,
+              closingOffsetMinutes:
+                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
               referenceDate: weekDays[dayIndex]
             }),
           0
@@ -1604,7 +1704,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     weekDays,
     shiftsByUserDay,
     weekSettings,
-    getUnitClosingTimeForDay
+    getUnitDaySetting
   ]);
 
   const visibleUsersByPosition = useMemo(() => {
@@ -1821,17 +1921,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   };
 
   const handleSettingsChange = useCallback(
-    async (newSettings: ScheduleSettings) => {
-      setWeekSettings(newSettings);
-      if (!canManage || activeUnitIds.length !== 1) return;
-      try {
-        await setDoc(
-          doc(db, 'schedule_settings', newSettings.id),
-          newSettings
-        );
-      } catch (error) {
-        console.error('Failed to save settings:', error);
-      }
+    (updater: (prev: ScheduleSettings) => ScheduleSettings) => {
+      setWeekSettings(prev => {
+        if (!prev) return prev;
+        const updated = updater(prev);
+        if (canManage && activeUnitIds.length === 1) {
+          setDoc(doc(db, 'schedule_settings', updated.id), updated).catch(
+            error => {
+              console.error('Failed to save settings:', error);
+            }
+          );
+        }
+        return updated;
+      });
     },
     [canManage, activeUnitIds]
   );
@@ -2100,7 +2202,20 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return (
     <div className="p-4 md:p-8">
       <style>
-        {`.toggle-checkbox:checked { right: 0; border-color: #16a34a; } .toggle-checkbox:checked + .toggle-label { background-color: #16a34a; }`}
+        {`@import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap');
+        .toggle-checkbox:checked { right: 0; border-color: #16a34a; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #16a34a; }
+        .handwritten-note {
+          font-family: 'Patrick Hand', 'Kalam', 'Comic Sans MS', cursive;
+          transform: rotate(-1deg);
+          color: #334155;
+          display: inline-block;
+          max-width: 150px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.2;
+        }`}
       </style>
 
       <ShiftModal
@@ -2112,6 +2227,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
         userId={editingShift?.userId || ''}
         date={editingShift?.date || new Date()}
         users={filteredUsers}
+        schedule={schedule}
         viewMode={viewMode}
       />
 
@@ -2324,10 +2440,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           type="checkbox"
                           checked={weekSettings.showOpeningTime}
                           onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
+                            handleSettingsChange(prev => ({
+                              ...prev,
                               showOpeningTime: e.target.checked
-                            })
+                            }))
                           }
                           className="h-4 w-4 rounded"
                         />{' '}
@@ -2338,10 +2454,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           type="checkbox"
                           checked={weekSettings.showClosingTime}
                           onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
+                            handleSettingsChange(prev => ({
+                              ...prev,
                               showClosingTime: e.target.checked
-                            })
+                            }))
                           }
                           className="h-4 w-4 rounded"
                         />{' '}
@@ -2366,16 +2482,16 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                               ?.openingTime || ''
                           }
                           onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
+                            handleSettingsChange(prev => ({
+                              ...prev,
                               dailySettings: {
-                                ...weekSettings.dailySettings,
+                                ...prev.dailySettings,
                                 [i]: {
-                                  ...weekSettings.dailySettings[i],
+                                  ...prev.dailySettings[i],
                                   openingTime: e.target.value
                                 }
                               }
-                            })
+                            }))
                           }
                           className="p-1 border rounded"
                         />
@@ -2386,18 +2502,42 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                               ?.closingTime || ''
                           }
                           onChange={e =>
-                            handleSettingsChange({
-                              ...weekSettings,
+                            handleSettingsChange(prev => ({
+                              ...prev,
                               dailySettings: {
-                                ...weekSettings.dailySettings,
+                                ...prev.dailySettings,
                                 [i]: {
-                                  ...weekSettings.dailySettings[i],
+                                  ...prev.dailySettings[i],
                                   closingTime: e.target.value
                                 }
                               }
-                            })
+                            }))
                           }
                           className="p-1 border rounded"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          value={
+                            weekSettings.dailySettings[i]
+                              ?.closingOffsetMinutes ?? 0
+                          }
+                          onChange={e =>
+                            handleSettingsChange(prev => ({
+                              ...prev,
+                              dailySettings: {
+                                ...prev.dailySettings,
+                                [i]: {
+                                  ...prev.dailySettings[i],
+                                  closingOffsetMinutes: Number(
+                                    e.target.value
+                                  )
+                                }
+                              }
+                            }))
+                          }
+                          className="p-1 border rounded w-24"
+                          placeholder="Offset (perc)"
                         />
                       </div>
                     ))}
@@ -2681,6 +2821,10 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                           let display = '';
                           let isDayOff = false;
                           let isLeave = false;
+                          const shiftNote =
+                            userDayShifts.find(
+                              s => s.note && !s.isDayOff
+                            )?.note || '';
 
                           if (userDayShifts.length > 0) {
                             const dayOffShift = userDayShifts.find(
@@ -2716,6 +2860,7 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
                           const canEditCell = canManage;
                           const hasContent = !!display;
+                          const hasNote = !!shiftNote;
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -2749,10 +2894,15 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                                 )
                               }
                             >
-                              <div className="relative flex items-center justify-center px-1 py-2 min-h-[40px]">
+                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
                                   <span className="whitespace-pre-wrap leading-tight">
                                     {display}
+                                  </span>
+                                )}
+                                {hasNote && (
+                                  <span className="handwritten-note text-slate-700">
+                                    {shiftNote}
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
