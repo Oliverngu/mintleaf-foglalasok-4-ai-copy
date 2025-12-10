@@ -634,7 +634,8 @@ const getContrastRatio = (hex1: string, hex2: string) => {
 const ExportSettingsPanel: FC<{
   settings: ExportStyleSettings;
   setSettings: React.Dispatch<React.SetStateAction<ExportStyleSettings>>;
-}> = ({ settings, setSettings }) => {
+  presetColors?: string[];
+}> = ({ settings, setSettings, presetColors }) => {
   const handleColorChange = (
     key: keyof ExportStyleSettings,
     value: string
@@ -729,6 +730,7 @@ const ExportSettingsPanel: FC<{
       label={label}
       value={settings[id] as string}
       onChange={value => handleColorChange(id, value)}
+      presetColors={presetColors}
     />
   );
 
@@ -1350,6 +1352,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     () => new Map(allUnits.map(unit => [unit.id, unit])),
     [allUnits]
   );
+
+  const activeBrandColors = useMemo(() => {
+    for (const unitId of activeUnitIds) {
+      const colors = unitMap.get(unitId)?.brandColors;
+      if (colors && colors.length) return colors;
+    }
+    return unitMap.get(activeUnitIds[0] || '')?.brandColors || [];
+  }, [activeUnitIds, unitMap]);
 
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
@@ -2570,15 +2580,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               ?.toString() ?? ''
                           }
                           onChange={e => {
-                            const val = e.target.value;
+                            const val = Number(e.target.value) || 0;
                             handleSettingsChange(prev => ({
                               ...prev,
                               dailySettings: {
                                 ...prev.dailySettings,
                                 [i]: {
                                   ...prev.dailySettings[i],
-                                  closingOffsetMinutes:
-                                    val === '' ? undefined : parseInt(val, 10)
+                                  closingOffsetMinutes: val
                                 }
                               }
                             }));
@@ -2598,6 +2607,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 <ExportSettingsPanel
                   settings={exportSettings}
                   setSettings={setExportSettings}
+                  presetColors={activeBrandColors}
                 />
               )}
             </div>

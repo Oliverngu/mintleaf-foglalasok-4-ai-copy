@@ -4,9 +4,15 @@ interface ColorPickerProps {
   label?: string;
   value: string;
   onChange: (value: string) => void;
+  presetColors?: string[];
 }
 
-const ColorPicker: React.FC<ColorPickerProps> = ({ label, value, onChange }) => {
+const ColorPicker: React.FC<ColorPickerProps> = ({
+  label,
+  value,
+  onChange,
+  presetColors
+}) => {
   return (
     <div className="flex flex-col gap-1">
       {label && <span className="text-sm font-medium text-gray-700">{label}</span>}
@@ -15,18 +21,32 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ label, value, onChange }) => 
           <input
             type="color"
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={e => onChange(e.target.value)}
             className="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer"
           />
         </div>
         <input
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={e => onChange(e.target.value)}
           className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           maxLength={7}
         />
       </div>
+      {presetColors && presetColors.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-1">
+          {presetColors.map(color => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => onChange(color)}
+              className="w-7 h-7 rounded-full border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              style={{ backgroundColor: color }}
+              aria-label={`Választott szín ${color}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

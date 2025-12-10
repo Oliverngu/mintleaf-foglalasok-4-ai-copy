@@ -336,6 +336,8 @@ export interface Unit {
     logoFileId?: string;
     logo?: string;
     sheetId?: string;
+    brandColors?: string[];
+    uiTheme?: 'default' | 'brand';
 }
 
 export interface Position {
