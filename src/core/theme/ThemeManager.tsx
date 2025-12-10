@@ -8,25 +8,33 @@ interface ThemeManagerProps {
 
 const DEFAULT_PALETTE = {
   primary: '#15803d',
+  primaryHover: '#166534',
   secondary: '#166534',
   accent: '#22c55e',
   surface: '#ecfdf3',
   background: '#f8fafc',
   text: '#0f172a',
+  textMain: '#0f172a',
   textOnPrimary: '#ffffff',
   sidebarBg: '#0f172a',
+  sidebarActive: '#1f2937',
   sidebarText: '#ffffff',
 };
 
 const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty('--color-primary', palette.primary);
+  rootStyle.setProperty('--color-primary-hover', palette.primaryHover);
   rootStyle.setProperty('--color-secondary', palette.secondary);
   rootStyle.setProperty('--color-accent', palette.accent);
   rootStyle.setProperty('--color-surface-brand', palette.surface);
+  rootStyle.setProperty('--color-surface', palette.surface);
   rootStyle.setProperty('--color-background', palette.background);
   rootStyle.setProperty('--color-text', palette.text);
+  rootStyle.setProperty('--color-text-body', palette.text);
+  rootStyle.setProperty('--color-text-main', palette.textMain);
   rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
+  rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);
   rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
   rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
 };
@@ -61,9 +69,9 @@ const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
   return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
 };
 
-const getContrastText = (hexColor: string | undefined) => {
+const getContrastText = (hexColor: string | undefined, fallback = DEFAULT_PALETTE.textOnPrimary) => {
   const rgb = hexColor ? hexToRgb(hexColor) : null;
-  if (!rgb) return DEFAULT_PALETTE.textOnPrimary;
+  if (!rgb) return fallback;
 
   const lum = luminance(rgb);
   return lum > 0.5 ? '#0f172a' : '#ffffff';
@@ -84,6 +92,79 @@ const mapLegacyColorsToConfigs = (colors: string[]): BrandColorConfig[] =>
     target: LEGACY_TARGETS[idx] || 'accent',
   }));
 
+const rgbToHsl = (r: number, g: number, b: number) => {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+};
+
+const hslToHex = (h: number, s: number, l: number) => {
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+
+  h /= 360;
+  s /= 100;
+  l /= 100;
+
+  if (s === 0) {
+    const val = Math.round(l * 255);
+    const hex = val.toString(16).padStart(2, '0');
+    return `#${hex}${hex}${hex}`;
+  }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+
+  const r = hue2rgb(p, q, h + 1 / 3);
+  const g = hue2rgb(p, q, h);
+  const b = hue2rgb(p, q, h - 1 / 3);
+
+  const toHex = (c: number) => Math.round(c * 255)
+    .toString(16)
+    .padStart(2, '0');
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const adjustLightness = (hex: string, delta: number) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const { r, g, b } = rgb;
+  const baseHsl = rgbToHsl(r, g, b);
+  const nextL = Math.max(0, Math.min(100, baseHsl.l + delta));
+  return hslToHex(baseHsl.h, baseHsl.s, nextL);
+};
+
 const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) => {
   useEffect(() => {
     const primaryUnit = activeUnitIds.length
@@ -101,39 +182,44 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) 
           : [];
 
       if (configs.length) {
-        const targetMap = configs.reduce<Partial<Record<BrandTarget, string>>>(
-          (acc, cfg) => {
-            if (cfg.color) acc[cfg.target] = cfg.color;
-            return acc;
-          },
-          {}
-        );
-
         const palette = { ...basePalette };
 
-        if (targetMap.primary) {
-          palette.primary = targetMap.primary;
-          palette.textOnPrimary = getContrastText(targetMap.primary);
-        }
-        if (targetMap.secondary) {
-          palette.secondary = targetMap.secondary;
-        }
-        if (targetMap.accent) {
-          palette.accent = targetMap.accent;
-        }
-        if (targetMap.surface) {
-          palette.surface = targetMap.surface;
-        }
-        if (targetMap.background) {
-          palette.background = targetMap.background;
-        }
-        if (targetMap.sidebar) {
-          palette.sidebarBg = targetMap.sidebar;
-          palette.sidebarText = getContrastText(targetMap.sidebar);
-        }
-        if (targetMap.text) {
-          palette.text = targetMap.text;
-        }
+        configs.forEach(cfg => {
+          if (!cfg.color) return;
+
+          switch (cfg.target) {
+            case 'primary':
+              palette.primary = cfg.color;
+              palette.primaryHover = adjustLightness(cfg.color, -10);
+              palette.textOnPrimary = getContrastText(cfg.color);
+              break;
+            case 'secondary':
+              palette.secondary = cfg.color;
+              break;
+            case 'accent':
+              palette.accent = cfg.color;
+              break;
+            case 'background':
+              palette.background = cfg.color;
+              palette.textMain = getContrastText(cfg.color, basePalette.textMain);
+              palette.text = palette.textMain;
+              break;
+            case 'surface':
+              palette.surface = cfg.color;
+              break;
+            case 'sidebar':
+              palette.sidebarBg = cfg.color;
+              palette.sidebarActive = adjustLightness(cfg.color, -8);
+              palette.sidebarText = getContrastText(cfg.color, basePalette.sidebarText);
+              break;
+            case 'text':
+              palette.text = cfg.color;
+              palette.textMain = cfg.color;
+              break;
+            default:
+              break;
+          }
+        });
 
         setCssVariables(palette);
         return;

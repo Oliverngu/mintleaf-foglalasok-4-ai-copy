@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 interface ColorPickerProps {
   label?: string;
@@ -8,13 +8,14 @@ interface ColorPickerProps {
   hidePresets?: boolean;
 }
 
-const clamp = (val: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, val));
+type HSL = { h: number; s: number; l: number };
+
+const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val));
 
 const normalizeHex = (hex: string) => {
   if (!hex) return '#15803d';
   const value = hex.startsWith('#') ? hex : `#${hex}`;
-  return value.length > 7 ? value.slice(0, 7) : value;
+  return value.slice(0, 7).padEnd(7, '0');
 };
 
 const hexToRgb = (hex: string) => {
@@ -36,7 +37,7 @@ const hexToRgb = (hex: string) => {
   };
 };
 
-const rgbToHsl = (r: number, g: number, b: number) => {
+const rgbToHsl = (r: number, g: number, b: number): HSL => {
   r /= 255;
   g /= 255;
   b /= 255;
@@ -109,6 +110,8 @@ const hslToHex = (h: number, s: number, l: number) => {
   return `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`;
 };
 
+const hslDistance = (a: HSL, b: HSL) => Math.abs(a.h - b.h) + Math.abs(a.s - b.s) + Math.abs(a.l - b.l);
+
 const ColorPicker: React.FC<ColorPickerProps> = ({
   label,
   value,
@@ -124,56 +127,78 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
 
   const [isOpen, setIsOpen] = useState(false);
   const [hexValue, setHexValue] = useState(normalizedValue);
-  const [hsl, setHsl] = useState(initialHsl);
-
-  useEffect(() => {
-    const nextHex = normalizeHex(value);
-    setHexValue(nextHex);
-    const rgb = hexToRgb(nextHex);
-    if (rgb) {
-      setHsl(rgbToHsl(rgb.r, rgb.g, rgb.b));
-    }
-  }, [value]);
+  const [hsl, setHsl] = useState<HSL>(initialHsl);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const uniquePresets = useMemo(() => {
     if (!presetColors || hidePresets) return [];
     return Array.from(new Set(presetColors.filter(Boolean)));
   }, [presetColors, hidePresets]);
 
-  const updateHex = (next: string) => {
-    const normalized = normalizeHex(next);
-    setHexValue(normalized);
-    const rgb = hexToRgb(normalized);
-    if (rgb) {
-      setHsl(rgbToHsl(rgb.r, rgb.g, rgb.b));
-      onChange(normalized);
+  useEffect(() => {
+    const nextHex = normalizeHex(value);
+    const rgb = hexToRgb(nextHex);
+    if (!rgb) return;
+    const nextHsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+    if (nextHex !== hexValue) {
+      setHexValue(nextHex);
     }
+
+    if (hslDistance(nextHsl, hsl) > 1.5) {
+      setHsl(nextHsl);
+    }
+  }, [value, hexValue, hsl]);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (isOpen && popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isOpen]);
+
+  const setFromHex = (next: string, closeAfter = false) => {
+    const normalized = normalizeHex(next);
+    const rgb = hexToRgb(normalized);
+    if (!rgb) return;
+    const nextHsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    setHexValue(normalized);
+    setHsl(nextHsl);
+    onChange(normalized);
+    if (closeAfter) setIsOpen(false);
   };
 
   const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setHexValue(val);
-    if (/^#?[0-9a-fA-F]{6}$/.test(val) || /^#?[0-9a-fA-F]{3}$/.test(val)) {
-      updateHex(val.startsWith('#') ? val : `#${val}`);
+    if (/^#?[0-9a-fA-F]{3,6}$/.test(val)) {
+      setFromHex(val.startsWith('#') ? val : `#${val}`);
     }
   };
 
-  const handleSliderChange = (key: keyof typeof hsl, value: number) => {
-    const nextHsl = { ...hsl, [key]: value };
+  const handleSliderChange = (key: keyof HSL, nextVal: number) => {
+    const nextHsl = { ...hsl, [key]: nextVal } as HSL;
     setHsl(nextHsl);
     const hex = hslToHex(nextHsl.h, nextHsl.s, nextHsl.l);
     setHexValue(hex);
     onChange(hex);
   };
 
-  const toggleOpen = () => setIsOpen(prev => !prev);
+  const hueGradient =
+    'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)';
+  const saturationGradient = `linear-gradient(to right, #808080, hsl(${hsl.h}, 100%, 50%))`;
+  const lightnessGradient = `linear-gradient(to right, #000, hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%), #fff)`;
 
   return (
-    <div className="flex flex-col gap-1 relative">
+    <div className="flex flex-col gap-1 relative" ref={popoverRef}>
       {label && <span className="text-sm font-medium text-gray-700">{label}</span>}
       <button
         type="button"
-        onClick={toggleOpen}
+        onClick={() => setIsOpen(prev => !prev)}
         className="flex items-center justify-between w-full rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <span className="flex items-center gap-2">
@@ -199,7 +224,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
             <input
               type="color"
               value={hexValue}
-              onChange={e => updateHex(e.target.value)}
+              onChange={e => setFromHex(e.target.value)}
               className="w-12 h-12 rounded-lg border border-gray-200 cursor-pointer"
             />
             <div className="flex flex-col gap-1 flex-1">
@@ -214,7 +239,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
             </div>
           </div>
 
-          {uniquePresets.length > 0 && (
+          {!hidePresets && uniquePresets.length > 0 && (
             <div className="space-y-1">
               <div className="text-xs font-medium text-gray-600">Presetek</div>
               <div className="flex flex-wrap gap-2">
@@ -222,7 +247,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
                   <button
                     key={`${color}-${index}`}
                     type="button"
-                    onClick={() => updateHex(color)}
+                    onClick={() => setFromHex(color, true)}
                     className="w-7 h-7 rounded-full border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                     style={{ backgroundColor: color }}
                     aria-label={`Választott szín ${color}`}
@@ -243,11 +268,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
               max={360}
               value={hsl.h}
               onChange={e => handleSliderChange('h', clamp(Number(e.target.value), 0, 360))}
-              className="w-full h-2 bg-gradient-to-r from-red-500 via-yellow-500 via-green-500 via-cyan-500 via-blue-500 via-purple-500 to-red-500 rounded-lg appearance-none cursor-pointer"
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+              style={{ background: hueGradient }}
             />
 
             <div className="flex items-center justify-between text-xs text-gray-600 mt-2">
-              <span>Sat</span>
+              <span>Saturation</span>
               <span className="font-mono">{hsl.s}%</span>
             </div>
             <input
@@ -256,11 +282,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
               max={100}
               value={hsl.s}
               onChange={e => handleSliderChange('s', clamp(Number(e.target.value), 0, 100))}
-              className="w-full h-2 bg-gradient-to-r from-gray-200 via-blue-400 to-blue-700 rounded-lg appearance-none cursor-pointer"
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+              style={{ background: saturationGradient }}
             />
 
             <div className="flex items-center justify-between text-xs text-gray-600 mt-2">
-              <span>Light</span>
+              <span>Lightness</span>
               <span className="font-mono">{hsl.l}%</span>
             </div>
             <input
@@ -269,7 +296,8 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
               max={100}
               value={hsl.l}
               onChange={e => handleSliderChange('l', clamp(Number(e.target.value), 0, 100))}
-              className="w-full h-2 bg-gradient-to-r from-black via-gray-500 to-white rounded-lg appearance-none cursor-pointer"
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+              style={{ background: lightnessGradient }}
             />
           </div>
         </div>
