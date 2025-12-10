@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { BrandColorConfig, BrandTarget, RolePermissions, Unit, User } from '../../core/models/data';
 import EmailSettingsApp from '../components/admin/EmailSettingsApp';
 import PoziciokApp from '../components/apps/PoziciokApp';
@@ -7,7 +8,7 @@ import JogosultsagokApp from '../components/apps/JogosultsagokApp';
 import ReservationSettingsForm from '../components/apps/ReservationSettingsForm';
 import { useUnitContext } from '../context/UnitContext';
 import ColorPicker from '../components/common/ColorPicker';
-import { db } from '../../core/firebase/config';
+import { db, storage } from '../../core/firebase/config';
 import TrashIcon from '../../../components/icons/TrashIcon';
 import PlusIcon from '../../../components/icons/PlusIcon';
 
@@ -90,6 +91,9 @@ const UnitSettingsPage: React.FC<{
   const [uiTheme, setUiTheme] = useState<'default' | 'brand'>('default');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [headerImageUrl, setHeaderImageUrl] = useState<string | undefined>();
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | undefined>();
+  const [uploadingType, setUploadingType] = useState<'header' | 'background' | null>(null);
 
   const effectiveUnitId = useMemo(() => {
     return (
@@ -114,6 +118,8 @@ const UnitSettingsPage: React.FC<{
       );
       setBrandConfigs(normalized);
       setUiTheme(resolvedUnit.uiTheme || 'default');
+      setHeaderImageUrl(resolvedUnit.uiHeaderImageUrl || undefined);
+      setBackgroundImageUrl(resolvedUnit.uiBackgroundImageUrl || undefined);
     }
   }, [resolvedUnit]);
 
@@ -159,6 +165,59 @@ const UnitSettingsPage: React.FC<{
       setSaveMessage('Hiba történt mentés közben.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleImageUpload = async (
+    type: 'header' | 'background',
+    file: File | null | undefined
+  ) => {
+    if (!file || !effectiveUnitId) return;
+    setUploadingType(type);
+    try {
+      const timestamp = Date.now();
+      const path = `units/${effectiveUnitId}/ui_themes/${type === 'header' ? 'header' : 'background'}_${timestamp}_${file.name}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      const field = type === 'header' ? 'uiHeaderImageUrl' : 'uiBackgroundImageUrl';
+      await updateDoc(doc(db, 'units', effectiveUnitId), { [field]: downloadUrl });
+
+      if (type === 'header') {
+        setHeaderImageUrl(downloadUrl);
+      } else {
+        setBackgroundImageUrl(downloadUrl);
+      }
+    } catch (error) {
+      console.error('Failed to upload image', error);
+    } finally {
+      setUploadingType(null);
+    }
+  };
+
+  const handleDeleteImage = async (type: 'header' | 'background') => {
+    if (!effectiveUnitId) return;
+    const currentUrl = type === 'header' ? headerImageUrl : backgroundImageUrl;
+    if (!currentUrl) return;
+
+    try {
+      await deleteObject(ref(storage, currentUrl));
+    } catch (error) {
+      console.warn('Failed to delete image from storage (may not exist)', error);
+    }
+
+    const field = type === 'header' ? 'uiHeaderImageUrl' : 'uiBackgroundImageUrl';
+    try {
+      await updateDoc(doc(db, 'units', effectiveUnitId), { [field]: null });
+    } catch (error) {
+      console.error('Failed to clear image url from Firestore', error);
+    }
+
+    if (type === 'header') {
+      setHeaderImageUrl(undefined);
+    } else {
+      setBackgroundImageUrl(undefined);
     }
   };
 
@@ -262,6 +321,95 @@ const UnitSettingsPage: React.FC<{
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Képek és Textúrák</h3>
+                  <p className="text-sm text-gray-500">
+                    Fejléc és háttér képek feltöltése a units/{effectiveUnitId}/ui_themes/ mappába.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg border bg-gray-50 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">Fejléc kép</h4>
+                      <p className="text-xs text-gray-500">units/{effectiveUnitId}/ui_themes/header_*.jpg/png</p>
+                    </div>
+                    {headerImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteImage('header')}
+                        className="text-sm text-red-600 hover:underline"
+                        disabled={uploadingType === 'header'}
+                      >
+                        Törlés
+                      </button>
+                    )}
+                  </div>
+                  {headerImageUrl && (
+                    <img
+                      src={headerImageUrl}
+                      alt="Header előnézet"
+                      className="w-full h-32 object-cover rounded-md border"
+                    />
+                  )}
+                  <label className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm cursor-pointer hover:border-blue-400">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => handleImageUpload('header', e.target.files?.[0])}
+                      disabled={uploadingType === 'header'}
+                    />
+                    <span className="font-medium text-gray-700">
+                      {uploadingType === 'header' ? 'Feltöltés...' : 'Fejléc kép feltöltése'}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="p-3 rounded-lg border bg-gray-50 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">Háttér kép</h4>
+                      <p className="text-xs text-gray-500">units/{effectiveUnitId}/ui_themes/background_*.jpg/png</p>
+                    </div>
+                    {backgroundImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteImage('background')}
+                        className="text-sm text-red-600 hover:underline"
+                        disabled={uploadingType === 'background'}
+                      >
+                        Törlés
+                      </button>
+                    )}
+                  </div>
+                  {backgroundImageUrl && (
+                    <img
+                      src={backgroundImageUrl}
+                      alt="Háttér előnézet"
+                      className="w-full h-32 object-cover rounded-md border"
+                    />
+                  )}
+                  <label className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm cursor-pointer hover:border-blue-400">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => handleImageUpload('background', e.target.files?.[0])}
+                      disabled={uploadingType === 'background'}
+                    />
+                    <span className="font-medium text-gray-700">
+                      {uploadingType === 'background' ? 'Feltöltés...' : 'Háttér kép feltöltése'}
+                    </span>
+                  </label>
+                </div>
               </div>
             </div>
 

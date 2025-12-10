@@ -353,6 +353,8 @@ export interface Unit {
     sheetId?: string;
     brandColorConfigs?: BrandColorConfig[]; // ÚJ MEZŐ (a régi brandColors helyett)
     uiTheme?: 'default' | 'brand';
+    uiHeaderImageUrl?: string;
+    uiBackgroundImageUrl?: string;
 }
 
 export interface Position {

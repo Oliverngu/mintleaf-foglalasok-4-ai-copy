@@ -523,7 +523,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     <>
       <div
         className="relative h-full overflow-hidden"
-        style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
+        style={{
+          backgroundColor: 'var(--color-background)',
+          backgroundImage: 'var(--ui-bg-image)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+          color: 'var(--color-text-main)',
+        }}
       >
         {/* Backdrop for sidebar */}
         {isSidebarOpen && (
@@ -625,6 +632,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           style={{
             backgroundColor: 'var(--color-primary)',
             color: 'var(--color-text-on-primary)',
+            backgroundImage: 'var(--ui-header-image)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
           }}
         >
           <div className="flex items-center gap-4 min-w-0">

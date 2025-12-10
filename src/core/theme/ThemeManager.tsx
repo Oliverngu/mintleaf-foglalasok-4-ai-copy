@@ -19,6 +19,8 @@ const DEFAULT_PALETTE = {
   sidebarBg: '#0f172a',
   sidebarActive: '#1f2937',
   sidebarText: '#ffffff',
+  headerImage: 'none',
+  backgroundImage: 'none',
 };
 
 const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
@@ -37,6 +39,8 @@ const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
   rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);
   rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
   rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
+  rootStyle.setProperty('--ui-header-image', palette.headerImage);
+  rootStyle.setProperty('--ui-bg-image', palette.backgroundImage);
 };
 
 const hexToRgb = (hex: string) => {
@@ -180,6 +184,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) 
           : (primaryUnit as any).brandColors?.length
           ? mapLegacyColorsToConfigs((primaryUnit as any).brandColors)
           : [];
+
+      if (primaryUnit.uiHeaderImageUrl) {
+        basePalette.headerImage = `url('${primaryUnit.uiHeaderImageUrl}')`;
+      }
+      if (primaryUnit.uiBackgroundImageUrl) {
+        basePalette.backgroundImage = `url('${primaryUnit.uiBackgroundImageUrl}')`;
+      }
 
       if (configs.length) {
         const palette = { ...basePalette };

@@ -391,10 +391,17 @@ const App: React.FC = () => {
         if (publicPage?.type === 'manage') {
             return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
         }
-        return (
+            return (
             <div
               className="fixed inset-0 flex items-center justify-center p-4"
-              style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
+              style={{
+                backgroundColor: 'var(--color-background)',
+                backgroundImage: 'var(--ui-bg-image)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed',
+                color: 'var(--color-text-main)',
+              }}
             >
                 <div className="text-center">
                     <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
@@ -406,7 +413,14 @@ const App: React.FC = () => {
       return (
         <div
           className="fixed inset-0 flex items-center justify-center"
-          style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
+          style={{
+            backgroundColor: 'var(--color-background)',
+            backgroundImage: 'var(--ui-bg-image)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed',
+            color: 'var(--color-text-main)',
+          }}
         >
           <LoadingSpinner />
         </div>
