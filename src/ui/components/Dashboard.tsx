@@ -29,7 +29,6 @@ import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
 import { KeszletApp } from './apps/KeszletApp';
 import UnitSettingsPage from '../pages/UnitSettingsPage';
-import ThemeManager from '../../core/theme/ThemeManager';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -169,14 +168,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     allUnits: contextAllUnits,
   } = useUnitContext();
 
-  const activeUnitForTheme = useMemo(() => {
-    if (activeUnitIds.length > 0) {
-      const found = contextAllUnits.find(unit => unit.id === activeUnitIds[0]);
-      if (found) return found;
-    }
-    return contextAllUnits[0] || null;
-  }, [activeUnitIds, contextAllUnits]);
-
   if (!currentUser) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -294,7 +285,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         }}
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
           activeApp === app
-            ? 'bg-green-700 text-white shadow-inner'
+            ? 'bg-[var(--color-secondary)] text-white shadow-inner'
             : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
         }`}
         title={label}
@@ -530,7 +521,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <>
-      <ThemeManager activeUnit={activeUnitForTheme} />
       <div className="relative h-full bg-gray-50 overflow-hidden">
         {/* Backdrop for sidebar */}
         {isSidebarOpen && (
@@ -609,7 +599,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             }}
             className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
               activeApp === 'settings'
-                ? 'bg-green-700 text-white shadow-inner'
+                ? 'bg-[var(--color-secondary)] text-white shadow-inner'
                 : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
             }`}
             title="Beállítások"
@@ -624,7 +614,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Main Content */}
       <div className="flex flex-col h-full w-full">
-        <header className="h-16 bg-green-800 shadow-md text-white flex items-center justify-between px-6 z-10 flex-shrink-0">
+        <header
+          className="h-16 shadow-md flex items-center justify-between px-6 z-10 flex-shrink-0"
+          style={{
+            backgroundColor: 'var(--color-primary)',
+            color: 'var(--color-text-on-primary)',
+          }}
+        >
           <div className="flex items-center gap-4 min-w-0">
             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2">
               <MenuIcon />
@@ -632,9 +628,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             <UnitSelector />
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-right">
+            <div className="text-right" style={{ color: 'var(--color-text-on-primary)' }}>
               <div className="font-semibold">{currentUser.fullName}</div>
-              <div className="text-sm text-green-200">{currentUser.role}</div>
+              <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
             <button
               onClick={onLogout}

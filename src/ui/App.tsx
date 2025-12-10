@@ -9,12 +9,18 @@ import { auth, db } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy } from 'firebase/firestore';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import { UnitProvider } from './context/UnitContext';
+import { UnitProvider, useUnitContext } from './context/UnitContext';
+import ThemeManager from '../core/theme/ThemeManager';
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 // Bővítettük a PublicPage típust a 'manage' állapottal
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
+
+const ThemeManagerBridge: React.FC<{ allUnits: Unit[] }> = ({ allUnits }) => {
+  const { selectedUnits } = useUnitContext();
+  return <ThemeManager allUnits={allUnits} activeUnitIds={selectedUnits} />;
+};
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('loading');
@@ -408,23 +414,24 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-            <Dashboard 
-              currentUser={currentUser} 
-              onLogout={handleLogout} 
-              isDemoMode={isDemoMode}
-              requests={requests}
-              shifts={shifts}
-              todos={todos}
-              adminTodos={adminTodos}
-              allUnits={allUnits}
-              allUsers={allUsers}
-              permissions={permissions}
-              unitPermissions={unitPermissions}
-              timeEntries={timeEntries}
-              feedbackList={feedbackList}
-              polls={polls}
-              firestoreError={firestoreError}
-            />
+          <ThemeManagerBridge allUnits={allUnits} />
+          <Dashboard
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            isDemoMode={isDemoMode}
+            requests={requests}
+            shifts={shifts}
+            todos={todos}
+            adminTodos={adminTodos}
+            allUnits={allUnits}
+            allUsers={allUsers}
+            permissions={permissions}
+            unitPermissions={unitPermissions}
+            timeEntries={timeEntries}
+            feedbackList={feedbackList}
+            polls={polls}
+            firestoreError={firestoreError}
+          />
         </UnitProvider>
       );
     case 'login':
