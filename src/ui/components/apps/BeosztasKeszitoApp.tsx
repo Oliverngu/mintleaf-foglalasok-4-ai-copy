@@ -43,7 +43,6 @@ import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
-import ColorPicker from '../common/ColorPicker';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 
 // Helper function to calculate shift duration in hours
@@ -729,10 +728,20 @@ const ExportSettingsPanel: FC<{
       <label className="block text-sm font-medium text-gray-700">
         {label}
       </label>
-      <ColorPicker
-        value={settings[id] as string}
-        onChange={newColor => handleColorChange(id, newColor)}
-      />
+      <div className="flex items-center gap-3 mt-1">
+        <input
+          type="color"
+          value={settings[id] as string}
+          onChange={e => handleColorChange(id, e.target.value)}
+          className="h-10 w-14 p-0 border rounded cursor-pointer"
+        />
+        <input
+          type="text"
+          value={settings[id] as string}
+          onChange={e => handleColorChange(id, e.target.value)}
+          className="flex-1 p-2 border rounded"
+        />
+      </div>
     </div>
   );
 
@@ -1995,6 +2004,33 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       el.style.textOverflow = 'unset';
     });
 
+    const dayHeaderTextColor = getContrastingTextColor(
+      exportSettings.dayHeaderBgColor
+    );
+    const nameHeaderTextColor = getContrastingTextColor(
+      exportSettings.nameColumnColor
+    );
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('thead th')
+      .forEach((th, idx) => {
+        const isNameHeader = idx === 0;
+        const bg = isNameHeader
+          ? exportSettings.nameColumnColor
+          : exportSettings.dayHeaderBgColor;
+        th.style.background = bg;
+        th.style.color = isNameHeader
+          ? nameHeaderTextColor
+          : dayHeaderTextColor;
+      });
+
+    tableClone
+      .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
+      .forEach(td => {
+        td.style.background = exportSettings.categoryHeaderBgColor;
+        td.style.color = exportSettings.categoryHeaderTextColor;
+      });
+
     // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
     if (hideEmptyUsers) {
       tableClone.querySelectorAll('tbody tr').forEach(row => {
@@ -2538,28 +2574,35 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                         }
                         className="p-1 border rounded"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        value={
-                          openingSettings.dailySettings[i]?.closingOffsetMinutes ??
-                          0
-                        }
-                        onChange={e =>
-                          handleSettingsChange(prev => ({
-                            ...prev,
-                            dailySettings: {
-                              ...prev.dailySettings,
-                              [i]: {
-                                ...prev.dailySettings[i],
-                                closingOffsetMinutes: Number(e.target.value)
+                      <div className="flex flex-col">
+                        <input
+                          type="number"
+                          min={0}
+                          value={
+                            openingSettings.dailySettings[i]?.closingOffsetMinutes
+                              ?.toString() ?? ''
+                          }
+                          onChange={e => {
+                            const val = e.target.value;
+                            handleSettingsChange(prev => ({
+                              ...prev,
+                              dailySettings: {
+                                ...prev.dailySettings,
+                                [i]: {
+                                  ...prev.dailySettings[i],
+                                  closingOffsetMinutes:
+                                    val === '' ? undefined : parseInt(val, 10)
+                                }
                               }
-                            }
-                          }))
-                        }
-                        className="p-1 border rounded w-24"
-                        placeholder="Offset (perc)"
-                      />
+                            }));
+                          }}
+                          className="p-1 border rounded w-28"
+                          placeholder="Offset (perc)"
+                        />
+                        <span className="text-xs text-gray-500 mt-1">
+                          Zárás utáni munka (pl. takarítás)
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </>
