@@ -59,11 +59,21 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
 
   useEffect(() => {
     if (resolvedUnit) {
-      setBrandColors(
+      const sourceColors =
         resolvedUnit.brandColors && resolvedUnit.brandColors.length
           ? resolvedUnit.brandColors
-          : DEFAULT_BRAND_COLORS
-      );
+          : DEFAULT_BRAND_COLORS;
+      const padded = [...DEFAULT_BRAND_COLORS];
+      sourceColors.forEach((color, idx) => {
+        if (color) {
+          if (idx < padded.length) {
+            padded[idx] = color;
+          } else {
+            padded.push(color);
+          }
+        }
+      });
+      setBrandColors(padded);
       setUiTheme(resolvedUnit.uiTheme || 'default');
     }
   }, [resolvedUnit]);
@@ -71,6 +81,9 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
   const handleBrandColorChange = (index: number, value: string) => {
     setBrandColors(prev => {
       const next = [...prev];
+      while (next.length <= index) {
+        next.push(DEFAULT_BRAND_COLORS[next.length] || '#000000');
+      }
       next[index] = value;
       return next;
     });
@@ -146,6 +159,7 @@ const UnitSettingsPage: React.FC<UnitSettingsPageProps> = ({
                     value={color}
                     onChange={val => handleBrandColorChange(idx, val)}
                     presetColors={brandColors.filter(Boolean)}
+                    hidePresets
                   />
                 ))}
               </div>

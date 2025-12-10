@@ -29,6 +29,7 @@ import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
 import { KeszletApp } from './apps/KeszletApp';
 import UnitSettingsPage from '../pages/UnitSettingsPage';
+import ThemeManager from '../../core/theme/ThemeManager';
 
 // Import Icons
 import HomeIcon from '../../../components/icons/HomeIcon';
@@ -167,6 +168,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     setSelectedUnits: setActiveUnitIds,
     allUnits: contextAllUnits,
   } = useUnitContext();
+
+  const activeUnitForTheme = useMemo(() => {
+    if (activeUnitIds.length > 0) {
+      const found = contextAllUnits.find(unit => unit.id === activeUnitIds[0]);
+      if (found) return found;
+    }
+    return contextAllUnits[0] || null;
+  }, [activeUnitIds, contextAllUnits]);
 
   if (!currentUser) {
     return (
@@ -520,22 +529,24 @@ const Dashboard: React.FC<DashboardProps> = ({
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
   return (
-    <div className="relative h-full bg-gray-50 overflow-hidden">
-      {/* Backdrop for sidebar */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden="true"
-        ></div>
-      )}
+    <>
+      <ThemeManager activeUnit={activeUnitForTheme} />
+      <div className="relative h-full bg-gray-50 overflow-hidden">
+        {/* Backdrop for sidebar */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-20"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          ></div>
+        )}
 
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-30 bg-white border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } w-64`}
-      >
+        {/* Sidebar */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-30 bg-white border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } w-64`}
+        >
         <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
           <div className="flex items-center gap-2">
             <MintLeafLogo className="h-8 w-8" />
@@ -648,6 +659,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </main>
       </div>
     </div>
+  </>
   );
 };
 

@@ -5,14 +5,20 @@ interface ColorPickerProps {
   value: string;
   onChange: (value: string) => void;
   presetColors?: string[];
+  hidePresets?: boolean;
 }
 
 const ColorPicker: React.FC<ColorPickerProps> = ({
   label,
   value,
   onChange,
-  presetColors
+  presetColors,
+  hidePresets
 }) => {
+  const uniquePresets = presetColors
+    ? [...new Set(presetColors.filter(Boolean))]
+    : [];
+
   return (
     <div className="flex flex-col gap-1">
       {label && <span className="text-sm font-medium text-gray-700">{label}</span>}
@@ -33,11 +39,11 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
           maxLength={7}
         />
       </div>
-      {presetColors && presetColors.length > 0 && (
+      {!hidePresets && uniquePresets.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-1">
-          {presetColors.map(color => (
+          {uniquePresets.map((color, index) => (
             <button
-              key={color}
+              key={`${color}-${index}`}
               type="button"
               onClick={() => onChange(color)}
               className="w-7 h-7 rounded-full border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
