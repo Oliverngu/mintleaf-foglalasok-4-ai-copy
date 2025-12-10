@@ -60,8 +60,11 @@ const calculateShiftDuration = (
   let end = shift.end?.toDate();
   const referenceDate = options?.referenceDate || shift.start.toDate();
 
-  if (!end && options?.closingTime && referenceDate) {
-    const [hours, minutes] = options.closingTime.split(':').map(Number);
+  if (!end && referenceDate) {
+    const closingTime = options?.closingTime;
+    if (!closingTime) return 0;
+
+    const [hours, minutes] = closingTime.split(':').map(Number);
     end = new Date(referenceDate);
     end.setHours(
       hours,
@@ -1408,6 +1411,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [currentDate]
   );
 
+  const weekStartDateStr = useMemo(
+    () => toDateString(weekDays[0]),
+    [weekDays]
+  );
+
+  const openingSettings = useMemo(
+    () =>
+      weekSettings ||
+      createDefaultSettings(activeUnitIds[0] || 'default', weekStartDateStr),
+    [weekSettings, activeUnitIds, weekStartDateStr]
+  );
+
   useEffect(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) {
       setUnitWeekSettings({});
@@ -1415,7 +1430,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     let isMounted = true;
-    const weekStartDateStr = toDateString(weekDays[0]);
 
     const loadSettings = async () => {
       const entries = await Promise.all(
@@ -1456,7 +1470,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeUnitIds, weekDays]);
+  }, [activeUnitIds, weekDays, weekStartDateStr]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -1923,8 +1937,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const handleSettingsChange = useCallback(
     (updater: (prev: ScheduleSettings) => ScheduleSettings) => {
       setWeekSettings(prev => {
-        if (!prev) return prev;
-        const updated = updater(prev);
+        const baseSettings =
+          prev ||
+          createDefaultSettings(
+            activeUnitIds[0] || 'default',
+            weekStartDateStr
+          );
+
+        const updated = updater(baseSettings);
         if (canManage && activeUnitIds.length === 1) {
           setDoc(doc(db, 'schedule_settings', updated.id), updated).catch(
             error => {
@@ -1935,11 +1955,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return updated;
       });
     },
-    [canManage, activeUnitIds]
+    [canManage, activeUnitIds, weekStartDateStr]
   );
 
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (!tableRef.current) {
       reject(new Error('Table ref not found'));
@@ -1967,6 +1987,13 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
     tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+    tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+      el.style.whiteSpace = 'pre-wrap';
+      el.style.maxWidth = 'none';
+      el.style.overflow = 'visible';
+      el.style.textOverflow = 'unset';
+    });
 
     // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
     if (hideEmptyUsers) {
@@ -2202,19 +2229,19 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
   return (
     <div className="p-4 md:p-8">
       <style>
-        {`@import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap');
+        {`@import url('https://fonts.googleapis.com/css2?family=Kalam&display=swap');
         .toggle-checkbox:checked { right: 0; border-color: #16a34a; }
         .toggle-checkbox:checked + .toggle-label { background-color: #16a34a; }
         .handwritten-note {
-          font-family: 'Patrick Hand', 'Kalam', 'Comic Sans MS', cursive;
+          font-family: 'Kalam', cursive;
           transform: rotate(-1deg);
           color: #334155;
           display: inline-block;
-          max-width: 150px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          line-height: 1.2;
+          max-width: 100%;
+          white-space: normal;
+          line-height: 1.1;
+          letter-spacing: -0.5px;
+          font-size: 0.9em;
         }`}
       </style>
 
@@ -2431,118 +2458,112 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
               </div>
             </div>
             <div className="p-6 overflow-y-auto">
-              {activeSettingsTab === 'opening' &&
-                weekSettings && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={weekSettings.showOpeningTime}
-                          onChange={e =>
-                            handleSettingsChange(prev => ({
-                              ...prev,
-                              showOpeningTime: e.target.checked
-                            }))
-                          }
-                          className="h-4 w-4 rounded"
-                        />{' '}
-                        Nyitás megjelenítése
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={weekSettings.showClosingTime}
-                          onChange={e =>
-                            handleSettingsChange(prev => ({
-                              ...prev,
-                              showClosingTime: e.target.checked
-                            }))
-                          }
-                          className="h-4 w-4 rounded"
-                        />{' '}
-                        Zárás megjelenítése
-                      </label>
+              {activeSettingsTab === 'opening' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={openingSettings.showOpeningTime}
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            showOpeningTime: e.target.checked
+                          }))
+                        }
+                        className="h-4 w-4 rounded"
+                      />{' '}
+                      Nyitás megjelenítése
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={openingSettings.showClosingTime}
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            showClosingTime: e.target.checked
+                          }))
+                        }
+                        className="h-4 w-4 rounded"
+                      />{' '}
+                      Zárás megjelenítése
+                    </label>
+                  </div>
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
+                    >
+                      <span className="font-semibold w-24">
+                        {weekDays[i].toLocaleDateString('hu-HU', {
+                          weekday: 'long'
+                        })}
+                      </span>
+                      <input
+                        type="time"
+                        value={
+                          openingSettings.dailySettings[i]?.openingTime || ''
+                        }
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            dailySettings: {
+                              ...prev.dailySettings,
+                              [i]: {
+                                ...prev.dailySettings[i],
+                                openingTime: e.target.value
+                              }
+                            }
+                          }))
+                        }
+                        className="p-1 border rounded"
+                      />
+                      <input
+                        type="time"
+                        value={
+                          openingSettings.dailySettings[i]?.closingTime || ''
+                        }
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            dailySettings: {
+                              ...prev.dailySettings,
+                              [i]: {
+                                ...prev.dailySettings[i],
+                                closingTime: e.target.value
+                              }
+                            }
+                          }))
+                        }
+                        className="p-1 border rounded"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={
+                          openingSettings.dailySettings[i]?.closingOffsetMinutes ??
+                          0
+                        }
+                        onChange={e =>
+                          handleSettingsChange(prev => ({
+                            ...prev,
+                            dailySettings: {
+                              ...prev.dailySettings,
+                              [i]: {
+                                ...prev.dailySettings[i],
+                                closingOffsetMinutes: Number(e.target.value)
+                              }
+                            }
+                          }))
+                        }
+                        className="p-1 border rounded w-24"
+                        placeholder="Offset (perc)"
+                      />
                     </div>
-                    {Array.from({ length: 7 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
-                      >
-                        <span className="font-semibold w-24">
-                          {weekDays[i].toLocaleDateString(
-                            'hu-HU',
-                            { weekday: 'long' }
-                          )}
-                        </span>
-                        <input
-                          type="time"
-                          value={
-                            weekSettings.dailySettings[i]
-                              ?.openingTime || ''
-                          }
-                          onChange={e =>
-                            handleSettingsChange(prev => ({
-                              ...prev,
-                              dailySettings: {
-                                ...prev.dailySettings,
-                                [i]: {
-                                  ...prev.dailySettings[i],
-                                  openingTime: e.target.value
-                                }
-                              }
-                            }))
-                          }
-                          className="p-1 border rounded"
-                        />
-                        <input
-                          type="time"
-                          value={
-                            weekSettings.dailySettings[i]
-                              ?.closingTime || ''
-                          }
-                          onChange={e =>
-                            handleSettingsChange(prev => ({
-                              ...prev,
-                              dailySettings: {
-                                ...prev.dailySettings,
-                                [i]: {
-                                  ...prev.dailySettings[i],
-                                  closingTime: e.target.value
-                                }
-                              }
-                            }))
-                          }
-                          className="p-1 border rounded"
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          value={
-                            weekSettings.dailySettings[i]
-                              ?.closingOffsetMinutes ?? 0
-                          }
-                          onChange={e =>
-                            handleSettingsChange(prev => ({
-                              ...prev,
-                              dailySettings: {
-                                ...prev.dailySettings,
-                                [i]: {
-                                  ...prev.dailySettings[i],
-                                  closingOffsetMinutes: Number(
-                                    e.target.value
-                                  )
-                                }
-                              }
-                            }))
-                          }
-                          className="p-1 border rounded w-24"
-                          placeholder="Offset (perc)"
-                        />
-                      </div>
-                    ))}
-                  </>
-                )}
+                  ))}
+                </>
+              )}
               {activeSettingsTab === 'export' && (
                 <ExportSettingsPanel
                   settings={exportSettings}
@@ -2901,8 +2922,8 @@ const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
                                   </span>
                                 )}
                                 {hasNote && (
-                                  <span className="handwritten-note text-slate-700">
-                                    {shiftNote}
+                                  <span className="handwritten-note tracking-tighter">
+                                    {`"${shiftNote}"`}
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
