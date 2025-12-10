@@ -31,7 +31,7 @@ const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
   rootStyle.setProperty('--color-surface', palette.surface);
   rootStyle.setProperty('--color-background', palette.background);
   rootStyle.setProperty('--color-text', palette.text);
-  rootStyle.setProperty('--color-text-body', palette.text);
+  rootStyle.setProperty('--color-text-body', palette.textMain);
   rootStyle.setProperty('--color-text-main', palette.textMain);
   rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
   rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);

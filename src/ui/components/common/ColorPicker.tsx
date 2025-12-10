@@ -110,8 +110,6 @@ const hslToHex = (h: number, s: number, l: number) => {
   return `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`;
 };
 
-const hslDistance = (a: HSL, b: HSL) => Math.abs(a.h - b.h) + Math.abs(a.s - b.s) + Math.abs(a.l - b.l);
-
 const ColorPicker: React.FC<ColorPickerProps> = ({
   label,
   value,
@@ -135,20 +133,18 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
     return Array.from(new Set(presetColors.filter(Boolean)));
   }, [presetColors, hidePresets]);
 
+  const derivedHex = useMemo(() => hslToHex(hsl.h, hsl.s, hsl.l), [hsl]);
+
   useEffect(() => {
     const nextHex = normalizeHex(value);
+    if (nextHex.toLowerCase() === derivedHex.toLowerCase()) return;
+
     const rgb = hexToRgb(nextHex);
     if (!rgb) return;
     const nextHsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-
-    if (nextHex !== hexValue) {
-      setHexValue(nextHex);
-    }
-
-    if (hslDistance(nextHsl, hsl) > 1.5) {
-      setHsl(nextHsl);
-    }
-  }, [value, hexValue, hsl]);
+    setHsl(nextHsl);
+    setHexValue(nextHex);
+  }, [value, derivedHex]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {

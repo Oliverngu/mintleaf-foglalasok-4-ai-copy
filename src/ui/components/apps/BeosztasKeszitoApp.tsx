@@ -252,7 +252,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg"
+        className="rounded-2xl shadow-xl w-full max-w-lg"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <form onSubmit={handleSubmit}>
@@ -385,7 +386,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
+                className="text-white px-4 py-2 rounded-lg font-semibold"
+                style={{ backgroundColor: 'var(--color-primary)' }}
               >
                 Mentés
               </button>
@@ -438,7 +440,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg"
+        className="rounded-2xl shadow-xl w-full max-w-lg"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
@@ -489,7 +492,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || selectedIds.length === 0}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+            className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             {isSubmitting
               ? 'Publikálás...'
@@ -1166,7 +1170,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-xl"
+        className="rounded-2xl shadow-xl w-full max-w-xl"
+        style={{ backgroundColor: 'var(--color-surface)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
@@ -1223,7 +1228,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
           <button
             onClick={handleConfirmClick}
             disabled={isExporting}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400 flex items-center gap-2"
+            className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400 flex items-center gap-2"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             {isExporting && (
               <svg
@@ -2651,7 +2657,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       !exportSettingsHaveChanged ||
                       isSavingExportSettings
                     }
-                    className="bg-green-700 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+                    className="text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+                    style={{ backgroundColor: 'var(--color-primary)' }}
                   >
                     {isSavingExportSettings
                       ? 'Mentés...'
@@ -2668,7 +2675,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <div className="mb-4 text-center">
           <button
             onClick={handlePublishWeek}
-            className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700"
+            className="text-white font-bold py-2 px-6 rounded-lg"
+            style={{ backgroundColor: 'var(--color-accent)' }}
           >
             Hét publikálása
           </button>
@@ -2692,7 +2700,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div
+        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
+        style={{ backgroundColor: 'var(--color-surface)' }}
+      >
         <table
           ref={tableRef}
           className="min-w-full text-sm"

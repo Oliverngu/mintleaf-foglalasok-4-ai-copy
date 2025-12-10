@@ -392,16 +392,22 @@ const App: React.FC = () => {
             return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
         }
         return (
-            <div className="fixed inset-0 flex items-center justify-center bg-gray-50 p-4">
+            <div
+              className="fixed inset-0 flex items-center justify-center p-4"
+              style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
+            >
                 <div className="text-center">
                     <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
-                    <p className="mt-2 text-gray-700">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
+                    <p className="mt-2">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
                 </div>
             </div>
         );
     case 'loading':
       return (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
+        >
           <LoadingSpinner />
         </div>
       );
