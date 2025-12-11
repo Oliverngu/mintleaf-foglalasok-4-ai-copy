@@ -17,7 +17,8 @@ import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import UnitLogoBadge from './common/UnitLogoBadge';
 import ThemeSelector from './dashboard/ThemeSelector';
-import { ThemeMode } from '../../core/theme/ThemeManager';
+import { ThemeMode, ThemeBases } from '../../core/theme/types';
+import AdminThemeEditor from './theme/AdminThemeEditor';
 
 interface HomeDashboardProps {
   currentUser: User;
@@ -34,6 +35,8 @@ interface HomeDashboardProps {
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
   activeUnit: Unit | null;
+  themeBases: ThemeBases;
+  onThemeBasesChange: (bases: ThemeBases) => void;
 }
 
 const DEFAULT_WIDGETS: WidgetConfig[] = [
@@ -47,12 +50,30 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
     { id: 'bookings', visible: true, order: 8 },
 ];
 
-const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds, allUnits, themeMode, onThemeChange, activeUnit }) => {
+const HomeDashboard: React.FC<HomeDashboardProps> = ({
+  currentUser,
+  requests,
+  schedule,
+  todos,
+  adminTodos,
+  timeEntries,
+  setActiveApp,
+  feedbackList,
+  polls,
+  activeUnitIds,
+  allUnits,
+  themeMode,
+  onThemeChange,
+  activeUnit,
+  themeBases,
+  onThemeBasesChange,
+}) => {
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
   const [wages, setWages] = useState<Record<string, number | ''>>({});
   const isMultiUnitView = activeUnitIds.length > 1;
+  const [showThemeEditor, setShowThemeEditor] = useState(false);
 
   // --- Data Filtering based on activeUnitIds ---
   const filteredTimeEntries = useMemo(() => 
@@ -476,6 +497,13 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           <ThemeSelector activeUnit={primaryUnit} value={themeMode} onThemeChange={onThemeChange} />
+          <button
+            onClick={() => setShowThemeEditor(prev => !prev)}
+            className="px-3 py-2 text-sm font-semibold rounded-lg border border-gray-200 bg-white hover:bg-gray-100"
+            type="button"
+          >
+            Theme Editor
+          </button>
           {isEditMode ? (
             <button
               onClick={handleSaveConfig}
@@ -494,6 +522,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
           )}
         </div>
       </div>
+
+      {showThemeEditor && (
+        <div className="mb-4">
+          <AdminThemeEditor bases={themeBases} onChangeBases={onThemeBasesChange} />
+        </div>
+      )}
       {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-6">

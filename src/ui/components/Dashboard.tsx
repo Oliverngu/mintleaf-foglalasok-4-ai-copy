@@ -53,7 +53,7 @@ import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
-import { ThemeMode } from '../../core/theme/ThemeManager';
+import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -73,6 +73,8 @@ interface DashboardProps {
   firestoreError?: string | null;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
+  themeBases: ThemeBases;
+  onThemeBasesChange: (bases: ThemeBases) => void;
 }
 
 type AppName =
@@ -120,6 +122,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   firestoreError,
   themeMode,
   onThemeModeChange,
+  themeBases,
+  onThemeBasesChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -362,6 +366,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             themeMode={themeMode}
             onThemeChange={onThemeModeChange}
             activeUnit={activeUnit}
+            themeBases={themeBases}
+            onThemeBasesChange={onThemeBasesChange}
           />
         );
       case 'kerelemek':
@@ -524,6 +530,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
+            themeMode={themeMode}
+            onThemeChange={onThemeModeChange}
+            activeUnit={activeUnit}
+            themeBases={themeBases}
+            onThemeBasesChange={onThemeBasesChange}
           />
         );
     }
