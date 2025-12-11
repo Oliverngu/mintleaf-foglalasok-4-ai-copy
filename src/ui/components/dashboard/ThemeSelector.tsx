@@ -10,6 +10,35 @@ interface ThemeSelectorProps {
 
 const STORAGE_KEY = 'mintleaf_theme_mode';
 
+const LeafIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className={className}
+  >
+    <path d="M3 13.5C3 7.701 7.701 3 13.5 3H21v7.5C21 16.299 16.299 21 10.5 21H3v-7.5Z" />
+    <path
+      d="M8 16c3-1.5 5.5-4 6.5-7"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      fill="none"
+    />
+  </svg>
+);
+
+const MoonIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className={className}
+  >
+    <path d="M21 12.79A9 9 0 0 1 11.21 3 7 7 0 1 0 21 12.79Z" />
+  </svg>
+);
+
 const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThemeChange }) => {
   const initialTheme = useMemo<ThemeMode>(() => {
     if (value) return value;
@@ -46,28 +75,18 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
     );
   }, [activeUnit]);
 
-  const renderButton = (
-    id: ThemeMode,
-    content: React.ReactNode,
-    label: string,
-    extraClasses = ''
-  ) => {
+  const renderButton = (id: ThemeMode, content: React.ReactNode, label: string, extraClasses = '') => {
     const isActive = selectedTheme === id;
     return (
       <button
         type="button"
         onClick={() => setSelectedTheme(id)}
-        className={`relative w-10 h-10 rounded-xl border border-gray-200 overflow-hidden flex items-center justify-center transition transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
-          isActive ? 'ring-2 ring-offset-2 ring-blue-500' : ''
+        className={`relative w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center border border-gray-200 transition transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${
+          isActive ? 'ring-2 ring-offset-2 ring-green-500' : ''
         } ${extraClasses}`}
         aria-label={label}
       >
         {content}
-        {isActive && (
-          <span className="absolute inset-0 flex items-center justify-center text-white text-lg font-bold drop-shadow">
-            ✓
-          </span>
-        )}
       </button>
     );
   };
@@ -86,9 +105,29 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
 
   return (
     <div className="flex items-center gap-2">
-      {renderButton('mintleaf', <div className="w-full h-full bg-green-600" aria-hidden="true" />, 'MintLeaf téma')}
-      {renderButton('dark', <div className="w-full h-full bg-slate-900" aria-hidden="true" />, 'Sötét téma')}
-      {renderButton('branded', brandedContent(), 'Branded téma', brandColor ? '' : '')}
+      {renderButton(
+        'mintleaf',
+        (
+          <div className="w-full h-full flex items-center justify-center bg-white">
+            <LeafIcon className="w-5 h-5 text-green-700" />
+          </div>
+        ),
+        'MintLeaf téma'
+      )}
+      {renderButton(
+        'dark',
+        (
+          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-yellow-200">
+            <MoonIcon className="w-5 h-5" />
+          </div>
+        ),
+        'Sötét téma'
+      )}
+      {renderButton(
+        'branded',
+        <div className="w-full h-full overflow-hidden rounded-xl">{brandedContent()}</div>,
+        'Branded téma'
+      )}
     </div>
   );
 };

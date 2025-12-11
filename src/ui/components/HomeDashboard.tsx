@@ -474,7 +474,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
           <h1 className="text-3xl font-bold text-gray-800">Üdv, {currentUser.firstName}!</h1>
           <p className="text-gray-600 mt-1">Jó újra látni. Itt egy gyors áttekintés a mai napodról.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <ThemeSelector activeUnit={primaryUnit} value={themeMode} onThemeChange={onThemeChange} />
           {isEditMode ? (
             <button

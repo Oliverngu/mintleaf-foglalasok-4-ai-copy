@@ -535,7 +535,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <>
       <div
-        className="relative h-full overflow-hidden"
+        className="relative h-full overflow-hidden transition-colors duration-200"
         style={{
           backgroundColor: 'var(--color-background)',
           backgroundImage: 'var(--ui-bg-image)',
