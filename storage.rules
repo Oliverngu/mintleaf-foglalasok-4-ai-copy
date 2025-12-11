@@ -7,10 +7,12 @@ service firebase.storage {
     }
 
     function isAdmin() {
+      // FIGYELEM: Ez a sor okozhatja a "Property undefined" hibát, ha a tokenben nincs 'admin' vagy 'role' mező
       return isSignedIn() && (request.auth.token.admin == true || request.auth.token.role == 'Admin');
     }
 
     function hasUnit(unitId) {
+      // FIGYELEM: Ez a sor is okozhatja a "Property undefined" hibát, ha hiányoznak a kulcsok
       return isSignedIn()
         && unitId != null
         && ((request.auth.token.unitIds != null && unitId in request.auth.token.unitIds)
@@ -53,6 +55,12 @@ service firebase.storage {
     match /units/{unitId}/themes/{allPaths=**} {
       allow read: if isSignedIn();
       allow write, delete: if canManageUnitTheme(unitId);
+    }
+
+    // ✅ ÚJ SZABÁLY: UI Branding Képek (Admin és Unit Admin kezelheti)
+    match /units/{unitId}/ui_themes/{allPaths=**} {
+      allow read: if true; // Publikus olvasás (hogy mindenki lássa a márkázást)
+      allow write: if isAdmin() || canManageUnitTheme(unitId);
     }
   }
 }
