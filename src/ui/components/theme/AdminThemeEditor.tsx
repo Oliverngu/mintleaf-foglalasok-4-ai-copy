@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ThemeBases } from '../../../core/theme/types';
 import { DEFAULT_BASES, saveBases } from '../../../core/theme/storage';
+import ColorPicker from '../common/ColorPicker';
 
 interface AdminThemeEditorProps {
   bases: ThemeBases;
@@ -14,6 +15,9 @@ const colorFields = [
   { key: 'sidebarBg', label: 'Sidebar BG' },
   { key: 'background', label: 'Background' },
   { key: 'surface', label: 'Surface' },
+  { key: 'accent', label: 'Accent' },
+  { key: 'sidebarHover', label: 'Sidebar Hover' },
+  { key: 'inputBg', label: 'Input BG' },
   { key: 'textMain', label: 'Text Main' },
   { key: 'textSecondary', label: 'Text Secondary' },
   { key: 'border', label: 'Border' },
@@ -71,15 +75,12 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {colorFields.map(field => (
-          <label key={field.key} className="flex items-center justify-between gap-3 text-sm text-gray-700">
+          <div key={field.key} className="flex items-center justify-between gap-3 text-sm text-gray-700">
             <span>{field.label}</span>
-            <input
-              type="color"
-              value={current[field.key]}
-              onChange={e => updateField(field.key, e.target.value)}
-              className="h-9 w-16 rounded cursor-pointer border border-gray-200"
-            />
-          </label>
+            <div className="w-40">
+              <ColorPicker value={current[field.key]} onChange={value => updateField(field.key, value)} />
+            </div>
+          </div>
         ))}
       </div>
 

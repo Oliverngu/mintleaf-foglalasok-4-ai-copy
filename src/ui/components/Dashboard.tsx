@@ -291,6 +291,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
+    const isActive = activeApp === app;
+
     return (
       <button
         onClick={() => {
@@ -298,10 +300,12 @@ const Dashboard: React.FC<DashboardProps> = ({
           setSidebarOpen(false);
         }}
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-          activeApp === app
-            ? 'bg-[var(--color-secondary)] text-white shadow-inner'
-            : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+          isActive ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
         }`}
+        style={{
+          backgroundColor: isActive ? 'var(--color-secondary)' : 'transparent',
+          color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-text-main)',
+        }}
         title={label}
       >
         <Icon className="h-6 w-6" />
@@ -327,8 +331,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div>
         <button
           onClick={() => toggleCategory(name)}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-200"
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--color-sidebar-hover)] transition-colors duration-200"
           aria-expanded={isOpen}
+          style={{ color: 'var(--color-text-main)' }}
         >
           <div className="flex items-center">
             <Icon className="h-6 w-6" />
@@ -339,7 +344,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         </button>
         {isOpen && (
-          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5">
+          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5" style={{ borderColor: 'var(--color-border)' }}>
             {children}
           </div>
         )}
@@ -635,10 +640,16 @@ const Dashboard: React.FC<DashboardProps> = ({
               setSidebarOpen(false);
             }}
             className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-              activeApp === 'settings'
-                ? 'bg-[var(--color-secondary)] text-white shadow-inner'
-                : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+              activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
             }`}
+            style={{
+              backgroundColor:
+                activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
+              color:
+                activeApp === 'settings'
+                  ? 'var(--color-text-on-primary)'
+                  : 'var(--color-text-main)',
+            }}
             title="Beállítások"
           >
             <SettingsIcon className="h-6 w-6" />

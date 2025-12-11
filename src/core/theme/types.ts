@@ -7,6 +7,9 @@ export type BaseTheme = {
   sidebarBg: string;
   background: string;
   surface: string;
+  accent: string;
+  sidebarHover: string;
+  inputBg: string;
   textMain: string;
   textSecondary: string;
   border: string;

@@ -14,6 +14,7 @@ const VARIABLE_KEYS = [
   '--color-secondary',
   '--color-header-bg',
   '--color-sidebar-bg',
+  '--color-sidebar-hover',
   '--color-background',
   '--color-surface',
   '--color-surface-brand',
@@ -27,6 +28,7 @@ const VARIABLE_KEYS = [
   '--color-sidebar-active',
   '--color-sidebar-text',
   '--color-accent',
+  '--color-input-bg',
 ];
 
 const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
@@ -57,6 +59,7 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   rootStyle.setProperty('--color-header-bg', brandOverride?.headerBg || palette.headerBg);
   rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
   rootStyle.setProperty('--color-sidebar-active', palette.secondary);
+  rootStyle.setProperty('--color-sidebar-hover', palette.sidebarHover);
   rootStyle.setProperty('--color-sidebar-text', palette.textMain);
   rootStyle.setProperty('--color-background', brandOverride?.background || palette.background);
   rootStyle.setProperty('--color-surface', palette.surface);
@@ -68,7 +71,8 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   rootStyle.setProperty('--color-border', palette.border);
   rootStyle.setProperty('--color-text-on-primary', getContrastText(palette.primary));
   rootStyle.setProperty('--color-primary-hover', palette.primary);
-  rootStyle.setProperty('--color-accent', brandOverride?.secondary || palette.secondary);
+  rootStyle.setProperty('--color-accent', palette.accent);
+  rootStyle.setProperty('--color-input-bg', palette.inputBg);
 };
 
 const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined => {
