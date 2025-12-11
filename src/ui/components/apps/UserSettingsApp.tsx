@@ -5,11 +5,30 @@ import { EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePas
 import { doc, updateDoc } from 'firebase/firestore';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
+import { getAuth } from 'firebase/auth';
 
 interface UserSettingsAppProps {
   user: User | null;
   onLogout: () => void;
 }
+
+const checkMyClaims = async () => {
+  const auth = getAuth();
+  const user = auth.currentUser;
+  if (user) {
+    // Force refresh, hogy a legfrissebb adatot lásd
+    const token = await user.getIdTokenResult(true);
+    console.log("=== TOKEN DIAGNOSZTIKA ===");
+    console.log("Email:", user.email);
+    console.log("Claims:", token.claims);
+    console.log("Van Admin joga?", token.claims.admin || token.claims.role === 'Admin');
+    console.log("Van Unit joga?", token.claims.unitPermissions);
+  }
+};
+
+// Hívj meg egy gombnyomásra vagy useEffect-ben:
+// useEffect(() => { checkMyClaims(); }, []);
+
 
 const UserSettingsApp: React.FC<UserSettingsAppProps> = ({ user, onLogout }) => {
   const [newLastName, setNewLastName] = useState(user?.lastName || '');
