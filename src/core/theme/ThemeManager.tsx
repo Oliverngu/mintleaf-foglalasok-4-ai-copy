@@ -21,6 +21,7 @@ type Palette = {
   sidebarActive: string;
   sidebarText: string;
   headerBg: string;
+  border: string;
 };
 
 const THEME_VARIABLE_KEYS = [
@@ -40,9 +41,15 @@ const THEME_VARIABLE_KEYS = [
   '--color-sidebar-text',
   '--color-text-on-primary',
   '--color-header-bg',
+  '--color-border',
   '--ui-header-image',
   '--ui-bg-image',
 ];
+
+const clearCssVariables = () => {
+  const rootStyle = document.documentElement.style;
+  THEME_VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
+};
 
 const setCssVariables = (palette: Palette) => {
   const rootStyle = document.documentElement.style;
@@ -62,13 +69,9 @@ const setCssVariables = (palette: Palette) => {
   rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
   rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
   rootStyle.setProperty('--color-header-bg', palette.headerBg);
+  rootStyle.setProperty('--color-border', palette.border);
   rootStyle.removeProperty('--ui-header-image');
   rootStyle.removeProperty('--ui-bg-image');
-};
-
-const clearCssVariables = () => {
-  const rootStyle = document.documentElement.style;
-  THEME_VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
 };
 
 const hexToRgb = (hex: string) => {
@@ -89,40 +92,6 @@ const hexToRgb = (hex: string) => {
     b: int & 255,
   };
 };
-
-const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
-  const srgb = [r, g, b].map(v => {
-    const channel = v / 255;
-    return channel <= 0.03928
-      ? channel / 12.92
-      : Math.pow((channel + 0.055) / 1.055, 2.4);
-  });
-
-  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
-};
-
-const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
-  const rgb = hexColor ? hexToRgb(hexColor) : null;
-  if (!rgb) return fallback;
-
-  const lum = luminance(rgb);
-  return lum > 0.5 ? '#0f172a' : '#ffffff';
-};
-
-const LEGACY_TARGETS: BrandTarget[] = [
-  'primary',
-  'secondary',
-  'accent',
-  'background',
-  'surface',
-];
-
-const mapLegacyColorsToConfigs = (colors: string[]): BrandColorConfig[] =>
-  colors.slice(0, 5).map((color, idx) => ({
-    id: `legacy-${idx}`,
-    color,
-    target: LEGACY_TARGETS[idx] || 'accent',
-  }));
 
 const rgbToHsl = (r: number, g: number, b: number) => {
   r /= 255;
@@ -146,6 +115,8 @@ const rgbToHsl = (r: number, g: number, b: number) => {
         break;
       case b:
         h = (r - g) / d + 4;
+        break;
+      default:
         break;
     }
     h /= 6;
@@ -197,6 +168,28 @@ const adjustLightness = (hex: string, delta: number) => {
   return hslToHex(baseHsl.h, baseHsl.s, nextL);
 };
 
+const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
+  const rgb = hexColor ? hexToRgb(hexColor) : null;
+  if (!rgb) return fallback;
+
+  const srgb = [rgb.r, rgb.g, rgb.b].map(v => {
+    const channel = v / 255;
+    return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+  });
+
+  const lum = 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+  return lum > 0.5 ? '#0f172a' : '#ffffff';
+};
+
+const LEGACY_TARGETS: BrandTarget[] = ['primary', 'secondary', 'accent', 'background', 'surface'];
+
+const mapLegacyColorsToConfigs = (colors: string[]): BrandColorConfig[] =>
+  colors.slice(0, 5).map((color, idx) => ({
+    id: `legacy-${idx}`,
+    color,
+    target: LEGACY_TARGETS[idx] || 'accent',
+  }));
+
 const MINTLEAF_PALETTE: Palette = {
   primary: '#15803d',
   primaryHover: adjustLightness('#15803d', -10),
@@ -210,6 +203,7 @@ const MINTLEAF_PALETTE: Palette = {
   sidebarActive: '#e2e8f0',
   sidebarText: '#0f172a',
   headerBg: '#15803d',
+  border: '#e2e8f0',
 };
 
 const DARK_PALETTE: Palette = {
@@ -221,10 +215,11 @@ const DARK_PALETTE: Palette = {
   textMain: '#f1f5f9',
   textSecondary: '#94a3b8',
   textOnPrimary: '#ffffff',
-  sidebarBg: '#1e293b',
-  sidebarActive: '#334155',
+  sidebarBg: '#0f172a',
+  sidebarActive: '#1e293b',
   sidebarText: '#f1f5f9',
   headerBg: '#0f172a',
+  border: '#334155',
 };
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode }) => {

@@ -16,12 +16,14 @@ const LeafIcon: React.FC<{ className?: string }> = ({ className }) => (
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth={1.5}
+    strokeWidth={1.6}
     className={className}
   >
-    <path d="M5 7.5c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25S15.075 2.25 12 2.25 5 4.7 5 7.5Z" />
-    <path d="M5 7.5v9c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25v-9" />
-    <path d="M5 11.25c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25" />
+    <path
+      d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -79,8 +81,8 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
         type="button"
         onClick={() => setSelectedTheme(id)}
         aria-label={label}
-        className={`w-9 h-9 rounded-xl transition-all duration-200 flex items-center justify-center border-2 ${
-          isActive ? 'border-blue-500 scale-110 shadow-lg opacity-100' : 'border-transparent opacity-70 hover:opacity-100'
+        className={`w-9 h-9 rounded-xl transition-all duration-200 flex items-center justify-center border-2 border-transparent ${
+          isActive ? 'ring-2 ring-offset-2 ring-blue-500 opacity-100 scale-105 shadow-lg' : 'opacity-70 hover:opacity-100'
         } ${extraClasses}`}
       >
         {content}
@@ -107,7 +109,7 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       {renderButton(
         'mintleaf',
         <div className="w-full h-full flex items-center justify-center bg-white rounded-[10px]">
