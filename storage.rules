@@ -8,9 +8,12 @@ service firebase.storage {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.admin == 'true' ||
-        request.auth.token.role == 'Admin'
+        // Accept any non-false admin custom claim (bool/number/string) or admin role label
+        (request.auth.token.admin != null && request.auth.token.admin != false &&
+          request.auth.token.admin != 'false' && request.auth.token.admin != 0 &&
+          request.auth.token.admin != '0') ||
+        request.auth.token.role == 'Admin' ||
+        request.auth.token.role == 'admin'
       );
     }
 
@@ -35,7 +38,7 @@ service firebase.storage {
 
     function canManageKnowledgeBase(unitId) {
       return isSignedIn() && (
-        request.auth.token.admin == true ||
+        isAdmin() ||
         request.auth.token.canManageKnowledgeBase == true ||
         request.auth.token.canManageKnowledgeCategories == true ||
         (request.auth.token.unitPermissions != null &&
