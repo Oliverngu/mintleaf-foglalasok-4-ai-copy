@@ -469,12 +469,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
           currentUser={currentUser}
         />
       )}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Üdv, {currentUser.firstName}!</h1>
           <p className="text-gray-600 mt-1">Jó újra látni. Itt egy gyors áttekintés a mai napodról.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <ThemeSelector activeUnit={primaryUnit} value={themeMode} onThemeChange={onThemeChange} />
           {isEditMode ? (
             <button

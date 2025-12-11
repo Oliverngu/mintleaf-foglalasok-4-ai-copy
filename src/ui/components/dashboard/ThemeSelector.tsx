@@ -14,17 +14,14 @@ const LeafIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
-    fill="currentColor"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
     className={className}
   >
-    <path d="M3 13.5C3 7.701 7.701 3 13.5 3H21v7.5C21 16.299 16.299 21 10.5 21H3v-7.5Z" />
-    <path
-      d="M8 16c3-1.5 5.5-4 6.5-7"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      fill="none"
-    />
+    <path d="M5 7.5c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25S15.075 2.25 12 2.25 5 4.7 5 7.5Z" />
+    <path d="M5 7.5v9c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25v-9" />
+    <path d="M5 11.25c0 2.8 3.925 5.25 7 5.25s7-2.45 7-5.25" />
   </svg>
 );
 
@@ -81,10 +78,10 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
       <button
         type="button"
         onClick={() => setSelectedTheme(id)}
-        className={`relative w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center border border-gray-200 transition transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${
-          isActive ? 'ring-2 ring-offset-2 ring-green-500' : ''
-        } ${extraClasses}`}
         aria-label={label}
+        className={`w-9 h-9 rounded-xl transition-all duration-200 flex items-center justify-center border-2 ${
+          isActive ? 'border-blue-500 scale-110 shadow-lg opacity-100' : 'border-transparent opacity-70 hover:opacity-100'
+        } ${extraClasses}`}
       >
         {content}
       </button>
@@ -93,41 +90,39 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
 
   const brandedContent = () => {
     if (activeUnit?.logoUrl) {
-      return <img src={activeUnit.logoUrl} alt={activeUnit.name} className="w-full h-full object-cover" />;
+      return (
+        <img
+          src={activeUnit.logoUrl}
+          alt={activeUnit.name}
+          className="w-full h-full object-cover rounded-[10px]"
+        />
+      );
     }
 
     if (brandColor) {
-      return <div className="w-full h-full" style={{ backgroundColor: brandColor }} aria-hidden="true" />;
+      return <div className="w-full h-full rounded-[10px]" style={{ backgroundColor: brandColor }} aria-hidden="true" />;
     }
 
-    return <div className="w-full h-full bg-gray-300" aria-hidden="true" />;
+    return <div className="w-full h-full rounded-[10px] bg-gray-300" aria-hidden="true" />;
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       {renderButton(
         'mintleaf',
-        (
-          <div className="w-full h-full flex items-center justify-center bg-white">
-            <LeafIcon className="w-5 h-5 text-green-700" />
-          </div>
-        ),
+        <div className="w-full h-full flex items-center justify-center bg-white rounded-[10px]">
+          <LeafIcon className="w-5 h-5 text-green-600" />
+        </div>,
         'MintLeaf téma'
       )}
       {renderButton(
         'dark',
-        (
-          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-yellow-200">
-            <MoonIcon className="w-5 h-5" />
-          </div>
-        ),
+        <div className="w-full h-full flex items-center justify-center bg-slate-800 rounded-[10px]">
+          <MoonIcon className="w-5 h-5 text-yellow-400" />
+        </div>,
         'Sötét téma'
       )}
-      {renderButton(
-        'branded',
-        <div className="w-full h-full overflow-hidden rounded-xl">{brandedContent()}</div>,
-        'Branded téma'
-      )}
+      {renderButton('branded', <div className="w-full h-full overflow-hidden">{brandedContent()}</div>, 'Branded téma')}
     </div>
   );
 };

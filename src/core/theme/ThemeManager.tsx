@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useLayoutEffect } from 'react';
 import { BrandColorConfig, BrandTarget, Unit } from '../models/data';
 
 export type ThemeMode = 'mintleaf' | 'dark' | 'branded';
@@ -8,44 +8,22 @@ interface ThemeManagerProps {
   themeMode: ThemeMode;
 }
 
-const DEFAULT_PALETTE = {
-  primary: '#15803d',
-  primaryHover: '#166534',
-  secondary: '#15803d',
-  accent: '#22c55e',
-  surface: '#ffffff',
-  background: '#f8fafc',
-  text: '#1e293b',
-  textMain: '#1e293b',
-  textOnPrimary: '#ffffff',
-  sidebarBg: '#ffffff',
-  sidebarActive: '#e2e8f0',
-  sidebarText: '#1e293b',
-  headerImage: 'none',
-  backgroundImage: 'none',
+type Palette = {
+  primary: string;
+  primaryHover: string;
+  accent: string;
+  surface: string;
+  background: string;
+  textMain: string;
+  textSecondary: string;
+  textOnPrimary: string;
+  sidebarBg: string;
+  sidebarActive: string;
+  sidebarText: string;
+  headerBg: string;
 };
 
-const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
-  const rootStyle = document.documentElement.style;
-  rootStyle.setProperty('--color-primary', palette.primary);
-  rootStyle.setProperty('--color-primary-hover', palette.primaryHover);
-  rootStyle.setProperty('--color-secondary', palette.secondary);
-  rootStyle.setProperty('--color-accent', palette.accent);
-  rootStyle.setProperty('--color-surface-brand', palette.surface);
-  rootStyle.setProperty('--color-surface', palette.surface);
-  rootStyle.setProperty('--color-background', palette.background);
-  rootStyle.setProperty('--color-text', palette.text);
-  rootStyle.setProperty('--color-text-body', palette.textMain);
-  rootStyle.setProperty('--color-text-main', palette.textMain);
-  rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
-  rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);
-  rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
-  rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
-  rootStyle.setProperty('--ui-header-image', palette.headerImage);
-  rootStyle.setProperty('--ui-bg-image', palette.backgroundImage);
-};
-
-const CSS_VARIABLE_KEYS = [
+const THEME_VARIABLE_KEYS = [
   '--color-primary',
   '--color-primary-hover',
   '--color-secondary',
@@ -56,17 +34,41 @@ const CSS_VARIABLE_KEYS = [
   '--color-text',
   '--color-text-body',
   '--color-text-main',
+  '--color-text-secondary',
   '--color-sidebar-bg',
   '--color-sidebar-active',
   '--color-sidebar-text',
   '--color-text-on-primary',
+  '--color-header-bg',
   '--ui-header-image',
   '--ui-bg-image',
 ];
 
+const setCssVariables = (palette: Palette) => {
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty('--color-primary', palette.primary);
+  rootStyle.setProperty('--color-primary-hover', palette.primaryHover);
+  rootStyle.setProperty('--color-secondary', palette.primary);
+  rootStyle.setProperty('--color-accent', palette.accent);
+  rootStyle.setProperty('--color-surface-brand', palette.surface);
+  rootStyle.setProperty('--color-surface', palette.surface);
+  rootStyle.setProperty('--color-background', palette.background);
+  rootStyle.setProperty('--color-text', palette.textMain);
+  rootStyle.setProperty('--color-text-body', palette.textMain);
+  rootStyle.setProperty('--color-text-main', palette.textMain);
+  rootStyle.setProperty('--color-text-secondary', palette.textSecondary);
+  rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
+  rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);
+  rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
+  rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
+  rootStyle.setProperty('--color-header-bg', palette.headerBg);
+  rootStyle.removeProperty('--ui-header-image');
+  rootStyle.removeProperty('--ui-bg-image');
+};
+
 const clearCssVariables = () => {
   const rootStyle = document.documentElement.style;
-  CSS_VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
+  THEME_VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
 };
 
 const hexToRgb = (hex: string) => {
@@ -99,7 +101,7 @@ const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
   return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
 };
 
-const getContrastText = (hexColor: string | undefined, fallback = DEFAULT_PALETTE.textOnPrimary) => {
+const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
   const rgb = hexColor ? hexToRgb(hexColor) : null;
   if (!rgb) return fallback;
 
@@ -195,99 +197,99 @@ const adjustLightness = (hex: string, delta: number) => {
   return hslToHex(baseHsl.h, baseHsl.s, nextL);
 };
 
+const MINTLEAF_PALETTE: Palette = {
+  primary: '#15803d',
+  primaryHover: adjustLightness('#15803d', -10),
+  accent: '#15803d',
+  surface: '#ffffff',
+  background: '#f1f5f9',
+  textMain: '#0f172a',
+  textSecondary: '#64748b',
+  textOnPrimary: '#ffffff',
+  sidebarBg: '#ffffff',
+  sidebarActive: '#e2e8f0',
+  sidebarText: '#0f172a',
+  headerBg: '#15803d',
+};
+
+const DARK_PALETTE: Palette = {
+  primary: '#3b82f6',
+  primaryHover: adjustLightness('#3b82f6', -12),
+  accent: '#3b82f6',
+  surface: '#1e293b',
+  background: '#020617',
+  textMain: '#f1f5f9',
+  textSecondary: '#94a3b8',
+  textOnPrimary: '#ffffff',
+  sidebarBg: '#1e293b',
+  sidebarActive: '#334155',
+  sidebarText: '#f1f5f9',
+  headerBg: '#0f172a',
+};
+
 const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode }) => {
-  useEffect(() => {
+  const resolveBrandedPalette = (): Palette => {
+    if (!activeUnit || activeUnit.uiTheme !== 'brand') return MINTLEAF_PALETTE;
+
+    const configs: BrandColorConfig[] = activeUnit.brandColorConfigs?.length
+      ? activeUnit.brandColorConfigs
+      : (activeUnit as any).brandColors?.length
+      ? mapLegacyColorsToConfigs((activeUnit as any).brandColors)
+      : [];
+
+    const palette: Palette = { ...MINTLEAF_PALETTE };
+
+    configs.forEach(cfg => {
+      if (!cfg.color) return;
+
+      switch (cfg.target) {
+        case 'primary':
+          palette.primary = cfg.color;
+          palette.primaryHover = adjustLightness(cfg.color, -10);
+          palette.textOnPrimary = getContrastText(cfg.color);
+          palette.headerBg = cfg.color;
+          break;
+        case 'secondary':
+        case 'accent':
+          palette.accent = cfg.color;
+          break;
+        case 'background':
+          palette.background = cfg.color;
+          palette.textMain = getContrastText(cfg.color, palette.textMain);
+          palette.textSecondary = adjustLightness(palette.textMain, 25);
+          break;
+        case 'surface':
+          palette.surface = cfg.color;
+          break;
+        case 'sidebar':
+          palette.sidebarBg = cfg.color;
+          palette.sidebarActive = adjustLightness(cfg.color, -8);
+          palette.sidebarText = getContrastText(cfg.color, palette.sidebarText);
+          break;
+        case 'text':
+          palette.textMain = cfg.color;
+          palette.textSecondary = adjustLightness(cfg.color, 20);
+          break;
+        default:
+          break;
+      }
+    });
+
+    return palette;
+  };
+
+  useLayoutEffect(() => {
     clearCssVariables();
 
-    const basePalette = { ...DEFAULT_PALETTE };
-
-    if (themeMode === 'mintleaf') {
-      setCssVariables(basePalette);
-      return;
-    }
+    let palette: Palette = MINTLEAF_PALETTE;
 
     if (themeMode === 'dark') {
-      const darkPalette = {
-        ...basePalette,
-        background: '#020617',
-        surface: '#1e293b',
-        textMain: '#e2e8f0',
-        text: '#e2e8f0',
-        primary: '#3b82f6',
-        primaryHover: '#2563eb',
-        textOnPrimary: '#ffffff',
-        sidebarBg: '#1e293b',
-        sidebarActive: '#334155',
-        sidebarText: '#e2e8f0',
-        headerImage: 'none',
-        backgroundImage: 'none',
-      };
-
-      setCssVariables(darkPalette);
-      return;
+      palette = DARK_PALETTE;
+    } else if (themeMode === 'branded') {
+      palette = resolveBrandedPalette();
     }
 
-    if (themeMode === 'branded' && activeUnit?.uiTheme === 'brand') {
-      const configs =
-        activeUnit.brandColorConfigs?.length
-          ? activeUnit.brandColorConfigs
-          : (activeUnit as any).brandColors?.length
-          ? mapLegacyColorsToConfigs((activeUnit as any).brandColors)
-          : [];
-
-      if (activeUnit.uiHeaderImageUrl) {
-        basePalette.headerImage = `url('${activeUnit.uiHeaderImageUrl}')`;
-      }
-      if (activeUnit.uiBackgroundImageUrl) {
-        basePalette.backgroundImage = `url('${activeUnit.uiBackgroundImageUrl}')`;
-      }
-
-      if (configs.length) {
-        const palette = { ...basePalette };
-
-        configs.forEach(cfg => {
-          if (!cfg.color) return;
-
-          switch (cfg.target) {
-            case 'primary':
-              palette.primary = cfg.color;
-              palette.primaryHover = adjustLightness(cfg.color, -10);
-              palette.textOnPrimary = getContrastText(cfg.color);
-              break;
-            case 'secondary':
-              palette.secondary = cfg.color;
-              break;
-            case 'accent':
-              palette.accent = cfg.color;
-              break;
-            case 'background':
-              palette.background = cfg.color;
-              palette.textMain = getContrastText(cfg.color, basePalette.textMain);
-              palette.text = palette.textMain;
-              break;
-            case 'surface':
-              palette.surface = cfg.color;
-              break;
-            case 'sidebar':
-              palette.sidebarBg = cfg.color;
-              palette.sidebarActive = adjustLightness(cfg.color, -8);
-              palette.sidebarText = getContrastText(cfg.color, basePalette.sidebarText);
-              break;
-            case 'text':
-              palette.text = cfg.color;
-              palette.textMain = cfg.color;
-              break;
-            default:
-              break;
-          }
-        });
-
-        setCssVariables(palette);
-        return;
-      }
-    }
-
-    setCssVariables(basePalette);
+    setCssVariables(palette);
   }, [activeUnit, themeMode]);
 
   return null;
