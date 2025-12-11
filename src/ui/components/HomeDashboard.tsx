@@ -469,29 +469,30 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
           currentUser={currentUser}
         />
       )}
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Üdv, {currentUser.firstName}!</h1>
           <p className="text-gray-600 mt-1">Jó újra látni. Itt egy gyors áttekintés a mai napodról.</p>
         </div>
-        <div>
-            {isEditMode ? (
-                 <button onClick={handleSaveConfig} className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2">
-                    Mentés
-                </button>
-            ) : (
-                <button onClick={() => setIsEditMode(true)} className="p-2 rounded-full hover:bg-gray-100 border-2 border-transparent hover:border-gray-300" title="Widgetek szerkesztése">
-                    <PencilIcon className="h-6 w-6 text-gray-600"/>
-                </button>
-            )}
+        <div className="flex items-center gap-3">
+          <ThemeSelector activeUnit={primaryUnit} value={themeMode} onThemeChange={onThemeChange} />
+          {isEditMode ? (
+            <button
+              onClick={handleSaveConfig}
+              className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
+            >
+              Mentés
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsEditMode(true)}
+              className="p-2 rounded-full hover:bg-gray-100 border-2 border-transparent hover:border-gray-300"
+              title="Widgetek szerkesztése"
+            >
+              <PencilIcon className="h-6 w-6 text-gray-600" />
+            </button>
+          )}
         </div>
-      </div>
-      <div className="mt-4">
-        <ThemeSelector
-          activeUnit={primaryUnit}
-          value={themeMode}
-          onThemeChange={onThemeChange}
-        />
       </div>
       {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
 

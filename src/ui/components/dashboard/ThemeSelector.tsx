@@ -10,27 +10,6 @@ interface ThemeSelectorProps {
 
 const STORAGE_KEY = 'mintleaf_theme_mode';
 
-const THEME_OPTIONS: { id: ThemeMode; label: string; description: string; preview: string[] }[] = [
-  {
-    id: 'mintleaf',
-    label: 'MintLeaf',
-    description: 'Alapértelmezett világos téma',
-    preview: ['#ecfdf3', '#22c55e', '#0f172a'],
-  },
-  {
-    id: 'dark',
-    label: 'Dark',
-    description: 'Sötét mód éjjeli használathoz',
-    preview: ['#0f172a', '#1e293b', '#3b82f6'],
-  },
-  {
-    id: 'branded',
-    label: 'Branded',
-    description: 'Egység arculata',
-    preview: [],
-  },
-];
-
 const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThemeChange }) => {
   const initialTheme = useMemo<ThemeMode>(() => {
     if (value) return value;
@@ -60,71 +39,56 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
     onThemeChange(selectedTheme);
   }, [selectedTheme, onThemeChange]);
 
-  const brandedPreview = useMemo(() => {
-    const primaryColor =
+  const brandColor = useMemo(() => {
+    return (
       activeUnit?.brandColorConfigs?.find(cfg => cfg.target === 'primary')?.color ||
-      (activeUnit as any)?.brandColors?.[0];
-    const surfaceColor =
-      activeUnit?.brandColorConfigs?.find(cfg => cfg.target === 'surface')?.color ||
-      (activeUnit as any)?.brandColors?.[4];
-
-    return [surfaceColor || '#ffffff', primaryColor || '#15803d', '#0f172a'];
+      (activeUnit as any)?.brandColors?.[0]
+    );
   }, [activeUnit]);
 
-  const renderPreview = (colors: string[]) => (
-    <div className="flex w-full h-12 rounded-lg overflow-hidden border border-gray-200">
-      {colors.map((color, idx) => (
-        <div
-          key={`${color}-${idx}`}
-          className="flex-1"
-          style={{ backgroundColor: color }}
-          aria-hidden="true"
-        />
-      ))}
-    </div>
-  );
+  const renderButton = (
+    id: ThemeMode,
+    content: React.ReactNode,
+    label: string,
+    extraClasses = ''
+  ) => {
+    const isActive = selectedTheme === id;
+    return (
+      <button
+        type="button"
+        onClick={() => setSelectedTheme(id)}
+        className={`relative w-10 h-10 rounded-xl border border-gray-200 overflow-hidden flex items-center justify-center transition transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+          isActive ? 'ring-2 ring-offset-2 ring-blue-500' : ''
+        } ${extraClasses}`}
+        aria-label={label}
+      >
+        {content}
+        {isActive && (
+          <span className="absolute inset-0 flex items-center justify-center text-white text-lg font-bold drop-shadow">
+            ✓
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  const brandedContent = () => {
+    if (activeUnit?.logoUrl) {
+      return <img src={activeUnit.logoUrl} alt={activeUnit.name} className="w-full h-full object-cover" />;
+    }
+
+    if (brandColor) {
+      return <div className="w-full h-full" style={{ backgroundColor: brandColor }} aria-hidden="true" />;
+    }
+
+    return <div className="w-full h-full bg-gray-300" aria-hidden="true" />;
+  };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800">Téma kiválasztása</h3>
-          <p className="text-sm text-gray-500">Válassz saját megjelenést. Csak rád vonatkozik.</p>
-        </div>
-        {activeUnit?.logoUrl && (
-          <img src={activeUnit.logoUrl} alt={activeUnit.name} className="h-10 w-10 object-contain" />
-        )}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {THEME_OPTIONS.map(option => {
-          const isActive = selectedTheme === option.id;
-          const previewColors = option.id === 'branded' ? brandedPreview : option.preview;
-
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setSelectedTheme(option.id)}
-              className={`text-left p-3 rounded-xl border transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-sm ${
-                isActive ? 'border-green-500 ring-1 ring-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-gray-800">{option.label}</div>
-                  <div className="text-xs text-gray-500">{option.description}</div>
-                </div>
-                {isActive && (
-                  <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-1 rounded-full">
-                    Aktív
-                  </span>
-                )}
-              </div>
-              <div className="mt-3">{renderPreview(previewColors)}</div>
-            </button>
-          );
-        })}
-      </div>
+    <div className="flex items-center gap-2">
+      {renderButton('mintleaf', <div className="w-full h-full bg-green-600" aria-hidden="true" />, 'MintLeaf téma')}
+      {renderButton('dark', <div className="w-full h-full bg-slate-900" aria-hidden="true" />, 'Sötét téma')}
+      {renderButton('branded', brandedContent(), 'Branded téma', brandColor ? '' : '')}
     </div>
   );
 };

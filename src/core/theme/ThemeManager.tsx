@@ -197,8 +197,9 @@ const adjustLightness = (hex: string, delta: number) => {
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode }) => {
   useEffect(() => {
+    clearCssVariables();
+
     if (themeMode === 'mintleaf') {
-      clearCssVariables();
       return;
     }
 
