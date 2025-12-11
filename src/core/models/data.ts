@@ -61,6 +61,8 @@ export interface Request {
   startDate: Timestamp;
   endDate: Timestamp;
   note?: string;
+  type: 'leave' | 'availability';
+  timeRange?: { from: string; to: string };
   status: 'pending' | 'approved' | 'rejected';
   createdAt: Timestamp;
   reviewedBy?: string;

@@ -10,16 +10,20 @@ import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth
 import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy } from 'firebase/firestore';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { UnitProvider, useUnitContext } from './context/UnitContext';
-import ThemeManager from '../core/theme/ThemeManager';
+import ThemeManager, { ThemeMode } from '../core/theme/ThemeManager';
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 // Bővítettük a PublicPage típust a 'manage' állapottal
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-const ThemeManagerBridge: React.FC<{ allUnits: Unit[] }> = ({ allUnits }) => {
+const ThemeManagerBridge: React.FC<{ allUnits: Unit[]; themeMode: ThemeMode }> = ({ allUnits, themeMode }) => {
   const { selectedUnits } = useUnitContext();
-  return <ThemeManager allUnits={allUnits} activeUnitIds={selectedUnits} />;
+  const activeUnit = selectedUnits.length
+    ? allUnits.find(u => u.id === selectedUnits[0]) || null
+    : null;
+
+  return <ThemeManager activeUnit={activeUnit} themeMode={themeMode} />;
 };
 
 const App: React.FC = () => {
@@ -43,6 +47,21 @@ const App: React.FC = () => {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') return 'mintleaf';
+    const stored = localStorage.getItem('mintleaf_theme_mode');
+    return stored === 'dark' || stored === 'branded' || stored === 'mintleaf'
+      ? (stored as ThemeMode)
+      : 'mintleaf';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('mintleaf_theme_mode', themeMode);
+    } catch (error) {
+      console.error('Failed to persist theme mode', error);
+    }
+  }, [themeMode]);
 
 
   useEffect(() => {
@@ -434,7 +453,7 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-          <ThemeManagerBridge allUnits={allUnits} />
+          <ThemeManagerBridge allUnits={allUnits} themeMode={themeMode} />
           <Dashboard
             currentUser={currentUser}
             onLogout={handleLogout}
@@ -451,6 +470,8 @@ const App: React.FC = () => {
             feedbackList={feedbackList}
             polls={polls}
             firestoreError={firestoreError}
+            themeMode={themeMode}
+            onThemeModeChange={setThemeMode}
           />
         </UnitProvider>
       );

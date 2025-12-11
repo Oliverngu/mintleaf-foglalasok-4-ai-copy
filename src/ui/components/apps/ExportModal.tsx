@@ -7,7 +7,7 @@ interface ExcelExportParams {
   users: User[];
   weekDays: Date[];
   shiftsByUserDay: Map<string, Map<string, Shift[]>>;
-  requestsByUserDay: Map<string, Set<string>>;
+  requestsByUserDay: Map<string, Map<string, Request[]>>;
   toDateString: (date: Date) => string;
   units: Unit[];
   currentUser: User;
@@ -111,26 +111,39 @@ export const generateExcelExport = async ({
             sortedPositionKeys.forEach(position => {
                 positionHeaderRowIndices.add(data.length);
                 data.push([position, null, null, null, null, null, null, null]);
-                usersByPosition[position].forEach(user => {
-                    const userRow: (string | number | null)[] = [user.fullName];
-                    weekDays.forEach(day => {
-                        const dayKey = toDateString(day);
-                        const isOnLeave = requestsByUserDay.get(user.id)?.has(dayKey);
-                        if (isOnLeave) {
-                            userRow.push('SZ');
-                        } else {
-                            const dayShifts = shiftsByUserDay.get(user.id)?.get(dayKey) || [];
-                            const cellText = dayShifts.map(s => {
-                                if (s.isDayOff) return 'X';
-                                const start = s.start.toDate().toTimeString().substring(0, 5);
-                                const end = s.end ? ` - ${s.end.toDate().toTimeString().substring(0, 5)}` : '';
-                                return `${start}${end}`;
-                            }).join('\n') || null;
-                            userRow.push(cellText);
-                        }
-                    });
-                    data.push(userRow);
+            usersByPosition[position].forEach(user => {
+                const userRow: (string | number | null)[] = [user.fullName];
+                weekDays.forEach(day => {
+                    const dayKey = toDateString(day);
+                    const dayRequests = requestsByUserDay.get(user.id)?.get(dayKey) || [];
+                    const leaveRequest = dayRequests.find(r => r.type === 'leave');
+                    const availabilityRequests = dayRequests.filter(r => r.type === 'availability');
+
+                    if (leaveRequest) {
+                        userRow.push('SZ');
+                    } else if (availabilityRequests.length) {
+                        const availabilityText = availabilityRequests
+                            .map(req => {
+                                const range = req.timeRange
+                                    ? `${req.timeRange.from} - ${req.timeRange.to}`
+                                    : 'Időpont kérés';
+                                return `⏳ ${range}`;
+                            })
+                            .join('\n');
+                        userRow.push(availabilityText);
+                    } else {
+                        const dayShifts = shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+                        const cellText = dayShifts.map(s => {
+                            if (s.isDayOff) return 'X';
+                            const start = s.start.toDate().toTimeString().substring(0, 5);
+                            const end = s.end ? ` - ${s.end.toDate().toTimeString().substring(0, 5)}` : '';
+                            return `${start}${end}`;
+                        }).join('\n') || null;
+                        userRow.push(cellText);
+                    }
                 });
+                data.push(userRow);
+            });
                 data.push([]);
             });
 

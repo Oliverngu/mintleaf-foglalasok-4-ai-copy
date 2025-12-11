@@ -1,9 +1,11 @@
 import React, { useEffect } from 'react';
 import { BrandColorConfig, BrandTarget, Unit } from '../models/data';
 
+export type ThemeMode = 'mintleaf' | 'dark' | 'branded';
+
 interface ThemeManagerProps {
-  allUnits: Unit[];
-  activeUnitIds: string[];
+  activeUnit: Unit | null;
+  themeMode: ThemeMode;
 }
 
 const DEFAULT_PALETTE = {
@@ -41,6 +43,30 @@ const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
   rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
   rootStyle.setProperty('--ui-header-image', palette.headerImage);
   rootStyle.setProperty('--ui-bg-image', palette.backgroundImage);
+};
+
+const clearCssVariables = () => {
+  const rootStyle = document.documentElement.style;
+  const keys = [
+    '--color-primary',
+    '--color-primary-hover',
+    '--color-secondary',
+    '--color-accent',
+    '--color-surface-brand',
+    '--color-surface',
+    '--color-background',
+    '--color-text',
+    '--color-text-body',
+    '--color-text-main',
+    '--color-sidebar-bg',
+    '--color-sidebar-active',
+    '--color-sidebar-text',
+    '--color-text-on-primary',
+    '--ui-header-image',
+    '--ui-bg-image',
+  ];
+
+  keys.forEach(key => rootStyle.removeProperty(key));
 };
 
 const hexToRgb = (hex: string) => {
@@ -169,27 +195,49 @@ const adjustLightness = (hex: string, delta: number) => {
   return hslToHex(baseHsl.h, baseHsl.s, nextL);
 };
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) => {
+const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode }) => {
   useEffect(() => {
-    const primaryUnit = activeUnitIds.length
-      ? allUnits.find(u => u.id === activeUnitIds[0])
-      : undefined;
+    if (themeMode === 'mintleaf') {
+      clearCssVariables();
+      return;
+    }
 
     const basePalette = { ...DEFAULT_PALETTE };
 
-    if (primaryUnit?.uiTheme === 'brand') {
+    if (themeMode === 'dark') {
+      const darkPalette = {
+        ...basePalette,
+        background: '#0f172a',
+        surface: '#1e293b',
+        textMain: '#f8fafc',
+        text: '#f8fafc',
+        primary: '#3b82f6',
+        primaryHover: '#1d4ed8',
+        textOnPrimary: '#ffffff',
+        sidebarBg: '#0b1220',
+        sidebarActive: '#111827',
+        sidebarText: '#e2e8f0',
+        headerImage: 'none',
+        backgroundImage: 'none',
+      };
+
+      setCssVariables(darkPalette);
+      return;
+    }
+
+    if (themeMode === 'branded' && activeUnit?.uiTheme === 'brand') {
       const configs =
-        primaryUnit.brandColorConfigs?.length
-          ? primaryUnit.brandColorConfigs
-          : (primaryUnit as any).brandColors?.length
-          ? mapLegacyColorsToConfigs((primaryUnit as any).brandColors)
+        activeUnit.brandColorConfigs?.length
+          ? activeUnit.brandColorConfigs
+          : (activeUnit as any).brandColors?.length
+          ? mapLegacyColorsToConfigs((activeUnit as any).brandColors)
           : [];
 
-      if (primaryUnit.uiHeaderImageUrl) {
-        basePalette.headerImage = `url('${primaryUnit.uiHeaderImageUrl}')`;
+      if (activeUnit.uiHeaderImageUrl) {
+        basePalette.headerImage = `url('${activeUnit.uiHeaderImageUrl}')`;
       }
-      if (primaryUnit.uiBackgroundImageUrl) {
-        basePalette.backgroundImage = `url('${primaryUnit.uiBackgroundImageUrl}')`;
+      if (activeUnit.uiBackgroundImageUrl) {
+        basePalette.backgroundImage = `url('${activeUnit.uiBackgroundImageUrl}')`;
       }
 
       if (configs.length) {
@@ -238,7 +286,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) 
     }
 
     setCssVariables(basePalette);
-  }, [allUnits, activeUnitIds]);
+  }, [activeUnit, themeMode]);
 
   return null;
 };

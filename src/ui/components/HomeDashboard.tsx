@@ -16,6 +16,8 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import UnitLogoBadge from './common/UnitLogoBadge';
+import ThemeSelector from './dashboard/ThemeSelector';
+import { ThemeMode } from '../../core/theme/ThemeManager';
 
 interface HomeDashboardProps {
   currentUser: User;
@@ -29,6 +31,9 @@ interface HomeDashboardProps {
   polls: Poll[];
   activeUnitIds: string[];
   allUnits: Unit[];
+  themeMode: ThemeMode;
+  onThemeChange: (mode: ThemeMode) => void;
+  activeUnit: Unit | null;
 }
 
 const DEFAULT_WIDGETS: WidgetConfig[] = [
@@ -42,7 +47,7 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
     { id: 'bookings', visible: true, order: 8 },
 ];
 
-const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds, allUnits }) => {
+const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds, allUnits, themeMode, onThemeChange, activeUnit }) => {
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
@@ -75,6 +80,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
       [polls, activeUnitIds]
   );
   const unitMap = useMemo(() => new Map(allUnits.map(unit => [unit.id, unit])), [allUnits]);
+  const primaryUnit = useMemo(
+    () => activeUnit || unitMap.get(activeUnitIds[0]) || null,
+    [activeUnit, activeUnitIds, unitMap]
+  );
   // --- End Data Filtering ---
 
   useEffect(() => {
@@ -476,6 +485,13 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                 </button>
             )}
         </div>
+      </div>
+      <div className="mt-4">
+        <ThemeSelector
+          activeUnit={primaryUnit}
+          value={themeMode}
+          onThemeChange={onThemeChange}
+        />
       </div>
       {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
 

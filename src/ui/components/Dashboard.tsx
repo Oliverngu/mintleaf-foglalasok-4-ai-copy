@@ -53,6 +53,7 @@ import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
+import { ThemeMode } from '../../core/theme/ThemeManager';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -70,6 +71,8 @@ interface DashboardProps {
   feedbackList: Feedback[];
   polls: Poll[];
   firestoreError?: string | null;
+  themeMode: ThemeMode;
+  onThemeModeChange: (mode: ThemeMode) => void;
 }
 
 type AppName =
@@ -115,6 +118,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   feedbackList,
   polls,
   firestoreError,
+  themeMode,
+  onThemeModeChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -167,6 +172,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     setSelectedUnits: setActiveUnitIds,
     allUnits: contextAllUnits,
   } = useUnitContext();
+
+  const activeUnit = useMemo(
+    () => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null),
+    [activeUnitIds, allUnits]
+  );
 
   if (!currentUser) {
     return (
@@ -349,6 +359,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
+            themeMode={themeMode}
+            onThemeChange={onThemeModeChange}
+            activeUnit={activeUnit}
           />
         );
       case 'kerelemek':
