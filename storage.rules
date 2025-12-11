@@ -6,14 +6,23 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function truthyFlag(flag) {
+      return flag == true || flag == 'true' || flag == 1 || flag == '1';
+    }
+
     function isAdmin() {
       return isSignedIn() && (
-        // Accept any non-false admin custom claim (bool/number/string) or admin role label
-        (request.auth.token.admin != null && request.auth.token.admin != false &&
-          request.auth.token.admin != 'false' && request.auth.token.admin != 0 &&
-          request.auth.token.admin != '0') ||
-        request.auth.token.role == 'Admin' ||
-        request.auth.token.role == 'admin'
+        // Accept common admin boolean/string claim names
+        truthyFlag(request.auth.token.admin) ||
+        truthyFlag(request.auth.token.isAdmin) ||
+        truthyFlag(request.auth.token.is_admin) ||
+        // Accept string role labels (single value or array)
+        request.auth.token.role == 'Admin' || request.auth.token.role == 'admin' || request.auth.token.role == 'ADMIN' ||
+        (request.auth.token.roles != null && (
+          'Admin' in request.auth.token.roles ||
+          'admin' in request.auth.token.roles ||
+          'ADMIN' in request.auth.token.roles
+        ))
       );
     }
 
