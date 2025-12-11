@@ -7,7 +7,11 @@ service firebase.storage {
     }
 
     function isAdmin() {
-      return isSignedIn() && (request.auth.token.admin == true || request.auth.token.role == 'Admin');
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.admin == 'true' ||
+        request.auth.token.role == 'Admin'
+      );
     }
 
     function hasUnit(unitId) {
@@ -53,6 +57,17 @@ service firebase.storage {
     match /units/{unitId}/themes/{allPaths=**} {
       allow read: if isSignedIn();
       allow write, delete: if canManageUnitTheme(unitId);
+    }
+
+    match /units/{unitId}/ui_themes/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() || canManageUnitTheme(unitId);
+    }
+
+    // Legacy path compatibility for UI themes (singular)
+    match /units/{unitId}/ui_theme/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() || canManageUnitTheme(unitId);
     }
   }
 }
