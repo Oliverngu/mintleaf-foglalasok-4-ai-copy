@@ -7,7 +7,26 @@ service firebase.storage {
     }
 
     function truthyFlag(flag) {
-      return flag == true || flag == 'true' || flag == 1 || flag == '1';
+      return flag == true
+        || flag == 'true'
+        || flag == 'TRUE'
+        || flag == 'True'
+        || flag == 1
+        || flag == '1'
+        || flag == 'yes'
+        || flag == 'YES'
+        || flag == 'Yes'
+        || flag == 'on'
+        || flag == 'ON';
+    }
+
+    function hasUnitPermission(unitId, permissionKey) {
+      return (request.auth.token.unitPermissions != null
+          && request.auth.token.unitPermissions[unitId] != null
+          && truthyFlag(request.auth.token.unitPermissions[unitId][permissionKey]))
+        || (request.auth.token.permissions != null
+          && request.auth.token.permissions[unitId] != null
+          && truthyFlag(request.auth.token.permissions[unitId][permissionKey]));
     }
 
     function isAdmin() {
@@ -16,6 +35,7 @@ service firebase.storage {
         truthyFlag(request.auth.token.admin) ||
         truthyFlag(request.auth.token.isAdmin) ||
         truthyFlag(request.auth.token.is_admin) ||
+        truthyFlag(request.auth.token.isadmin) ||
         // Accept string role labels (single value or array)
         request.auth.token.role == 'Admin' || request.auth.token.role == 'admin' || request.auth.token.role == 'ADMIN' ||
         (request.auth.token.roles != null && (
@@ -47,17 +67,11 @@ service firebase.storage {
 
     function canManageKnowledgeBase(unitId) {
       return isSignedIn() && (
-        isAdmin() ||
-        request.auth.token.canManageKnowledgeBase == true ||
-        request.auth.token.canManageKnowledgeCategories == true ||
-        (request.auth.token.unitPermissions != null &&
-          request.auth.token.unitPermissions[unitId].canManageKnowledgeBase == true) ||
-        (request.auth.token.unitPermissions != null &&
-          request.auth.token.unitPermissions[unitId].canManageKnowledgeCategories == true) ||
-        (request.auth.token.permissions != null &&
-          request.auth.token.permissions[unitId].canManageKnowledgeBase == true) ||
-        (request.auth.token.permissions != null &&
-          request.auth.token.permissions[unitId].canManageKnowledgeCategories == true)
+        isAdmin()
+        || truthyFlag(request.auth.token.canManageKnowledgeBase)
+        || truthyFlag(request.auth.token.canManageKnowledgeCategories)
+        || hasUnitPermission(unitId, 'canManageKnowledgeBase')
+        || hasUnitPermission(unitId, 'canManageKnowledgeCategories')
       );
     }
 
