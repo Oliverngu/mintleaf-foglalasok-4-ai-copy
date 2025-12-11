@@ -1,5 +1,5 @@
 import React, { useLayoutEffect } from 'react';
-import { Unit, BrandColorConfig } from '../models/data';
+import { Unit } from '../models/data';
 import { BrandOverride, ThemeBases, ThemeMode } from './types';
 
 interface ThemeManagerProps {
@@ -53,12 +53,13 @@ const clearVariables = () => {
 
 const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: BrandOverride) => {
   const rootStyle = document.documentElement.style;
+  const primaryColor = brandOverride?.secondary || palette.primary;
 
-  rootStyle.setProperty('--color-primary', palette.primary);
+  rootStyle.setProperty('--color-primary', primaryColor);
   rootStyle.setProperty('--color-secondary', brandOverride?.secondary || palette.secondary);
   rootStyle.setProperty('--color-header-bg', brandOverride?.headerBg || palette.headerBg);
   rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
-  rootStyle.setProperty('--color-sidebar-active', palette.secondary);
+  rootStyle.setProperty('--color-sidebar-active', brandOverride?.secondary || palette.secondary);
   rootStyle.setProperty('--color-sidebar-hover', palette.sidebarHover);
   rootStyle.setProperty('--color-sidebar-text', palette.textMain);
   rootStyle.setProperty('--color-background', brandOverride?.background || palette.background);
@@ -69,65 +70,29 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   rootStyle.setProperty('--color-text-main', palette.textMain);
   rootStyle.setProperty('--color-text-secondary', palette.textSecondary);
   rootStyle.setProperty('--color-border', palette.border);
-  rootStyle.setProperty('--color-text-on-primary', getContrastText(palette.primary));
-  rootStyle.setProperty('--color-primary-hover', palette.primary);
+  rootStyle.setProperty('--color-text-on-primary', getContrastText(primaryColor));
+  rootStyle.setProperty('--color-primary-hover', primaryColor);
   rootStyle.setProperty('--color-accent', palette.accent);
   rootStyle.setProperty('--color-input-bg', palette.inputBg);
 };
 
 const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined => {
-  if (!activeUnit) return undefined;
-  const configs: BrandColorConfig[] = activeUnit.brandColorConfigs?.length
-    ? activeUnit.brandColorConfigs
-    : (activeUnit as any).brandColors?.length
-    ? (activeUnit as any).brandColors.map((color: string, idx: number) => ({
-        id: `legacy-${idx}`,
-        color,
-        target: idx === 0 ? 'primary' : idx === 1 ? 'secondary' : 'background',
-      }))
-    : [];
+  if (!activeUnit?.brandColors) return undefined;
 
-  if (!configs.length) return undefined;
-
+  const { primary, secondary, background } = activeUnit.brandColors;
   const override: BrandOverride = {};
-  configs.forEach(cfg => {
-    if (!cfg.color) return;
-    switch (cfg.target) {
-      case 'primary':
-        override.headerBg = cfg.color;
-        break;
-      case 'secondary':
-        override.secondary = cfg.color;
-        break;
-      case 'background':
-        override.background = cfg.color;
-        break;
-      default:
-        break;
-    }
-  });
+
+  if (primary) override.headerBg = primary;
+  if (secondary) override.secondary = secondary;
+  if (background) override.background = background;
 
   return Object.keys(override).length ? override : undefined;
 };
 
-const disableTransitions = () => {
-  const root = document.documentElement;
-  const body = document.body;
-  const previousRootTransition = root.style.transition;
-  const previousBodyTransition = body.style.transition;
-  root.style.transition = 'none';
-  body.style.transition = 'none';
-  return () => {
-    requestAnimationFrame(() => {
-      root.style.transition = previousRootTransition;
-      body.style.transition = previousBodyTransition;
-    });
-  };
-};
-
 const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, bases, mode, brandMode }) => {
   useLayoutEffect(() => {
-    const restoreTransitions = disableTransitions();
+    document.documentElement.classList.add('no-transition');
+    document.body.classList.add('no-transition');
     clearVariables();
 
     const palette = bases[mode];
@@ -137,7 +102,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, bases, mode, br
 
     // Force paint to avoid flicker before re-enabling transitions
     void getComputedStyle(document.documentElement).getPropertyValue('--color-primary');
-    restoreTransitions();
+    requestAnimationFrame(() => {
+      document.documentElement.classList.remove('no-transition');
+      document.body.classList.remove('no-transition');
+    });
+
+    return () => {
+      document.documentElement.classList.remove('no-transition');
+      document.body.classList.remove('no-transition');
+    };
   }, [activeUnit, bases, mode, brandMode]);
 
   return null;

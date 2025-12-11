@@ -61,12 +61,10 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
     onThemeChange(selected);
   }, [selected, onThemeChange]);
 
-  const brandColor = useMemo(
-    () =>
-      activeUnit?.brandColorConfigs?.find(cfg => cfg.target === 'primary')?.color ||
-      (activeUnit as any)?.brandColors?.[0],
-    [activeUnit]
-  );
+  const brandColor = useMemo(() => {
+    if (!activeUnit?.brandColors) return undefined;
+    return activeUnit.brandColors.primary || activeUnit.brandColors.secondary || activeUnit.brandColors.background;
+  }, [activeUnit]);
 
   const renderButton = (id: ThemeMode, content: React.ReactNode, label: string, extraClasses = '') => {
     const isActive = selected === id;
