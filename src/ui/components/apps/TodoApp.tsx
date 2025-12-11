@@ -283,9 +283,10 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
 
     return (
       <div
-        className={`relative bg-white p-4 rounded-xl shadow-md border flex items-start gap-4 transition-opacity ${
+        className={`relative p-4 rounded-xl shadow-md border flex items-start gap-4 transition-opacity ${
           todo.isDone ? 'opacity-60' : ''
         }`}
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
       >
         {isNew && (
           <span

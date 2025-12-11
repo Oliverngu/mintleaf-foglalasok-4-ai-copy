@@ -444,7 +444,10 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
         const todayKey = toLocalDateKey(new Date());
         
         return (
-             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+             <div
+                className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+             >
                 <div className="flex justify-between items-center mb-4">
                     <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&lt;</button>
                     <h2 className="text-xl font-bold text-gray-800 capitalize">{currentDate.toLocaleDateString('hu-HU', { month: 'long', year: 'numeric' })}</h2>
@@ -527,7 +530,10 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1">
-                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 sticky top-8">
+                     <div
+                        className="rounded-2xl shadow-lg border border-gray-100 sticky top-8"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                     >
                         <button
                             onClick={() => setIsWagesExpanded(prev => !prev)}
                             className="w-full flex justify-between items-center p-6 text-left"
@@ -573,7 +579,10 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                 </div>
 
                 <div className="lg:col-span-2 space-y-8">
-                     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                     <div
+                        className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                     >
                         <h2 className="text-xl font-bold text-gray-800">Manuális óraszámvezető</h2>
                         <div className="p-4 bg-green-50 rounded-lg border border-green-200 my-4 flex justify-around text-center">
                             <div>
@@ -587,7 +596,10 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                         </div>
                         {renderCalendar()}
                     </div>
-                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                    <div
+                        className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                    >
                          <h2 className="text-xl font-bold text-gray-800 mb-4">Becsült heti bérezés (beosztás alapján)</h2>
                          {userShifts.length > 0 && Object.keys(wages).some(key => Number(wages[key]) > 0) ? (
                             <div className="space-y-3">

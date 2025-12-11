@@ -267,7 +267,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }, [filteredTimeEntries, wages]);
 
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        >
             <div className="w-full">
                 <div className="flex items-center justify-center gap-2 mb-2">
                     <ClockInOutIcon className="h-6 w-6 text-green-700"/>
@@ -314,7 +317,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
 };
   
   const QuickLinksWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
         <h2 className="text-xl font-bold mb-4 text-gray-800">Gyorsmenü</h2>
         <div className="space-y-3">
             <button
@@ -342,7 +348,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const TodosWidget = () => {
     const latestTodos = activeTodos.slice(0, 3);
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border h-full"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        >
             <div className="flex items-center gap-2 mb-4">
                 <TodoIcon className="h-6 w-6 text-blue-600" />
                 <h2 className="text-xl font-bold text-gray-800">Aktív teendők ({activeTodos.length})</h2>
@@ -364,7 +373,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   };
 
   const RequestsWidget = () => (
-    <div className="bg-white p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center">
+    <div
+        className="p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
         <div className="flex items-center gap-2">
             <CalendarIcon className="h-6 w-6 text-yellow-600" />
             <h3 className="font-bold text-gray-800">Függőben lévő kérelmek</h3>
@@ -376,7 +388,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const ScheduleWidget = () => {
     const sortedTodayShifts = [...todayShifts].sort((a,b) => a.start.toMillis() - b.start.toMillis());
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border h-full"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        >
             <div className="flex items-center gap-2 mb-4">
                 <ScheduleIcon className="h-6 w-6 text-indigo-600" />
                 <h2 className="text-xl font-bold text-gray-800">Mai Beosztás</h2>
@@ -416,14 +431,20 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   };
 
   const BookingsWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
         <h2 className="text-xl font-bold mb-4 text-gray-800">Mai foglalások</h2>
         <p className="text-gray-600">A mai foglalások listája itt jelenik meg.</p>
     </div>
   );
 
   const VelemenyekWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
         <div className="flex items-center gap-2 mb-4">
             <FeedbackIcon className="h-6 w-6 text-purple-600" />
             <h2 className="text-xl font-bold text-gray-800">Névtelen Visszajelzések</h2>
@@ -443,7 +464,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const SzavazasokWidget = () => {
       const activePolls = useMemo(() => filteredPolls.filter(p => !p.closesAt || p.closesAt.toDate() > new Date()), [filteredPolls]);
       return (
-          <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+          <div
+            className="p-6 rounded-2xl shadow-md border h-full"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+          >
               <div className="flex items-center gap-2 mb-4">
                   <PollsIcon className="h-6 w-6 text-cyan-600" />
                   <h2 className="text-xl font-bold text-gray-800">Szavazások ({activePolls.length})</h2>

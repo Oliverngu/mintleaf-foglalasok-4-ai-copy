@@ -31,6 +31,22 @@ const VARIABLE_KEYS = [
   '--color-input-bg',
 ];
 
+const lightenColor = (hexColor: string, amount = 0.08) => {
+  const normalized = hexColor.replace('#', '');
+  if (normalized.length !== 6) return hexColor;
+
+  const toChannel = (value: string) => parseInt(value, 16);
+  const r = toChannel(normalized.slice(0, 2));
+  const g = toChannel(normalized.slice(2, 4));
+  const b = toChannel(normalized.slice(4, 6));
+
+  const lighten = (channel: number) => Math.min(255, Math.round(channel + 255 * amount));
+
+  const toHex = (channel: number) => channel.toString(16).padStart(2, '0');
+
+  return `#${toHex(lighten(r))}${toHex(lighten(g))}${toHex(lighten(b))}`;
+};
+
 const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
   if (!hexColor) return fallback;
   const normalized = hexColor.replace('#', '');
@@ -54,6 +70,7 @@ const clearVariables = () => {
 const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: BrandOverride) => {
   const rootStyle = document.documentElement.style;
   const primaryColor = brandOverride?.secondary || palette.primary;
+  const surfaceColor = brandOverride?.surface || palette.surface;
 
   rootStyle.setProperty('--color-primary', primaryColor);
   rootStyle.setProperty('--color-secondary', brandOverride?.secondary || palette.secondary);
@@ -63,8 +80,8 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   rootStyle.setProperty('--color-sidebar-hover', palette.sidebarHover);
   rootStyle.setProperty('--color-sidebar-text', palette.textMain);
   rootStyle.setProperty('--color-background', brandOverride?.background || palette.background);
-  rootStyle.setProperty('--color-surface', palette.surface);
-  rootStyle.setProperty('--color-surface-brand', palette.surface);
+  rootStyle.setProperty('--color-surface', surfaceColor);
+  rootStyle.setProperty('--color-surface-brand', surfaceColor);
   rootStyle.setProperty('--color-text', palette.textMain);
   rootStyle.setProperty('--color-text-body', palette.textMain);
   rootStyle.setProperty('--color-text-main', palette.textMain);
@@ -85,6 +102,7 @@ const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined
   if (primary) override.headerBg = primary;
   if (secondary) override.secondary = secondary;
   if (background) override.background = background;
+  if (background) override.surface = lightenColor(background, 0.06);
 
   return Object.keys(override).length ? override : undefined;
 };

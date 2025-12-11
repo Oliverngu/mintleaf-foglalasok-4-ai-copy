@@ -24,4 +24,5 @@ export type BrandOverride = {
   headerBg?: string;
   secondary?: string;
   background?: string;
+  surface?: string;
 };

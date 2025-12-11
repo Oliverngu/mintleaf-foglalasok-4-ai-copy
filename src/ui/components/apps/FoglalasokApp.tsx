@@ -209,7 +209,10 @@ const BookingDetailsModal: React.FC<{
 const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
   if (!logs.length) {
     return (
-      <div className="mt-6 bg-white rounded-2xl shadow border border-gray-100 p-4 text-sm text-gray-500">
+      <div
+        className="mt-6 rounded-2xl shadow border border-gray-100 p-4 text-sm"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+      >
         Nincsenek még naplóbejegyzések.
       </div>
     );
@@ -229,7 +232,10 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
   };
 
   return (
-    <div className="mt-6 bg-white rounded-2xl shadow border border-gray-100 p-4">
+    <div
+      className="mt-6 rounded-2xl shadow border border-gray-100 p-4"
+      style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
       <h2 className="text-lg font-bold text-gray-800 mb-3">Foglalási napló</h2>
       <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
         {logs.map(log => {
@@ -553,7 +559,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const todayKey = toLocalDateKey(new Date());
 
     return (
-      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+      <div
+        className="p-6 rounded-2xl shadow-lg border border-gray-100"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+      >
         <div className="flex justify-between items-center mb-4">
           <button
             onClick={() =>

@@ -14,7 +14,7 @@ const colorFields = [
   { key: 'headerBg', label: 'Header BG' },
   { key: 'sidebarBg', label: 'Sidebar BG' },
   { key: 'background', label: 'Background' },
-  { key: 'surface', label: 'Surface' },
+  { key: 'surface', label: 'Kártyák/Modulok Háttere' },
   { key: 'accent', label: 'Accent' },
   { key: 'sidebarHover', label: 'Sidebar Hover' },
   { key: 'inputBg', label: 'Input BG' },

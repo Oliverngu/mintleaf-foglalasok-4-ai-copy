@@ -1536,7 +1536,11 @@ useEffect(() => {
                 ) : (
                   <div className="space-y-2">
                     {filteredFiles.map(file => (
-                      <div key={file.id} className="bg-white p-4 rounded-xl shadow-sm border flex items-center justify-between">
+                      <div
+                        key={file.id}
+                        className="p-4 rounded-xl shadow-sm border flex items-center justify-between"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                      >
                         <div>
                           <p className="font-semibold text-gray-800">{file.name}</p>
                           <p className="text-sm text-gray-500">
