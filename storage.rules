@@ -2,80 +2,83 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    
+    // --- BIZTONSÁGOS SEGÉDFÜGGVÉNYEK (CRASH MENTESÍTVE) ---
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function truthyFlag(flag) {
-      return flag == true
-        || flag == 'true'
-        || flag == 'TRUE'
-        || flag == 'True'
-        || flag == 1
-        || flag == '1'
-        || flag == 'yes'
-        || flag == 'YES'
-        || flag == 'Yes'
-        || flag == 'on'
-        || flag == 'ON';
+    // Biztonságos igaz-hamis ellenőrzés (a régi truthyFlag helyett, egyszerűsítve)
+    function isTrue(val) {
+      return val == true || val == 'true' || val == 1 || val == '1';
     }
 
-    function hasUnitPermission(unitId, permissionKey) {
-      return (request.auth.token.unitPermissions != null
-          && request.auth.token.unitPermissions[unitId] != null
-          && truthyFlag(request.auth.token.unitPermissions[unitId][permissionKey]))
-        || (request.auth.token.permissions != null
-          && request.auth.token.permissions[unitId] != null
-          && truthyFlag(request.auth.token.permissions[unitId][permissionKey]));
-    }
-
+    // Admin ellenőrzés - BIZTONSÁGOSAN
     function isAdmin() {
       return isSignedIn() && (
-        // Accept common admin boolean/string claim names
-        truthyFlag(request.auth.token.admin) ||
-        truthyFlag(request.auth.token.isAdmin) ||
-        truthyFlag(request.auth.token.is_admin) ||
-        truthyFlag(request.auth.token.isadmin) ||
-        // Accept string role labels (single value or array)
-        request.auth.token.role == 'Admin' || request.auth.token.role == 'admin' || request.auth.token.role == 'ADMIN' ||
-        (request.auth.token.roles != null && (
-          'Admin' in request.auth.token.roles ||
-          'admin' in request.auth.token.roles ||
-          'ADMIN' in request.auth.token.roles
-        ))
+        ('admin' in request.auth.token && isTrue(request.auth.token.admin)) || 
+        ('isAdmin' in request.auth.token && isTrue(request.auth.token.isAdmin)) ||
+        ('is_admin' in request.auth.token && isTrue(request.auth.token.is_admin)) ||
+        ('role' in request.auth.token && (request.auth.token.role == 'Admin' || request.auth.token.role == 'admin' || request.auth.token.role == 'ADMIN')) ||
+        ('roles' in request.auth.token && ('Admin' in request.auth.token.roles || 'admin' in request.auth.token.roles || 'ADMIN' in request.auth.token.roles))
       );
     }
 
+    // Unit hozzáférés ellenőrzése - BIZTONSÁGOSAN
     function hasUnit(unitId) {
       return isSignedIn()
         && unitId != null
-        && ((request.auth.token.unitIds != null && unitId in request.auth.token.unitIds)
-          || (request.auth.token.unitIDs != null && unitId in request.auth.token.unitIDs)
-          || (request.auth.token.unitPermissions != null && request.auth.token.unitPermissions[unitId] != null)
-          || (request.auth.token.permissions != null && request.auth.token.permissions[unitId] != null));
+        && (
+          ('unitIds' in request.auth.token && unitId in request.auth.token.unitIds) ||
+          ('unitIDs' in request.auth.token && unitId in request.auth.token.unitIDs) ||
+          ('unitPermissions' in request.auth.token && unitId in request.auth.token.unitPermissions) ||
+          ('permissions' in request.auth.token && unitId in request.auth.token.permissions)
+        );
     }
 
+    // Téma kezelő jog - BIZTONSÁGOSAN
     function canManageUnitTheme(unitId) {
-      return isAdmin()
-        || (isSignedIn()
-          && (request.auth.token.role == 'Unit Admin'
-            || request.auth.token.unitAdmin == true
-            || (request.auth.token.unitPermissions != null && request.auth.token.unitPermissions[unitId] != null)
-            || (request.auth.token.permissions != null && request.auth.token.permissions[unitId] != null))
-          && hasUnit(unitId));
-    }
-
-    function canManageKnowledgeBase(unitId) {
-      return isSignedIn() && (
-        isAdmin()
-        || truthyFlag(request.auth.token.canManageKnowledgeBase)
-        || truthyFlag(request.auth.token.canManageKnowledgeCategories)
-        || hasUnitPermission(unitId, 'canManageKnowledgeBase')
-        || hasUnitPermission(unitId, 'canManageKnowledgeCategories')
+      return isAdmin() || (
+        isSignedIn()
+        && hasUnit(unitId)
+        && (
+          // Role check
+          ('role' in request.auth.token && request.auth.token.role == 'Unit Admin') ||
+          // Unit Admin flag
+          ('unitAdmin' in request.auth.token && isTrue(request.auth.token.unitAdmin)) ||
+          // Permissions Map check
+          ('unitPermissions' in request.auth.token && unitId in request.auth.token.unitPermissions) ||
+          ('permissions' in request.auth.token && unitId in request.auth.token.permissions)
+        )
       );
     }
 
-    // Tudástár: Storage objects per unit
+    // Tudástár kezelő jog - BIZTONSÁGOSAN
+    function canManageKnowledgeBase(unitId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        ('canManageKnowledgeBase' in request.auth.token && isTrue(request.auth.token.canManageKnowledgeBase)) ||
+        ('canManageKnowledgeCategories' in request.auth.token && isTrue(request.auth.token.canManageKnowledgeCategories)) ||
+        
+        // Unit szintű jogok (unitPermissions) - Láncolt ellenőrzés
+        ('unitPermissions' in request.auth.token && unitId in request.auth.token.unitPermissions && 
+         'canManageKnowledgeBase' in request.auth.token.unitPermissions[unitId] && isTrue(request.auth.token.unitPermissions[unitId].canManageKnowledgeBase)) ||
+         
+        ('unitPermissions' in request.auth.token && unitId in request.auth.token.unitPermissions &&
+         'canManageKnowledgeCategories' in request.auth.token.unitPermissions[unitId] && isTrue(request.auth.token.unitPermissions[unitId].canManageKnowledgeCategories)) ||
+
+        // Unit szintű jogok (permissions - legacy)
+        ('permissions' in request.auth.token && unitId in request.auth.token.permissions &&
+         'canManageKnowledgeBase' in request.auth.token.permissions[unitId] && isTrue(request.auth.token.permissions[unitId].canManageKnowledgeBase)) ||
+
+        ('permissions' in request.auth.token && unitId in request.auth.token.permissions &&
+         'canManageKnowledgeCategories' in request.auth.token.permissions[unitId] && isTrue(request.auth.token.permissions[unitId].canManageKnowledgeCategories))
+      );
+    }
+
+    // --- ÚTVONAL SZABÁLYOK ---
+
     match /units/{unitId}/knowledge_base/{allPaths=**} {
       allow read, write: if canManageKnowledgeBase(unitId);
     }
@@ -85,12 +88,13 @@ service firebase.storage {
       allow write, delete: if canManageUnitTheme(unitId);
     }
 
+    // ✅ UI Branding Képek (Biztonságos)
     match /units/{unitId}/ui_themes/{allPaths=**} {
-      allow read: if true;
+      allow read: if true; // Publikus olvasás
       allow write: if isAdmin() || canManageUnitTheme(unitId);
     }
 
-    // Legacy path compatibility for UI themes (singular)
+    // Legacy UI téma (singular)
     match /units/{unitId}/ui_theme/{allPaths=**} {
       allow read: if true;
       allow write: if isAdmin() || canManageUnitTheme(unitId);
