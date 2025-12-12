@@ -13,11 +13,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.add('no-transition');
-    
+
     // 1. Reset
     root.style.removeProperty('--ui-header-image');
     root.style.removeProperty('--ui-header-blend-mode');
     root.style.removeProperty('--ui-bg-image');
+    root.style.removeProperty('--ui-sidebar-image');
     
     if (themeMode === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
 
@@ -38,29 +39,41 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     // Képek
     const defHeader = config?.headerImage ? `url('${config.headerImage}')` : 'none';
     const defBg = config?.backgroundImage ? `url('${config.backgroundImage}')` : 'none';
-    
-    set('--ui-header-image', defHeader);
-    set('--ui-bg-image', defBg);
-    set('--ui-header-blend-mode', 'normal');
+    const defSidebar = (config as any)?.sidebarImage ? `url('${(config as any).sidebarImage}')` : 'none';
+
+    let headerImage = defHeader;
+    let bgImage = defBg;
+    let sidebarImage = defSidebar;
+    let headerBlendMode: string = 'normal';
 
     // 3. Brand Override
     if (activeUnit && useBrandTheme) {
         if (activeUnit.brandColors?.primary) {
             set('--color-header-bg', activeUnit.brandColors.primary);
             set('--color-primary', activeUnit.brandColors.primary);
-            if (defHeader !== 'none') set('--ui-header-blend-mode', 'overlay');
         }
         if (activeUnit.brandColors?.secondary) set('--color-secondary', activeUnit.brandColors.secondary);
         if (activeUnit.brandColors?.background) set('--color-background', activeUnit.brandColors.background);
-        
-        if (activeUnit.uiHeaderImageUrl) {
-            set('--ui-header-image', `url('${activeUnit.uiHeaderImageUrl}')`);
-            set('--ui-header-blend-mode', 'normal');
+
+        headerImage = activeUnit.uiHeaderImageUrl ? `url('${activeUnit.uiHeaderImageUrl}')` : headerImage;
+        bgImage = activeUnit.uiBackgroundImageUrl ? `url('${activeUnit.uiBackgroundImageUrl}')` : bgImage;
+        sidebarImage = (activeUnit as any).uiSidebarImageUrl ? `url('${(activeUnit as any).uiSidebarImageUrl}')` : sidebarImage;
+
+        if (activeUnit.brandColors?.primary && headerImage !== 'none') {
+            headerBlendMode = 'overlay';
         }
-        if (activeUnit.uiBackgroundImageUrl) {
-            set('--ui-bg-image', `url('${activeUnit.uiBackgroundImageUrl}')`);
-        }
+    } else {
+        // Brand override kikapcsolva: maradjanak az admin által beállított alapok
+        headerImage = defHeader;
+        bgImage = defBg;
+        sidebarImage = defSidebar;
+        headerBlendMode = 'normal';
     }
+
+    set('--ui-header-image', headerImage);
+    set('--ui-bg-image', bgImage);
+    set('--ui-sidebar-image', sidebarImage);
+    set('--ui-header-blend-mode', headerBlendMode);
 
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transition')));
   }, [activeUnit, themeMode, useBrandTheme, adminConfig]);

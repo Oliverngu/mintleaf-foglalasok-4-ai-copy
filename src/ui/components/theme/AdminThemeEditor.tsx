@@ -16,12 +16,14 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
   useEffect(() => { setLocalConfig(bases); }, [bases]);
 
   const updateColor = (key: keyof ThemeColors, value: string) => {
-    const newConfig = {
-      ...localConfig,
-      [activeTab]: { ...localConfig[activeTab], [key]: value }
-    };
-    setLocalConfig(newConfig);
-    onChangeBases(newConfig); // AZONNALI FRISSÍTÉS
+    setLocalConfig(prev => {
+      const newConfig = {
+        ...prev,
+        [activeTab]: { ...prev[activeTab], [key]: value }
+      };
+      onChangeBases(newConfig); // AZONNALI FRISSÍTÉS
+      return newConfig;
+    });
   };
 
   const currentColors = localConfig[activeTab] || {};
