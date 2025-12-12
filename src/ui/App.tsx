@@ -19,29 +19,33 @@ type LoginMessage = { type: 'success' | 'error'; text: string };
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
 // --- 1. JAVÍTÁS: A Bridge Prop neveinek szinkronizálása a ThemeManagerrel ---
-const ThemeManagerBridge: React.FC<{ 
-  allUnits: Unit[]; 
-  bases: ThemeBases; 
-  themeMode: ThemeMode; 
-  useBrandTheme: boolean; 
+const ThemeManagerBridge: React.FC<{
+  allUnits: Unit[];
+  bases: ThemeBases;
+  previewBases?: ThemeBases | null;
+  themeMode: ThemeMode;
+  useBrandTheme: boolean;
 }> = ({
   allUnits,
   bases,
+  previewBases,
   themeMode,
-  useBrandTheme, 
+  useBrandTheme,
 }) => {
   const { selectedUnits } = useUnitContext();
   const activeUnit = selectedUnits.length
     ? allUnits.find(u => u.id === selectedUnits[0]) || null
     : null;
 
+  const resolvedBases = previewBases || bases;
+
   // JAVÍTVA: adminConfig={bases}, themeMode={themeMode}
   return (
-    <ThemeManager 
-      activeUnit={activeUnit} 
-      themeMode={themeMode}         
-      useBrandTheme={useBrandTheme} 
-      adminConfig={bases} // Fontos: adminConfig a neve, nem bases!
+    <ThemeManager
+      activeUnit={activeUnit}
+      themeMode={themeMode}
+      useBrandTheme={useBrandTheme}
+      adminConfig={resolvedBases} // Fontos: adminConfig a neve, nem bases!
     />
   );
 };
@@ -72,6 +76,7 @@ const App: React.FC = () => {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
   // Kezdetben üres vagy lokális, később a Firestore felülírja
   const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
+  const [previewBases, setPreviewBases] = useState<ThemeBases | null>(null);
 
   // --- Brand Theme State ---
   const [useBrandTheme, setUseBrandTheme] = useState<boolean>(() => {
@@ -103,6 +108,11 @@ const App: React.FC = () => {
   useEffect(() => {
     // A themeBases-t most már a fenti onSnapshot frissíti, de azért elmentjük
     saveBases(themeBases);
+  }, [themeBases]);
+
+  useEffect(() => {
+    // Ha új alapok érkeznek (pl. mentés után), töröljük az előnézeti módosításokat
+    setPreviewBases(null);
   }, [themeBases]);
 
   useEffect(() => {
@@ -403,11 +413,12 @@ const App: React.FC = () => {
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
           
           {/* Bridge: Propok helyes továbbítása a ThemeManagernek */}
-          <ThemeManagerBridge 
-            allUnits={allUnits} 
-            bases={themeBases} 
-            themeMode={themeMode} 
-            useBrandTheme={useBrandTheme} 
+          <ThemeManagerBridge
+            allUnits={allUnits}
+            bases={themeBases}
+            previewBases={previewBases}
+            themeMode={themeMode}
+            useBrandTheme={useBrandTheme}
           />
 
           <Dashboard
@@ -430,7 +441,7 @@ const App: React.FC = () => {
             themeMode={themeMode}
             onThemeModeChange={setThemeMode}
             themeBases={themeBases}
-            onThemeBasesChange={setThemeBases}
+            onThemeBasesChange={setPreviewBases}
             // Brand propok
             useBrandTheme={useBrandTheme}
             onBrandChange={setUseBrandTheme}

@@ -36,6 +36,8 @@ interface HomeDashboardProps {
   activeUnit: Unit | null;
   themeBases: ThemeBases;
   onThemeBasesChange: (bases: ThemeBases) => void;
+  useBrandTheme: boolean;
+  onBrandChange: (enabled: boolean) => void;
 }
 
 const DEFAULT_WIDGETS: WidgetConfig[] = [
@@ -66,6 +68,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   activeUnit,
   themeBases,
   onThemeBasesChange,
+  useBrandTheme,
+  onBrandChange,
 }) => {
   // --- BIZTONSÁGI ELLENŐRZÉS ---
   // Csak akkor true, ha a role pontosan 'Admin'. 'Unit Admin' vagy 'User' esetén false.
@@ -565,10 +569,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
             
             <div className="flex items-center gap-3">
-                <ThemeSelector 
-                    activeUnit={primaryUnit} 
+                <ThemeSelector
+                    activeUnit={primaryUnit}
                     currentTheme={themeMode}
-                    onThemeChange={onThemeChange} 
+                    onThemeChange={onThemeChange}
+                    useBrandTheme={useBrandTheme}
+                    onBrandChange={onBrandChange}
                 />
                 
                 {/* --- 1. VÉDELEM: Theme Editor gomb CSAK ADMINNAK --- */}

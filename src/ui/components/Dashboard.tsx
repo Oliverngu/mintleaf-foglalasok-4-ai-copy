@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   User,
   Request,
@@ -75,6 +75,8 @@ interface DashboardProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   themeBases: ThemeBases;
   onThemeBasesChange: (bases: ThemeBases) => void;
+  useBrandTheme: boolean;
+  onBrandChange: (enabled: boolean) => void;
 }
 
 type AppName =
@@ -124,6 +126,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   onThemeModeChange,
   themeBases,
   onThemeBasesChange,
+  useBrandTheme,
+  onBrandChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -373,6 +377,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             activeUnit={activeUnit}
             themeBases={themeBases}
             onThemeBasesChange={onThemeBasesChange}
+            useBrandTheme={useBrandTheme}
+            onBrandChange={onBrandChange}
           />
         );
       case 'kerelemek':
@@ -540,6 +546,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             activeUnit={activeUnit}
             themeBases={themeBases}
             onThemeBasesChange={onThemeBasesChange}
+            useBrandTheme={useBrandTheme}
+            onBrandChange={onBrandChange}
           />
         );
     }
@@ -547,14 +555,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const isChatLayout = activeApp === 'chat';
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
-
-  const handleToggleTheme = useCallback(() => {
-    document.body.classList.add('no-transition');
-    onThemeModeChange(themeMode === 'light' ? 'dark' : 'light');
-    setTimeout(() => {
-      document.body.classList.remove('no-transition');
-    }, 100);
-  }, [onThemeModeChange, themeMode]);
 
   return (
     <>
@@ -583,7 +583,10 @@ const Dashboard: React.FC<DashboardProps> = ({
           className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } w-64`}
-          style={{ backgroundColor: 'var(--color-sidebar-bg)', color: 'var(--color-sidebar-text)' }}
+          style={{
+            backgroundColor: 'var(--color-sidebar-bg) !important',
+            color: 'var(--color-sidebar-text)',
+          }}
         >
         <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -676,7 +679,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundColor: 'var(--color-primary)',
             color: 'var(--color-text-on-primary)',
             backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'overlay',
+            backgroundBlendMode: 'var(--ui-header-blend-mode)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
@@ -692,14 +695,6 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="font-semibold">{currentUser.fullName}</div>
               <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
-            <button
-              onClick={handleToggleTheme}
-              title="Téma váltása"
-              className="p-2 rounded-full hover:bg-white/20"
-              type="button"
-            >
-              {themeMode === 'dark' ? '🌙' : '☀️'}
-            </button>
             <button
               onClick={onLogout}
               title="Kijelentkezés"
