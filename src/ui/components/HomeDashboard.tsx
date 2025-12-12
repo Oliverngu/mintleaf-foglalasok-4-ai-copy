@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Request, Booking, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll, Unit } from '../../core/models/data';
+import { User, Request, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll, Unit } from '../../core/models/data';
 import { db } from '../../core/firebase/config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import ClockInOutModal from './ClockInOutModal';
@@ -9,13 +9,15 @@ import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import ArrowUpIcon from '../../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
-import MoneyIcon from '../../../components/icons/MoneyIcon';
 import ScheduleIcon from '../../../components/icons/ScheduleIcon';
 import TodoIcon from '../../../components/icons/TodoIcon';
 import CalendarIcon from '../../../components/icons/CalendarIcon';
 import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import UnitLogoBadge from './common/UnitLogoBadge';
+import ThemeSelector from './dashboard/ThemeSelector'; // Ellenőrizd az útvonalat!
+import { ThemeMode, ThemeBases } from '../../core/theme/types';
+import AdminThemeEditor from './theme/AdminThemeEditor';
 
 interface HomeDashboardProps {
   currentUser: User;
@@ -29,6 +31,11 @@ interface HomeDashboardProps {
   polls: Poll[];
   activeUnitIds: string[];
   allUnits: Unit[];
+  themeMode: ThemeMode;
+  onThemeChange: (mode: ThemeMode) => void;
+  activeUnit: Unit | null;
+  themeBases: ThemeBases;
+  onThemeBasesChange: (bases: ThemeBases) => void;
 }
 
 const DEFAULT_WIDGETS: WidgetConfig[] = [
@@ -42,12 +49,30 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
     { id: 'bookings', visible: true, order: 8 },
 ];
 
-const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, schedule, todos, adminTodos, timeEntries, setActiveApp, feedbackList, polls, activeUnitIds, allUnits }) => {
+const HomeDashboard: React.FC<HomeDashboardProps> = ({
+  currentUser,
+  requests,
+  schedule,
+  todos,
+  adminTodos,
+  timeEntries,
+  setActiveApp,
+  feedbackList,
+  polls,
+  activeUnitIds,
+  allUnits,
+  themeMode,
+  onThemeChange,
+  activeUnit,
+  themeBases,
+  onThemeBasesChange,
+}) => {
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
   const [wages, setWages] = useState<Record<string, number | ''>>({});
   const isMultiUnitView = activeUnitIds.length > 1;
+  const [showThemeEditor, setShowThemeEditor] = useState(false);
 
   // --- Data Filtering based on activeUnitIds ---
   const filteredTimeEntries = useMemo(() => 
@@ -75,6 +100,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
       [polls, activeUnitIds]
   );
   const unitMap = useMemo(() => new Map(allUnits.map(unit => [unit.id, unit])), [allUnits]);
+  const primaryUnit = useMemo(
+    () => activeUnit || unitMap.get(activeUnitIds[0]) || null,
+    [activeUnit, activeUnitIds, unitMap]
+  );
   // --- End Data Filtering ---
 
   useEffect(() => {
@@ -91,12 +120,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
     };
     fetchWages();
   }, [currentUser.id]);
-  
+
   // Fetch user's config or set default
   useEffect(() => {
     const userConfig = currentUser.dashboardConfig;
     if (userConfig && userConfig.length > 0) {
-      // Ensure all default widgets are present in user config, add if missing
       const userWidgetIds = new Set(userConfig.map(w => w.id));
       const newConfig = [...userConfig];
       DEFAULT_WIDGETS.forEach(defaultWidget => {
@@ -115,7 +143,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
     filteredTimeEntries.find(entry => entry.status === 'active'),
     [filteredTimeEntries]
   );
-  
+
   const [activeShiftDuration, setActiveShiftDuration] = useState('');
 
   useEffect(() => {
@@ -124,13 +152,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
       interval = window.setInterval(() => {
         const now = new Date();
         const start = activeTimeEntry.startTime.toDate();
-        
+
         if (now < start) {
-            // Shift hasn't started yet because of rounding
             const startTimeString = start.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
             setActiveShiftDuration(`Műszak kezdődik: ${startTimeString}`);
         } else {
-            // Shift has started, calculate duration
             const diffMs = now.getTime() - start.getTime();
             const hours = Math.floor(diffMs / 3600000);
             const minutes = Math.floor((diffMs % 3600000) / 60000);
@@ -166,8 +192,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
 
   const openRequests = useMemo(() => filteredRequests.filter(r => r.status === 'pending'), [filteredRequests]);
   const activeTodos = useMemo(() => filteredTodos.filter(t => !t.isDone), [filteredTodos]);
-  
-  // --- Edit Mode Handlers ---
+
   const handleSaveConfig = async () => {
     try {
         await updateDoc(doc(db, 'users', currentUser.id), {
@@ -183,16 +208,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
   const toggleWidgetVisibility = (id: string) => {
     setWidgetConfig(prev => prev.map(w => w.id === id ? { ...w, visible: !w.visible } : w));
   };
-  
-  // --- Arrow Reordering Handlers ---
+
   const moveWidget = (widgetId: string, direction: 'up' | 'down') => {
     const sorted = [...widgetConfig].sort((a, b) => a.order - b.order);
     const currentIndex = sorted.findIndex(w => w.id === widgetId);
-
     if (currentIndex === -1) return;
-
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
     if (targetIndex < 0 || targetIndex >= sorted.length) return;
 
     const newConfig = [...widgetConfig];
@@ -209,6 +230,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
 
 
   // --- Widget Components ---
+  // A widgetek stílusát is frissítettem, hogy a surface színt használják!
+  
   const ShiftAndPayrollWidget = () => {
     const [isPayVisible, setIsPayVisible] = useState(false);
 
@@ -237,31 +260,34 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
     }, [filteredTimeEntries, wages]);
 
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full transition-colors duration-200"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        >
             <div className="w-full">
                 <div className="flex items-center justify-center gap-2 mb-2">
                     <ClockInOutIcon className="h-6 w-6 text-green-700"/>
-                    <h2 className="text-xl font-bold text-gray-800">Műszak és Bér</h2>
+                    <h2 className="text-xl font-bold">Műszak és Bér</h2>
                 </div>
                 {activeTimeEntry ? (
                     <div>
-                        <p className="text-gray-600">{activeShiftDuration.startsWith('Műszak') ? 'Hamarosan...' : 'Aktív műszakban:'}</p>
-                        <p className={`my-1 font-bold ${activeShiftDuration.startsWith('Műszak') ? 'text-lg text-gray-700' : 'text-3xl text-green-800'}`}>{activeShiftDuration}</p>
-                        <p className="text-sm text-gray-600">Kezdés: {activeTimeEntry.startTime.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
+                        <p style={{ color: 'var(--color-text-secondary)' }}>{activeShiftDuration.startsWith('Műszak') ? 'Hamarosan...' : 'Aktív műszakban:'}</p>
+                        <p className={`my-1 font-bold ${activeShiftDuration.startsWith('Műszak') ? 'text-lg' : 'text-3xl text-green-700'}`}>{activeShiftDuration}</p>
+                        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Kezdés: {activeTimeEntry.startTime.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                 ) : upcomingShift ? (
                     <div>
-                        <p className="text-gray-600">Következő műszakod:</p>
-                        <p className="text-xl font-bold my-2 text-gray-800">{upcomingShift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
+                        <p style={{ color: 'var(--color-text-secondary)' }}>Következő műszakod:</p>
+                        <p className="text-xl font-bold my-2">{upcomingShift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                 ) : (
-                    <p className="text-gray-600 my-2">Ma nincs több beosztásod.</p>
+                    <p className="my-2" style={{ color: 'var(--color-text-secondary)' }}>Ma nincs több beosztásod.</p>
                 )}
             </div>
-            
+
             <div className="w-full mt-4">
-                 <div className="py-4 border-t border-b">
-                    <label className="text-sm font-semibold text-gray-600">Becsült bér ebben a hónapban</label>
+                 <div className="py-4 border-t border-b" style={{ borderColor: 'var(--color-border)' }}>
+                    <label className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Becsült bér ebben a hónapban</label>
                     <div className="flex items-center justify-center gap-2 mt-1">
                         <p className={`text-2xl font-bold text-green-700 transition-all duration-300 ${!isPayVisible && 'blur-md'}`}>
                             {monthlyData.totalEarnings.toLocaleString('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 })}
@@ -270,7 +296,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                             {isPayVisible ? <EyeSlashIcon /> : <EyeIcon />}
                         </button>
                     </div>
-                     <p className="text-xs text-gray-500 mt-1">{Object.keys(wages).length > 0 ? `${monthlyData.totalHours.toFixed(2)} óra alapján` : 'Add meg az órabéred a számításhoz.'}</p>
+                     <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>{Object.keys(wages).length > 0 ? `${monthlyData.totalHours.toFixed(2)} óra alapján` : 'Add meg az órabéred a számításhoz.'}</p>
                  </div>
                  <button
                     onClick={(e) => { if (!isEditMode) { e.stopPropagation(); setClockInModalOpen(true); }}}
@@ -282,26 +308,32 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
         </div>
     );
 };
-  
+
   const QuickLinksWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
-        <h2 className="text-xl font-bold mb-4 text-gray-800">Gyorsmenü</h2>
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+    >
+        <h2 className="text-xl font-bold mb-4">Gyorsmenü</h2>
         <div className="space-y-3">
             <button
                 onClick={() => !isEditMode && setActiveApp('beosztas')}
-                className={`w-full text-left p-3 bg-gray-50 rounded-lg font-semibold text-gray-800 ${!isEditMode ? 'hover:bg-gray-100' : 'cursor-default opacity-70'}`}
+                className={`w-full text-left p-3 rounded-lg font-semibold ${!isEditMode ? 'hover:opacity-80' : 'cursor-default opacity-70'}`}
+                style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
             >
                 Beosztásom megtekintése
             </button>
             <button
                 onClick={() => !isEditMode && setActiveApp('kerelemek')}
-                className={`w-full text-left p-3 bg-gray-50 rounded-lg font-semibold text-gray-800 ${!isEditMode ? 'hover:bg-gray-100' : 'cursor-default opacity-70'}`}
+                className={`w-full text-left p-3 rounded-lg font-semibold ${!isEditMode ? 'hover:opacity-80' : 'cursor-default opacity-70'}`}
+                style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
             >
                 Szabadnap kérelem
             </button>
             <button
                 onClick={() => !isEditMode && setActiveApp('todos')}
-                className={`w-full text-left p-3 bg-gray-50 rounded-lg font-semibold text-gray-800 ${!isEditMode ? 'hover:bg-gray-100' : 'cursor-default opacity-70'}`}
+                className={`w-full text-left p-3 rounded-lg font-semibold ${!isEditMode ? 'hover:opacity-80' : 'cursor-default opacity-70'}`}
+                style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text-main)' }}
             >
                 Teendők
             </button>
@@ -312,44 +344,53 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
   const TodosWidget = () => {
     const latestTodos = activeTodos.slice(0, 3);
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        >
             <div className="flex items-center gap-2 mb-4">
                 <TodoIcon className="h-6 w-6 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-800">Aktív teendők ({activeTodos.length})</h2>
+                <h2 className="text-xl font-bold">Aktív teendők ({activeTodos.length})</h2>
             </div>
             {latestTodos.length > 0 ? (
                 <div className="space-y-3">
                     {latestTodos.map(todo => (
-                        <div key={todo.id} className="p-2 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg">
-                            <p className="text-sm font-medium text-gray-800 truncate">{todo.text}</p>
-                            <p className="text-xs text-gray-600">Létrehozta: {todo.createdBy}</p>
+                        <div key={todo.id} className="p-2 bg-blue-50/50 border-l-4 border-blue-400 rounded-r-lg">
+                            <p className="text-sm font-medium truncate">{todo.text}</p>
+                            <p className="text-xs opacity-70">Létrehozta: {todo.createdBy}</p>
                         </div>
                     ))}
                 </div>
             ) : (
-                <p className="text-gray-600">Nincsenek aktív teendők.</p>
+                <p style={{ color: 'var(--color-text-secondary)' }}>Nincsenek aktív teendők.</p>
             )}
         </div>
     );
   };
 
   const RequestsWidget = () => (
-    <div className="bg-white p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center">
+    <div
+        className="p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center transition-colors duration-200"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+    >
         <div className="flex items-center gap-2">
             <CalendarIcon className="h-6 w-6 text-yellow-600" />
-            <h3 className="font-bold text-gray-800">Függőben lévő kérelmek</h3>
+            <h3 className="font-bold">Függőben lévő kérelmek</h3>
         </div>
         <p className="text-4xl font-bold text-yellow-600 mt-2">{openRequests.length}</p>
     </div>
   );
-  
+
   const ScheduleWidget = () => {
     const sortedTodayShifts = [...todayShifts].sort((a,b) => a.start.toMillis() - b.start.toMillis());
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+        <div
+            className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        >
             <div className="flex items-center gap-2 mb-4">
                 <ScheduleIcon className="h-6 w-6 text-indigo-600" />
-                <h2 className="text-xl font-bold text-gray-800">Mai Beosztás</h2>
+                <h2 className="text-xl font-bold">Mai Beosztás</h2>
             </div>
             {sortedTodayShifts.length > 0 ? (
                 <div className="space-y-3 overflow-y-auto max-h-64">
@@ -358,14 +399,14 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                         const startTime = shift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
                         const endTime = shift.end ? shift.end.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : 'Zárásig';
                         return (
-                            <div key={shift.id} className="p-3 bg-gray-50 rounded-lg">
+                            <div key={shift.id} className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
                                 <div className="flex items-center gap-2">
-                                    <p className="font-semibold text-gray-800">{shift.userName}</p>
+                                    <p className="font-semibold">{shift.userName}</p>
                                     {isMultiUnitView && unit && (
                                         <UnitLogoBadge unit={unit} size={18} />
                                     )}
                                 </div>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm opacity-80">
                                     {shift.isDayOff ? (
                                         <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-rose-600 font-semibold">
                                             Szabadnap
@@ -379,33 +420,39 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                     })}
                 </div>
             ) : (
-                <p className="text-gray-600">Ma nincsenek beosztott műszakok.</p>
+                <p style={{ color: 'var(--color-text-secondary)' }}>Ma nincsenek beosztott műszakok.</p>
             )}
         </div>
     );
   };
 
   const BookingsWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
-        <h2 className="text-xl font-bold mb-4 text-gray-800">Mai foglalások</h2>
-        <p className="text-gray-600">A mai foglalások listája itt jelenik meg.</p>
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+    >
+        <h2 className="text-xl font-bold mb-4">Mai foglalások</h2>
+        <p style={{ color: 'var(--color-text-secondary)' }}>A mai foglalások listája itt jelenik meg.</p>
     </div>
   );
 
   const VelemenyekWidget = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+    <div
+        className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+    >
         <div className="flex items-center gap-2 mb-4">
             <FeedbackIcon className="h-6 w-6 text-purple-600" />
-            <h2 className="text-xl font-bold text-gray-800">Névtelen Visszajelzések</h2>
+            <h2 className="text-xl font-bold">Névtelen Visszajelzések</h2>
         </div>
         {filteredFeedback.length > 0 ? (
             <div>
-                <p className="text-3xl font-bold text-gray-800">{filteredFeedback.length}</p>
-                <p className="text-gray-600">összesen</p>
-                <p className="text-sm text-gray-600 mt-2 truncate">Legutóbbi: "{filteredFeedback[0].text}"</p>
+                <p className="text-3xl font-bold">{filteredFeedback.length}</p>
+                <p style={{ color: 'var(--color-text-secondary)' }}>összesen</p>
+                <p className="text-sm mt-2 truncate" style={{ color: 'var(--color-text-secondary)' }}>Legutóbbi: "{filteredFeedback[0].text}"</p>
             </div>
         ) : (
-            <p className="text-gray-600">Nincsenek új visszajelzések.</p>
+            <p style={{ color: 'var(--color-text-secondary)' }}>Nincsenek új visszajelzések.</p>
         )}
     </div>
   );
@@ -413,26 +460,29 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
   const SzavazasokWidget = () => {
       const activePolls = useMemo(() => filteredPolls.filter(p => !p.closesAt || p.closesAt.toDate() > new Date()), [filteredPolls]);
       return (
-          <div className="bg-white p-6 rounded-2xl shadow-md border h-full">
+          <div
+            className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+          >
               <div className="flex items-center gap-2 mb-4">
                   <PollsIcon className="h-6 w-6 text-cyan-600" />
-                  <h2 className="text-xl font-bold text-gray-800">Szavazások ({activePolls.length})</h2>
+                  <h2 className="text-xl font-bold">Szavazások ({activePolls.length})</h2>
               </div>
               {activePolls.length > 0 ? (
                    <div className="space-y-2">
                       {activePolls.slice(0,2).map(poll => (
-                          <div key={poll.id} className="p-2 bg-cyan-50 border-l-4 border-cyan-400 rounded-r-lg">
-                             <p className="text-sm font-medium text-gray-800 truncate">{poll.question}</p>
+                          <div key={poll.id} className="p-2 bg-cyan-50/50 border-l-4 border-cyan-400 rounded-r-lg">
+                             <p className="text-sm font-medium truncate">{poll.question}</p>
                           </div>
                       ))}
                   </div>
               ) : (
-                  <p className="text-gray-600">Nincsenek aktív szavazások.</p>
+                  <p style={{ color: 'var(--color-text-secondary)' }}>Nincsenek aktív szavazások.</p>
               )}
           </div>
       );
   };
-  
+
   const widgetMap: { [key: string]: React.FC } = {
     shift_payroll: ShiftAndPayrollWidget,
     quicklinks: QuickLinksWidget,
@@ -460,24 +510,72 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
           currentUser={currentUser}
         />
       )}
-      <div className="flex justify-between items-center mb-2">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Üdv, {currentUser.firstName}!</h1>
-          <p className="text-gray-600 mt-1">Jó újra látni. Itt egy gyors áttekintés a mai napodról.</p>
-        </div>
-        <div>
-            {isEditMode ? (
-                 <button onClick={handleSaveConfig} className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2">
+      
+      {/* --- ÚJ FEJLÉC (HEADER) --- */}
+      <div 
+        className="rounded-2xl p-6 mb-8 text-white shadow-lg relative overflow-hidden transition-all duration-300"
+        style={{
+            backgroundColor: 'var(--color-header-bg)', 
+            backgroundImage: 'var(--ui-header-image)',
+            backgroundBlendMode: 'var(--ui-header-blend-mode)', // ITT a lényeg!
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            color: 'var(--color-text-on-primary)'
+        }}
+      >
+        <div className="absolute inset-0 bg-black/10 pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+                <h1 className="text-3xl font-bold">Üdv, {currentUser.firstName}!</h1>
+                <p className="mt-1 opacity-90">Jó újra látni. Itt egy gyors áttekintés a mai napodról.</p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+                <ThemeSelector 
+                    activeUnit={primaryUnit} 
+                    currentTheme={themeMode} // FIGYELEM: currentTheme a prop neve a komponensben!
+                    onThemeChange={onThemeChange} 
+                />
+                
+                {/* Admin Theme Editor Toggle */}
+                <button
+                    onClick={() => setShowThemeEditor(prev => !prev)}
+                    className="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-md"
+                    type="button"
+                >
+                    Theme Editor
+                </button>
+
+                {/* Widget Edit Mode */}
+                {isEditMode ? (
+                    <button
+                    onClick={handleSaveConfig}
+                    className="bg-white text-green-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 flex items-center gap-2 shadow-sm"
+                    >
                     Mentés
-                </button>
-            ) : (
-                <button onClick={() => setIsEditMode(true)} className="p-2 rounded-full hover:bg-gray-100 border-2 border-transparent hover:border-gray-300" title="Widgetek szerkesztése">
-                    <PencilIcon className="h-6 w-6 text-gray-600"/>
-                </button>
-            )}
+                    </button>
+                ) : (
+                    <button
+                    onClick={() => setIsEditMode(true)}
+                    className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-md"
+                    title="Widgetek szerkesztése"
+                    >
+                    <PencilIcon className="h-6 w-6" />
+                    </button>
+                )}
+            </div>
         </div>
       </div>
-      {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
+      {/* --- FEJLÉC VÉGE --- */}
+
+      {showThemeEditor && (
+        <div className="mb-4">
+          <AdminThemeEditor bases={themeBases} onChangeBases={onThemeBasesChange} />
+        </div>
+      )}
+      
+      {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4 border border-blue-200">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-6">
           {sortedWidgets.map((widget, index) => {
@@ -495,7 +593,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                 szavazasok: 'szavazasok',
             };
             const targetApp = widgetIdToAppMap[widget.id];
-
             const isClickable = !isEditMode && !!targetApp;
             const isVisible = widget.visible;
 
@@ -504,16 +601,23 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                     key={widget.id}
                     className={`relative transition-opacity duration-300
                         ${widget.id === 'schedule' ? 'md:col-span-2' : ''}
-                        ${isEditMode ? 'border-2 border-dashed border-blue-400 rounded-2xl p-1 bg-blue-50' : ''}
-                        ${!isVisible && isEditMode ? 'opacity-30' : ''}
+                        ${isEditMode ? 'border-2 border-dashed border-blue-400 rounded-2xl p-1 bg-blue-50/50' : ''}
+                        ${!isVisible && isEditMode ? 'opacity-50' : ''}
                     `}
                 >
                    {isEditMode && (
-                        <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-white/70 backdrop-blur-sm p-1 rounded-full shadow">
-                            <button 
+                        <div
+                          className="absolute top-2 right-2 z-10 flex items-center gap-0.5 backdrop-blur-md p-1 rounded-full shadow border border-gray-200"
+                          style={{
+                            backgroundColor: 'var(--color-surface)',
+                            color: 'var(--color-text-main)',
+                            opacity: 0.95,
+                          }}
+                        >
+                            <button
                                 onClick={() => moveWidget(widget.id, 'up')}
                                 disabled={index === 0}
-                                className="p-1.5 hover:bg-gray-200 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="p-1.5 hover:bg-black/5 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
                                 title="Fel"
                             >
                                 <ArrowUpIcon />
@@ -521,19 +625,19 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({ currentUser, requests, sc
                             <button 
                                 onClick={() => moveWidget(widget.id, 'down')}
                                 disabled={index === sortedWidgets.length - 1}
-                                className="p-1.5 hover:bg-gray-200 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="p-1.5 hover:bg-black/5 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
                                 title="Le"
                             >
                                 <ArrowDownIcon />
                             </button>
                             <div className="w-px h-5 bg-gray-300 mx-1"></div>
-                            <button onClick={() => toggleWidgetVisibility(widget.id)} className="p-1.5 hover:bg-gray-200 rounded-full" title={isVisible ? 'Elrejt' : 'Megjelenít'}>
+                            <button onClick={() => toggleWidgetVisibility(widget.id)} className="p-1.5 hover:bg-black/5 rounded-full" title={isVisible ? 'Elrejt' : 'Megjelenít'}>
                                 {isVisible ? <EyeIcon/> : <EyeSlashIcon/>}
                             </button>
                         </div>
                    )}
                    <div 
-                     className={`h-full ${isClickable ? 'cursor-pointer' : ''}`}
+                     className={`h-full ${isClickable ? 'cursor-pointer hover:opacity-95 transition-opacity' : ''}`}
                      onClick={isClickable ? () => setActiveApp(targetApp) : undefined}
                    >
                      <WidgetComponent/>

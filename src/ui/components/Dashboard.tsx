@@ -53,6 +53,7 @@ import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
 import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
+import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -70,6 +71,10 @@ interface DashboardProps {
   feedbackList: Feedback[];
   polls: Poll[];
   firestoreError?: string | null;
+  themeMode: ThemeMode;
+  onThemeModeChange: (mode: ThemeMode) => void;
+  themeBases: ThemeBases;
+  onThemeBasesChange: (bases: ThemeBases) => void;
 }
 
 type AppName =
@@ -115,6 +120,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   feedbackList,
   polls,
   firestoreError,
+  themeMode,
+  onThemeModeChange,
+  themeBases,
+  onThemeBasesChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -167,6 +176,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     setSelectedUnits: setActiveUnitIds,
     allUnits: contextAllUnits,
   } = useUnitContext();
+
+  const activeUnit = useMemo(
+    () => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null),
+    [activeUnitIds, allUnits]
+  );
 
   if (!currentUser) {
     return (
@@ -277,6 +291,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
+    const isActive = activeApp === app;
+
     return (
       <button
         onClick={() => {
@@ -284,10 +300,12 @@ const Dashboard: React.FC<DashboardProps> = ({
           setSidebarOpen(false);
         }}
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-          activeApp === app
-            ? 'bg-[var(--color-secondary)] text-white shadow-inner'
-            : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+          isActive ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
         }`}
+        style={{
+          backgroundColor: isActive ? 'var(--color-secondary)' : 'transparent',
+          color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-text-main)',
+        }}
         title={label}
       >
         <Icon className="h-6 w-6" />
@@ -313,8 +331,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div>
         <button
           onClick={() => toggleCategory(name)}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-200"
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--color-sidebar-hover)] transition-colors duration-200"
           aria-expanded={isOpen}
+          style={{ color: 'var(--color-text-main)' }}
         >
           <div className="flex items-center">
             <Icon className="h-6 w-6" />
@@ -325,7 +344,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         </button>
         {isOpen && (
-          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5">
+          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5" style={{ borderColor: 'var(--color-border)' }}>
             {children}
           </div>
         )}
@@ -349,6 +368,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
+            themeMode={themeMode}
+            onThemeChange={onThemeModeChange}
+            activeUnit={activeUnit}
+            themeBases={themeBases}
+            onThemeBasesChange={onThemeBasesChange}
           />
         );
       case 'kerelemek':
@@ -511,6 +535,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
+            themeMode={themeMode}
+            onThemeChange={onThemeModeChange}
+            activeUnit={activeUnit}
+            themeBases={themeBases}
+            onThemeBasesChange={onThemeBasesChange}
           />
         );
     }
@@ -519,10 +548,18 @@ const Dashboard: React.FC<DashboardProps> = ({
   const isChatLayout = activeApp === 'chat';
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
+  const handleToggleTheme = useCallback(() => {
+    document.body.classList.add('no-transition');
+    onThemeModeChange(themeMode === 'light' ? 'dark' : 'light');
+    setTimeout(() => {
+      document.body.classList.remove('no-transition');
+    }, 100);
+  }, [onThemeModeChange, themeMode]);
+
   return (
     <>
       <div
-        className="relative h-full overflow-hidden"
+        className="relative h-full overflow-hidden transition-colors duration-200"
         style={{
           backgroundColor: 'var(--color-background)',
           backgroundImage: 'var(--ui-bg-image)',
@@ -611,10 +648,16 @@ const Dashboard: React.FC<DashboardProps> = ({
               setSidebarOpen(false);
             }}
             className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-              activeApp === 'settings'
-                ? 'bg-[var(--color-secondary)] text-white shadow-inner'
-                : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+              activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
             }`}
+            style={{
+              backgroundColor:
+                activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
+              color:
+                activeApp === 'settings'
+                  ? 'var(--color-text-on-primary)'
+                  : 'var(--color-text-main)',
+            }}
             title="Beállítások"
           >
             <SettingsIcon className="h-6 w-6" />
@@ -633,6 +676,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundColor: 'var(--color-primary)',
             color: 'var(--color-text-on-primary)',
             backgroundImage: 'var(--ui-header-image)',
+            backgroundBlendMode: 'overlay',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
@@ -648,6 +692,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="font-semibold">{currentUser.fullName}</div>
               <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
+            <button
+              onClick={handleToggleTheme}
+              title="Téma váltása"
+              className="p-2 rounded-full hover:bg-white/20"
+              type="button"
+            >
+              {themeMode === 'dark' ? '🌙' : '☀️'}
+            </button>
             <button
               onClick={onLogout}
               title="Kijelentkezés"

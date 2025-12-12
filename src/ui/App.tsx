@@ -11,15 +11,27 @@ import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, q
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { UnitProvider, useUnitContext } from './context/UnitContext';
 import ThemeManager from '../core/theme/ThemeManager';
+import { ThemeMode, ThemeBases } from '../core/theme/types';
+import { loadBases, loadMode, saveBases, saveMode } from '../core/theme/storage';
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 // Bővítettük a PublicPage típust a 'manage' állapottal
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-const ThemeManagerBridge: React.FC<{ allUnits: Unit[] }> = ({ allUnits }) => {
+const ThemeManagerBridge: React.FC<{ allUnits: Unit[]; bases: ThemeBases; themeMode: ThemeMode }> = ({
+  allUnits,
+  bases,
+  themeMode,
+}) => {
   const { selectedUnits } = useUnitContext();
-  return <ThemeManager allUnits={allUnits} activeUnitIds={selectedUnits} />;
+  const activeUnit = selectedUnits.length
+    ? allUnits.find(u => u.id === selectedUnits[0]) || null
+    : null;
+
+  const brandMode = activeUnit?.uiTheme === 'brand';
+
+  return <ThemeManager activeUnit={activeUnit} bases={bases} mode={themeMode} brandMode={brandMode} />;
 };
 
 const App: React.FC = () => {
@@ -43,6 +55,16 @@ const App: React.FC = () => {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
+  const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
+
+  useEffect(() => {
+    saveMode(themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    saveBases(themeBases);
+  }, [themeBases]);
 
 
   useEffect(() => {
@@ -434,7 +456,7 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-          <ThemeManagerBridge allUnits={allUnits} />
+          <ThemeManagerBridge allUnits={allUnits} bases={themeBases} themeMode={themeMode} />
           <Dashboard
             currentUser={currentUser}
             onLogout={handleLogout}
@@ -451,6 +473,10 @@ const App: React.FC = () => {
             feedbackList={feedbackList}
             polls={polls}
             firestoreError={firestoreError}
+            themeMode={themeMode}
+            onThemeModeChange={setThemeMode}
+            themeBases={themeBases}
+            onThemeBasesChange={setThemeBases}
           />
         </UnitProvider>
       );

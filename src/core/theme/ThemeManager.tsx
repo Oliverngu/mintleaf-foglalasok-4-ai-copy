@@ -1,244 +1,165 @@
-import React, { useEffect } from 'react';
-import { BrandColorConfig, BrandTarget, Unit } from '../models/data';
+import React, { useLayoutEffect, useRef } from 'react';
+import { Unit } from '../models/data';
+import { BrandOverride, ThemeBases, ThemeMode } from './types';
 
 interface ThemeManagerProps {
-  allUnits: Unit[];
-  activeUnitIds: string[];
+  activeUnit: Unit | null;
+  bases: ThemeBases;
+  mode: ThemeMode;
+  brandMode?: boolean;
+  adminHeaderImageUrl?: string;
 }
 
-const DEFAULT_PALETTE = {
-  primary: '#15803d',
-  primaryHover: '#166534',
-  secondary: '#166534',
-  accent: '#22c55e',
-  surface: '#ecfdf3',
-  background: '#f8fafc',
-  text: '#0f172a',
-  textMain: '#0f172a',
-  textOnPrimary: '#ffffff',
-  sidebarBg: '#0f172a',
-  sidebarActive: '#1f2937',
-  sidebarText: '#ffffff',
-  headerImage: 'none',
-  backgroundImage: 'none',
+const VARIABLE_KEYS = [
+  '--color-primary',
+  '--color-secondary',
+  '--color-header-bg',
+  '--color-sidebar-bg',
+  '--color-sidebar-hover',
+  '--color-background',
+  '--color-surface',
+  '--color-surface-static',
+  '--color-surface-brand',
+  '--color-text',
+  '--color-text-body',
+  '--color-text-main',
+  '--color-text-secondary',
+  '--color-border',
+  '--color-text-on-primary',
+  '--color-primary-hover',
+  '--color-sidebar-active',
+  '--color-sidebar-text',
+  '--color-accent',
+  '--color-input-bg',
+  '--ui-header-image',
+];
+
+const lightenColor = (hexColor: string, amount = 0.08) => {
+  const normalized = hexColor.replace('#', '');
+  if (normalized.length !== 6) return hexColor;
+
+  const toChannel = (value: string) => parseInt(value, 16);
+  const r = toChannel(normalized.slice(0, 2));
+  const g = toChannel(normalized.slice(2, 4));
+  const b = toChannel(normalized.slice(4, 6));
+
+  const lighten = (channel: number) => Math.min(255, Math.round(channel + 255 * amount));
+
+  const toHex = (channel: number) => channel.toString(16).padStart(2, '0');
+
+  return `#${toHex(lighten(r))}${toHex(lighten(g))}${toHex(lighten(b))}`;
 };
 
-const setCssVariables = (palette: typeof DEFAULT_PALETTE) => {
-  const rootStyle = document.documentElement.style;
-  rootStyle.setProperty('--color-primary', palette.primary);
-  rootStyle.setProperty('--color-primary-hover', palette.primaryHover);
-  rootStyle.setProperty('--color-secondary', palette.secondary);
-  rootStyle.setProperty('--color-accent', palette.accent);
-  rootStyle.setProperty('--color-surface-brand', palette.surface);
-  rootStyle.setProperty('--color-surface', palette.surface);
-  rootStyle.setProperty('--color-background', palette.background);
-  rootStyle.setProperty('--color-text', palette.text);
-  rootStyle.setProperty('--color-text-body', palette.textMain);
-  rootStyle.setProperty('--color-text-main', palette.textMain);
-  rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
-  rootStyle.setProperty('--color-sidebar-active', palette.sidebarActive);
-  rootStyle.setProperty('--color-sidebar-text', palette.sidebarText);
-  rootStyle.setProperty('--color-text-on-primary', palette.textOnPrimary);
-  rootStyle.setProperty('--ui-header-image', palette.headerImage);
-  rootStyle.setProperty('--ui-bg-image', palette.backgroundImage);
-};
+const getContrastText = (hexColor: string | undefined, fallback = '#ffffff') => {
+  if (!hexColor) return fallback;
+  const normalized = hexColor.replace('#', '');
+  if (normalized.length !== 6) return fallback;
+  const r = parseInt(normalized.substring(0, 2), 16) / 255;
+  const g = parseInt(normalized.substring(2, 4), 16) / 255;
+  const b = parseInt(normalized.substring(4, 6), 16) / 255;
 
-const hexToRgb = (hex: string) => {
-  const normalized = hex.replace('#', '');
-  if (![3, 6].includes(normalized.length)) return null;
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map(c => c + c)
-          .join('')
-      : normalized;
-
-  const int = parseInt(expanded, 16);
-  return {
-    r: (int >> 16) & 255,
-    g: (int >> 8) & 255,
-    b: int & 255,
-  };
-};
-
-const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
-  const srgb = [r, g, b].map(v => {
-    const channel = v / 255;
-    return channel <= 0.03928
-      ? channel / 12.92
-      : Math.pow((channel + 0.055) / 1.055, 2.4);
-  });
-
-  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
-};
-
-const getContrastText = (hexColor: string | undefined, fallback = DEFAULT_PALETTE.textOnPrimary) => {
-  const rgb = hexColor ? hexToRgb(hexColor) : null;
-  if (!rgb) return fallback;
-
-  const lum = luminance(rgb);
+  const srgb = [r, g, b].map(channel =>
+    channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4)
+  );
+  const lum = 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
   return lum > 0.5 ? '#0f172a' : '#ffffff';
 };
 
-const LEGACY_TARGETS: BrandTarget[] = [
-  'primary',
-  'secondary',
-  'accent',
-  'background',
-  'surface',
-];
-
-const mapLegacyColorsToConfigs = (colors: string[]): BrandColorConfig[] =>
-  colors.slice(0, 5).map((color, idx) => ({
-    id: `legacy-${idx}`,
-    color,
-    target: LEGACY_TARGETS[idx] || 'accent',
-  }));
-
-const rgbToHsl = (r: number, g: number, b: number) => {
-  r /= 255;
-  g /= 255;
-  b /= 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  let h = 0;
-  let s = 0;
-  const l = (max + min) / 2;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r:
-        h = (g - b) / d + (g < b ? 6 : 0);
-        break;
-      case g:
-        h = (b - r) / d + 2;
-        break;
-      case b:
-        h = (r - g) / d + 4;
-        break;
-    }
-    h /= 6;
-  }
-
-  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+const clearVariables = () => {
+  const rootStyle = document.documentElement.style;
+  VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
 };
 
-const hslToHex = (h: number, s: number, l: number) => {
-  const hue2rgb = (p: number, q: number, t: number) => {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
+const applyPalette = (
+  palette: Required<ThemeBases>['light'],
+  brandOverride?: BrandOverride,
+  headerImage?: string | null
+) => {
+  const rootStyle = document.documentElement.style;
+  const primaryColor = brandOverride?.secondary || palette.primary;
+  const surfaceColor = brandOverride?.surface || palette.surface;
+  const headerImageValue = headerImage ? `url('${headerImage}')` : 'none';
 
-  h /= 360;
-  s /= 100;
-  l /= 100;
+  rootStyle.setProperty('--color-surface-static', '#ffffff');
 
-  if (s === 0) {
-    const val = Math.round(l * 255);
-    const hex = val.toString(16).padStart(2, '0');
-    return `#${hex}${hex}${hex}`;
-  }
-
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-
-  const r = hue2rgb(p, q, h + 1 / 3);
-  const g = hue2rgb(p, q, h);
-  const b = hue2rgb(p, q, h - 1 / 3);
-
-  const toHex = (c: number) => Math.round(c * 255)
-    .toString(16)
-    .padStart(2, '0');
-
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  rootStyle.setProperty('--color-primary', primaryColor);
+  rootStyle.setProperty('--color-secondary', brandOverride?.secondary || palette.secondary);
+  rootStyle.setProperty('--color-header-bg', brandOverride?.headerBg || palette.headerBg);
+  rootStyle.setProperty('--color-sidebar-bg', palette.sidebarBg);
+  rootStyle.setProperty('--color-sidebar-active', brandOverride?.secondary || palette.secondary);
+  rootStyle.setProperty('--color-sidebar-hover', palette.sidebarHover);
+  rootStyle.setProperty('--color-sidebar-text', palette.textMain);
+  rootStyle.setProperty('--color-background', brandOverride?.background || palette.background);
+  rootStyle.setProperty('--color-surface', surfaceColor);
+  rootStyle.setProperty('--color-surface-brand', surfaceColor);
+  rootStyle.setProperty('--color-text', palette.textMain);
+  rootStyle.setProperty('--color-text-body', palette.textMain);
+  rootStyle.setProperty('--color-text-main', palette.textMain);
+  rootStyle.setProperty('--color-text-secondary', palette.textSecondary);
+  rootStyle.setProperty('--color-border', palette.border);
+  rootStyle.setProperty('--color-text-on-primary', getContrastText(primaryColor));
+  rootStyle.setProperty('--color-primary-hover', primaryColor);
+  rootStyle.setProperty('--color-accent', palette.accent);
+  rootStyle.setProperty('--color-input-bg', palette.inputBg);
+  rootStyle.setProperty('--ui-header-image', headerImageValue);
 };
 
-const adjustLightness = (hex: string, delta: number) => {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return hex;
-  const { r, g, b } = rgb;
-  const baseHsl = rgbToHsl(r, g, b);
-  const nextL = Math.max(0, Math.min(100, baseHsl.l + delta));
-  return hslToHex(baseHsl.h, baseHsl.s, nextL);
+const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined => {
+  if (!activeUnit?.brandColors) return undefined;
+
+  const { primary, secondary, background } = activeUnit.brandColors;
+  const override: BrandOverride = {};
+
+  if (primary) override.headerBg = primary;
+  if (secondary) override.secondary = secondary;
+  if (background) override.background = background;
+  if (background) override.surface = lightenColor(background, 0.06);
+
+  return Object.keys(override).length ? override : undefined;
 };
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ allUnits, activeUnitIds }) => {
-  useEffect(() => {
-    const primaryUnit = activeUnitIds.length
-      ? allUnits.find(u => u.id === activeUnitIds[0])
-      : undefined;
+const resolveHeaderImage = (activeUnit: Unit | null, adminHeaderImageUrl?: string) => {
+  if (activeUnit?.uiHeaderImageUrl) return activeUnit.uiHeaderImageUrl;
+  if (adminHeaderImageUrl) return adminHeaderImageUrl;
+  return null;
+};
 
-    const basePalette = { ...DEFAULT_PALETTE };
+const ThemeManager: React.FC<ThemeManagerProps> = ({
+  activeUnit,
+  bases,
+  mode,
+  brandMode,
+  adminHeaderImageUrl,
+}) => {
+  const previousSignatureRef = useRef<string | null>(null);
 
-    if (primaryUnit?.uiTheme === 'brand') {
-      const configs =
-        primaryUnit.brandColorConfigs?.length
-          ? primaryUnit.brandColorConfigs
-          : (primaryUnit as any).brandColors?.length
-          ? mapLegacyColorsToConfigs((primaryUnit as any).brandColors)
-          : [];
+  useLayoutEffect(() => {
+    const palette = bases[mode];
+    const brandOverride = brandMode ? deriveBrandOverride(activeUnit) : undefined;
+    const headerImage = resolveHeaderImage(activeUnit, adminHeaderImageUrl);
+    const signature = JSON.stringify({ mode, brandMode: !!brandMode, palette, brandOverride, headerImage });
 
-      if (primaryUnit.uiHeaderImageUrl) {
-        basePalette.headerImage = `url('${primaryUnit.uiHeaderImageUrl}')`;
-      }
-      if (primaryUnit.uiBackgroundImageUrl) {
-        basePalette.backgroundImage = `url('${primaryUnit.uiBackgroundImageUrl}')`;
-      }
+    if (previousSignatureRef.current === signature) return;
+    previousSignatureRef.current = signature;
 
-      if (configs.length) {
-        const palette = { ...basePalette };
+    document.documentElement.classList.add('no-transition');
+    document.body.classList.add('no-transition');
+    clearVariables();
 
-        configs.forEach(cfg => {
-          if (!cfg.color) return;
+    applyPalette(palette, brandOverride, headerImage);
 
-          switch (cfg.target) {
-            case 'primary':
-              palette.primary = cfg.color;
-              palette.primaryHover = adjustLightness(cfg.color, -10);
-              palette.textOnPrimary = getContrastText(cfg.color);
-              break;
-            case 'secondary':
-              palette.secondary = cfg.color;
-              break;
-            case 'accent':
-              palette.accent = cfg.color;
-              break;
-            case 'background':
-              palette.background = cfg.color;
-              palette.textMain = getContrastText(cfg.color, basePalette.textMain);
-              palette.text = palette.textMain;
-              break;
-            case 'surface':
-              palette.surface = cfg.color;
-              break;
-            case 'sidebar':
-              palette.sidebarBg = cfg.color;
-              palette.sidebarActive = adjustLightness(cfg.color, -8);
-              palette.sidebarText = getContrastText(cfg.color, basePalette.sidebarText);
-              break;
-            case 'text':
-              palette.text = cfg.color;
-              palette.textMain = cfg.color;
-              break;
-            default:
-              break;
-          }
-        });
+    // Force paint to avoid flicker before re-enabling transitions
+    void getComputedStyle(document.documentElement).getPropertyValue('--color-primary');
+    requestAnimationFrame(() => {
+      document.documentElement.classList.remove('no-transition');
+      document.body.classList.remove('no-transition');
+    });
 
-        setCssVariables(palette);
-        return;
-      }
-    }
-
-    setCssVariables(basePalette);
-  }, [allUnits, activeUnitIds]);
+    return () => {
+      document.documentElement.classList.remove('no-transition');
+      document.body.classList.remove('no-transition');
+    };
+  }, [activeUnit, adminHeaderImageUrl, bases, mode, brandMode]);
 
   return null;
 };

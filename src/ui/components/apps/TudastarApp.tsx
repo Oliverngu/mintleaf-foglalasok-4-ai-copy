@@ -47,13 +47,13 @@ const DEFAULT_CATEGORY_SEED: { title: string; subcategories?: string[] }[] = [
 ];
 
 const notePaperStyles: React.CSSProperties = {
-  backgroundColor: '#f8fbff',
-  backgroundImage:
-    'linear-gradient(to bottom, rgba(96,165,250,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.6) 1px, transparent 1px)',
-  backgroundSize: '100% 32px, 100% 64px',
-  borderLeft: '6px solid #2563eb',
-  boxShadow: '0 10px 30px rgba(37, 99, 235, 0.08)',
+  backgroundColor: 'var(--color-surface)',
+  backgroundImage: `repeating-linear-gradient(transparent, transparent 31px, var(--color-border) 32px)`,
+  lineHeight: '32px',
+  borderLeft: '6px solid var(--color-secondary)',
+  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.08)',
   position: 'relative',
+  color: 'var(--color-text-main)',
 };
 
 const FileUploadModal: FC<{
@@ -205,10 +205,14 @@ const FileUploadModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-2xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleUpload} className="divide-y">
           <div className="p-5">
-            <h2 className="text-xl font-bold text-gray-800">Új dokumentum feltöltése</h2>
+            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Új dokumentum feltöltése</h2>
           </div>
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -218,7 +222,7 @@ const FileUploadModal: FC<{
               </div>
               <div>
                 <label className="text-sm font-medium">Egység</label>
-                <div className="w-full mt-1 p-2 border rounded-lg bg-gray-50 text-sm font-semibold text-gray-700">
+                <div className="w-full mt-1 p-2 border rounded-lg bg-gray-50 text-sm font-semibold text-[var(--color-text-secondary)]">
                   {unitName || 'Ismeretlen egység'}
                 </div>
               </div>
@@ -229,7 +233,8 @@ const FileUploadModal: FC<{
                 <select
                   value={categoryId}
                   onChange={e => setCategoryId(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-lg bg-white"
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   required
                 >
                   <option value="" disabled>
@@ -248,7 +253,8 @@ const FileUploadModal: FC<{
                   <select
                     value={availableSubcategories.includes(subcategory) ? subcategory : ''}
                     onChange={e => setSubcategory(e.target.value)}
-                    className="flex-1 p-2 border rounded-lg bg-white"
+                    className="flex-1 p-2 border rounded-lg"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
                     <option value="">Nincs megadva</option>
                     {availableSubcategories.map(sub => (
@@ -377,11 +383,15 @@ const NoteModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleSave} className="divide-y">
           <div className="p-5">
-            <h2 className="text-xl font-bold text-gray-800">Új jegyzet</h2>
-            <p className="text-gray-500 text-sm mt-1">Rövid jegyzet minimális formázási lehetőségekkel. A sor- és üres sor tördelés megmarad.</p>
+            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Új jegyzet</h2>
+            <p className="text-[var(--color-text-secondary)] text-sm mt-1">Rövid jegyzet minimális formázási lehetőségekkel. A sor- és üres sor tördelés megmarad.</p>
           </div>
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -401,7 +411,8 @@ const NoteModal: FC<{
                 <select
                   value={categoryId}
                   onChange={e => setCategoryId(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-lg bg-white"
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   required
                 >
                   <option value="" disabled>
@@ -422,7 +433,8 @@ const NoteModal: FC<{
                   <select
                     value={availableSubcategories.includes(subcategory) ? subcategory : ''}
                     onChange={e => setSubcategory(e.target.value)}
-                    className="flex-1 p-2 border rounded-lg bg-white"
+                    className="flex-1 p-2 border rounded-lg"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
                     <option value="">Nincs megadva</option>
                     {availableSubcategories.map(sub => (
@@ -446,7 +458,8 @@ const NoteModal: FC<{
                   type="text"
                   value={selectedUnitName || selectedUnitId}
                   disabled
-                  className="w-full mt-1 p-2 border rounded-lg bg-gray-100 text-gray-600"
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
                 />
               </div>
             </div>
@@ -460,7 +473,7 @@ const NoteModal: FC<{
                 placeholder="Írd ide a jegyzetet. Üres sorokkal tagolhatod, *dőlt* és **félkövér** jelölés is használható."
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">Alap formázás: sorvégi törés, *dőlt* és **félkövér** csillag jelöléssel.</p>
+              <p className="text-xs text-[var(--color-text-secondary)] mt-1">Alap formázás: sorvégi törés, *dőlt* és **félkövér** csillag jelöléssel.</p>
             </div>
             {error && <p className="text-red-500">{error}</p>}
           </div>
@@ -564,11 +577,15 @@ const EditNoteModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleSave} className="divide-y">
           <div className="p-5">
-            <h2 className="text-xl font-bold text-gray-800">Jegyzet szerkesztése</h2>
-            <p className="text-gray-500 text-sm mt-1">Frissítsd a jegyzet tartalmát és metaadatait.</p>
+            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Jegyzet szerkesztése</h2>
+            <p className="text-[var(--color-text-secondary)] text-sm mt-1">Frissítsd a jegyzet tartalmát és metaadatait.</p>
           </div>
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -588,7 +605,8 @@ const EditNoteModal: FC<{
                 <select
                   value={categoryId}
                   onChange={e => setCategoryId(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-lg bg-white"
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   required
                 >
                   <option value="" disabled>
@@ -609,7 +627,8 @@ const EditNoteModal: FC<{
                   <select
                     value={availableSubcategories.includes(subcategory) ? subcategory : ''}
                     onChange={e => setSubcategory(e.target.value)}
-                    className="flex-1 p-2 border rounded-lg bg-white"
+                    className="flex-1 p-2 border rounded-lg"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
                     <option value="">Nincs megadva</option>
                     {availableSubcategories.map(sub => (
@@ -627,16 +646,17 @@ const EditNoteModal: FC<{
                   />
                 </div>
               </div>
-              <div>
-                <label className="text-sm font-medium">Egység</label>
-                <input
-                  type="text"
-                  value={selectedUnitName || selectedUnitId}
-                  disabled
-                  className="w-full mt-1 p-2 border rounded-lg bg-gray-100 text-gray-600"
-                />
+                <div>
+                  <label className="text-sm font-medium">Egység</label>
+                  <input
+                    type="text"
+                    value={selectedUnitName || selectedUnitId}
+                    disabled
+                    className="w-full mt-1 p-2 border rounded-lg"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                  />
+                </div>
               </div>
-            </div>
             <div>
               <label className="text-sm font-medium">Tartalom</label>
               <textarea
@@ -647,7 +667,7 @@ const EditNoteModal: FC<{
                 placeholder="Írd ide a jegyzetet. Üres sorokkal tagolhatod, *dőlt* és **félkövér** jelölés is használható."
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">Alap formázás: sorvégi törés, *dőlt* és **félkövér** csillag jelöléssel.</p>
+              <p className="text-xs text-[var(--color-text-secondary)] mt-1">Alap formázás: sorvégi törés, *dőlt* és **félkövér** csillag jelöléssel.</p>
             </div>
             {error && <p className="text-red-500">{error}</p>}
           </div>
@@ -782,10 +802,14 @@ const CategoryManagerModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="p-5 border-b flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-800">Kategóriák szerkesztése</h2>
-          <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700 font-semibold">
+          <h2 className="text-xl font-bold text-[var(--color-text-main)]">Kategóriák szerkesztése</h2>
+          <button onClick={onClose} className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-secondary)] font-semibold">
             Bezárás
           </button>
         </div>
@@ -794,7 +818,7 @@ const CategoryManagerModal: FC<{
             <div key={category.id} className="border rounded-xl p-4">
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
                 <div className="flex-1">
-                  <label className="text-xs text-gray-500">Név</label>
+                  <label className="text-xs text-[var(--color-text-secondary)]">Név</label>
                   <input
                     type="text"
                     defaultValue={category.title}
@@ -812,7 +836,7 @@ const CategoryManagerModal: FC<{
                   </button>
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs text-gray-500">Új alkategória</label>
+                  <label className="text-xs text-[var(--color-text-secondary)]">Új alkategória</label>
                   <div className="flex gap-2 mt-1">
                     <input
                       type="text"
@@ -840,7 +864,7 @@ const CategoryManagerModal: FC<{
                     </button>
                   </div>
                   {category.subcategories && category.subcategories.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-600">
+                    <div className="flex flex-wrap gap-2 mt-2 text-xs text-[var(--color-text-secondary)]">
                       {category.subcategories.map(sub => (
                         <span key={sub} className="px-2 py-1 bg-gray-100 rounded-full flex items-center gap-1">
                           {sub}
@@ -861,7 +885,7 @@ const CategoryManagerModal: FC<{
             </div>
           ))}
           <form onSubmit={handleAddCategory} className="border rounded-xl p-4 bg-gray-50">
-            <label className="text-xs text-gray-500">Új kategória</label>
+            <label className="text-xs text-[var(--color-text-secondary)]">Új kategória</label>
             <div className="flex flex-col md:flex-row gap-2 mt-1">
               <input
                 type="text"
@@ -1247,7 +1271,7 @@ useEffect(() => {
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/\n/g, '<br />');
-    return <div className="text-gray-800" dangerouslySetInnerHTML={{ __html: formatted }} />;
+    return <div className="text-[var(--color-text-main)]" dangerouslySetInnerHTML={{ __html: formatted }} />;
   };
 
   if (!selectedUnitId) {
@@ -1259,8 +1283,8 @@ useEffect(() => {
     return (
       <div className="flex h-full flex-col items-center justify-center p-8 text-center">
         <BookIcon className="h-16 w-16 text-green-500 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-800">Válassz egységet</h2>
-        <p className="mt-2 text-gray-600 max-w-xl">{message}</p>
+        <h2 className="text-2xl font-bold text-[var(--color-text-main)]">Válassz egységet</h2>
+        <p className="mt-2 text-[var(--color-text-secondary)] max-w-xl">{message}</p>
       </div>
     );
   }
@@ -1313,15 +1337,22 @@ useEffect(() => {
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Tudástár</h1>
-          <p className="text-gray-500">Dokumentumok és jegyzetek egységenként rendezve.</p>
+          <h1 className="text-3xl font-bold text-[var(--color-text-main)]">Tudástár</h1>
+          <p className="text-[var(--color-text-secondary)]">Dokumentumok és jegyzetek egységenként rendezve.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">
             <span>Aktív egység:</span>
-            <span className="rounded bg-white px-2 py-1 text-green-900 shadow-sm">{selectedUnitName}</span>
+            <span
+              className="rounded px-2 py-1 shadow-sm"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+            >
+              {selectedUnitName}
+            </span>
           </div>
-          <span className="text-xs text-gray-500">Egységváltáshoz használd a fejléc zöld sávját.</span>
+          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+            Egységváltáshoz használd a fejléc zöld sávját.
+          </span>
           {(canManageCategoriesResolved || canManageContentResolved) && (
             <>
               {canManageCategoriesResolved && (
@@ -1364,7 +1395,14 @@ useEffect(() => {
 
       {!loading && !error && (
         <>
-          <div className="flex flex-wrap gap-2 bg-white p-2 rounded-xl shadow-sm border">
+          <div
+            className="flex flex-wrap gap-2 p-2 rounded-xl shadow-sm border"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-main)',
+              borderColor: 'var(--color-border)',
+            }}
+          >
             {categories.map(category => (
               <button
                 key={category.id}
@@ -1374,23 +1412,31 @@ useEffect(() => {
                 }}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold border transition ${
                   selectedCategoryId === category.id
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-200 hover:text-blue-700'
+                    ? 'bg-[var(--color-surface)] text-[var(--color-text-main)] border-[var(--color-secondary)]'
+                    : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:text-[var(--color-text-main)]'
                 }`}
               >
                 {category.title}
               </button>
             ))}
-            {categories.length === 0 && <span className="text-gray-500 px-4 py-2">Nincsenek kategóriák.</span>}
+            {categories.length === 0 && (
+              <span className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>
+                Nincsenek kategóriák.
+              </span>
+            )}
           </div>
 
           {selectedCategory && (
             <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span className="text-sm text-gray-600 mr-1">Alkategóriák:</span>
+              <span className="text-sm mr-1" style={{ color: 'var(--color-text-secondary)' }}>
+                Alkategóriák:
+              </span>
               <button
                 onClick={() => setSelectedSubcategory(null)}
                 className={`px-3 py-1 rounded-full text-xs border ${
-                  !selectedSubcategory ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-600 border-gray-200'
+                  !selectedSubcategory
+                    ? 'bg-[var(--color-surface)] text-[var(--color-text-main)] border-[var(--color-secondary)]'
+                    : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
                 }`}
               >
                 Mind
@@ -1401,8 +1447,8 @@ useEffect(() => {
                   onClick={() => setSelectedSubcategory(sub)}
                   className={`px-3 py-1 rounded-full text-xs border ${
                     selectedSubcategory === sub
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-white text-gray-600 border-gray-200'
+                      ? 'bg-[var(--color-surface)] text-[var(--color-text-main)] border-[var(--color-secondary)]'
+                      : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
                   }`}
                 >
                   {sub}
@@ -1414,8 +1460,8 @@ useEffect(() => {
           {filteredNotes.length === 0 && filteredFiles.length === 0 ? (
             <div className="text-center py-16 border-2 border-dashed border-gray-300 rounded-xl mt-4">
               <BookIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-700">Nincs tartalom ebben a nézetben</h3>
-              <p className="text-gray-500 mt-1">
+              <h3 className="text-xl font-semibold text-[var(--color-text-secondary)]">Nincs tartalom ebben a nézetben</h3>
+              <p className="text-[var(--color-text-secondary)] mt-1">
                 {canManageContentResolved ? 'Adj hozzá jegyzetet vagy tölts fel dokumentumot.' : 'Nincsenek elérhető elemek.'}
               </p>
             </div>
@@ -1451,12 +1497,12 @@ useEffect(() => {
                             {selectedCategory?.title}
                             {note.subcategory ? ` • ${note.subcategory}` : ''}
                           </p>
-                          <h3 className="text-xl font-bold text-gray-900">
+                          <h3 className="text-xl font-bold text-[var(--color-text-main)]">
                             {note.title}
                             {isExpanded && <span className="ml-2 text-sm text-blue-600">(Megnyitva)</span>}
                           </h3>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                           <span>
                             {note.createdAt?.toDate?.()
                               ? note.createdAt.toDate().toLocaleDateString('hu-HU')
@@ -1469,7 +1515,7 @@ useEffect(() => {
                                 event.stopPropagation();
                                 handleEditNote(note);
                               }}
-                              className="text-gray-600 hover:text-blue-700"
+                              className="text-[var(--color-text-secondary)] hover:text-blue-700"
                               title="Jegyzet szerkesztése"
                             >
                               <PencilIcon className="h-4 w-4" />
@@ -1500,7 +1546,8 @@ useEffect(() => {
                                 event.stopPropagation();
                                 handleCollapseNote(note.id);
                               }}
-                              className="sticky top-0 right-2 z-30 bg-white/80 backdrop-blur-sm rounded-full shadow p-1 cursor-pointer"
+                              className="sticky top-0 right-2 z-30 backdrop-blur-sm rounded-full shadow p-1 cursor-pointer bg-opacity-80"
+                              style={{ backgroundColor: 'var(--color-surface)' }}
                               title="Jegyzet bezárása"
                             >
                               <XIcon className="h-4 w-4" />
@@ -1509,7 +1556,7 @@ useEffect(() => {
                           <div className="prose prose-sm max-w-none">
                             {renderNoteContent(note.content)}
                           </div>
-                          <div className="mt-3 space-y-1 text-xs text-gray-500">
+                          <div className="mt-3 space-y-1 text-xs text-[var(--color-text-secondary)]">
                             <div>Készítette: {note.createdBy}</div>
                             {note.modifiedBy && <div>Módosította: {note.modifiedBy}</div>}
                           </div>
@@ -1521,7 +1568,7 @@ useEffect(() => {
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-gray-800">Feltöltött fájlok</h2>
+                  <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Feltöltött fájlok</h2>
                   {canManageContentResolved && (
                     <button
                       onClick={() => setIsUploadModalOpen(true)}
@@ -1532,14 +1579,18 @@ useEffect(() => {
                   )}
                 </div>
                 {filteredFiles.length === 0 ? (
-                  <p className="text-gray-500 text-sm">Nincs feltöltött fájl ebben a kategóriában.</p>
+                  <p className="text-[var(--color-text-secondary)] text-sm">Nincs feltöltött fájl ebben a kategóriában.</p>
                 ) : (
                   <div className="space-y-2">
                     {filteredFiles.map(file => (
-                      <div key={file.id} className="bg-white p-4 rounded-xl shadow-sm border flex items-center justify-between">
+                      <div
+                        key={file.id}
+                        className="p-4 rounded-xl shadow-sm border flex items-center justify-between"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                      >
                         <div>
-                          <p className="font-semibold text-gray-800">{file.name}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="font-semibold text-[var(--color-text-main)]">{file.name}</p>
+                          <p className="text-sm text-[var(--color-text-secondary)]">
                             {formatBytes(file.size)} • {file.subcategory ? `${file.subcategory} • ` : ''}
                             {file.uploadedBy} •
                             {' '}
@@ -1553,7 +1604,7 @@ useEffect(() => {
                             href={file.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-100 rounded-full"
+                            className="p-2 text-[var(--color-text-secondary)] hover:text-blue-600 hover:bg-blue-100 rounded-full"
                             title="Letöltés"
                           >
                             <DownloadIcon className="h-5 w-5" />
@@ -1561,7 +1612,7 @@ useEffect(() => {
                           {canManageContentResolved && (
                             <button
                               onClick={() => handleDeleteFile(file)}
-                              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-100 rounded-full"
+                              className="p-2 text-[var(--color-text-secondary)] hover:text-red-600 hover:bg-red-100 rounded-full"
                               title="Törlés"
                             >
                               <TrashIcon className="h-5 w-5" />

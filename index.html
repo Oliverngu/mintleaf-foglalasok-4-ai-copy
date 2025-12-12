@@ -30,9 +30,24 @@
         height: 100%;
         /* ...but which CANNOT scroll itself. Scrolling is handled inside the app. */
         overflow: hidden;
-        
+
         /* Improve scrolling performance on touch devices for child elements */
         -webkit-overflow-scrolling: touch;
+      }
+
+      .no-transition,
+      .no-transition * {
+        transition: none !important;
+      }
+
+      input, select, textarea {
+        background-color: var(--color-input-bg, #ffffff);
+        color: var(--color-text-main, #0f172a);
+        border-color: var(--color-border, #e2e8f0);
+      }
+
+      input:focus, select:focus, textarea:focus {
+        outline-color: var(--color-primary, #15803d);
       }
     </style>
 <script type="importmap">

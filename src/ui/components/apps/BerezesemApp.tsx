@@ -47,35 +47,47 @@ const DayEntriesModal: React.FC<{
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-2xl"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                 <div className="p-5 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-gray-800">
+                    <h2 className="text-xl font-bold text-[var(--color-text-main)]">
                         Bejegyzések - {date.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
                     </h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500">&times;</button>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-[var(--color-text-secondary)]">&times;</button>
                 </div>
                 <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
                     {entries.length > 0 ? entries.sort((a,b) => a.startTime.toMillis() - b.startTime.toMillis()).map(entry => {
                         const duration = entry.endTime ? (entry.endTime.toMillis() - entry.startTime.toMillis()) / (1000 * 60 * 60) : 0;
                         return (
-                            <div key={entry.id} className="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
+                            <div
+                              key={entry.id}
+                              className="p-3 rounded-lg flex justify-between items-center border"
+                              style={{
+                                backgroundColor: 'var(--color-surface)',
+                                color: 'var(--color-text-main)',
+                                borderColor: 'var(--color-border)',
+                              }}
+                            >
                                 <div>
-                                    <p className="font-bold text-gray-800">
+                                    <p className="font-bold text-[var(--color-text-main)]">
                                         {entry.startTime.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}
                                         {' - '}
                                         {entry.endTime?.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}
-                                        <span className="ml-2 font-normal text-sm text-gray-600">({duration.toFixed(2)} óra)</span>
+                                        <span className="ml-2 font-normal text-sm text-[var(--color-text-secondary)]">({duration.toFixed(2)} óra)</span>
                                     </p>
-                                    <p className="text-sm text-gray-500">{getUnitName(entry.unitId)}</p>
+                                    <p className="text-sm text-[var(--color-text-secondary)]">{getUnitName(entry.unitId)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button onClick={() => onEdit(entry)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-100 rounded-full" title="Szerkesztés"><PencilIcon className="h-5 w-5" /></button>
-                                    <button onClick={() => onDelete(entry.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-100 rounded-full" title="Törlés"><TrashIcon className="h-5 w-5" /></button>
+                                    <button onClick={() => onEdit(entry)} className="p-2 text-[var(--color-text-secondary)] hover:text-blue-600 hover:bg-blue-100 rounded-full" title="Szerkesztés"><PencilIcon className="h-5 w-5" /></button>
+                                    <button onClick={() => onDelete(entry.id)} className="p-2 text-[var(--color-text-secondary)] hover:text-red-600 hover:bg-red-100 rounded-full" title="Törlés"><TrashIcon className="h-5 w-5" /></button>
                                 </div>
                             </div>
                         );
                     }) : (
-                        <p className="text-gray-500 text-center">Nincsenek bejegyzések ezen a napon.</p>
+                        <p className="text-[var(--color-text-secondary)] text-center">Nincsenek bejegyzések ezen a napon.</p>
                     )}
                 </div>
                 <div className="p-4 bg-gray-50 flex justify-end gap-3 items-center rounded-b-2xl">
@@ -140,16 +152,26 @@ const AddTimeEntryModal: React.FC<AddTimeEntryModalProps> = ({ currentUser, allU
     
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-lg"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                 <div className="p-5 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-gray-800">Új időbejegyzés</h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500">&times;</button>
+                    <h2 className="text-xl font-bold text-[var(--color-text-main)]">Új időbejegyzés</h2>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-[var(--color-text-secondary)]">&times;</button>
                 </div>
                 <div className="p-6 space-y-4">
                     {userUnits.length > 1 && (
                         <div>
                             <label className="text-sm font-medium">Egység</label>
-                            <select name="unitId" value={formData.unitId} onChange={handleChange} className="w-full mt-1 p-2 border rounded-lg bg-white" required>
+                            <select
+                              name="unitId"
+                              value={formData.unitId}
+                              onChange={handleChange}
+                              className="w-full mt-1 p-2 border rounded-lg bg-[var(--color-surface)] text-[var(--color-text-main)]"
+                              required
+                            >
                                 <option value="" disabled>Válassz...</option>
                                 {userUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                             </select>
@@ -216,10 +238,14 @@ const EditTimeEntryModal: React.FC<EditTimeEntryModalProps> = ({ entry, onClose,
     
     return (
          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-lg"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                  <div className="p-5 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-gray-800">Időbejegyzés szerkesztése</h2>
-                    <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500">&times;</button>
+                    <h2 className="text-xl font-bold text-[var(--color-text-main)]">Időbejegyzés szerkesztése</h2>
+                    <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-[var(--color-text-secondary)]">&times;</button>
                 </div>
                 <div className="p-6 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -444,13 +470,16 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
         const todayKey = toLocalDateKey(new Date());
         
         return (
-             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+             <div
+                className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+             >
                 <div className="flex justify-between items-center mb-4">
                     <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&lt;</button>
-                    <h2 className="text-xl font-bold text-gray-800 capitalize">{currentDate.toLocaleDateString('hu-HU', { month: 'long', year: 'numeric' })}</h2>
+                    <h2 className="text-xl font-bold text-[var(--color-text-main)] capitalize">{currentDate.toLocaleDateString('hu-HU', { month: 'long', year: 'numeric' })}</h2>
                     <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 rounded-full hover:bg-gray-100">&gt;</button>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center font-semibold text-gray-500 text-sm mb-2">
+                <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
                     {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => <div key={day}>{day}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-1">
@@ -466,7 +495,7 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
 
                         return (
                             <div key={dateKey} onClick={() => handleDayClick(day)} className={`h-24 p-2 flex flex-col items-start rounded-lg transition-colors cursor-pointer hover:bg-gray-100 ${dateKey === todayKey ? 'border-2 border-green-500' : 'border border-gray-200'}`}>
-                                <span className={`font-bold ${dateKey === todayKey ? 'text-green-600' : 'text-gray-800'}`}>{day.getDate()}</span>
+                                <span className={`font-bold ${dateKey === todayKey ? 'text-green-600' : 'text-[var(--color-text-main)]'}`}>{day.getDate()}</span>
                                 {dayHours > 0 && (
                                     <div className="mt-auto w-full text-left">
                                         <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
@@ -523,26 +552,29 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                 />
             )}
 
-            <h1 className="text-3xl font-bold text-gray-800 mb-6">Óraszámok</h1>
+            <h1 className="text-3xl font-bold text-[var(--color-text-main)] mb-6">Óraszámok</h1>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1">
-                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 sticky top-8">
+                     <div
+                        className="rounded-2xl shadow-lg border border-gray-100 sticky top-8"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                     >
                         <button
                             onClick={() => setIsWagesExpanded(prev => !prev)}
                             className="w-full flex justify-between items-center p-6 text-left"
                             aria-expanded={isWagesExpanded}
                         >
-                            <h2 className="text-xl font-bold text-gray-800">Órabér Beállítások</h2>
-                            <ArrowDownIcon className={`h-6 w-6 text-gray-500 transform transition-transform duration-300 ${isWagesExpanded ? 'rotate-180' : ''}`} />
+                            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Órabér Beállítások</h2>
+                            <ArrowDownIcon className={`h-6 w-6 text-[var(--color-text-secondary)] transform transition-transform duration-300 ${isWagesExpanded ? 'rotate-180' : ''}`} />
                         </button>
                         {isWagesExpanded && (
                             <form onSubmit={handleSaveWages} className="p-6 pt-0">
-                                <p className="text-sm text-gray-500 mb-4">Az itt megadott adatokat csak te látod.</p>
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-4">Az itt megadott adatokat csak te látod.</p>
                                 <div className="space-y-3">
                                     {userUnits.length > 0 ? userUnits.map(unit => (
                                         <div key={unit.id}>
-                                            <label htmlFor={`wage-${unit.id}`} className="block text-sm font-medium text-gray-700">{unit.name}</label>
+                                            <label htmlFor={`wage-${unit.id}`} className="block text-sm font-medium text-[var(--color-text-secondary)]">{unit.name}</label>
                                             <div className="mt-1 relative rounded-md shadow-sm">
                                                 <input
                                                     id={`wage-${unit.id}`}
@@ -550,14 +582,14 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                                                     value={wages[unit.id] || ''}
                                                     onChange={(e) => setWages(prev => ({ ...prev, [unit.id]: e.target.value === '' ? '' : Number(e.target.value) }))}
                                                     placeholder="2500"
-                                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 pr-16 bg-white text-gray-800"
+                                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 pr-16 bg-[var(--color-input-bg,_var(--color-surface))] text-[var(--color-text-main)]"
                                                 />
                                                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                                    <span className="text-gray-500 sm:text-sm">Ft/óra</span>
+                                                    <span className="text-[var(--color-text-secondary)] sm:text-sm">Ft/óra</span>
                                                 </div>
                                             </div>
                                         </div>
-                                    )) : <p className="text-sm text-gray-500">Nincs egységhez rendelve.</p>}
+                                    )) : <p className="text-sm text-[var(--color-text-secondary)]">Nincs egységhez rendelve.</p>}
                                 </div>
                                 <button
                                     type="submit"
@@ -573,8 +605,11 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                 </div>
 
                 <div className="lg:col-span-2 space-y-8">
-                     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-                        <h2 className="text-xl font-bold text-gray-800">Manuális óraszámvezető</h2>
+                     <div
+                        className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                     >
+                        <h2 className="text-xl font-bold text-[var(--color-text-main)]">Manuális óraszámvezető</h2>
                         <div className="p-4 bg-green-50 rounded-lg border border-green-200 my-4 flex justify-around text-center">
                             <div>
                                 <p className="text-sm text-green-800 font-semibold">Havi óraszám</p>
@@ -587,15 +622,18 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                         </div>
                         {renderCalendar()}
                     </div>
-                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-                         <h2 className="text-xl font-bold text-gray-800 mb-4">Becsült heti bérezés (beosztás alapján)</h2>
+                    <div
+                        className="p-6 rounded-2xl shadow-lg border border-gray-100"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                    >
+                         <h2 className="text-xl font-bold text-[var(--color-text-main)] mb-4">Becsült heti bérezés (beosztás alapján)</h2>
                          {userShifts.length > 0 && Object.keys(wages).some(key => Number(wages[key]) > 0) ? (
                             <div className="space-y-3">
                                 {weeklyData.map(([key, data]) => (
                                     <div key={key} className="p-4 bg-gray-50 rounded-lg border flex justify-between items-center">
                                         <div>
-                                            <p className="font-semibold text-gray-800">{data.weekLabel}</p>
-                                            <p className="text-sm text-gray-600">{data.hours.toFixed(1)} beosztott óra</p>
+                                            <p className="font-semibold text-[var(--color-text-main)]">{data.weekLabel}</p>
+                                            <p className="text-sm text-[var(--color-text-secondary)]">{data.hours.toFixed(1)} beosztott óra</p>
                                         </div>
                                         <p className="font-bold text-lg text-green-700">{data.earnings.toLocaleString('hu-HU', {style: 'currency', currency: 'HUF', maximumFractionDigits: 0})}</p>
                                     </div>
@@ -604,8 +642,8 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                          ) : (
                             <div className="text-center py-10">
                                 <ScheduleIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                                <h3 className="text-lg font-semibold text-gray-700">Nincs adat a kalkulációhoz</h3>
-                                <p className="text-sm text-gray-500 mt-1">
+                                <h3 className="text-lg font-semibold text-[var(--color-text-secondary)]">Nincs adat a kalkulációhoz</h3>
+                                <p className="text-sm text-[var(--color-text-secondary)] mt-1">
                                     {!Object.keys(wages).some(key => Number(wages[key]) > 0)
                                         ? "Add meg az órabéred a kezdéshez." 
                                         : "Nincsenek publikált műszakjaid a kiválasztott egység(ek)ben."}

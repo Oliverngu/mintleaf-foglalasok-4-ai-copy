@@ -96,6 +96,8 @@ interface ShiftModalProps {
   users: User[];
   schedule: Shift[];
   viewMode: 'draft' | 'published';
+  currentUser: User;
+  canManage: boolean;
 }
 
 const ShiftModal: FC<ShiftModalProps> = ({
@@ -108,7 +110,9 @@ const ShiftModal: FC<ShiftModalProps> = ({
   date,
   users,
   schedule,
-  viewMode
+  viewMode,
+  currentUser,
+  canManage
 }) => {
   const [formData, setFormData] = useState({
     userId: userId,
@@ -195,6 +199,11 @@ const ShiftModal: FC<ShiftModalProps> = ({
   );
 
   if (!isOpen) return null;
+
+  const isOwnShift =
+    shift?.userId === currentUser.id || (!shift && formData.userId === currentUser.id);
+  const canEditTime = viewMode === 'draft' || canManage;
+  const canEditNote = canManage || isOwnShift;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,14 +305,14 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 <label className="text-sm font-medium">Kezdés</label>
                 <input
                   type="time"
-                  value={formData.startTime}
-                  onChange={e =>
-                    setFormData(f => ({ ...f, startTime: e.target.value }))
-                  }
-                  className="w-full mt-1 p-2 border rounded-lg"
-                  disabled={isDayOff}
-                  required={!isDayOff}
-                />
+                value={formData.startTime}
+                onChange={e =>
+                  setFormData(f => ({ ...f, startTime: e.target.value }))
+                }
+                className="w-full mt-1 p-2 border rounded-lg"
+                disabled={!canEditTime || isDayOff}
+                required={!isDayOff}
+              />
                 {startPresets.length > 0 && !isDayOff && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {startPresets.map(time => (
@@ -327,13 +336,13 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 </label>
                 <input
                   type="time"
-                  value={formData.endTime}
-                  onChange={e =>
-                    setFormData(f => ({ ...f, endTime: e.target.value }))
-                  }
-                  className="w-full mt-1 p-2 border rounded-lg"
-                  disabled={isDayOff}
-                />
+                value={formData.endTime}
+                onChange={e =>
+                  setFormData(f => ({ ...f, endTime: e.target.value }))
+                }
+                className="w-full mt-1 p-2 border rounded-lg"
+                disabled={!canEditTime || isDayOff}
+              />
                 {endPresets.length > 0 && !isDayOff && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {endPresets.map(time => (
@@ -361,6 +370,7 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 }
                 rows={2}
                 className="w-full mt-1 p-2 border rounded-lg"
+                disabled={!canEditNote}
               />
             </div>
           </div>
@@ -1360,28 +1370,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const activeBrandColors = useMemo(() => {
+    const collectColors = (unit?: Unit) => {
+      if (!unit?.brandColors) return [] as string[];
+      const { primary, secondary, background } = unit.brandColors;
+      return [primary, secondary, background].filter(Boolean) as string[];
+    };
+
     for (const unitId of activeUnitIds) {
       const unit = unitMap.get(unitId);
-      const colors = unit?.brandColorConfigs
-        ?.map(cfg => cfg.color)
-        .filter(Boolean);
-      if (colors && colors.length) return colors;
-
-      const legacy = (unit as any)?.brandColors as string[] | undefined;
-      if (legacy?.length) return legacy;
+      const colors = collectColors(unit);
+      if (colors.length) return colors;
     }
 
     const fallbackUnit = unitMap.get(activeUnitIds[0] || '');
-    if (fallbackUnit?.brandColorConfigs?.length) {
-      return fallbackUnit.brandColorConfigs
-        .map(cfg => cfg.color)
-        .filter(Boolean);
-    }
-
-    const fallbackLegacy = (fallbackUnit as any)?.brandColors as
-      | string[]
-      | undefined;
-    return fallbackLegacy?.length ? fallbackLegacy : [];
+    return collectColors(fallbackUnit);
   }, [activeUnitIds, unitMap]);
 
   const settingsDocId = useMemo(() => {
@@ -1691,20 +1693,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [activeShifts, orderedUsers]);
 
   const requestsByUserDay = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+    const map = new Map<string, Map<string, Request[]>>();
     requests
-      .filter(r => r.status === 'approved')
+      .filter(r => r.status === 'approved' && r.startDate && r.endDate)
       .forEach(req => {
-        if (!map.has(req.userId)) map.set(req.userId, new Set());
+        if (!map.has(req.userId)) map.set(req.userId, new Map());
         const userRequests = map.get(req.userId)!;
-        if (req.startDate && req.endDate) {
-          const start = req.startDate.toDate();
-          const end = req.endDate.toDate();
-          const loopDate = new Date(start);
-          while (loopDate <= end) {
-            userRequests.add(toDateString(loopDate));
-            loopDate.setDate(loopDate.getDate() + 1);
-          }
+        const start = req.startDate!.toDate();
+        const end = req.endDate!.toDate();
+        const loopDate = new Date(start);
+
+        while (loopDate <= end) {
+          const dayKey = toDateString(loopDate);
+          if (!userRequests.has(dayKey)) userRequests.set(dayKey, []);
+          userRequests.get(dayKey)!.push(req);
+          loopDate.setDate(loopDate.getDate() + 1);
         }
       });
     return map;
@@ -2307,11 +2310,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         onSave={handleSaveShift}
         onDelete={handleDeleteShift}
         shift={editingShift?.shift || null}
-        userId={editingShift?.userId || ''}
+        userId={editingShift?.userId || currentUser.id}
         date={editingShift?.date || new Date()}
         users={filteredUsers}
         schedule={schedule}
         viewMode={viewMode}
+        currentUser={currentUser}
+        canManage={canManage}
       />
 
       {isPublishModalOpen && (
@@ -2687,7 +2692,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <div className="mb-4 flex items-center justify-between">
           <button
             onClick={() => setIsEditMode(!isEditMode)}
-            className="text-sm px-3 py-1 rounded-full border border-gray-300 bg-white hover:bg-gray-100"
+            className="text-sm px-3 py-1 rounded-full border transition-colors"
+            style={{
+              backgroundColor: 'var(--color-surface-static)',
+              color: 'var(--color-text-main)',
+              borderColor: 'var(--color-border)',
+            }}
           >
             {isEditMode
               ? 'Sorrend szerkesztése: BE'
@@ -2702,7 +2712,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       <div
         className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
-        style={{ backgroundColor: 'var(--color-surface)' }}
+        style={{
+          backgroundColor: 'var(--color-surface-static)',
+          color: 'var(--color-text-main)',
+          borderColor: 'var(--color-border)',
+        }}
       >
         <table
           ref={tableRef}
@@ -2902,14 +2916,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const dayKey = toDateString(day);
                           const userDayShifts =
                             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
-                          const hasApprovedRequest =
-                            requestsByUserDay
-                              .get(user.id)
-                              ?.has(dayKey) || false;
+                          const userDayRequests =
+                            requestsByUserDay.get(user.id)?.get(dayKey) || [];
+                          const leaveRequest = userDayRequests.find(
+                            req => req.type === 'leave'
+                          );
+                          const availabilityRequests = userDayRequests.filter(
+                            req => req.type === 'availability'
+                          );
 
-                          let display = '';
+                          const displayParts: string[] = [];
                           let isDayOff = false;
-                          let isLeave = false;
+                          const isLeave = !!leaveRequest && userDayShifts.length === 0;
                           const shiftNote =
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
@@ -2920,35 +2938,51 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               s => s.isDayOff
                             );
                             if (dayOffShift) {
-                              display = 'X';
+                              displayParts.push('X');
                               isDayOff = true;
                             } else {
-                              display = userDayShifts
-                                .map(s => {
-                                  if (!s.start) return '';
-                                  const startStr =
-                                    s.start
-                                      .toDate()
-                                      .toTimeString()
-                                      .substring(0, 5) || '';
-                                  if (!s.end) return startStr;
-                                  const endStr =
-                                    s.end
-                                      .toDate()
-                                      .toTimeString()
-                                      .substring(0, 5) || '';
-                                  return `${startStr}-${endStr}`;
-                                })
-                                .filter(Boolean)
-                                .join('\n');
+                              displayParts.push(
+                                ...userDayShifts
+                                  .map(s => {
+                                    if (!s.start) return '';
+                                    const startStr =
+                                      s.start
+                                        .toDate()
+                                        .toTimeString()
+                                        .substring(0, 5) || '';
+                                    if (!s.end) return startStr;
+                                    const endStr =
+                                      s.end
+                                        .toDate()
+                                        .toTimeString()
+                                        .substring(0, 5) || '';
+                                    return `${startStr}-${endStr}`;
+                                  })
+                                  .filter(Boolean)
+                              );
                             }
-                          } else if (hasApprovedRequest) {
-                            display = 'SZ';
-                            isLeave = true;
                           }
 
-                          const canEditCell = canManage;
-                          const hasContent = !!display;
+                          const shouldShowAvailability =
+                            availabilityRequests.length > 0 && !isDayOff && !isLeave;
+
+                          if (shouldShowAvailability) {
+                            displayParts.push(
+                              ...availabilityRequests.map(req => {
+                                const range = req.timeRange
+                                  ? `${req.timeRange.from}-${req.timeRange.to}`
+                                  : 'Időpont kérés';
+                                return `⏳ ${range}`;
+                              })
+                            );
+                          }
+
+                          if (!userDayShifts.length && leaveRequest) {
+                            displayParts.push('SZ');
+                          }
+
+                          const canEditCell = canManage || user.id === currentUser.id;
+                          const hasContent = displayParts.length > 0;
                           const hasNote = !!shiftNote;
 
                           let cellClasses =
@@ -2986,7 +3020,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
                                   <span className="whitespace-pre-wrap leading-tight">
-                                    {display}
+                                    {displayParts.join('\n')}
                                   </span>
                                 )}
                                 {hasNote && (
