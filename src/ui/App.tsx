@@ -3,7 +3,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import ReservationPage from './components/public/ReservationPage';
-import ManageReservationPage from './components/public/ManageReservationPage'; // Új import
+import ManageReservationPage from './components/public/ManageReservationPage';
 import { User, Request, Booking, Shift, Todo, Unit, RolePermissions, Permissions, demoUser, demoUnit, demoData, TimeEntry, Feedback, Poll } from '../core/models/data';
 import { auth, db } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -16,22 +16,28 @@ import { loadBases, loadMode, saveBases, saveMode } from '../core/theme/storage'
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
-// Bővítettük a PublicPage típust a 'manage' állapottal
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-const ThemeManagerBridge: React.FC<{ allUnits: Unit[]; bases: ThemeBases; themeMode: ThemeMode }> = ({
+// --- 1. MÓDOSÍTÁS: A Bridge elfogadja a useBrandTheme propot ---
+const ThemeManagerBridge: React.FC<{ 
+  allUnits: Unit[]; 
+  bases: ThemeBases; 
+  themeMode: ThemeMode; 
+  useBrandTheme: boolean; // <--- ÚJ PROP
+}> = ({
   allUnits,
   bases,
   themeMode,
+  useBrandTheme, // <--- ÚJ
 }) => {
   const { selectedUnits } = useUnitContext();
   const activeUnit = selectedUnits.length
     ? allUnits.find(u => u.id === selectedUnits[0]) || null
     : null;
 
-  const brandMode = activeUnit?.uiTheme === 'brand';
-
-  return <ThemeManager activeUnit={activeUnit} bases={bases} mode={themeMode} brandMode={brandMode} />;
+  // A brandMode mostantól a kapcsolótól függ!
+  // (A ThemeManager belül majd ellenőrzi, hogy van-e activeUnit)
+  return <ThemeManager activeUnit={activeUnit} bases={bases} mode={themeMode} brandMode={useBrandTheme} />;
 };
 
 const App: React.FC = () => {
@@ -43,7 +49,7 @@ const App: React.FC = () => {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
-  // --- Data States lifted from Dashboard ---
+  // --- Data States ---
   const [requests, setRequests] = useState<Request[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -55,9 +61,19 @@ const App: React.FC = () => {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  
+  // --- Theme States ---
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
   const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
 
+  // --- 2. MÓDOSÍTÁS: Brand Theme State ---
+  // Alapértelmezés: bekapcsolva (vagy amit a user legutóbb beállított)
+  const [useBrandTheme, setUseBrandTheme] = useState<boolean>(() => {
+    const saved = localStorage.getItem('mintleaf_use_brand');
+    return saved !== null ? saved === 'true' : true; 
+  });
+
+  // Theme Effects
   useEffect(() => {
     saveMode(themeMode);
   }, [themeMode]);
@@ -65,6 +81,11 @@ const App: React.FC = () => {
   useEffect(() => {
     saveBases(themeBases);
   }, [themeBases]);
+
+  // Brand State mentése
+  useEffect(() => {
+    localStorage.setItem('mintleaf_use_brand', String(useBrandTheme));
+  }, [useBrandTheme]);
 
 
   useEffect(() => {
@@ -74,7 +95,7 @@ const App: React.FC = () => {
     const isDemo = urlParams.get('demo') === 'true';
     const registerCode = urlParams.get('register');
     const isReservePage = pathname.startsWith('/reserve');
-    const isManagePage = pathname.startsWith('/manage'); // Új ellenőrzés
+    const isManagePage = pathname.startsWith('/manage');
 
     if (isManagePage) {
         const token = urlParams.get('token');
@@ -146,14 +167,14 @@ const App: React.FC = () => {
 
           if (userDoc.exists()) {
             const data = userDoc.data();
-            
+
             let userUnits: string[] = [];
             if (data?.unitIds && Array.isArray(data.unitIds)) {
                 userUnits = data.unitIds;
             } else if (data?.unitId) {
                 userUnits = [data.unitId];
             }
-            
+
             const lastName = data?.lastName || '';
             const firstName = data?.firstName || '';
 
@@ -170,11 +191,10 @@ const App: React.FC = () => {
               dashboardConfig: data?.dashboardConfig,
             };
           } else {
-            // This case handles the very first user registering or a user whose DB entry was deleted
             const allUsersQuery = query(collection(db, 'users'), limit(1));
             const allUsersSnapshot = await getDocs(allUsersQuery);
             const role = allUsersSnapshot.empty ? 'Admin' : 'User';
-            
+
             const displayName = firebaseUser.displayName || firebaseUser.email!;
             const nameParts = displayName.split(' ');
             const firstName = nameParts.pop() || '';
@@ -200,7 +220,7 @@ const App: React.FC = () => {
               unitIds: userData.unitIds,
             });
           }
-          
+
           finalUserData = userData;
           setCurrentUser(userData);
 
@@ -213,7 +233,6 @@ const App: React.FC = () => {
         setCurrentUser(null);
       }
 
-      // Now, determine the final app state
       if (isReservePage || isManagePage) {
         setAppState('public');
       } else if (finalUserData) {
@@ -227,7 +246,7 @@ const App: React.FC = () => {
   }, []);
 
 
-  // --- DATA LISTENERS MOVED FROM DASHBOARD ---
+  // --- DATA LISTENERS ---
   useEffect(() => {
     if (isDemoMode) return;
     const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => setAllUsers(snapshot.docs.map(doc => {
@@ -251,7 +270,7 @@ const App: React.FC = () => {
     });
     return () => { unsubUsers(); unsubUnits(); unsubPerms(); };
   }, [isDemoMode]);
-  
+
   // Data listeners that depend on currentUser
   useEffect(() => {
     if (!currentUser || isDemoMode) return;
@@ -267,14 +286,12 @@ const App: React.FC = () => {
         }
     };
 
-    // Unit Permissions
     const unsubUnitPerms = (currentUser.unitIds || []).map(unitId => 
       onSnapshot(doc(db, 'unit_permissions', unitId), doc => {
         if (doc.exists()) setUnitPermissions(prev => ({ ...prev, [unitId]: doc.data() }));
       })
     );
 
-    // Todos
     let todosQueryRef;
     if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
       todosQueryRef = query(collection(db, 'todos'), where('unitId', 'in', currentUser.unitIds));
@@ -283,13 +300,11 @@ const App: React.FC = () => {
     }
     const unsubTodos = onSnapshot(todosQueryRef, snapshot => setTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
 
-    // Admin Todos
     let unsubAdminTodos = () => {};
     if (isSuperAdmin) {
         unsubAdminTodos = onSnapshot(collection(db, 'admin_todos'), snapshot => setAdminTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
     }
 
-    // Shifts
     let shiftsQueryRef;
     if (currentUser.role !== 'Admin' && currentUser.unitIds && currentUser.unitIds.length > 0) {
       shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
@@ -298,7 +313,6 @@ const App: React.FC = () => {
     }
     const unsubShifts = onSnapshot(shiftsQueryRef, snapshot => setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))));
 
-    // Requests
     let requestsQueryRef;
     if (isUnitAdmin) {
         requestsQueryRef = query(collection(db, 'requests'), where('unitId', 'in', currentUser.unitIds!));
@@ -308,16 +322,13 @@ const App: React.FC = () => {
         requestsQueryRef = collection(db, 'requests');
     }
     const unsubRequests = onSnapshot(requestsQueryRef, snapshot => setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request))));
-    
-    // Time Entries (Clock-in/out)
+
     const timeEntriesQuery = query(collection(db, 'time_entries'), where('userId', '==', currentUser.id));
     const unsubTimeEntries = onSnapshot(timeEntriesQuery, snapshot => setTimeEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeEntry))));
 
-    // Feedback
     const unsubFeedback = (() => {
       let queryRef;
       if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
-        // For 'in' queries, the first orderBy must be on the same field.
         queryRef = query(collectionGroup(db, 'feedback'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
         return onSnapshot(queryRef, snapshot => 
             setFeedbackList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Feedback)))
@@ -331,11 +342,9 @@ const App: React.FC = () => {
       }, firestoreErrorHandler("Feedback"));
     })();
 
-    // Polls
     const unsubPolls = (() => {
       let queryRef;
       if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
-        // For 'in' queries, the first orderBy must be on the same field.
         queryRef = query(collectionGroup(db, 'polls'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
         return onSnapshot(queryRef, snapshot =>
             setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)))
@@ -364,30 +373,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     switch (appState) {
-      case 'login':
-        document.title = 'Sign in - mintleaf.hu';
-        break;
-      case 'register':
-        document.title = 'Regisztráció - mintleaf.hu';
-        break;
-      case 'dashboard':
-        document.title = 'Dashboard - mintleaf.hu';
-        break;
+      case 'login': document.title = 'Sign in - mintleaf.hu'; break;
+      case 'register': document.title = 'Regisztráció - mintleaf.hu'; break;
+      case 'dashboard': document.title = 'Dashboard - mintleaf.hu'; break;
       case 'public':
          if(publicPage?.type === 'reserve') document.title = 'Foglalás - mintleaf.hu';
          else if (publicPage?.type === 'manage') document.title = 'Foglalás kezelése - mintleaf.hu';
         break;
-      case 'loading':
-        document.title = 'MintLeaf';
-        break;
-      default:
-        document.title = 'MintLeaf';
+      case 'loading': document.title = 'MintLeaf'; break;
+      default: document.title = 'MintLeaf';
     }
   }, [appState, publicPage]);
 
   const handleLogout = async () => {
     if (isDemoMode) {
-        window.location.href = window.location.pathname; // Reload without query params
+        window.location.href = window.location.pathname;
         return;
     }
     try {
@@ -396,12 +396,8 @@ const App: React.FC = () => {
       console.error("Error signing out:", error);
     }
   };
-  
+
   const handleRegisterSuccess = () => {
-    // onRegisterSuccess is called after a user is created and automatically signed in by Firebase Auth.
-    // We reload the page to re-trigger the entire app initialization.
-    // The onAuthStateChanged listener will then pick up the signed-in user and navigate to the dashboard.
-    // This also clears any URL params like ?register=... from the URL.
     window.location.href = window.location.pathname;
   }
 
@@ -456,7 +452,16 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-          <ThemeManagerBridge allUnits={allUnits} bases={themeBases} themeMode={themeMode} />
+          
+          {/* 3. MÓDOSÍTÁS: Bridge kapja a state-et */}
+          <ThemeManagerBridge 
+            allUnits={allUnits} 
+            bases={themeBases} 
+            themeMode={themeMode} 
+            useBrandTheme={useBrandTheme} 
+          />
+
+          {/* 4. MÓDOSÍTÁS: Dashboard kapja a state-et és a settert */}
           <Dashboard
             currentUser={currentUser}
             onLogout={handleLogout}
@@ -477,6 +482,9 @@ const App: React.FC = () => {
             onThemeModeChange={setThemeMode}
             themeBases={themeBases}
             onThemeBasesChange={setThemeBases}
+            // ÚJ:
+            useBrandTheme={useBrandTheme}
+            onBrandChange={setUseBrandTheme}
           />
         </UnitProvider>
       );
