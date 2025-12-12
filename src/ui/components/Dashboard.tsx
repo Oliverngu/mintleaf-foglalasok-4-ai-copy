@@ -112,29 +112,29 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const activeUnit = useMemo(() => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null), [activeUnitIds, allUnits]);
 
-  // --- AUTOMATIKUS UNIT VÁLASZTÁS (Javítva: Többszörös kiválasztás támogatása) ---
+  // --- AUTOMATIKUS UNIT VÁLASZTÁS JAVÍTVA ---
+  // Ha a user belép, és még nincs kiválasztva semmi, kiválasztjuk az összes hozzá tartozó egységet.
+  // Ez azért fontos, mert enélkül az adatlisták üresek (filter miatt).
   useEffect(() => {
-    // Ha már van kiválasztva valami, NE nyúljunk hozzá! (Ez engedi a többszörös kiválasztást)
+    // Ha már van kiválasztás, nem nyúlunk hozzá
     if (activeUnitIds.length > 0) return;
 
-    // Csak akkor avatkozunk be, ha ÜRES a lista és az adatok betöltődtek
     if (currentUser && allUnits.length > 0) {
-      let defaultUnits: string[] = [];
+      let unitsToSelect: string[] = [];
 
-      // Ha Admin, és még nincs választás, akkor alapból egyiket sem, vagy az összeset (igény szerint).
-      // Itt most az első elérhetőt választjuk ki kezdésnek, hogy ne legyen üres a képernyő.
       if (currentUser.role === 'Admin') {
-         if (allUnits[0]) defaultUnits = [allUnits[0].id];
-      } 
-      // Ha User, akkor az összes hozzárendelt egységet kiválasztjuk alapból!
-      else if (currentUser.unitIds && currentUser.unitIds.length > 0) {
-         // Csak azokat, amik tényleg léteznek az allUnits-ban
-         defaultUnits = currentUser.unitIds.filter(id => allUnits.some(u => u.id === id));
+        // Adminnak alapból nem választunk ki mindent (mert túl sok lehet), csak az elsőt, hogy legyen adat
+        if (allUnits.length > 0) unitsToSelect = [allUnits[0].id];
+      } else {
+        // Usernek kiválasztjuk az összes saját egységét
+        const userUnitIds = currentUser.unitIds || [];
+        // Csak valid ID-k
+        unitsToSelect = userUnitIds.filter(id => allUnits.some(u => u.id === id));
       }
 
-      if (defaultUnits.length > 0) {
-        console.log("Auto-selecting units:", defaultUnits);
-        setActiveUnitIds(defaultUnits);
+      if (unitsToSelect.length > 0) {
+        console.log("Auto-selecting units for data visibility:", unitsToSelect);
+        setActiveUnitIds(unitsToSelect);
       }
     }
   }, [activeUnitIds.length, allUnits, currentUser, setActiveUnitIds]);
@@ -178,29 +178,27 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
-  // --- UNIT SELECTOR (Többszörös kiválasztás támogatása) ---
   const UnitSelector = () => {
     if (allUnits.length === 0) return <div className="text-white px-2">Betöltés...</div>;
 
-    const userUnits = allUnits.filter(u => currentUser.unitIds?.includes(u.id) || currentUser.role === 'Admin');
-    const isMultiSelect = currentUser.role === 'Admin'; // Admin választhat többet is
+    // Admin lásson mindent, User csak a sajátját
+    const visibleUnits = currentUser.role === 'Admin' 
+      ? allUnits 
+      : allUnits.filter(u => currentUser.unitIds?.includes(u.id));
+
+    const isMultiSelect = currentUser.role === 'Admin'; // Vagy bárki más, ha engedélyezed
 
     const handleSelection = (unitId: string) => {
         if (isMultiSelect) {
-            // Ha már benne van, kivesszük, ha nincs, beletesszük
-            setActiveUnitIds(prev => prev.includes(unitId) 
-                ? prev.filter(id => id !== unitId) 
-                : [...prev, unitId]
-            );
+            setActiveUnitIds(prev => prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]);
         } else {
-            // User csak egyet választhat
             setActiveUnitIds([unitId]);
         }
     };
 
     return (
       <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
-        {userUnits.map(unit => (
+        {visibleUnits.map(unit => (
           <button
             key={unit.id}
             onClick={() => handleSelection(unit.id)} 
@@ -211,14 +209,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             {unit.name}
           </button>
         ))}
-        {activeUnitIds.length === 0 && <span className="text-white/50 text-xs italic ml-2">Válassz!</span>}
       </div>
     );
   };
 
-  // NavItem
-  interface NavItemProps { app: AppName; icon: React.FC<{ className?: string }>; label: string; permission?: keyof Permissions | 'canManageAdminPage'; disabledAppCheck?: boolean; }
-  const NavItem: React.FC<NavItemProps> = ({ app, icon: Icon, label, permission, disabledAppCheck = true }) => {
+  const NavItem: React.FC<any> = ({ app, icon: Icon, label, permission, disabledAppCheck = true }) => {
     if (permission && !hasPermission(permission)) return null;
     const isAppDisabled = disabledAppCheck && activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
@@ -238,8 +233,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
-  interface CategoryItemProps { name: string; label: string; icon: React.FC<{ className?: string }>; children: React.ReactNode; }
-  const CategoryItem: React.FC<CategoryItemProps> = ({ name, label, icon: Icon, children }) => {
+  const CategoryItem: React.FC<any> = ({ name, label, icon: Icon, children }) => {
     const isOpen = !!openCategories[name];
     const hasVisibleChildren = React.Children.toArray(children).some(child => child !== null);
     if (!hasVisibleChildren) return null;
@@ -326,14 +320,13 @@ const Dashboard: React.FC<DashboardProps> = ({
         <aside 
             className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`} 
             style={{ 
-                // JAVÍTÁS: Kényszerítjük a színt, !important, hogy semmilyen Tailwind class ne írja felül
-                backgroundColor: 'var(--color-sidebar-bg, #ffffff)',
+                // ITT JAVÍTOTTAM A HÁTTÉRSZÍNT:
+                backgroundColor: 'var(--color-sidebar-bg) !important', // !important hogy felülírja a Tailwindet
                 color: 'var(--color-sidebar-text)',
                 borderColor: 'var(--color-border)',
-                zIndex: 50 // Legyen legfelül
+                background: 'var(--color-sidebar-bg)', // Fallback
             }}
         >
-            {/* Sidebar Fejléc */}
             <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
               <div className="flex items-center gap-2">
                   <MintLeafLogo className="h-8 w-8" style={{ color: 'var(--color-primary)' }} />
@@ -341,17 +334,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             
-            {/* Sidebar Menü */}
             <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-hide">
                 <NavItem app="home" icon={HomeIcon} label="Kezdőlap" disabledAppCheck={false} />
-
                 <CategoryItem name="altalanos" label="Általános" icon={ScheduleIcon}>
                     <NavItem app="beosztas" icon={ScheduleIcon} label="Beosztás" />
                     <NavItem app="foglalasok" icon={BookingIcon} label="Foglalások" />
                     <NavItem app="berezesem" icon={MoneyIcon} label="Óraszámok" />
                     <NavItem app="kerelemek" icon={CalendarIcon} label="Szabadnapok" permission="canSubmitLeaveRequests" />
                 </CategoryItem>
-
                 <CategoryItem name="feladatok" label="Feladatok" icon={TodoIcon}>
                     <NavItem app="todos" icon={TodoIcon} label="Teendők" />
                     {currentUser.role === 'Admin' && <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />}
@@ -359,13 +349,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                     {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />}
                     <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
                 </CategoryItem>
-
                 <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
                     <NavItem app="chat" icon={ChatIcon} label="Chat" />
                     <NavItem app="szavazasok" icon={PollsIcon} label="Szavazások" />
                     <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
                 </CategoryItem>
-
                 <NavItem app="unit_settings" icon={Cog6ToothIcon} label="Üzlet Beállítások" permission="canManageAdminPage" disabledAppCheck={false} />
                 <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
             </nav>
@@ -382,9 +370,9 @@ const Dashboard: React.FC<DashboardProps> = ({
         <main className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass} bg-transparent`}>
            {firestoreError && <div className="sticky top-0 z-50 m-4 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-lg"><p className="font-bold">Hiba</p><p>{firestoreError}</p></div>}
            
-           {/* GLOBAL HEADER: Most már mindig megjelenik (Home-on is!), kivéve a ThemeSelectort, mert az már a Home dashboardon van. */}
-           {activeApp !== 'home' && (
-             <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
+           {/* GLOBAL HEADER (Most már Home-on is látszik, de a ThemeSelector csak a Home komponensben van) */}
+           {/* Kivettem a feltételt (activeApp !== 'home'), így mindig látszik */}
+           <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
                 style={{ 
                     backgroundColor: 'var(--color-header-bg)', 
                     backgroundImage: 'var(--ui-header-image)', 
@@ -407,7 +395,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <button onClick={onLogout} className="p-2 hover:bg-white/20 rounded-full transition-colors"><LogoutIcon className="w-5 h-5"/></button>
                 </div>
              </header>
-           )}
            
            {renderApp()}
         </main>
