@@ -18,34 +18,19 @@ type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-// --- BRIDGE: PREVIEW TÁMOGATÁS ---
+// --- BRIDGE ---
 const ThemeManagerBridge: React.FC<{ 
   allUnits: Unit[]; 
   bases: ThemeBases; 
-  previewBases: ThemeBases | null; // <--- ÚJ: Preview Config
+  previewBases: ThemeBases | null; 
   themeMode: ThemeMode; 
   useBrandTheme: boolean; 
-}> = ({
-  allUnits,
-  bases,
-  previewBases, // <--- ÚJ
-  themeMode,
-  useBrandTheme, 
-}) => {
+}> = ({ allUnits, bases, previewBases, themeMode, useBrandTheme }) => {
   const { selectedUnits } = useUnitContext();
   const activeUnit = selectedUnits.length ? allUnits.find(u => u.id === selectedUnits[0]) || null : null;
-
-  // HA VAN PREVIEW (szerkesztés alatt), AZT HASZNÁLJUK, AMÚGY A MENTETTET
   const activeConfig = previewBases || bases;
 
-  return (
-    <ThemeManager 
-      activeUnit={activeUnit} 
-      themeMode={themeMode}         
-      useBrandTheme={useBrandTheme} 
-      adminConfig={activeConfig} // Itt adjuk át a megfelelőt
-    />
-  );
+  return <ThemeManager activeUnit={activeUnit} themeMode={themeMode} useBrandTheme={useBrandTheme} adminConfig={activeConfig} />;
 };
 
 const App: React.FC = () => {
@@ -57,7 +42,6 @@ const App: React.FC = () => {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
-  // Data States
   const [requests, setRequests] = useState<Request[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -70,19 +54,14 @@ const App: React.FC = () => {
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
 
-  // --- THEME STATES ---
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
   const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
-  
-  // ÚJ: LIVE PREVIEW STATE (Ez tárolja a szerkesztő ideiglenes állapotát)
   const [previewBases, setPreviewBases] = useState<ThemeBases | null>(null);
-
   const [useBrandTheme, setUseBrandTheme] = useState<boolean>(() => {
     const saved = localStorage.getItem('mintleaf_use_brand');
     return saved !== null ? saved === 'true' : true; 
   });
 
-  // Globális téma betöltése
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'global_settings', 'theme'), (docSnap) => {
       if (docSnap.exists()) {
@@ -94,18 +73,14 @@ const App: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Effects
   useEffect(() => { saveMode(themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem('mintleaf_use_brand', String(useBrandTheme)); }, [useBrandTheme]);
 
-  // Init Logic (Authentication & Routing)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const pathname = window.location.pathname;
-    const isDemo = urlParams.get('demo') === 'true';
     const registerCode = urlParams.get('register');
-    const isReservePage = pathname.startsWith('/reserve');
-    const isManagePage = pathname.startsWith('/manage');
+    const isReservePage = window.location.pathname.startsWith('/reserve');
+    const isManagePage = window.location.pathname.startsWith('/manage');
 
     if (isManagePage) {
         const token = urlParams.get('token');
@@ -117,11 +92,10 @@ const App: React.FC = () => {
         else setPublicPage({ type: 'error', message: 'Nincs unit ID.' });
     }
 
-    if (isDemo) {
+    if (urlParams.get('demo') === 'true') {
       setIsDemoMode(true);
       setCurrentUser(demoUser);
-      setRequests(demoData.requests); setShifts(demoData.shifts); setTodos(demoData.todos);
-      setAdminTodos(demoData.adminTodos); setAllUnits(demoData.allUnits); setAllUsers(demoData.allUsers);
+      setAllUnits(demoData.allUnits);
       setAppState('dashboard');
       return; 
     }
@@ -134,15 +108,19 @@ const App: React.FC = () => {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-          const userDocRef = doc(db, 'users', firebaseUser.uid);
-          const userDoc = await getDoc(userDocRef);
-          if (userDoc.exists()) {
-             setCurrentUser({ id: firebaseUser.uid, ...userDoc.data() } as User);
-             setAppState('dashboard');
-          } else {
-             setCurrentUser({ id: firebaseUser.uid, email: firebaseUser.email, role: 'User', name: 'New' } as User);
-             setAppState('dashboard');
-          }
+          try {
+            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+            if (userDoc.exists()) {
+                const data = userDoc.data();
+                // Ensure unitIds is an array
+                const unitIds = Array.isArray(data.unitIds) ? data.unitIds : (data.unitId ? [data.unitId] : []);
+                setCurrentUser({ id: firebaseUser.uid, ...data, unitIds } as User);
+                setAppState('dashboard');
+            } else {
+                setCurrentUser({ id: firebaseUser.uid, email: firebaseUser.email!, role: 'User', name: 'New', unitIds: [] } as User);
+                setAppState('dashboard');
+            }
+          } catch(e) { console.error(e); setAppState('login'); }
       } else {
         setCurrentUser(null);
         if (isReservePage || isManagePage) setAppState('public');
@@ -160,9 +138,50 @@ const App: React.FC = () => {
     return () => { unsub1(); unsub2(); };
   }, [isDemoMode]);
 
+  useEffect(() => {
+    if (!currentUser || isDemoMode) return;
+    setFirestoreError(null);
+
+    const isSuperAdmin = currentUser.role === 'Admin';
+    const isUnitAdmin = currentUser.role === 'Unit Admin' && currentUser.unitIds && currentUser.unitIds.length > 0;
+
+    // --- LEKÉRDEZÉSEK (Firestore Rules kompatibilis) ---
+    // Az Admin mindent lát, a User csak a sajátjait.
+    // Fontos: Ha User vagy, és nincs unitId-d, akkor üres tömböt kapsz a query-ben, ami nem baj.
+
+    const unitIds = currentUser.unitIds || [];
+
+    // 1. TODOS
+    let todosQuery;
+    if (isSuperAdmin) todosQuery = collection(db, 'todos');
+    else if (unitIds.length > 0) todosQuery = query(collection(db, 'todos'), where('unitId', 'in', unitIds));
+    else todosQuery = query(collection(db, 'todos'), where('unitId', '==', 'non-existent')); // Üres
+    const unsubTodos = onSnapshot(todosQuery, s => setTodos(s.docs.map(d => ({id:d.id, ...d.data()} as Todo))));
+
+    // 2. SHIFTS
+    let shiftsQuery;
+    if (isSuperAdmin) shiftsQuery = collection(db, 'shifts');
+    else if (unitIds.length > 0) shiftsQuery = query(collection(db, 'shifts'), where('unitId', 'in', unitIds));
+    else shiftsQuery = query(collection(db, 'shifts'), where('unitId', '==', 'non-existent'));
+    const unsubShifts = onSnapshot(shiftsQuery, s => setShifts(s.docs.map(d => ({id:d.id, ...d.data()} as Shift))));
+
+    // 3. REQUESTS
+    let reqQuery;
+    if (isSuperAdmin) reqQuery = collection(db, 'requests');
+    else if (isUnitAdmin && unitIds.length > 0) reqQuery = query(collection(db, 'requests'), where('unitId', 'in', unitIds));
+    else reqQuery = query(collection(db, 'requests'), where('userId', '==', currentUser.id));
+    const unsubRequests = onSnapshot(reqQuery, s => setRequests(s.docs.map(d => ({id:d.id, ...d.data()} as Request))));
+
+    const unsubAdminTodos = isSuperAdmin ? onSnapshot(collection(db, 'admin_todos'), s => setAdminTodos(s.docs.map(d => ({id:d.id, ...d.data()} as Todo)))) : () => {};
+    
+    // ... Többi hasonló logika (Feedback, Polls) ... 
+    // Helytakarékosság miatt a többi lekérdezés marad a régi (azok jók voltak)
+
+    return () => { unsubTodos(); unsubShifts(); unsubRequests(); unsubAdminTodos(); };
+  }, [currentUser, isDemoMode]);
+
   const handleLogout = async () => { try { await signOut(auth); } catch(e){} };
 
-  // --- RENDER ---
   switch (appState) {
     case 'public':
         if (publicPage?.type === 'reserve') return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
@@ -173,38 +192,15 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-          
-          {/* BRIDGE: Most már megkapja a PREVIEW-t is! */}
-          <ThemeManagerBridge 
-            allUnits={allUnits} 
-            bases={themeBases} 
-            previewBases={previewBases} // <--- PREVIEW ÁTADÁSA
-            themeMode={themeMode} 
-            useBrandTheme={useBrandTheme} 
-          />
-
+          <ThemeManagerBridge allUnits={allUnits} bases={themeBases} previewBases={previewBases} themeMode={themeMode} useBrandTheme={useBrandTheme} />
           <Dashboard
-            currentUser={currentUser}
-            onLogout={handleLogout}
-            isDemoMode={isDemoMode}
-            // ... data props ...
+            currentUser={currentUser} onLogout={handleLogout} isDemoMode={isDemoMode}
             requests={requests} shifts={shifts} todos={todos} adminTodos={adminTodos}
             allUnits={allUnits} allUsers={allUsers} permissions={permissions} unitPermissions={unitPermissions}
-            timeEntries={timeEntries} feedbackList={feedbackList} polls={polls}
-            firestoreError={firestoreError}
-            
-            // THEME PROPS
-            themeMode={themeMode}
-            onThemeModeChange={setThemeMode}
-            themeBases={themeBases} // Ez a mentett
-            onThemeBasesChange={(newBases) => {
-                // FONTOS: Itt frissítjük a PREVIEW-t, amikor az AdminEditorból jön adat
-                setPreviewBases(newBases);
-            }}
-            
-            // BRAND PROPS
-            useBrandTheme={useBrandTheme}
-            onBrandChange={setUseBrandTheme}
+            timeEntries={timeEntries} feedbackList={feedbackList} polls={polls} firestoreError={firestoreError}
+            themeMode={themeMode} onThemeModeChange={setThemeMode}
+            themeBases={themeBases} onThemeBasesChange={setPreviewBases} // PREVIEW!
+            useBrandTheme={useBrandTheme} onBrandChange={setUseBrandTheme}
           />
         </UnitProvider>
       );
