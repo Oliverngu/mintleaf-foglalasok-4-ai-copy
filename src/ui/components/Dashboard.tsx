@@ -3,6 +3,11 @@ import {
   User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll,
 } from '../../core/models/data';
 
+// --- FIREBASE IMPORTOK PÓTOLVA ---
+import { db, auth } from '../../core/firebase/config';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+
 // Import App Components
 import { KerelemekApp } from './apps/KerelemekApp';
 import FoglalasokApp from './apps/FoglalasokApp';
@@ -46,7 +51,7 @@ import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 
 import { useUnitContext } from '../context/UnitContext';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
-// ThemeSelector importja itt már nem szükséges a Headerhez, de a típusok miatt maradhat, ha kell
+import ThemeSelector from './dashboard/ThemeSelector';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -178,6 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
+  // NavItem komponens
   interface NavItemProps { app: AppName; icon: React.FC<{ className?: string }>; label: string; permission?: keyof Permissions | 'canManageAdminPage'; disabledAppCheck?: boolean; }
   const NavItem: React.FC<NavItemProps> = ({ app, icon: Icon, label, permission, disabledAppCheck = true }) => {
     if (permission && !hasPermission(permission)) return null;
@@ -185,7 +191,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
     const isActive = activeApp === app;
     return (
-      <button onClick={() => { setActiveApp(app); setSidebarOpen(false); }} className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${isActive ? 'bg-[var(--color-secondary)] text-[var(--color-text-on-primary)] shadow-sm' : 'hover:bg-[var(--color-sidebar-hover)]'}`} style={{ color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-text-main)' }} title={label}>
+      <button 
+        onClick={() => { setActiveApp(app); setSidebarOpen(false); }} 
+        className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 
+          ${isActive ? 'shadow-inner' : 'hover:opacity-80'}`} 
+        style={{ 
+            backgroundColor: isActive ? 'var(--color-secondary)' : 'transparent', 
+            color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-sidebar-text)' // JAVÍTVA: sidebar-text
+        }} 
+        title={label}
+      >
         <Icon className="h-6 w-6" /> <span className="ml-4 font-semibold text-base whitespace-nowrap">{label}</span>
       </button>
     );
@@ -198,7 +213,12 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (!hasVisibleChildren) return null;
     return (
       <div>
-        <button onClick={() => toggleCategory(name)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--color-sidebar-hover)] transition-colors duration-200" aria-expanded={isOpen} style={{ color: 'var(--color-text-main)' }}>
+        <button 
+            onClick={() => toggleCategory(name)} 
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:opacity-80 transition-colors duration-200" 
+            aria-expanded={isOpen} 
+            style={{ color: 'var(--color-sidebar-text)' }} // JAVÍTVA: sidebar-text
+        >
           <div className="flex items-center"><Icon className="h-6 w-6" /><span className="ml-4 font-bold text-base whitespace-nowrap">{label}</span></div>
           <ArrowDownIcon className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -223,7 +243,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
-            // TÉMA PROPOK ÁTADÁSA
+            // Téma Props
             themeMode={themeMode}
             onThemeChange={onThemeModeChange}
             themeBases={themeBases}
@@ -270,20 +290,20 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Backdrop for sidebar */}
         {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} aria-hidden="true"></div>}
 
-        {/* Sidebar - JAVÍTVA: HÁTTÉR ÉS SZÍN BEÁLLÍTÁS */}
+        {/* Sidebar - JAVÍTVA: BACKGROUND COLOR BEKÖTVE! */}
         <aside 
             className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`} 
             style={{ 
+                // ITT A LÉNYEG: A háttérszín most már a --color-sidebar-bg változót használja
                 backgroundColor: 'var(--color-sidebar-bg)', 
                 color: 'var(--color-sidebar-text)',
-                // Fontos: Ha a változó nem töltődne be, legyen alapértelmezett háttér
-                background: 'var(--color-sidebar-bg, #ffffff)' 
+                borderColor: 'var(--color-border)'
             }}
         >
             {/* Sidebar Fejléc */}
-            <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0 border-gray-200/20">
+            <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
               <div className="flex items-center gap-2">
-                  <MintLeafLogo className="h-8 w-8 text-green-600" />
+                  <MintLeafLogo className="h-8 w-8" style={{ color: 'var(--color-primary)' }} />
                   <span className="font-bold text-xl">MintLeaf</span>
               </div>
             </div>
@@ -317,8 +337,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
             </nav>
 
-            <div className="p-3 border-t border-gray-200/20 space-y-1 flex-shrink-0">
-              <button onClick={() => { setActiveApp('settings'); setSidebarOpen(false); }} className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'}`} style={{ backgroundColor: activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent', color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'var(--color-text-main)' }}>
+            <div className="p-3 border-t space-y-1 flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
+              <button onClick={() => { setActiveApp('settings'); setSidebarOpen(false); }} className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${activeApp === 'settings' ? 'shadow-inner' : 'hover:opacity-80'}`} style={{ backgroundColor: activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent', color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'var(--color-sidebar-text)' }}>
                 <SettingsIcon className="h-6 w-6" />
               </button>
             </div>
@@ -329,10 +349,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         <main className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass} bg-transparent`}>
            {firestoreError && <div className="sticky top-0 z-50 m-4 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-lg"><p className="font-bold">Hiba</p><p>{firestoreError}</p></div>}
            
-           {/* GLOBAL HEADER (Csak ha NEM a Home-on vagyunk!) */}
-           {/* JAVÍTÁS: ThemeSelector KIVÉVE innen, ahogy kérted! */}
-           {activeApp !== 'home' && (
-             <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
+           {/* GLOBAL HEADER: Most már MINDIG megjelenik (Home-on is!), kivéve a ThemeSelectort, mert az már a Home dashboardon van. */}
+           <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
                 style={{ 
                     backgroundColor: 'var(--color-header-bg)', 
                     backgroundImage: 'var(--ui-header-image)', 
@@ -348,7 +366,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                    <UnitSelector />
                 </div>
                 <div className="flex items-center gap-3 relative z-10">
-                    {/* ITT VOLT A THEMESELECTOR, MOST KIVETTEM! */}
                     <div className="text-right hidden md:block">
                         <div className="font-semibold text-sm">{currentUser.fullName}</div>
                         <div className="text-xs opacity-80">{currentUser.role}</div>
@@ -356,7 +373,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <button onClick={onLogout} className="p-2 hover:bg-white/20 rounded-full transition-colors"><LogoutIcon className="w-5 h-5"/></button>
                 </div>
              </header>
-           )}
            
            {renderApp()}
         </main>
