@@ -3,7 +3,7 @@ import {
   User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll,
 } from '../../core/models/data';
 
-// --- FIREBASE IMPORTOK PÓTOLVA ---
+// --- FIREBASE IMPORTOK ---
 import { db, auth } from '../../core/firebase/config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
@@ -51,7 +51,6 @@ import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 
 import { useUnitContext } from '../context/UnitContext';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
-import ThemeSelector from './dashboard/ThemeSelector';
 
 interface DashboardProps {
   currentUser: User | null;
@@ -70,7 +69,6 @@ interface DashboardProps {
   polls: Poll[];
   firestoreError?: string | null;
   
-  // Theme Props
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
   themeBases: ThemeBases;
@@ -112,18 +110,30 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const activeUnit = useMemo(() => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null), [activeUnitIds, allUnits]);
 
-  // --- AUTOMATIKUS UNIT VÁLASZTÁS ---
+  // --- 🔥 JAVÍTÁS: AGRESSZÍV UNIT VÁLASZTÁS 🔥 ---
   useEffect(() => {
-    if (activeUnitIds.length === 0 && allUnits.length > 0 && currentUser) {
-      let defaultUnitId: string | undefined;
-      if (currentUser.role === 'Admin') {
+    // Ha már van kiválasztva, ne csinálj semmit
+    if (activeUnitIds.length > 0) return;
+
+    // Ha nincs user vagy unit lista, várj
+    if (!currentUser || allUnits.length === 0) return;
+
+    let defaultUnitId: string | undefined;
+
+    // 1. Próbáljuk meg az első elérhetőt a user jogai alapján
+    if (currentUser.role === 'Admin') {
         defaultUnitId = allUnits[0]?.id;
-      } else if (currentUser.unitIds && currentUser.unitIds.length > 0) {
+    } else if (currentUser.unitIds && currentUser.unitIds.length > 0) {
+        // Keressünk olyat, ami létezik is az allUnits-ban
         defaultUnitId = currentUser.unitIds.find(id => allUnits.some(u => u.id === id));
-      }
-      if (defaultUnitId) setActiveUnitIds([defaultUnitId]);
     }
-  }, [activeUnitIds.length, allUnits, currentUser, setActiveUnitIds]);
+
+    // 2. Ha találtunk, állítsuk be
+    if (defaultUnitId) {
+        console.log("Auto-selecting unit:", defaultUnitId);
+        setActiveUnitIds([defaultUnitId]);
+    }
+  }, [activeUnitIds.length, allUnits, currentUser, setActiveUnitIds]); // Függőségek rendben
 
   // Sidebar State Mentés
   const categoryStorageKey = useMemo(() => (currentUser ? `mintleaf_sidebar_categories_${currentUser.id}` : null), [currentUser]);
@@ -165,7 +175,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const UnitSelector = () => {
-    if (!activeUnit) return <div className="text-white font-semibold px-3">Nincs egység</div>;
+    // Ha nincs egység, akkor is rendereljünk valamit, hogy ne essen szét a layout
+    if (allUnits.length === 0) return <div className="text-white px-2">Betöltés...</div>;
+
     return (
       <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
         {allUnits.filter(u => currentUser.unitIds?.includes(u.id) || currentUser.role === 'Admin').map(unit => (
@@ -179,11 +191,13 @@ const Dashboard: React.FC<DashboardProps> = ({
             {unit.name}
           </button>
         ))}
+        {/* Ha nincs választott egység, írjuk ki */}
+        {activeUnitIds.length === 0 && <span className="text-white/50 text-xs italic ml-2">Válassz egységet!</span>}
       </div>
     );
   };
 
-  // NavItem komponens
+  // NavItem
   interface NavItemProps { app: AppName; icon: React.FC<{ className?: string }>; label: string; permission?: keyof Permissions | 'canManageAdminPage'; disabledAppCheck?: boolean; }
   const NavItem: React.FC<NavItemProps> = ({ app, icon: Icon, label, permission, disabledAppCheck = true }) => {
     if (permission && !hasPermission(permission)) return null;
@@ -194,10 +208,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       <button 
         onClick={() => { setActiveApp(app); setSidebarOpen(false); }} 
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 
-          ${isActive ? 'shadow-inner' : 'hover:opacity-80'}`} 
+          ${isActive ? 'shadow-inner bg-[var(--color-secondary)]' : 'hover:bg-black/5'}`} 
         style={{ 
-            backgroundColor: isActive ? 'var(--color-secondary)' : 'transparent', 
-            color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-sidebar-text)' // JAVÍTVA: sidebar-text
+            // Csak az aktívnál kényszerítjük a színt, amúgy örökli a sidebar text-et
+            color: isActive ? 'var(--color-text-on-primary)' : 'inherit'
         }} 
         title={label}
       >
@@ -215,9 +229,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div>
         <button 
             onClick={() => toggleCategory(name)} 
-            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:opacity-80 transition-colors duration-200" 
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-black/5 transition-colors duration-200" 
             aria-expanded={isOpen} 
-            style={{ color: 'var(--color-sidebar-text)' }} // JAVÍTVA: sidebar-text
+            style={{ color: 'inherit' }}
         >
           <div className="flex items-center"><Icon className="h-6 w-6" /><span className="ml-4 font-bold text-base whitespace-nowrap">{label}</span></div>
           <ArrowDownIcon className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -243,7 +257,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
-            // Téma Props
+            // Theme Props
             themeMode={themeMode}
             onThemeChange={onThemeModeChange}
             themeBases={themeBases}
@@ -290,11 +304,11 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Backdrop for sidebar */}
         {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} aria-hidden="true"></div>}
 
-        {/* Sidebar - JAVÍTVA: BACKGROUND COLOR BEKÖTVE! */}
+        {/* Sidebar */}
         <aside 
             className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`} 
             style={{ 
-                // ITT A LÉNYEG: A háttérszín most már a --color-sidebar-bg változót használja
+                // ITT A LÉNYEG: Direktben a változót használjuk, fontos, hogy NE LEGYEN transzparens class rajta
                 backgroundColor: 'var(--color-sidebar-bg)', 
                 color: 'var(--color-sidebar-text)',
                 borderColor: 'var(--color-border)'
@@ -337,8 +351,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
             </nav>
 
-            <div className="p-3 border-t space-y-1 flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
-              <button onClick={() => { setActiveApp('settings'); setSidebarOpen(false); }} className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${activeApp === 'settings' ? 'shadow-inner' : 'hover:opacity-80'}`} style={{ backgroundColor: activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent', color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'var(--color-sidebar-text)' }}>
+            <div className="p-3 border-t border-gray-200/20 space-y-1 flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
+              <button onClick={() => { setActiveApp('settings'); setSidebarOpen(false); }} className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${activeApp === 'settings' ? 'shadow-inner bg-[var(--color-secondary)] text-[var(--color-text-on-primary)]' : 'hover:bg-black/5'}`} style={{ color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'inherit' }}>
                 <SettingsIcon className="h-6 w-6" />
               </button>
             </div>
@@ -349,8 +363,9 @@ const Dashboard: React.FC<DashboardProps> = ({
         <main className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass} bg-transparent`}>
            {firestoreError && <div className="sticky top-0 z-50 m-4 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-lg"><p className="font-bold">Hiba</p><p>{firestoreError}</p></div>}
            
-           {/* GLOBAL HEADER: Most már MINDIG megjelenik (Home-on is!), kivéve a ThemeSelectort, mert az már a Home dashboardon van. */}
-           <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
+           {/* GLOBAL HEADER: Csak akkor kell, ha NEM HomeDashboard */}
+           {activeApp !== 'home' && (
+             <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
                 style={{ 
                     backgroundColor: 'var(--color-header-bg)', 
                     backgroundImage: 'var(--ui-header-image)', 
@@ -373,6 +388,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <button onClick={onLogout} className="p-2 hover:bg-white/20 rounded-full transition-colors"><LogoutIcon className="w-5 h-5"/></button>
                 </div>
              </header>
+           )}
            
            {renderApp()}
         </main>
