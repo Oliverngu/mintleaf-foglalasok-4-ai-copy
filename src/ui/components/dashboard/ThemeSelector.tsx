@@ -1,13 +1,17 @@
 import React from 'react';
 import { Unit } from '../../../core/models/data';
-import AppleLogo from '../icons/AppleLogo'; // ✅ MintLeaf Logo
+import AppleLogo from '../icons/AppleLogo'; // A MintLeaf Logo
 
 export type ThemeMode = 'light' | 'dark';
 
 interface ThemeSelectorProps {
   currentTheme: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
+  
+  // --- ÚJ PROPOK A BRAND KAPCSOLÓHOZ ---
   activeUnit?: Unit | null;
+  useBrandTheme: boolean;           // Be van-e nyomva a gomb?
+  onBrandChange: (enabled: boolean) => void; // Kapcsoló funkció
 }
 
 const SunIcon = () => (
@@ -22,13 +26,21 @@ const MoonIcon = () => (
   </svg>
 );
 
-const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentTheme, onThemeChange, activeUnit }) => {
+const ThemeSelector: React.FC<ThemeSelectorProps> = ({ 
+  currentTheme, 
+  onThemeChange, 
+  activeUnit,
+  useBrandTheme,
+  onBrandChange
+}) => {
 
-  const handleSwitch = (mode: ThemeMode) => {
+  // Animáció letiltása váltáskor
+  const handleSwitch = (callback: () => void) => {
     document.documentElement.classList.add('no-transition');
-    onThemeChange(mode);
+    callback();
   };
 
+  // Közös stílus a gomboknak
   const btnClass = (isActive: boolean) => `
     w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 border-2
     ${isActive 
@@ -36,48 +48,63 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ currentTheme, onThemeChan
       : 'border-transparent hover:bg-black/5 opacity-70 hover:opacity-100'}
   `;
 
-  // --- LOGIC: Indikátor színe ---
-  // Ha Light: Fehér doboz, Zöld logó
-  // Ha Dark: Sötét doboz (slate-800), Fehér logó
-  const isDark = currentTheme === 'dark';
-  
-  const indicatorBoxClass = `w-9 h-9 rounded-xl overflow-hidden border flex items-center justify-center shadow-sm transition-colors duration-200
-    ${isDark 
-      ? 'bg-slate-800 border-slate-700'  // Dark Mode Doboz
-      : 'bg-white border-gray-100'       // Light Mode Doboz
+  // --- BRAND LOGIC ---
+  // Akkor aktív a branding, ha a User bekapcsolta (useBrandTheme) ÉS van kiválasztva Unit
+  const isBrandActive = useBrandTheme && !!activeUnit;
+
+  // Stílus a Brand gombhoz
+  const brandBtnClass = `
+    w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 border-2 overflow-hidden
+    ${isBrandActive
+      ? 'border-green-500 shadow-md scale-110 z-10' // BEKAPCSOLVA (Zöld keret jelzi az aktív Unitot)
+      : 'border-transparent opacity-70 hover:opacity-100 hover:bg-black/5' // KIKAPCSOLVA (MintLeaf)
     }
   `;
 
-  const mintLeafLogoColor = isDark 
-    ? 'text-white'        // Negatív (Fehér)
-    : 'text-green-600';   // Eredeti (Zöld)
+  // MintLeaf logó színe (Sötét/Világos mód szerint)
+  const mintLeafLogoColor = currentTheme === 'dark' ? 'text-white' : 'text-green-600';
 
   return (
     <div className="flex items-center gap-2 p-1 bg-white/40 backdrop-blur-md rounded-2xl border border-white/20 shadow-sm">
       
-      {/* Light Mode Gomb */}
-      <button onClick={() => handleSwitch('light')} className={btnClass(currentTheme === 'light')} aria-label="Világos mód">
+      {/* 1. LIGHT MODE */}
+      <button 
+        onClick={() => handleSwitch(() => onThemeChange('light'))} 
+        className={btnClass(currentTheme === 'light')} 
+        aria-label="Világos mód"
+      >
         <SunIcon />
       </button>
 
-      {/* Dark Mode Gomb */}
-      <button onClick={() => handleSwitch('dark')} className={btnClass(currentTheme === 'dark')} aria-label="Sötét mód">
+      {/* 2. DARK MODE */}
+      <button 
+        onClick={() => handleSwitch(() => onThemeChange('dark'))} 
+        className={btnClass(currentTheme === 'dark')} 
+        aria-label="Sötét mód"
+      >
         <MoonIcon />
       </button>
 
-      {/* Divider */}
+      {/* Elválasztó */}
       <div className="w-px h-5 bg-gray-300/50 mx-1"></div>
 
-      {/* Brand/Logo Indicator (User Feedback) */}
-      <div className={indicatorBoxClass} title={activeUnit?.name || "MintLeaf"}>
-        {activeUnit?.logoUrl ? (
-          <img src={activeUnit.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+      {/* 3. BRAND TOGGLE (Unit vs MintLeaf) */}
+      <button
+        onClick={() => handleSwitch(() => onBrandChange(!useBrandTheme))}
+        disabled={!activeUnit} // Ha nincs unit, nem lehet bekapcsolni
+        className={brandBtnClass}
+        title={isBrandActive ? `Brand: ${activeUnit?.name}` : "Alapértelmezett téma (MintLeaf)"}
+      >
+        {isBrandActive && activeUnit?.logoUrl ? (
+          // HA BE VAN KAPCSOLVA -> UNIT LOGO
+          <img src={activeUnit.logoUrl} alt="Unit Logo" className="w-full h-full object-cover" />
         ) : (
-          <div className={`p-1.5 ${mintLeafLogoColor}`}>
+          // HA KI VAN KAPCSOLVA -> MINTLEAF LOGO
+          <div className={`p-1.5 ${isBrandActive ? '' : mintLeafLogoColor}`}>
              <AppleLogo /> 
           </div>
         )}
-      </div>
+      </button>
 
     </div>
   );
