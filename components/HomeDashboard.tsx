@@ -15,7 +15,6 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import UnitLogoBadge from './common/UnitLogoBadge';
-// ÚJ IMPORTOK
 import ThemeSelector from './dashboard/ThemeSelector';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 import AdminThemeEditor from './theme/AdminThemeEditor';
@@ -32,7 +31,6 @@ interface HomeDashboardProps {
   polls: Poll[];
   activeUnitIds: string[];
   allUnits: Unit[];
-  // ÚJ PROPOK
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
   activeUnit: Unit | null;
@@ -123,7 +121,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     fetchWages();
   }, [currentUser.id]);
 
-  // Fetch user's config or set default
   useEffect(() => {
     const userConfig = currentUser.dashboardConfig;
     if (userConfig && userConfig.length > 0) {
@@ -195,7 +192,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const openRequests = useMemo(() => filteredRequests.filter(r => r.status === 'pending'), [filteredRequests]);
   const activeTodos = useMemo(() => filteredTodos.filter(t => !t.isDone), [filteredTodos]);
 
-  // --- Edit Mode Handlers ---
   const handleSaveConfig = async () => {
     try {
         await updateDoc(doc(db, 'users', currentUser.id), {
@@ -231,9 +227,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }
   };
 
-
   // --- Widget Components ---
-  // MINDEN WIDGET MOST MÁR DINAMIKUS SURFACE SZÍNT HASZNÁL
   
   const ShiftAndPayrollWidget = () => {
     const [isPayVisible, setIsPayVisible] = useState(false);
@@ -552,7 +546,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         style={{
             backgroundColor: 'var(--color-header-bg)', 
             backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'var(--ui-header-blend-mode)', 
+            backgroundBlendMode: 'var(--ui-header-blend-mode)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             color: 'var(--color-text-on-primary)'
@@ -567,13 +561,15 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
             
             <div className="flex items-center gap-3">
+                {/* --- MÓDOSÍTÁS 1: ThemeSelector prop javítás (value -> currentTheme) --- */}
                 <ThemeSelector 
                     activeUnit={primaryUnit} 
                     currentTheme={themeMode}
                     onThemeChange={onThemeChange} 
                 />
                 
-                {/* CSAK ADMIN LÁTJA A THEME EDITORT */}
+                {/* --- MÓDOSÍTÁS 2: Theme Editor Gomb védelme --- */}
+                {/* Csak ADMIN látja a gombot */}
                 {currentUser.role === 'Admin' && (
                     <button
                         onClick={() => setShowThemeEditor(prev => !prev)}
@@ -606,7 +602,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
       </div>
       {/* --- FEJLÉC VÉGE --- */}
 
-      {/* CSAK ADMIN LÁTJA A SZERKESZTŐT IS */}
+      {/* --- MÓDOSÍTÁS 3: Admin Theme Editor komponens védelme --- */}
       {currentUser.role === 'Admin' && showThemeEditor && (
         <div className="mb-4">
           <AdminThemeEditor bases={themeBases} onChangeBases={onThemeBasesChange} />
