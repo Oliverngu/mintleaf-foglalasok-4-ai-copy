@@ -447,16 +447,16 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     >
         <div className="flex items-center gap-2 mb-4">
             <FeedbackIcon className="h-6 w-6 text-purple-600" />
-            <h2 className="text-xl font-bold text-gray-800">Névtelen Visszajelzések</h2>
+            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Névtelen Visszajelzések</h2>
         </div>
         {filteredFeedback.length > 0 ? (
             <div>
-                <p className="text-3xl font-bold text-gray-800">{filteredFeedback.length}</p>
-                <p className="text-gray-600">összesen</p>
-                <p className="text-sm text-gray-600 mt-2 truncate">Legutóbbi: "{filteredFeedback[0].text}"</p>
+                <p className="text-3xl font-bold text-[var(--color-text-main)]">{filteredFeedback.length}</p>
+                <p className="text-[var(--color-text-secondary)]">összesen</p>
+                <p className="text-sm text-[var(--color-text-secondary)] mt-2 truncate">Legutóbbi: "{filteredFeedback[0].text}"</p>
             </div>
         ) : (
-            <p className="text-gray-600">Nincsenek új visszajelzések.</p>
+            <p className="text-[var(--color-text-secondary)]">Nincsenek új visszajelzések.</p>
         )}
     </div>
   );
@@ -470,18 +470,18 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
           >
               <div className="flex items-center gap-2 mb-4">
                   <PollsIcon className="h-6 w-6 text-cyan-600" />
-                  <h2 className="text-xl font-bold text-gray-800">Szavazások ({activePolls.length})</h2>
+                  <h2 className="text-xl font-bold text-[var(--color-text-main)]">Szavazások ({activePolls.length})</h2>
               </div>
               {activePolls.length > 0 ? (
                    <div className="space-y-2">
                       {activePolls.slice(0,2).map(poll => (
                           <div key={poll.id} className="p-2 bg-cyan-50 border-l-4 border-cyan-400 rounded-r-lg">
-                             <p className="text-sm font-medium text-gray-800 truncate">{poll.question}</p>
+                             <p className="text-sm font-medium text-[var(--color-text-main)] truncate">{poll.question}</p>
                           </div>
                       ))}
                   </div>
               ) : (
-                  <p className="text-gray-600">Nincsenek aktív szavazások.</p>
+                  <p className="text-[var(--color-text-secondary)]">Nincsenek aktív szavazások.</p>
               )}
           </div>
       );

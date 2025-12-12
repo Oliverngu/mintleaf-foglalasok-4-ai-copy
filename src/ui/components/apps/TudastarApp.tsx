@@ -205,7 +205,11 @@ const FileUploadModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-2xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleUpload} className="divide-y">
           <div className="p-5">
             <h2 className="text-xl font-bold text-gray-800">Új dokumentum feltöltése</h2>
@@ -377,7 +381,11 @@ const NoteModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleSave} className="divide-y">
           <div className="p-5">
             <h2 className="text-xl font-bold text-gray-800">Új jegyzet</h2>
@@ -564,7 +572,11 @@ const EditNoteModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <form onSubmit={handleSave} className="divide-y">
           <div className="p-5">
             <h2 className="text-xl font-bold text-gray-800">Jegyzet szerkesztése</h2>
@@ -782,7 +794,11 @@ const CategoryManagerModal: FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-3xl"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="p-5 border-b flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-800">Kategóriák szerkesztése</h2>
           <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700 font-semibold">
@@ -1319,7 +1335,12 @@ useEffect(() => {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">
             <span>Aktív egység:</span>
-            <span className="rounded bg-white px-2 py-1 text-green-900 shadow-sm">{selectedUnitName}</span>
+            <span
+              className="rounded px-2 py-1 shadow-sm"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+            >
+              {selectedUnitName}
+            </span>
           </div>
           <span className="text-xs text-gray-500">Egységváltáshoz használd a fejléc zöld sávját.</span>
           {(canManageCategoriesResolved || canManageContentResolved) && (
@@ -1364,7 +1385,10 @@ useEffect(() => {
 
       {!loading && !error && (
         <>
-          <div className="flex flex-wrap gap-2 bg-white p-2 rounded-xl shadow-sm border">
+          <div
+            className="flex flex-wrap gap-2 p-2 rounded-xl shadow-sm border"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+          >
             {categories.map(category => (
               <button
                 key={category.id}

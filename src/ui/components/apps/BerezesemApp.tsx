@@ -47,7 +47,11 @@ const DayEntriesModal: React.FC<{
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-2xl"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                 <div className="p-5 border-b flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-800">
                         Bejegyzések - {date.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -140,7 +144,11 @@ const AddTimeEntryModal: React.FC<AddTimeEntryModalProps> = ({ currentUser, allU
     
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-lg"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                 <div className="p-5 border-b flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-800">Új időbejegyzés</h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500">&times;</button>
@@ -149,7 +157,13 @@ const AddTimeEntryModal: React.FC<AddTimeEntryModalProps> = ({ currentUser, allU
                     {userUnits.length > 1 && (
                         <div>
                             <label className="text-sm font-medium">Egység</label>
-                            <select name="unitId" value={formData.unitId} onChange={handleChange} className="w-full mt-1 p-2 border rounded-lg bg-white" required>
+                            <select
+                              name="unitId"
+                              value={formData.unitId}
+                              onChange={handleChange}
+                              className="w-full mt-1 p-2 border rounded-lg bg-[var(--color-surface)] text-[var(--color-text-main)]"
+                              required
+                            >
                                 <option value="" disabled>Válassz...</option>
                                 {userUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                             </select>
@@ -216,7 +230,11 @@ const EditTimeEntryModal: React.FC<EditTimeEntryModalProps> = ({ entry, onClose,
     
     return (
          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div
+              className="rounded-2xl shadow-xl w-full max-w-lg"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+              onClick={e => e.stopPropagation()}
+            >
                  <div className="p-5 border-b flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-800">Időbejegyzés szerkesztése</h2>
                     <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500">&times;</button>
@@ -556,7 +574,7 @@ export const BerezesemApp: React.FC<BerezesemAppProps> = ({ currentUser, schedul
                                                     value={wages[unit.id] || ''}
                                                     onChange={(e) => setWages(prev => ({ ...prev, [unit.id]: e.target.value === '' ? '' : Number(e.target.value) }))}
                                                     placeholder="2500"
-                                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 pr-16 bg-white text-gray-800"
+                                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 pr-16 bg-[var(--color-input-bg,_var(--color-surface))] text-[var(--color-text-main)]"
                                                 />
                                                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                                                     <span className="text-gray-500 sm:text-sm">Ft/óra</span>

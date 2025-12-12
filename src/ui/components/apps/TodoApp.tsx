@@ -38,10 +38,14 @@ const SeenByModal: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+      <div
+        className="rounded-2xl shadow-xl w-full max-w-lg"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="p-5 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-800">Megtekintések</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-800">&times;</button>
+          <h2 className="text-xl font-bold text-[var(--color-text-main)]">Megtekintések</h2>
+          <button onClick={onClose} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]">&times;</button>
         </div>
         <div className="p-6 max-h-[70vh] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -50,7 +54,7 @@ const SeenByModal: React.FC<{
               {seenByUsers.map(user => (
                 <li key={user.id} className="text-sm">
                   <p className="font-semibold">{`${user.lastName} ${user.firstName}`}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-[var(--color-text-secondary)]">
                     {todo.seenAt?.[user.id]?.toDate
                       ? todo.seenAt[user.id].toDate().toLocaleString('hu-HU')
                       : (todo.seenAt?.[user.id] ? 'Feldolgozás alatt...' : 'Ismeretlen időpont')}
@@ -354,7 +358,10 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
   if (!hasActiveUnit) {
     return (
       <div className="p-4 md:p-8">
-        <div className="bg-white border border-gray-100 rounded-2xl shadow p-6 text-center text-gray-700">
+        <div
+          className="border border-gray-100 rounded-2xl shadow p-6 text-center"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        >
           <p className="font-semibold">Válassz ki egy egységet a felső sávban a teendők megtekintéséhez.</p>
         </div>
       </div>
@@ -377,7 +384,9 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
           type="button"
           onClick={() => setActiveTab('regular')}
           className={`px-4 py-2 rounded-lg font-semibold border ${
-            activeTab === 'regular' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-200'
+            activeTab === 'regular'
+              ? 'bg-green-700 text-white border-green-700'
+              : 'bg-[var(--color-surface)] text-[var(--color-text-main)] border-[var(--color-border)]'
           }`}
         >
           Egyszeri teendők
@@ -386,7 +395,9 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
           type="button"
           onClick={() => setActiveTab('daily')}
           className={`px-4 py-2 rounded-lg font-semibold border ${
-            activeTab === 'daily' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-700 border-gray-200'
+            activeTab === 'daily'
+              ? 'bg-green-700 text-white border-green-700'
+              : 'bg-[var(--color-surface)] text-[var(--color-text-main)] border-[var(--color-border)]'
           }`}
         >
           Napi teendők
@@ -395,9 +406,10 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
 
       <form
         onSubmit={handleAddNewTodo}
-        className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-8"
+        className="p-6 rounded-2xl shadow-lg border border-gray-100 mb-8"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
       >
-        <h2 className="text-xl font-bold text-gray-800 mb-2">
+        <h2 className="text-xl font-bold text-[var(--color-text-main)] mb-2">
           {activeTab === 'daily' ? 'Új napi teendő hozzáadása' : 'Új teendő hozzáadása'}
         </h2>
         <div className="flex flex-col md:flex-row md:items-center gap-3">
@@ -416,7 +428,7 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
                 <select
                   value={dailyTypeNew}
                   onChange={e => setDailyTypeNew(e.target.value as 'opening' | 'closing' | 'general')}
-                  className="border rounded-lg px-2 py-1 text-sm bg-white"
+                  className="border rounded-lg px-2 py-1 text-sm bg-[var(--color-surface)] text-[var(--color-text-main)]"
                 >
                   <option value="opening">Nyitási</option>
                   <option value="closing">Zárási</option>
@@ -636,9 +648,12 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
 
       {todoToConfirm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <h2 className="text-xl font-bold text-gray-800">Megerősítés</h2>
-            <p className="text-gray-600 my-4">
+          <div
+            className="rounded-2xl shadow-xl w-full max-w-sm p-6 text-center"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+          >
+            <h2 className="text-xl font-bold text-[var(--color-text-main)]">Megerősítés</h2>
+            <p className="text-[var(--color-text-secondary)] my-4">
               Biztosan elvégezted ezt a feladatot? A művelet nem visszavonható.
             </p>
             <div className="flex justify-center gap-4">

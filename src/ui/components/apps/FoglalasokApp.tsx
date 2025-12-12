@@ -54,11 +54,12 @@ const DeleteConfirmationModal: React.FC<{
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md"
+        className="rounded-2xl shadow-xl w-full max-w-md"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b">
-          <h2 className="text-xl font-bold text-gray-800">Foglalás törlése</h2>
+          <h2 className="text-xl font-bold text-[var(--color-text-main)]">Foglalás törlése</h2>
         </div>
         <div className="p-6 space-y-4">
           <p>
@@ -120,11 +121,12 @@ const BookingDetailsModal: React.FC<{
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        className="rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-5 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-800">
+          <h2 className="text-xl font-bold text-[var(--color-text-main)]">
             {selectedDate.toLocaleDateString('hu-HU', {
               weekday: 'long',
               year: 'numeric',
@@ -160,11 +162,12 @@ const BookingDetailsModal: React.FC<{
                 <div
                   key={booking.id}
                   className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
+                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                 >
-                  <p className="font-bold text-gray-800">
+                  <p className="font-bold text-[var(--color-text-main)]">
                     {booking.name} ({booking.headcount} fő)
                   </p>
-                  <p className="text-sm text-gray-600 font-semibold">
+                  <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
                     {booking.startTime
                       .toDate()
                       .toLocaleTimeString('hu-HU', {
@@ -177,11 +180,11 @@ const BookingDetailsModal: React.FC<{
                       minute: '2-digit',
                     })}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-[var(--color-text-secondary)] mt-1">
                     Alkalom: {booking.occasion}
                   </p>
                   {booking.notes && (
-                    <p className="text-sm text-gray-500 mt-1">
+                    <p className="text-sm text-[var(--color-text-secondary)] mt-1">
                       Megjegyzés: {booking.notes}
                     </p>
                   )}
@@ -197,7 +200,7 @@ const BookingDetailsModal: React.FC<{
                 </div>
               ))
           ) : (
-            <p className="text-gray-500">Erre a napra nincsenek foglalások.</p>
+            <p className="text-[var(--color-text-secondary)]">Erre a napra nincsenek foglalások.</p>
           )}
         </div>
       </div>
@@ -236,7 +239,7 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
       className="mt-6 rounded-2xl shadow border border-gray-100 p-4"
       style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
     >
-      <h2 className="text-lg font-bold text-gray-800 mb-3">Foglalási napló</h2>
+      <h2 className="text-lg font-bold text-[var(--color-text-main)] mb-3">Foglalási napló</h2>
       <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
         {logs.map(log => {
           const created =
@@ -260,16 +263,16 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
                   <span
                     className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`}
                   />
-                  <span className="font-medium text-gray-800">
+                  <span className="font-medium text-[var(--color-text-main)]">
                     {log.message}
                   </span>
                 </div>
-                <span className="text-[11px] text-gray-400 shrink-0">
+                <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
                   {created}
                 </span>
               </div>
               {log.createdByName && (
-                <span className="text-[11px] text-gray-500">
+                <span className="text-[11px] text-[var(--color-text-secondary)]">
                   {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
                 </span>
               )}
@@ -575,7 +578,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           >
             &lt;
           </button>
-          <h2 className="text-xl font-bold text-gray-800 capitalize">
+          <h2 className="text-xl font-bold text-[var(--color-text-main)] capitalize">
             {currentDate.toLocaleDateString('hu-HU', {
               month: 'long',
               year: 'numeric',
@@ -593,7 +596,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             &gt;
           </button>
         </div>
-        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-gray-500 text-sm mb-2">
+        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
           {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => (
             <div key={day}>{day}</div>
           ))}
@@ -620,7 +623,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               >
                 <span
                   className={`font-bold ${
-                    isToday ? 'text-green-600' : 'text-gray-800'
+                    isToday ? 'text-green-600' : 'text-[var(--color-text-main)]'
                   }`}
                 >
                   {date.getDate()}
@@ -643,7 +646,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   return (
     <div className="p-4 md:p-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-bold text-gray-800">Foglalások</h1>
+        <h1 className="text-3xl font-bold text-[var(--color-text-main)]">Foglalások</h1>
         <div className="flex items-center gap-3">
           <button
             onClick={openGuestPage}
