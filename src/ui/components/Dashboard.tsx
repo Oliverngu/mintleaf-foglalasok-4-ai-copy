@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll,
+  User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll, Booking,
 } from '../../core/models/data';
 
 // --- FIREBASE IMPORTOK ---
@@ -59,6 +59,7 @@ interface DashboardProps {
   isDemoMode: boolean;
   requests: Request[];
   shifts: Shift[];
+  bookings: Booking[];
   todos: Todo[];
   adminTodos: Todo[];
   allUnits: Unit[];
@@ -66,6 +67,7 @@ interface DashboardProps {
   permissions: RolePermissions;
   unitPermissions: Record<string, any>;
   timeEntries: TimeEntry[];
+  userPrivateData: Record<string, any>;
   feedbackList: Feedback[];
   polls: Poll[];
   firestoreError?: string | null;
@@ -87,6 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   isDemoMode,
   requests,
   shifts,
+  bookings,
   todos,
   adminTodos,
   allUnits,
@@ -94,6 +97,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   permissions,
   unitPermissions,
   timeEntries,
+  userPrivateData,
   feedbackList,
   polls,
   firestoreError,

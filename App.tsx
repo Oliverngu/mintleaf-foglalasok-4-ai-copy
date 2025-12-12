@@ -36,8 +36,10 @@ const App: React.FC = () => {
   const [permissions, setPermissions] = useState<RolePermissions>({});
   const [unitPermissions, setUnitPermissions] = useState<Record<string, any>>({});
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [userPrivateData, setUserPrivateData] = useState<Record<string, any>>({});
 
 
   useEffect(() => {
@@ -262,7 +264,7 @@ const App: React.FC = () => {
         unsubAdminTodos = onSnapshot(collection(db, 'admin_todos'), snapshot => setAdminTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
     }
 
-    // Shifts
+    // Shifts - fetch everything relevant to the user (not only the currently active unit)
     let shiftsQueryRef;
     if (currentUser.role !== 'Admin' && currentUser.unitIds && currentUser.unitIds.length > 0) {
       shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
@@ -282,9 +284,41 @@ const App: React.FC = () => {
     }
     const unsubRequests = onSnapshot(requestsQueryRef, snapshot => setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request))));
     
-    // Time Entries (Clock-in/out)
+    // Time Entries (Clock-in/out) - keep all entries for the user to allow client-side unit filtering
     const timeEntriesQuery = query(collection(db, 'time_entries'), where('userId', '==', currentUser.id));
     const unsubTimeEntries = onSnapshot(timeEntriesQuery, snapshot => setTimeEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeEntry))));
+
+    // --- DATA FIX: Ensure wages/private data is available for BerezesemApp ---
+    const privateDataRef = doc(db, 'user_private_data', currentUser.id);
+    const unsubPrivateData = onSnapshot(privateDataRef, snapshot => {
+      if (snapshot.exists()) {
+        setUserPrivateData(snapshot.data());
+      } else {
+        setUserPrivateData({});
+      }
+    }, firestoreErrorHandler("User private data"));
+
+    // --- DATA FIX: Collect bookings for all relevant units (admin + unit admin) ---
+    const bookingUnitIds = currentUser.role === 'Admin'
+      ? allUnits.map(u => u.id)
+      : (currentUser.unitIds || []);
+
+    const bookingUnsubs: Array<() => void> = [];
+    if (bookingUnitIds.length === 0) {
+      setBookings([]);
+    } else {
+      bookingUnitIds.forEach(unitId => {
+        const reservationRef = collection(db, 'units', unitId, 'reservations');
+        const unsub = onSnapshot(reservationRef, snapshot => {
+          setBookings(prev => {
+            const withoutUnit = prev.filter(b => b.unitId !== unitId);
+            const incoming = snapshot.docs.map(doc => ({ id: doc.id, unitId, ...doc.data() } as Booking));
+            return [...withoutUnit, ...incoming];
+          });
+        }, firestoreErrorHandler(`Bookings (${unitId})`));
+        bookingUnsubs.push(unsub);
+      });
+    }
 
     // Feedback
     const unsubFeedback = (() => {
@@ -330,10 +364,12 @@ const App: React.FC = () => {
       unsubShifts();
       unsubRequests();
       unsubTimeEntries();
+      unsubPrivateData();
+      bookingUnsubs.forEach(unsub => unsub());
       unsubFeedback();
       unsubPolls();
     };
-  }, [currentUser, isDemoMode]);
+  }, [allUnits, currentUser, isDemoMode]);
 
   useEffect(() => {
     switch (appState) {
@@ -409,12 +445,13 @@ const App: React.FC = () => {
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-            <Dashboard 
-              currentUser={currentUser} 
-              onLogout={handleLogout} 
+            <Dashboard
+              currentUser={currentUser}
+              onLogout={handleLogout}
               isDemoMode={isDemoMode}
               requests={requests}
               shifts={shifts}
+              bookings={bookings}
               todos={todos}
               adminTodos={adminTodos}
               allUnits={allUnits}
@@ -422,6 +459,7 @@ const App: React.FC = () => {
               permissions={permissions}
               unitPermissions={unitPermissions}
               timeEntries={timeEntries}
+              userPrivateData={userPrivateData}
               feedbackList={feedbackList}
               polls={polls}
               firestoreError={firestoreError}
