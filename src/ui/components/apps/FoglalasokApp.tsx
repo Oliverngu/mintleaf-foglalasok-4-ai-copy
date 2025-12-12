@@ -73,7 +73,7 @@ const DeleteConfirmationModal: React.FC<{
           <div>
             <label
               htmlFor="cancelReason"
-              className="text-sm font-medium text-gray-700"
+              className="text-sm font-medium text-[var(--color-text-main)]"
             >
               Indoklás (opcionális)
             </label>
@@ -136,7 +136,8 @@ const BookingDetailsModal: React.FC<{
           </h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-200 text-gray-500"
+            className="p-2 rounded-full hover:bg-gray-200"
+            style={{ color: 'var(--color-text-secondary)' }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -406,10 +407,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       <div className="flex items-center justify-center h-full p-8 text-center">
         <div>
           <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-700">
+          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
             A funkció használatához válassz egy egységet
           </h2>
-          <p className="mt-2 text-gray-600">
+          <p className="mt-2 text-[var(--color-text-secondary)]">
             A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
             pontosan egy egységet a fejlécben.
           </p>
@@ -666,7 +667,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           {isAdmin && activeUnitId && (
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300"
+              className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
               title="Foglalási beállítások"
             >
               <SettingsIcon className="h-6 w-6" />
