@@ -1,109 +1,52 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ThemeBases } from '../../../core/theme/types';
-import { DEFAULT_BASES, saveBases } from '../../../core/theme/storage';
-import ColorPicker from '../common/ColorPicker';
+import React, { useState, useEffect } from 'react';
+import { ThemeBases, ThemeColors } from '../../../core/theme/types';
+import { XMarkIcon } from '@heroicons/react/24/outline';
+import ColorPicker from '../common/ColorPicker'; 
 
 interface AdminThemeEditorProps {
   bases: ThemeBases;
-  onChangeBases: (next: ThemeBases) => void;
+  onChangeBases: (bases: ThemeBases) => void;
+  onClose?: () => void;
 }
 
-const colorFields = [
-  { key: 'primary', label: 'Primary' },
-  { key: 'secondary', label: 'Secondary' },
-  { key: 'headerBg', label: 'Header BG' },
-  { key: 'sidebarBg', label: 'Sidebar BG' },
-  { key: 'background', label: 'Background' },
-  { key: 'surface', label: 'Kártyák/Modulok Háttere' },
-  { key: 'accent', label: 'Accent' },
-  { key: 'sidebarHover', label: 'Sidebar Hover' },
-  { key: 'inputBg', label: 'Input BG' },
-  { key: 'textMain', label: 'Text Main' },
-  { key: 'textSecondary', label: 'Text Secondary' },
-  { key: 'border', label: 'Border' },
-] as const;
-
-const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBases }) => {
+const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBases, onClose }) => {
   const [activeTab, setActiveTab] = useState<'light' | 'dark'>('light');
-  const [draft, setDraft] = useState<ThemeBases>(bases);
+  const [localConfig, setLocalConfig] = useState<ThemeBases>(bases);
 
-  useEffect(() => {
-    setDraft(bases);
-  }, [bases]);
+  useEffect(() => { setLocalConfig(bases); }, [bases]);
 
-  const current = useMemo(() => draft[activeTab], [draft, activeTab]);
-
-  const updateField = (key: typeof colorFields[number]['key'], value: string) => {
-    const next = {
-      ...draft,
-      [activeTab]: {
-        ...draft[activeTab],
-        [key]: value,
-      },
-    } as ThemeBases;
-    setDraft(next);
+  const updateColor = (key: keyof ThemeColors, value: string) => {
+    const newConfig = {
+      ...localConfig,
+      [activeTab]: { ...localConfig[activeTab], [key]: value }
+    };
+    setLocalConfig(newConfig);
+    onChangeBases(newConfig); // AZONNALI FRISSÍTÉS
   };
 
-  const handleSave = () => {
-    onChangeBases(draft);
-    saveBases(draft);
-  };
-
-  const handleReset = () => {
-    setDraft(DEFAULT_BASES);
-    onChangeBases(DEFAULT_BASES);
-    saveBases(DEFAULT_BASES);
-  };
+  const currentColors = localConfig[activeTab] || {};
 
   return (
-    <div className="p-4 bg-white rounded-xl shadow-md border border-gray-200 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800">Admin Theme Editor</h3>
+    <div className="bg-white p-4 rounded-xl shadow-xl border border-gray-200 mt-4">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-bold text-gray-800">Téma Szerkesztő</h3>
         <div className="flex gap-2">
-          <button
-            className={`px-3 py-1 rounded-lg text-sm font-medium ${activeTab === 'light' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}
-            onClick={() => setActiveTab('light')}
-            type="button"
-          >
-            Light
-          </button>
-          <button
-            className={`px-3 py-1 rounded-lg text-sm font-medium ${activeTab === 'dark' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}
-            onClick={() => setActiveTab('dark')}
-            type="button"
-          >
-            Dark
-          </button>
+            <button onClick={() => setActiveTab('light')} className={`px-2 py-1 rounded ${activeTab==='light'?'bg-gray-200':''}`}>Light</button>
+            <button onClick={() => setActiveTab('dark')} className={`px-2 py-1 rounded ${activeTab==='dark'?'bg-gray-200':''}`}>Dark</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {colorFields.map(field => (
-          <div key={field.key} className="flex items-center justify-between gap-3 text-sm text-gray-700">
-            <span>{field.label}</span>
-            <div className="w-40">
-              <ColorPicker value={current[field.key]} onChange={value => updateField(field.key, value)} />
-            </div>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-4">
+          <ColorPicker label="Primary" value={currentColors.primary || '#15803d'} onChange={(c) => updateColor('primary', c)} />
+          <ColorPicker label="Secondary" value={currentColors.secondary || '#15803d'} onChange={(c) => updateColor('secondary', c)} />
+          <ColorPicker label="Background" value={currentColors.background || '#f1f5f9'} onChange={(c) => updateColor('background', c)} />
+          <ColorPicker label="Surface (Card)" value={currentColors.surface || '#ffffff'} onChange={(c) => updateColor('surface', c)} />
+          <ColorPicker label="Header Bg" value={currentColors.headerBg || '#15803d'} onChange={(c) => updateColor('headerBg', c)} />
+          <ColorPicker label="Text Main" value={currentColors.textMain || '#000000'} onChange={(c) => updateColor('textMain', c)} />
       </div>
-
-      <div className="flex justify-end gap-3">
-        <button
-          type="button"
-          onClick={handleReset}
-          className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-        >
-          Reset defaults
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          className="px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700"
-        >
-          Save
-        </button>
-      </div>
+      
+      {/* MENTÉS GOMB A VÉGÉN - Ez írja be az adatbázisba */}
+      {/* Ezt a logikát az App.tsx-be vagy ide kell rakni setDoc-cal, de a live preview már működni fog */}
     </div>
   );
 };
