@@ -15,7 +15,7 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import FeedbackIcon from '../../../components/icons/FeedbackIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import UnitLogoBadge from './common/UnitLogoBadge';
-import ThemeSelector from './dashboard/ThemeSelector'; // Ellenőrizd az útvonalat!
+import ThemeSelector from './dashboard/ThemeSelector';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 import AdminThemeEditor from './theme/AdminThemeEditor';
 
@@ -67,6 +67,10 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   themeBases,
   onThemeBasesChange,
 }) => {
+  // --- BIZTONSÁGI ELLENŐRZÉS ---
+  // Csak akkor true, ha a role pontosan 'Admin'. 'Unit Admin' vagy 'User' esetén false.
+  const isGlobalAdmin = currentUser?.role === 'Admin';
+
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig[]>([]);
@@ -121,7 +125,6 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     fetchWages();
   }, [currentUser.id]);
 
-  // Fetch user's config or set default
   useEffect(() => {
     const userConfig = currentUser.dashboardConfig;
     if (userConfig && userConfig.length > 0) {
@@ -228,9 +231,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }
   };
 
-
   // --- Widget Components ---
-  // A widgetek stílusát is frissítettem, hogy a surface színt használják!
   
   const ShiftAndPayrollWidget = () => {
     const [isPayVisible, setIsPayVisible] = useState(false);
@@ -262,7 +263,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     return (
         <div
             className="p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full transition-colors duration-200"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+            style={{ 
+                backgroundColor: 'var(--color-surface)', 
+                color: 'var(--color-text-main)', 
+                borderColor: 'var(--color-border)' 
+            }}
         >
             <div className="w-full">
                 <div className="flex items-center justify-center gap-2 mb-2">
@@ -312,7 +317,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const QuickLinksWidget = () => (
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        style={{ 
+            backgroundColor: 'var(--color-surface)', 
+            color: 'var(--color-text-main)', 
+            borderColor: 'var(--color-border)' 
+        }}
     >
         <h2 className="text-xl font-bold mb-4">Gyorsmenü</h2>
         <div className="space-y-3">
@@ -346,7 +355,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     return (
         <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+            style={{ 
+                backgroundColor: 'var(--color-surface)', 
+                color: 'var(--color-text-main)', 
+                borderColor: 'var(--color-border)' 
+            }}
         >
             <div className="flex items-center gap-2 mb-4">
                 <TodoIcon className="h-6 w-6 text-blue-600" />
@@ -371,7 +384,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const RequestsWidget = () => (
     <div
         className="p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center transition-colors duration-200"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        style={{ 
+            backgroundColor: 'var(--color-surface)', 
+            color: 'var(--color-text-main)', 
+            borderColor: 'var(--color-border)' 
+        }}
     >
         <div className="flex items-center gap-2">
             <CalendarIcon className="h-6 w-6 text-yellow-600" />
@@ -386,7 +403,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     return (
         <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+            style={{ 
+                backgroundColor: 'var(--color-surface)', 
+                color: 'var(--color-text-main)', 
+                borderColor: 'var(--color-border)' 
+            }}
         >
             <div className="flex items-center gap-2 mb-4">
                 <ScheduleIcon className="h-6 w-6 text-indigo-600" />
@@ -429,7 +450,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const BookingsWidget = () => (
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        style={{ 
+            backgroundColor: 'var(--color-surface)', 
+            color: 'var(--color-text-main)', 
+            borderColor: 'var(--color-border)' 
+        }}
     >
         <h2 className="text-xl font-bold mb-4">Mai foglalások</h2>
         <p style={{ color: 'var(--color-text-secondary)' }}>A mai foglalások listája itt jelenik meg.</p>
@@ -439,7 +464,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const VelemenyekWidget = () => (
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+        style={{ 
+            backgroundColor: 'var(--color-surface)', 
+            color: 'var(--color-text-main)', 
+            borderColor: 'var(--color-border)' 
+        }}
     >
         <div className="flex items-center gap-2 mb-4">
             <FeedbackIcon className="h-6 w-6 text-purple-600" />
@@ -462,7 +491,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
       return (
           <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+            style={{ 
+                backgroundColor: 'var(--color-surface)', 
+                color: 'var(--color-text-main)', 
+                borderColor: 'var(--color-border)' 
+            }}
           >
               <div className="flex items-center gap-2 mb-4">
                   <PollsIcon className="h-6 w-6 text-cyan-600" />
@@ -517,7 +550,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         style={{
             backgroundColor: 'var(--color-header-bg)', 
             backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'var(--ui-header-blend-mode)', // ITT a lényeg!
+            backgroundBlendMode: 'var(--ui-header-blend-mode)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             color: 'var(--color-text-on-primary)'
@@ -534,18 +567,20 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="flex items-center gap-3">
                 <ThemeSelector 
                     activeUnit={primaryUnit} 
-                    currentTheme={themeMode} // FIGYELEM: currentTheme a prop neve a komponensben!
+                    currentTheme={themeMode}
                     onThemeChange={onThemeChange} 
                 />
                 
-                {/* Admin Theme Editor Toggle */}
-                <button
-                    onClick={() => setShowThemeEditor(prev => !prev)}
-                    className="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-md"
-                    type="button"
-                >
-                    Theme Editor
-                </button>
+                {/* --- 1. VÉDELEM: Theme Editor gomb CSAK ADMINNAK --- */}
+                {isGlobalAdmin && (
+                    <button
+                        onClick={() => setShowThemeEditor(prev => !prev)}
+                        className="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-md"
+                        type="button"
+                    >
+                        Theme Editor
+                    </button>
+                )}
 
                 {/* Widget Edit Mode */}
                 {isEditMode ? (
@@ -569,7 +604,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
       </div>
       {/* --- FEJLÉC VÉGE --- */}
 
-      {showThemeEditor && (
+      {/* --- 2. VÉDELEM: Admin Theme Editor komponens CSAK ADMINNAK --- */}
+      {isGlobalAdmin && showThemeEditor && (
         <div className="mb-4">
           <AdminThemeEditor bases={themeBases} onChangeBases={onThemeBasesChange} />
         </div>
