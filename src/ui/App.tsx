@@ -13,38 +13,35 @@ import { UnitProvider, useUnitContext } from './context/UnitContext';
 import ThemeManager from '../core/theme/ThemeManager';
 import { ThemeMode, ThemeBases } from '../core/theme/types';
 import { loadBases, loadMode, saveBases, saveMode } from '../core/theme/storage';
-import AdminThemeEditor from './components/theme/AdminThemeEditor'; // Import ellenőrzése!
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-// --- BRIDGE: PREVIEW TÁMOGATÁS ---
+// --- 1. JAVÍTÁS: A Bridge Prop neveinek szinkronizálása a ThemeManagerrel ---
 const ThemeManagerBridge: React.FC<{ 
   allUnits: Unit[]; 
   bases: ThemeBases; 
-  previewBases: ThemeBases | null; // <--- ÚJ: Preview Config
   themeMode: ThemeMode; 
   useBrandTheme: boolean; 
 }> = ({
   allUnits,
   bases,
-  previewBases, // <--- ÚJ
   themeMode,
   useBrandTheme, 
 }) => {
   const { selectedUnits } = useUnitContext();
-  const activeUnit = selectedUnits.length ? allUnits.find(u => u.id === selectedUnits[0]) || null : null;
+  const activeUnit = selectedUnits.length
+    ? allUnits.find(u => u.id === selectedUnits[0]) || null
+    : null;
 
-  // HA VAN PREVIEW (szerkesztés alatt), AZT HASZNÁLJUK!
-  const activeConfig = previewBases || bases;
-
+  // JAVÍTVA: adminConfig={bases}, themeMode={themeMode}
   return (
     <ThemeManager 
       activeUnit={activeUnit} 
       themeMode={themeMode}         
       useBrandTheme={useBrandTheme} 
-      adminConfig={activeConfig} // Itt adjuk át a megfelelőt
+      adminConfig={bases} // Fontos: adminConfig a neve, nem bases!
     />
   );
 };
@@ -58,7 +55,7 @@ const App: React.FC = () => {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
-  // Data States
+  // --- Data States ---
   const [requests, setRequests] = useState<Request[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -71,35 +68,49 @@ const App: React.FC = () => {
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
 
-  // --- THEME STATES ---
+  // --- Theme States ---
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
+  // Kezdetben üres vagy lokális, később a Firestore felülírja
   const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
-  
-  // ÚJ: LIVE PREVIEW STATE (Ez tárolja a szerkesztő ideiglenes állapotát)
-  const [previewBases, setPreviewBases] = useState<ThemeBases | null>(null);
 
+  // --- Brand Theme State ---
   const [useBrandTheme, setUseBrandTheme] = useState<boolean>(() => {
     const saved = localStorage.getItem('mintleaf_use_brand');
     return saved !== null ? saved === 'true' : true; 
   });
 
-  // Globális téma betöltése
+  // --- 2. JAVÍTÁS: GLOBÁLIS TÉMA FIGYELÉSE FIRESTORE-BÓL ---
+  // Ez biztosítja, hogy amit az Admin beállít és elment, azt mindenki megkapja.
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'global_settings', 'theme'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as ThemeBases;
         setThemeBases(data);
-        saveBases(data);
+        saveBases(data); // Elmentjük lokálisan is cache gyanánt
       }
+    }, (error) => {
+        // Ha nincs jogod olvasni (pl. kijelentkezve), vagy nem létezik, nem baj
+        console.warn("Theme load info:", error.message);
     });
     return () => unsub();
   }, []);
 
-  // Effects
-  useEffect(() => { saveMode(themeMode); }, [themeMode]);
-  useEffect(() => { localStorage.setItem('mintleaf_use_brand', String(useBrandTheme)); }, [useBrandTheme]);
+  // Theme Effects (Lokális mentések)
+  useEffect(() => {
+    saveMode(themeMode);
+  }, [themeMode]);
 
-  // Init Logic (Authentication & Routing)
+  useEffect(() => {
+    // A themeBases-t most már a fenti onSnapshot frissíti, de azért elmentjük
+    saveBases(themeBases);
+  }, [themeBases]);
+
+  useEffect(() => {
+    localStorage.setItem('mintleaf_use_brand', String(useBrandTheme));
+  }, [useBrandTheme]);
+
+
+  // --- Initialization Logic ---
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const pathname = window.location.pathname;
@@ -110,80 +121,291 @@ const App: React.FC = () => {
 
     if (isManagePage) {
         const token = urlParams.get('token');
-        if (token) setPublicPage({ type: 'manage', token });
-        else setPublicPage({ type: 'error', message: 'Nincs token.' });
+        if (token) {
+            setPublicPage({ type: 'manage', token });
+        } else {
+            setPublicPage({ type: 'error', message: 'Nincs foglalási azonosító megadva.' });
+        }
     } else if (isReservePage) {
         const unitId = urlParams.get('unit');
-        if (unitId) setPublicPage({ type: 'reserve', unitId });
-        else setPublicPage({ type: 'error', message: 'Nincs unit ID.' });
+        if (unitId) {
+            setPublicPage({ type: 'reserve', unitId });
+        } else {
+            setPublicPage({ type: 'error', message: 'Nincs egység azonosító megadva a foglaláshoz.' });
+        }
     }
 
+    // Handle Demo Mode
     if (isDemo) {
       setIsDemoMode(true);
       setCurrentUser(demoUser);
-      // ... demo data setup ...
-      setRequests(demoData.requests); setShifts(demoData.shifts); setTodos(demoData.todos);
-      setAdminTodos(demoData.adminTodos); setAllUnits(demoData.allUnits); setAllUsers(demoData.allUsers);
+      setRequests(demoData.requests);
+      setShifts(demoData.shifts);
+      setTodos(demoData.todos);
+      setAdminTodos(demoData.adminTodos);
+      setAllUnits(demoData.allUnits);
+      setAllUsers(demoData.allUsers);
+      setTimeEntries([]);
+      setFeedbackList([]);
+      setPolls([]);
+      setPermissions({ 'Demo User': { canSubmitLeaveRequests: true, canManageTodos: true } });
       setAppState('dashboard');
       return; 
     }
 
+    // Handle Registration
     if (registerCode) {
-        // ... register logic ...
-        setInviteCode(registerCode);
-        setAppState('register');
-        return;
+      window.history.replaceState({}, document.title, window.location.pathname);
+      const validateInvite = async () => {
+        try {
+          const inviteDoc = await getDoc(doc(db, 'invitations', registerCode));
+          if (inviteDoc.exists() && inviteDoc.data()?.status === 'active') {
+            setInviteCode(registerCode);
+            setAppState('register');
+          } else {
+            setLoginMessage({ type: 'error', text: 'Érvénytelen vagy már felhasznált meghívó.' });
+            setAppState('login');
+          }
+        } catch (error) {
+          console.error("Error validating invite code:", error);
+          setLoginMessage({ type: 'error', text: 'Hiba a meghívó ellenőrzésekor.' });
+          setAppState('login');
+        }
+      };
+      validateInvite();
+      return; 
     }
 
+    // Handle Standard Authentication
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      let finalUserData: User | null = null;
       if (firebaseUser) {
-          // ... user fetching logic (simplified for brevity) ...
+        try {
           const userDocRef = doc(db, 'users', firebaseUser.uid);
-          const userDoc = await getDoc(userDocRef);
+          let userDoc = await getDoc(userDocRef);
+          let userData: User;
+
           if (userDoc.exists()) {
-             setCurrentUser({ id: firebaseUser.uid, ...userDoc.data() } as User);
-             setAppState('dashboard');
+            const data = userDoc.data();
+            let userUnits: string[] = [];
+            if (data?.unitIds && Array.isArray(data.unitIds)) userUnits = data.unitIds;
+            else if (data?.unitId) userUnits = [data.unitId];
+
+            const lastName = data?.lastName || '';
+            const firstName = data?.firstName || '';
+
+            userData = {
+              id: firebaseUser.uid,
+              name: data?.name || firebaseUser.email!,
+              lastName: lastName,
+              firstName: firstName,
+              fullName: data?.fullName || `${lastName} ${firstName}`.trim(),
+              email: data?.email || firebaseUser.email!,
+              role: data?.role || 'User',
+              unitIds: userUnits,
+              position: data?.position,
+              dashboardConfig: data?.dashboardConfig,
+            };
           } else {
-             // First time setup logic here
-             setCurrentUser({ id: firebaseUser.uid, email: firebaseUser.email, role: 'User', name: 'New' } as User);
-             setAppState('dashboard');
+            // First time user logic...
+            const allUsersQuery = query(collection(db, 'users'), limit(1));
+            const allUsersSnapshot = await getDocs(allUsersQuery);
+            const role = allUsersSnapshot.empty ? 'Admin' : 'User';
+            const displayName = firebaseUser.displayName || firebaseUser.email!;
+            const nameParts = displayName.split(' ');
+            const firstName = nameParts.pop() || '';
+            const lastName = nameParts.join(' ');
+
+            userData = {
+              id: firebaseUser.uid,
+              name: firebaseUser.email!,
+              lastName: lastName,
+              firstName: firstName,
+              fullName: `${lastName} ${firstName}`.trim(),
+              email: firebaseUser.email!,
+              role: role,
+              unitIds: [],
+            };
+            await setDoc(userDocRef, {
+              name: userData.name,
+              lastName: userData.lastName,
+              firstName: userData.firstName,
+              fullName: userData.fullName,
+              email: userData.email,
+              role: userData.role,
+              unitIds: userData.unitIds,
+            });
           }
+          finalUserData = userData;
+          setCurrentUser(userData);
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          await signOut(auth);
+          setCurrentUser(null);
+        }
       } else {
         setCurrentUser(null);
-        if (isReservePage || isManagePage) setAppState('public');
-        else setAppState('login');
       }
+
+      if (isReservePage || isManagePage) setAppState('public');
+      else if (finalUserData) setAppState('dashboard');
+      else setAppState('login');
     });
+
     return () => unsubscribe();
   }, []);
 
-  // Data Listeners
+
+  // --- DATA LISTENERS ---
   useEffect(() => {
     if (isDemoMode) return;
-    const unsub1 = onSnapshot(collection(db, 'users'), s => setAllUsers(s.docs.map(d => ({id:d.id, ...d.data()} as User))));
-    const unsub2 = onSnapshot(collection(db, 'units'), s => setAllUnits(s.docs.map(d => ({id:d.id, ...d.data()} as Unit))));
-    return () => { unsub1(); unsub2(); };
+    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User))));
+    const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => setAllUnits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unit))));
+    const unsubPerms = onSnapshot(collection(db, 'permissions'), snapshot => {
+        const perms: RolePermissions = {};
+        snapshot.forEach(doc => { perms[doc.id as User['role']] = doc.data() as Partial<Permissions>; });
+        setPermissions(perms);
+    });
+    return () => { unsubUsers(); unsubUnits(); unsubPerms(); };
   }, [isDemoMode]);
 
-  const handleLogout = async () => { try { await signOut(auth); } catch(e){} };
+  // Authenticated Data Listeners
+  useEffect(() => {
+    if (!currentUser || isDemoMode) return;
+    setFirestoreError(null);
 
-  // --- RENDER ---
+    const isSuperAdmin = currentUser.role === 'Admin';
+    const isUnitAdmin = currentUser.role === 'Unit Admin' && currentUser.unitIds && currentUser.unitIds.length > 0;
+
+    const firestoreErrorHandler = (listenerName: string) => (err: any) => {
+        console.error(`${listenerName} listener error:`, err);
+        if (err.message.includes("index")) {
+            setFirestoreError("Adatbázis index frissítés folyamatban...");
+        }
+    };
+
+    const unsubUnitPerms = (currentUser.unitIds || []).map(unitId => 
+      onSnapshot(doc(db, 'unit_permissions', unitId), doc => {
+        if (doc.exists()) setUnitPermissions(prev => ({ ...prev, [unitId]: doc.data() }));
+      })
+    );
+
+    let todosQueryRef;
+    if (!isSuperAdmin && currentUser.unitIds?.length) {
+      todosQueryRef = query(collection(db, 'todos'), where('unitId', 'in', currentUser.unitIds));
+    } else {
+      todosQueryRef = collection(db, 'todos');
+    }
+    const unsubTodos = onSnapshot(todosQueryRef, snapshot => setTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
+
+    let unsubAdminTodos = () => {};
+    if (isSuperAdmin) {
+        unsubAdminTodos = onSnapshot(collection(db, 'admin_todos'), snapshot => setAdminTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
+    }
+
+    let shiftsQueryRef;
+    if (currentUser.role !== 'Admin' && currentUser.unitIds?.length) {
+      shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
+    } else {
+      shiftsQueryRef = collection(db, 'shifts');
+    }
+    const unsubShifts = onSnapshot(shiftsQueryRef, snapshot => setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))));
+
+    let requestsQueryRef;
+    if (isUnitAdmin) {
+        requestsQueryRef = query(collection(db, 'requests'), where('unitId', 'in', currentUser.unitIds!));
+    } else if (!isSuperAdmin) {
+        requestsQueryRef = query(collection(db, 'requests'), where('userId', '==', currentUser.id));
+    } else {
+        requestsQueryRef = collection(db, 'requests');
+    }
+    const unsubRequests = onSnapshot(requestsQueryRef, snapshot => setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request))));
+
+    const timeEntriesQuery = query(collection(db, 'time_entries'), where('userId', '==', currentUser.id));
+    const unsubTimeEntries = onSnapshot(timeEntriesQuery, snapshot => setTimeEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeEntry))));
+
+    const unsubFeedback = (() => {
+      let queryRef;
+      if (!isSuperAdmin && currentUser.unitIds?.length) {
+        queryRef = query(collectionGroup(db, 'feedback'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
+        return onSnapshot(queryRef, snapshot => 
+            setFeedbackList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Feedback)))
+          , firestoreErrorHandler("Feedback"));
+      }
+      queryRef = collectionGroup(db, 'feedback');
+      return onSnapshot(queryRef, snapshot => {
+        const feedbackData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Feedback));
+        feedbackData.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+        setFeedbackList(feedbackData);
+      }, firestoreErrorHandler("Feedback"));
+    })();
+
+    const unsubPolls = (() => {
+      let queryRef;
+      if (!isSuperAdmin && currentUser.unitIds?.length) {
+        queryRef = query(collectionGroup(db, 'polls'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
+        return onSnapshot(queryRef, snapshot =>
+            setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)))
+          , firestoreErrorHandler("Polls"));
+      }
+      queryRef = collectionGroup(db, 'polls');
+      return onSnapshot(queryRef, snapshot => {
+        const pollsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll));
+        pollsData.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+        setPolls(pollsData);
+      }, firestoreErrorHandler("Polls"));
+    })();
+
+    return () => {
+      unsubUnitPerms.forEach(unsub => unsub());
+      unsubTodos();
+      unsubAdminTodos();
+      unsubShifts();
+      unsubRequests();
+      unsubTimeEntries();
+      unsubFeedback();
+      unsubPolls();
+    };
+  }, [currentUser, isDemoMode]);
+
+  useEffect(() => {
+    switch (appState) {
+      case 'login': document.title = 'Sign in - mintleaf.hu'; break;
+      case 'register': document.title = 'Regisztráció - mintleaf.hu'; break;
+      case 'dashboard': document.title = 'Dashboard - mintleaf.hu'; break;
+      default: document.title = 'MintLeaf';
+    }
+  }, [appState]);
+
+  const handleLogout = async () => {
+    if (isDemoMode) {
+        window.location.href = window.location.pathname;
+        return;
+    }
+    try { await signOut(auth); } catch (error) { console.error(error); }
+  };
+
+  const handleRegisterSuccess = () => {
+    window.location.href = window.location.pathname;
+  }
+
   switch (appState) {
     case 'public':
         if (publicPage?.type === 'reserve') return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
         if (publicPage?.type === 'manage') return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
-        return <div>Hiba</div>;
-    case 'loading': return <LoadingSpinner />;
-    case 'register': return <Register inviteCode={inviteCode!} onRegisterSuccess={() => {}} />;
+        return <div className="fixed inset-0 flex items-center justify-center">Hiba: {publicPage?.message}</div>;
+    case 'loading':
+      return <div className="fixed inset-0 flex items-center justify-center"><LoadingSpinner /></div>;
+    case 'register':
+      return <div className="fixed inset-0 flex items-center justify-center"><Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} /></div>;
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
           
-          {/* BRIDGE: Most már megkapja a PREVIEW-t is! */}
+          {/* Bridge: Propok helyes továbbítása a ThemeManagernek */}
           <ThemeManagerBridge 
             allUnits={allUnits} 
             bases={themeBases} 
-            previewBases={previewBases} // <--- PREVIEW ÁTADÁSA
             themeMode={themeMode} 
             useBrandTheme={useBrandTheme} 
           />
@@ -192,35 +414,32 @@ const App: React.FC = () => {
             currentUser={currentUser}
             onLogout={handleLogout}
             isDemoMode={isDemoMode}
-            // ... data props ...
-            requests={requests} shifts={shifts} todos={todos} adminTodos={adminTodos}
-            allUnits={allUnits} allUsers={allUsers} permissions={permissions} unitPermissions={unitPermissions}
-            timeEntries={timeEntries} feedbackList={feedbackList} polls={polls}
+            requests={requests}
+            shifts={shifts}
+            todos={todos}
+            adminTodos={adminTodos}
+            allUnits={allUnits}
+            allUsers={allUsers}
+            permissions={permissions}
+            unitPermissions={unitPermissions}
+            timeEntries={timeEntries}
+            feedbackList={feedbackList}
+            polls={polls}
             firestoreError={firestoreError}
-            
-            // THEME PROPS
+            // Téma propok
             themeMode={themeMode}
             onThemeModeChange={setThemeMode}
-            themeBases={themeBases} // Ez a mentett
-            onThemeBasesChange={(newBases) => {
-                // FONTOS: Ez a függvény hívódik meg az Editorból minden változtatáskor!
-                // Itt állítjuk be a PREVIEW-t, hogy azonnal látszódjon.
-                setPreviewBases(newBases);
-            }}
-            
-            // BRAND PROPS
+            themeBases={themeBases}
+            onThemeBasesChange={setThemeBases}
+            // Brand propok
             useBrandTheme={useBrandTheme}
             onBrandChange={setUseBrandTheme}
           />
-          
-          {/* Editor kikapcsolásakor töröljük a preview-t */}
-          {/* Ezt a logikát érdemes a Dashboardba tenni a "Close" gombra, 
-              de egyelőre a save/cancel gombok kezelik az Editorban. */}
-
         </UnitProvider>
       );
     case 'login':
-    default: return <Login loginMessage={loginMessage} />;
+    default:
+      return <div className="fixed inset-0"><Login loginMessage={loginMessage} /></div>;
   }
 };
 
