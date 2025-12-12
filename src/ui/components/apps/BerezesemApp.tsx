@@ -62,7 +62,15 @@ const DayEntriesModal: React.FC<{
                     {entries.length > 0 ? entries.sort((a,b) => a.startTime.toMillis() - b.startTime.toMillis()).map(entry => {
                         const duration = entry.endTime ? (entry.endTime.toMillis() - entry.startTime.toMillis()) / (1000 * 60 * 60) : 0;
                         return (
-                            <div key={entry.id} className="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
+                            <div
+                              key={entry.id}
+                              className="p-3 rounded-lg flex justify-between items-center border"
+                              style={{
+                                backgroundColor: 'var(--color-surface)',
+                                color: 'var(--color-text-main)',
+                                borderColor: 'var(--color-border)',
+                              }}
+                            >
                                 <div>
                                     <p className="font-bold text-[var(--color-text-main)]">
                                         {entry.startTime.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}

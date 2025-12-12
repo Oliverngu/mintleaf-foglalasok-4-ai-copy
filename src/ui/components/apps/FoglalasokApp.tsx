@@ -192,7 +192,12 @@ const BookingDetailsModal: React.FC<{
                   {isAdmin && (
                     <button
                       onClick={() => onDelete(booking)}
-                      className="absolute top-3 right-3 p-2 text-gray-400 bg-white/50 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-100 transition-opacity"
+                      className="absolute top-3 right-3 p-2 text-gray-400 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
+                      style={{
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-secondary)',
+                        opacity: 0.85,
+                      }}
                       title="Foglalás törlése"
                     >
                       <TrashIcon className="h-5 w-5" />

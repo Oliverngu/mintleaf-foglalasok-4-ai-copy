@@ -285,12 +285,20 @@ const TodoApp: React.FC<TodoAppProps> = ({ todos, loading, error, currentUser, a
     const dailyTypeLabel =
       todo.dailyType === 'opening' ? 'Nyitási' : todo.dailyType === 'closing' ? 'Zárási' : 'Napi';
 
+    const isDailyGradient = !isDaily && todo.dailyType;
+
     return (
       <div
         className={`relative p-4 rounded-xl shadow-md border flex items-start gap-4 transition-opacity ${
           todo.isDone ? 'opacity-60' : ''
+        } ${
+          isDailyGradient ? 'bg-gradient-to-r from-emerald-50/70 to-teal-50/70' : ''
         }`}
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        style={{
+          backgroundColor: isDailyGradient ? undefined : 'var(--color-surface)',
+          color: 'var(--color-text-main)',
+          borderColor: 'var(--color-border)',
+        }}
       >
         {isNew && (
           <span

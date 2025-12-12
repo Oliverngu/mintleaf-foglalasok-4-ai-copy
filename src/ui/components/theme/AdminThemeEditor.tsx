@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ThemeBases } from '../../../core/theme/types';
 import { DEFAULT_BASES, saveBases } from '../../../core/theme/storage';
 import ColorPicker from '../common/ColorPicker';
@@ -26,6 +26,10 @@ const colorFields = [
 const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBases }) => {
   const [activeTab, setActiveTab] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState<ThemeBases>(bases);
+
+  useEffect(() => {
+    setDraft(bases);
+  }, [bases]);
 
   const current = useMemo(() => draft[activeTab], [draft, activeTab]);
 

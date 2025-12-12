@@ -1397,7 +1397,11 @@ useEffect(() => {
         <>
           <div
             className="flex flex-wrap gap-2 p-2 rounded-xl shadow-sm border"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-main)',
+              borderColor: 'var(--color-border)',
+            }}
           >
             {categories.map(category => (
               <button

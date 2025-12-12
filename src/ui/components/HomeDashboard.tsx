@@ -523,7 +523,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <ThemeSelector activeUnit={primaryUnit} value={themeMode} onThemeChange={onThemeChange} />
           <button
             onClick={() => setShowThemeEditor(prev => !prev)}
-            className="px-3 py-2 text-sm font-semibold rounded-lg border border-gray-200 bg-white hover:bg-gray-100"
+            className="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-main)',
+              borderColor: 'var(--color-border)',
+            }}
             type="button"
           >
             Theme Editor
@@ -584,8 +589,15 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     `}
                 >
                    {isEditMode && (
-                        <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-white/70 backdrop-blur-sm p-1 rounded-full shadow">
-                            <button 
+                        <div
+                          className="absolute top-2 right-2 z-10 flex items-center gap-0.5 backdrop-blur-sm p-1 rounded-full shadow"
+                          style={{
+                            backgroundColor: 'var(--color-surface)',
+                            color: 'var(--color-text-main)',
+                            opacity: 0.9,
+                          }}
+                        >
+                            <button
                                 onClick={() => moveWidget(widget.id, 'up')}
                                 disabled={index === 0}
                                 className="p-1.5 hover:bg-gray-200 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"

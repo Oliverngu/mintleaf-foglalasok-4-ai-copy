@@ -2692,7 +2692,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <div className="mb-4 flex items-center justify-between">
           <button
             onClick={() => setIsEditMode(!isEditMode)}
-            className="text-sm px-3 py-1 rounded-full border border-gray-300 bg-white hover:bg-gray-100"
+            className="text-sm px-3 py-1 rounded-full border transition-colors"
+            style={{
+              backgroundColor: 'var(--color-surface-static)',
+              color: 'var(--color-text-main)',
+              borderColor: 'var(--color-border)',
+            }}
           >
             {isEditMode
               ? 'Sorrend szerkesztése: BE'
@@ -2707,7 +2712,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       <div
         className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
-        style={{ backgroundColor: 'var(--color-surface)' }}
+        style={{
+          backgroundColor: 'var(--color-surface-static)',
+          color: 'var(--color-text-main)',
+          borderColor: 'var(--color-border)',
+        }}
       >
         <table
           ref={tableRef}

@@ -17,6 +17,7 @@ const VARIABLE_KEYS = [
   '--color-sidebar-hover',
   '--color-background',
   '--color-surface',
+  '--color-surface-static',
   '--color-surface-brand',
   '--color-text',
   '--color-text-body',
@@ -71,6 +72,8 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   const rootStyle = document.documentElement.style;
   const primaryColor = brandOverride?.secondary || palette.primary;
   const surfaceColor = brandOverride?.surface || palette.surface;
+
+  rootStyle.setProperty('--color-surface-static', '#ffffff');
 
   rootStyle.setProperty('--color-primary', primaryColor);
   rootStyle.setProperty('--color-secondary', brandOverride?.secondary || palette.secondary);
