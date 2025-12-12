@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll,
+  User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll, Booking,
 } from '../../core/models/data';
 
 // --- FIREBASE IMPORTOK ---
@@ -59,6 +59,7 @@ interface DashboardProps {
   isDemoMode: boolean;
   requests: Request[];
   shifts: Shift[];
+  bookings: Booking[];
   todos: Todo[];
   adminTodos: Todo[];
   allUnits: Unit[];
@@ -66,6 +67,7 @@ interface DashboardProps {
   permissions: RolePermissions;
   unitPermissions: Record<string, any>;
   timeEntries: TimeEntry[];
+  userPrivateData: Record<string, any>;
   feedbackList: Feedback[];
   polls: Poll[];
   firestoreError?: string | null;
@@ -87,6 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   isDemoMode,
   requests,
   shifts,
+  bookings,
   todos,
   adminTodos,
   allUnits,
@@ -94,6 +97,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   permissions,
   unitPermissions,
   timeEntries,
+  userPrivateData,
   feedbackList,
   polls,
   firestoreError,
@@ -120,17 +124,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (activeUnitIds.length > 0) return;
 
     if (currentUser && allUnits.length > 0) {
-      let unitsToSelect: string[] = [];
+      const preferredUnitIds = (currentUser.unitIds && currentUser.unitIds.length > 0)
+        ? currentUser.unitIds
+        : allUnits.map(u => u.id);
 
-      if (currentUser.role === 'Admin') {
-        // Adminnak alapból nem választunk ki mindent (mert túl sok lehet), csak az elsőt, hogy legyen adat
-        if (allUnits.length > 0) unitsToSelect = [allUnits[0].id];
-      } else {
-        // Usernek kiválasztjuk az összes saját egységét
-        const userUnitIds = currentUser.unitIds || [];
-        // Csak valid ID-k
-        unitsToSelect = userUnitIds.filter(id => allUnits.some(u => u.id === id));
-      }
+      const unitsToSelect = preferredUnitIds.filter(id => allUnits.some(u => u.id === id));
 
       if (unitsToSelect.length > 0) {
         console.log("Auto-selecting units for data visibility:", unitsToSelect);
@@ -182,26 +180,44 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (allUnits.length === 0) return <div className="text-white px-2">Betöltés...</div>;
 
     // Admin lásson mindent, User csak a sajátját
-    const visibleUnits = currentUser.role === 'Admin' 
-      ? allUnits 
+    const visibleUnits = currentUser.role === 'Admin'
+      ? allUnits
       : allUnits.filter(u => currentUser.unitIds?.includes(u.id));
 
-    const isMultiSelect = currentUser.role === 'Admin'; // Vagy bárki más, ha engedélyezed
+    const allVisibleUnitIds = visibleUnits.map(u => u.id);
 
     const handleSelection = (unitId: string) => {
-        if (isMultiSelect) {
-            setActiveUnitIds(prev => prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]);
-        } else {
-            setActiveUnitIds([unitId]);
-        }
+      setActiveUnitIds(prev => prev.includes(unitId)
+        ? prev.filter(id => id !== unitId)
+        : [...prev, unitId]);
+    };
+
+    const toggleAllUnits = () => {
+      setActiveUnitIds(prev => {
+        const hasAllSelected = allVisibleUnitIds.length > 0 && allVisibleUnitIds.every(id => prev.includes(id));
+        return hasAllSelected ? [] : allVisibleUnitIds;
+      });
     };
 
     return (
       <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
+        {allVisibleUnitIds.length > 1 && (
+          <button
+            onClick={toggleAllUnits}
+            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap ${
+              allVisibleUnitIds.length > 0 && allVisibleUnitIds.every(id => activeUnitIds.includes(id))
+                ? 'bg-white text-green-800 shadow-md'
+                : 'bg-white/10 text-white hover:bg-white/20'
+            }`}
+          >
+            Összes
+          </button>
+        )}
+
         {visibleUnits.map(unit => (
           <button
             key={unit.id}
-            onClick={() => handleSelection(unit.id)} 
+            onClick={() => handleSelection(unit.id)}
             className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap ${
               activeUnitIds.includes(unit.id) ? 'bg-white text-green-800 shadow-md' : 'bg-white/10 text-white hover:bg-white/20'
             }`}
@@ -317,14 +333,12 @@ const Dashboard: React.FC<DashboardProps> = ({
         {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} aria-hidden="true"></div>}
 
         {/* Sidebar */}
-        <aside 
-            className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`} 
-            style={{ 
-                // ITT JAVÍTOTTAM A HÁTTÉRSZÍNT:
-                backgroundColor: 'var(--color-sidebar-bg) !important', // !important hogy felülírja a Tailwindet
+        <aside
+            className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`}
+            style={{
+                backgroundColor: 'var(--color-sidebar-bg) !important' as any, // !important hogy felülírja a Tailwindet
                 color: 'var(--color-sidebar-text)',
                 borderColor: 'var(--color-border)',
-                background: 'var(--color-sidebar-bg)', // Fallback
             }}
         >
             <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0" style={{ borderColor: 'var(--color-border)' }}>
