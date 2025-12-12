@@ -17,13 +17,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     // 1. Reset all relevant CSS variables to avoid stale values
     const resetVars = [
       '--ui-header-image',
+      '--ui-sidebar-image',
       '--ui-header-blend-mode',
       '--color-primary',
       '--color-secondary',
       '--color-background',
       '--color-surface',
       '--color-header-bg',
+      '--color-sidebar-bg',
+      '--color-sidebar-hover',
+      '--color-accent',
+      '--color-input-bg',
       '--color-text-main',
+      '--color-text-secondary',
       '--color-border',
     ];
     resetVars.forEach(v => root.style.removeProperty(v));
@@ -41,10 +47,17 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     set('--color-background', config?.background || (isLight ? '#f1f5f9' : '#020617'));
     set('--color-surface', config?.surface || (isLight ? '#ffffff' : '#1e293b'));
     set('--color-header-bg', config?.headerBg || (isLight ? '#15803d' : '#0f172a'));
+    set('--color-sidebar-bg', config?.sidebarBg || (isLight ? '#ffffff' : '#1e293b'));
+    set('--color-sidebar-hover', config?.sidebarHover || (isLight ? '#ecfdf3' : '#334155'));
+    set('--color-accent', config?.accent || (isLight ? '#f97316' : '#22d3ee'));
+    set('--color-input-bg', config?.inputBg || (isLight ? '#ffffff' : '#0f172a'));
     set('--color-text-main', config?.textMain || (isLight ? '#000000' : '#ffffff'));
+    set('--color-text-secondary', config?.textSecondary || (isLight ? '#64748b' : '#94a3b8'));
     set('--color-border', config?.border || '#e2e8f0');
 
     let headerImage = config?.headerImage ? `url('${config.headerImage}')` : 'none';
+    const sidebarImage = config?.sidebarImage ? `url('${config.sidebarImage}')` : 'none';
+    set('--ui-sidebar-image', sidebarImage);
 
     // 3. Brand overrides
     if (useBrandTheme && activeUnit) {
@@ -53,7 +66,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
         set('--color-header-bg', activeUnit.brandColors.primary);
       }
       if (activeUnit.brandColors?.secondary) set('--color-secondary', activeUnit.brandColors.secondary);
-      if (activeUnit.brandColors?.background) set('--color-background', activeUnit.brandColors.background);
+      if (activeUnit.brandColors?.background) {
+        set('--color-background', activeUnit.brandColors.background);
+        set('--color-sidebar-bg', activeUnit.brandColors.background);
+      }
 
       if (activeUnit.uiHeaderImageUrl) {
         headerImage = `url('${activeUnit.uiHeaderImageUrl}')`;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ThemeBases, ThemeColors } from '../../../core/theme/types';
+import { ThemeBases } from '../../../core/theme/types';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import ColorPicker from '../common/ColorPicker'; 
+import ColorPicker from '../common/ColorPicker';
 
 interface AdminThemeEditorProps {
   bases: ThemeBases;
@@ -15,7 +15,7 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
 
   useEffect(() => { setLocalConfig(bases); }, [bases]);
 
-  const updateColor = (key: keyof ThemeColors, value: string) => {
+  const updateValue = (key: keyof ThemeBases['light'], value: string) => {
     const newConfig = {
       ...localConfig,
       [activeTab]: { ...localConfig[activeTab], [key]: value }
@@ -37,12 +37,23 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-          <ColorPicker label="Primary" value={currentColors.primary || '#15803d'} onChange={(c) => updateColor('primary', c)} />
-          <ColorPicker label="Secondary" value={currentColors.secondary || '#15803d'} onChange={(c) => updateColor('secondary', c)} />
-          <ColorPicker label="Background" value={currentColors.background || '#f1f5f9'} onChange={(c) => updateColor('background', c)} />
-          <ColorPicker label="Surface (Card)" value={currentColors.surface || '#ffffff'} onChange={(c) => updateColor('surface', c)} />
-          <ColorPicker label="Header Bg" value={currentColors.headerBg || '#15803d'} onChange={(c) => updateColor('headerBg', c)} />
-          <ColorPicker label="Text Main" value={currentColors.textMain || '#000000'} onChange={(c) => updateColor('textMain', c)} />
+          <ColorPicker label="Primary" value={currentColors.primary || '#15803d'} onChange={(c) => updateValue('primary', c)} />
+          <ColorPicker label="Secondary" value={currentColors.secondary || '#15803d'} onChange={(c) => updateValue('secondary', c)} />
+          <ColorPicker label="Background" value={currentColors.background || '#f1f5f9'} onChange={(c) => updateValue('background', c)} />
+          <ColorPicker label="Surface (Card)" value={currentColors.surface || '#ffffff'} onChange={(c) => updateValue('surface', c)} />
+          <ColorPicker label="Header Bg" value={currentColors.headerBg || '#15803d'} onChange={(c) => updateValue('headerBg', c)} />
+          <ColorPicker label="Text Main" value={currentColors.textMain || '#000000'} onChange={(c) => updateValue('textMain', c)} />
+      </div>
+
+      <div className="mt-6 space-y-2">
+        <label className="block text-sm font-medium text-gray-700">Sidebar Image URL</label>
+        <input
+          type="url"
+          value={currentColors.sidebarImage || ''}
+          onChange={(e) => updateValue('sidebarImage', e.target.value)}
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          placeholder="https://example.com/sidebar-background.jpg"
+        />
       </div>
       
       {/* MENTÉS GOMB A VÉGÉN - Ez írja be az adatbázisba */}
