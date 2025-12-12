@@ -4,7 +4,9 @@ export type BaseTheme = {
   primary: string;
   secondary: string;
   headerBg: string;
+  headerImage?: string;
   sidebarBg: string;
+  sidebarImage?: string;
   background: string;
   surface: string;
   accent: string;

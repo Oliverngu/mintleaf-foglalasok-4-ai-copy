@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   User,
   Request,
@@ -75,6 +75,8 @@ interface DashboardProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   themeBases: ThemeBases;
   onThemeBasesChange: (bases: ThemeBases) => void;
+  useBrandTheme: boolean;
+  onBrandChange: (enabled: boolean) => void;
 }
 
 type AppName =
@@ -124,6 +126,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   onThemeModeChange,
   themeBases,
   onThemeBasesChange,
+  useBrandTheme,
+  onBrandChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -373,6 +377,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             activeUnit={activeUnit}
             themeBases={themeBases}
             onThemeBasesChange={onThemeBasesChange}
+            useBrandTheme={useBrandTheme}
+            onBrandChange={onBrandChange}
           />
         );
       case 'kerelemek':
@@ -540,6 +546,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             activeUnit={activeUnit}
             themeBases={themeBases}
             onThemeBasesChange={onThemeBasesChange}
+            useBrandTheme={useBrandTheme}
+            onBrandChange={onBrandChange}
           />
         );
     }
@@ -547,14 +555,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const isChatLayout = activeApp === 'chat';
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
-
-  const handleToggleTheme = useCallback(() => {
-    document.body.classList.add('no-transition');
-    onThemeModeChange(themeMode === 'light' ? 'dark' : 'light');
-    setTimeout(() => {
-      document.body.classList.remove('no-transition');
-    }, 100);
-  }, [onThemeModeChange, themeMode]);
 
   return (
     <>
@@ -580,93 +580,105 @@ const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Sidebar */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col ${
+          className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex items-start ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } w-64`}
-          style={{ backgroundColor: 'var(--color-sidebar-bg)', color: 'var(--color-sidebar-text)' }}
+          style={{ backgroundColor: 'var(--color-secondary)' }}
         >
-        <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <MintLeafLogo className="h-8 w-8" />
-            <span className="font-bold text-xl" style={{ color: 'var(--color-sidebar-text)' }}>
-              MintLeaf
-            </span>
-          </div>
-        </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <NavItem app="home" icon={HomeIcon} label="Kezdőlap" disabledAppCheck={false} />
-
-          <CategoryItem name="altalanos" label="Általános" icon={ScheduleIcon}>
-            <NavItem app="beosztas" icon={ScheduleIcon} label="Beosztás" />
-            <NavItem app="foglalasok" icon={BookingIcon} label="Foglalások" />
-            <NavItem app="berezesem" icon={MoneyIcon} label="Óraszámok" />
-            <NavItem
-              app="kerelemek"
-              icon={CalendarIcon}
-              label="Szabadnapok"
-              permission="canSubmitLeaveRequests"
-            />
-          </CategoryItem>
-
-          <CategoryItem name="feladatok" label="Feladatok és Tudás" icon={TodoIcon}>
-            <NavItem app="todos" icon={TodoIcon} label="Teendők" />
-            {currentUser.role === 'Admin' && (
-              <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
-            )}
-            <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
-            {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && (
-              <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
-            )}
-            <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
-          </CategoryItem>
-
-          <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
-            <NavItem app="chat" icon={ChatIcon} label="Chat" />
-            <NavItem app="szavazasok" icon={PollsIcon} label="Szavazások" />
-            <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
-          </CategoryItem>
-
-          <NavItem
-            app="unit_settings"
-            icon={Cog6ToothIcon}
-            label="Üzlet Beállítások"
-            permission="canManageAdminPage"
-            disabledAppCheck={false}
-          />
-          <NavItem
-            app="adminisztracio"
-            icon={AdminIcon}
-            label="Adminisztráció"
-            permission="canManageAdminPage"
-            disabledAppCheck={false}
-          />
-        </nav>
-        <div className="p-3 border-t space-y-1 flex-shrink-0">
-          <button
-            onClick={() => {
-              setActiveApp('settings');
-              setSidebarOpen(false);
-            }}
-            className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-              activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
-            }`}
+          <div
+            className="flex h-full w-[calc(100%-6px)] flex-col shadow-xl mr-1.5"
             style={{
-              backgroundColor:
-                activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
-              color:
-                activeApp === 'settings'
-                  ? 'var(--color-text-on-primary)'
-                  : 'var(--color-text-main)',
+              backgroundColor: 'var(--color-sidebar-bg)',
+              backgroundImage: 'var(--ui-sidebar-image)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              color: 'var(--color-sidebar-text)',
+              overflowY: 'auto',
             }}
-            title="Beállítások"
           >
-            <SettingsIcon className="h-6 w-6" />
-          </button>
-        </div>
-        <div className="p-2 text-center text-gray-400 text-xs">
-          Beta version by Oliver Nguyen
-        </div>
-      </aside>
+            <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <MintLeafLogo className="h-8 w-8" />
+                <span className="font-bold text-xl" style={{ color: 'var(--color-sidebar-text)' }}>
+                  MintLeaf
+                </span>
+              </div>
+            </div>
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+              <NavItem app="home" icon={HomeIcon} label="Kezdőlap" disabledAppCheck={false} />
+
+              <CategoryItem name="altalanos" label="Általános" icon={ScheduleIcon}>
+                <NavItem app="beosztas" icon={ScheduleIcon} label="Beosztás" />
+                <NavItem app="foglalasok" icon={BookingIcon} label="Foglalások" />
+                <NavItem app="berezesem" icon={MoneyIcon} label="Óraszámok" />
+                <NavItem
+                  app="kerelemek"
+                  icon={CalendarIcon}
+                  label="Szabadnapok"
+                  permission="canSubmitLeaveRequests"
+                />
+              </CategoryItem>
+
+              <CategoryItem name="feladatok" label="Feladatok és Tudás" icon={TodoIcon}>
+                <NavItem app="todos" icon={TodoIcon} label="Teendők" />
+                {currentUser.role === 'Admin' && (
+                  <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
+                )}
+                <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
+                {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && (
+                  <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
+                )}
+                <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
+              </CategoryItem>
+
+              <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
+                <NavItem app="chat" icon={ChatIcon} label="Chat" />
+                <NavItem app="szavazasok" icon={PollsIcon} label="Szavazások" />
+                <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
+              </CategoryItem>
+
+              <NavItem
+                app="unit_settings"
+                icon={Cog6ToothIcon}
+                label="Üzlet Beállítások"
+                permission="canManageAdminPage"
+                disabledAppCheck={false}
+              />
+              <NavItem
+                app="adminisztracio"
+                icon={AdminIcon}
+                label="Adminisztráció"
+                permission="canManageAdminPage"
+                disabledAppCheck={false}
+              />
+            </nav>
+            <div className="p-3 border-t space-y-1 flex-shrink-0">
+              <button
+                onClick={() => {
+                  setActiveApp('settings');
+                  setSidebarOpen(false);
+                }}
+                className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
+                  activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
+                }`}
+                style={{
+                  backgroundColor:
+                    activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
+                  color:
+                    activeApp === 'settings'
+                      ? 'var(--color-text-on-primary)'
+                      : 'var(--color-text-main)',
+                }}
+                title="Beállítások"
+              >
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-2 text-center text-gray-400 text-xs">
+              Beta version by Oliver Nguyen
+            </div>
+          </div>
+        </aside>
 
       {/* Main Content */}
       <div className="flex flex-col h-full w-full">
@@ -676,7 +688,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundColor: 'var(--color-primary)',
             color: 'var(--color-text-on-primary)',
             backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'overlay',
+            backgroundBlendMode: 'var(--ui-header-blend-mode)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
@@ -692,14 +704,6 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="font-semibold">{currentUser.fullName}</div>
               <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
-            <button
-              onClick={handleToggleTheme}
-              title="Téma váltása"
-              className="p-2 rounded-full hover:bg-white/20"
-              type="button"
-            >
-              {themeMode === 'dark' ? '🌙' : '☀️'}
-            </button>
             <button
               onClick={onLogout}
               title="Kijelentkezés"
