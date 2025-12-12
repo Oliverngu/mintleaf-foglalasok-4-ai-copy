@@ -3,7 +3,7 @@ import {
   User, Request, Shift, Todo, Unit, RolePermissions, Permissions, TimeEntry, Feedback, Poll,
 } from '../../core/models/data';
 
-// --- FIREBASE IMPORTOK (PÓTOLVA) ---
+// --- FIREBASE IMPORTOK ---
 import { db, auth } from '../../core/firebase/config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
@@ -112,16 +112,30 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const activeUnit = useMemo(() => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null), [activeUnitIds, allUnits]);
 
-  // --- AUTOMATIKUS UNIT VÁLASZTÁS (Hogy ne legyen üres az oldal) ---
+  // --- AUTOMATIKUS UNIT VÁLASZTÁS (Javítva: Többszörös kiválasztás támogatása) ---
   useEffect(() => {
-    if (activeUnitIds.length === 0 && allUnits.length > 0 && currentUser) {
-      let defaultUnitId: string | undefined;
+    // Ha már van kiválasztva valami, NE nyúljunk hozzá! (Ez engedi a többszörös kiválasztást)
+    if (activeUnitIds.length > 0) return;
+
+    // Csak akkor avatkozunk be, ha ÜRES a lista és az adatok betöltődtek
+    if (currentUser && allUnits.length > 0) {
+      let defaultUnits: string[] = [];
+
+      // Ha Admin, és még nincs választás, akkor alapból egyiket sem, vagy az összeset (igény szerint).
+      // Itt most az első elérhetőt választjuk ki kezdésnek, hogy ne legyen üres a képernyő.
       if (currentUser.role === 'Admin') {
-        defaultUnitId = allUnits[0]?.id;
-      } else if (currentUser.unitIds && currentUser.unitIds.length > 0) {
-        defaultUnitId = currentUser.unitIds.find(id => allUnits.some(u => u.id === id));
+         if (allUnits[0]) defaultUnits = [allUnits[0].id];
+      } 
+      // Ha User, akkor az összes hozzárendelt egységet kiválasztjuk alapból!
+      else if (currentUser.unitIds && currentUser.unitIds.length > 0) {
+         // Csak azokat, amik tényleg léteznek az allUnits-ban
+         defaultUnits = currentUser.unitIds.filter(id => allUnits.some(u => u.id === id));
       }
-      if (defaultUnitId) setActiveUnitIds([defaultUnitId]);
+
+      if (defaultUnits.length > 0) {
+        console.log("Auto-selecting units:", defaultUnits);
+        setActiveUnitIds(defaultUnits);
+      }
     }
   }, [activeUnitIds.length, allUnits, currentUser, setActiveUnitIds]);
 
@@ -164,14 +178,32 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
+  // --- UNIT SELECTOR (Többszörös kiválasztás támogatása) ---
   const UnitSelector = () => {
-    if (!activeUnit) return <div className="text-white font-semibold px-3">Nincs egység</div>;
+    if (allUnits.length === 0) return <div className="text-white px-2">Betöltés...</div>;
+
+    const userUnits = allUnits.filter(u => currentUser.unitIds?.includes(u.id) || currentUser.role === 'Admin');
+    const isMultiSelect = currentUser.role === 'Admin'; // Admin választhat többet is
+
+    const handleSelection = (unitId: string) => {
+        if (isMultiSelect) {
+            // Ha már benne van, kivesszük, ha nincs, beletesszük
+            setActiveUnitIds(prev => prev.includes(unitId) 
+                ? prev.filter(id => id !== unitId) 
+                : [...prev, unitId]
+            );
+        } else {
+            // User csak egyet választhat
+            setActiveUnitIds([unitId]);
+        }
+    };
+
     return (
       <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
-        {allUnits.filter(u => currentUser.unitIds?.includes(u.id) || currentUser.role === 'Admin').map(unit => (
+        {userUnits.map(unit => (
           <button
             key={unit.id}
-            onClick={() => setActiveUnitIds([unit.id])} 
+            onClick={() => handleSelection(unit.id)} 
             className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap ${
               activeUnitIds.includes(unit.id) ? 'bg-white text-green-800 shadow-md' : 'bg-white/10 text-white hover:bg-white/20'
             }`}
@@ -179,10 +211,12 @@ const Dashboard: React.FC<DashboardProps> = ({
             {unit.name}
           </button>
         ))}
+        {activeUnitIds.length === 0 && <span className="text-white/50 text-xs italic ml-2">Válassz!</span>}
       </div>
     );
   };
 
+  // NavItem
   interface NavItemProps { app: AppName; icon: React.FC<{ className?: string }>; label: string; permission?: keyof Permissions | 'canManageAdminPage'; disabledAppCheck?: boolean; }
   const NavItem: React.FC<NavItemProps> = ({ app, icon: Icon, label, permission, disabledAppCheck = true }) => {
     if (permission && !hasPermission(permission)) return null;
@@ -241,7 +275,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             polls={polls}
             activeUnitIds={activeUnitIds}
             allUnits={allUnits}
-            // TÉMA PROPOK ÁTADÁSA
+            // Theme Props
             themeMode={themeMode}
             onThemeChange={onThemeModeChange}
             themeBases={themeBases}
@@ -292,10 +326,11 @@ const Dashboard: React.FC<DashboardProps> = ({
         <aside 
             className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex flex-col shadow-xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-64`} 
             style={{ 
-                // JAVÍTÁS: Kényszerítjük a színt, hogy ne legyen átlátszó
-                backgroundColor: 'var(--color-sidebar-bg, #ffffff)', 
+                // JAVÍTÁS: Kényszerítjük a színt, !important, hogy semmilyen Tailwind class ne írja felül
+                backgroundColor: 'var(--color-sidebar-bg, #ffffff)',
                 color: 'var(--color-sidebar-text)',
-                borderColor: 'var(--color-border)'
+                borderColor: 'var(--color-border)',
+                zIndex: 50 // Legyen legfelül
             }}
         >
             {/* Sidebar Fejléc */}
@@ -347,8 +382,9 @@ const Dashboard: React.FC<DashboardProps> = ({
         <main className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass} bg-transparent`}>
            {firestoreError && <div className="sticky top-0 z-50 m-4 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-lg"><p className="font-bold">Hiba</p><p>{firestoreError}</p></div>}
            
-           {/* GLOBAL HEADER: MOST MÁR MINDIG MEGJELENIK! */}
-           <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
+           {/* GLOBAL HEADER: Most már mindig megjelenik (Home-on is!), kivéve a ThemeSelectort, mert az már a Home dashboardon van. */}
+           {activeApp !== 'home' && (
+             <header className="h-16 shadow-sm flex items-center justify-between px-6 z-10 sticky top-0 backdrop-blur-md" 
                 style={{ 
                     backgroundColor: 'var(--color-header-bg)', 
                     backgroundImage: 'var(--ui-header-image)', 
@@ -371,6 +407,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <button onClick={onLogout} className="p-2 hover:bg-white/20 rounded-full transition-colors"><LogoutIcon className="w-5 h-5"/></button>
                 </div>
              </header>
+           )}
            
            {renderApp()}
         </main>
