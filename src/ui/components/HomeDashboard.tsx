@@ -31,9 +31,16 @@ interface HomeDashboardProps {
   polls: Poll[];
   activeUnitIds: string[];
   allUnits: Unit[];
+  
+  // --- TÉMA PROPOK ---
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
   activeUnit: Unit | null;
+  
+  // ÚJ: Brand kapcsoló propok (App.tsx-ből jönnek!)
+  useBrandTheme: boolean;
+  onBrandChange: (enabled: boolean) => void;
+
   themeBases: ThemeBases;
   onThemeBasesChange: (bases: ThemeBases) => void;
 }
@@ -64,11 +71,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   themeMode,
   onThemeChange,
   activeUnit,
+  useBrandTheme,      // <-- ÚJ
+  onBrandChange,      // <-- ÚJ
   themeBases,
   onThemeBasesChange,
 }) => {
   // --- BIZTONSÁGI ELLENŐRZÉS ---
-  // Csak akkor true, ha a role pontosan 'Admin'. 'Unit Admin' vagy 'User' esetén false.
   const isGlobalAdmin = currentUser?.role === 'Admin';
 
   const [isClockInModalOpen, setClockInModalOpen] = useState(false);
@@ -569,6 +577,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     activeUnit={primaryUnit} 
                     currentTheme={themeMode}
                     onThemeChange={onThemeChange} 
+                    useBrandTheme={useBrandTheme} // BEKÖTVE A PROP
+                    onBrandChange={onBrandChange} // BEKÖTVE A PROP
                 />
                 
                 {/* --- 1. VÉDELEM: Theme Editor gomb CSAK ADMINNAK --- */}
@@ -614,6 +624,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
       {isEditMode && <p className="text-sm text-blue-600 bg-blue-50 p-3 rounded-lg my-4 border border-blue-200">Szerkesztő mód aktív. Rendezd a kártyákat a nyilakkal, vagy kapcsold ki őket a szem ikonnal.</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-6">
+          {/* ... (Widgetek renderelése változatlan) ... */}
           {sortedWidgets.map((widget, index) => {
             const WidgetComponent = widgetMap[widget.id];
             if (!WidgetComponent) return null;
