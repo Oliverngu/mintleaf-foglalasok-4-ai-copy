@@ -18,8 +18,7 @@ type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
 type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
 
-// --- 1. JAVÍTOTT BRIDGE KOMPONENS ---
-// Ez köti össze az App state-et a ThemeManager-rel
+// --- 1. JAVÍTÁS: A Bridge Prop neveinek szinkronizálása a ThemeManagerrel ---
 const ThemeManagerBridge: React.FC<{ 
   allUnits: Unit[]; 
   bases: ThemeBases; 
@@ -36,14 +35,13 @@ const ThemeManagerBridge: React.FC<{
     ? allUnits.find(u => u.id === selectedUnits[0]) || null
     : null;
 
-  // JAVÍTÁS: A propok neveit szinkronba hoztuk a ThemeManager elvárásaival!
-  // Fontos: adminConfig={bases}, themeMode={themeMode}, useBrandTheme={useBrandTheme}
+  // JAVÍTVA: adminConfig={bases}, themeMode={themeMode}
   return (
     <ThemeManager 
       activeUnit={activeUnit} 
       themeMode={themeMode}         
       useBrandTheme={useBrandTheme} 
-      adminConfig={bases}           
+      adminConfig={bases} // Fontos: adminConfig a neve, nem bases!
     />
   );
 };
@@ -72,21 +70,38 @@ const App: React.FC = () => {
 
   // --- Theme States ---
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
+  // Kezdetben üres vagy lokális, később a Firestore felülírja
   const [themeBases, setThemeBases] = useState<ThemeBases>(() => loadBases());
 
   // --- Brand Theme State ---
-  // Alapértelmezés: bekapcsolva (vagy amit a user legutóbb beállított)
   const [useBrandTheme, setUseBrandTheme] = useState<boolean>(() => {
     const saved = localStorage.getItem('mintleaf_use_brand');
     return saved !== null ? saved === 'true' : true; 
   });
 
-  // Theme Effects (Mentés)
+  // --- 2. JAVÍTÁS: GLOBÁLIS TÉMA FIGYELÉSE FIRESTORE-BÓL ---
+  // Ez biztosítja, hogy amit az Admin beállít és elment, azt mindenki megkapja.
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'global_settings', 'theme'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as ThemeBases;
+        setThemeBases(data);
+        saveBases(data); // Elmentjük lokálisan is cache gyanánt
+      }
+    }, (error) => {
+        // Ha nincs jogod olvasni (pl. kijelentkezve), vagy nem létezik, nem baj
+        console.warn("Theme load info:", error.message);
+    });
+    return () => unsub();
+  }, []);
+
+  // Theme Effects (Lokális mentések)
   useEffect(() => {
     saveMode(themeMode);
   }, [themeMode]);
 
   useEffect(() => {
+    // A themeBases-t most már a fenti onSnapshot frissíti, de azért elmentjük
     saveBases(themeBases);
   }, [themeBases]);
 
@@ -97,7 +112,6 @@ const App: React.FC = () => {
 
   // --- Initialization Logic ---
   useEffect(() => {
-    // Check for URL parameters first
     const urlParams = new URLSearchParams(window.location.search);
     const pathname = window.location.pathname;
     const isDemo = urlParams.get('demo') === 'true';
@@ -121,11 +135,10 @@ const App: React.FC = () => {
         }
     }
 
-    // --- 1. Handle Demo Mode ---
+    // Handle Demo Mode
     if (isDemo) {
       setIsDemoMode(true);
       setCurrentUser(demoUser);
-      // Populate state with demo data
       setRequests(demoData.requests);
       setShifts(demoData.shifts);
       setTodos(demoData.todos);
@@ -135,13 +148,12 @@ const App: React.FC = () => {
       setTimeEntries([]);
       setFeedbackList([]);
       setPolls([]);
-      // Set dummy permissions for demo user to see nav items
       setPermissions({ 'Demo User': { canSubmitLeaveRequests: true, canManageTodos: true } });
       setAppState('dashboard');
       return; 
     }
 
-    // --- 2. Handle Registration ---
+    // Handle Registration
     if (registerCode) {
       window.history.replaceState({}, document.title, window.location.pathname);
       const validateInvite = async () => {
@@ -164,7 +176,7 @@ const App: React.FC = () => {
       return; 
     }
 
-    // --- 3. Handle Standard Authentication ---
+    // Handle Standard Authentication
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       let finalUserData: User | null = null;
       if (firebaseUser) {
@@ -175,13 +187,9 @@ const App: React.FC = () => {
 
           if (userDoc.exists()) {
             const data = userDoc.data();
-
             let userUnits: string[] = [];
-            if (data?.unitIds && Array.isArray(data.unitIds)) {
-                userUnits = data.unitIds;
-            } else if (data?.unitId) {
-                userUnits = [data.unitId];
-            }
+            if (data?.unitIds && Array.isArray(data.unitIds)) userUnits = data.unitIds;
+            else if (data?.unitId) userUnits = [data.unitId];
 
             const lastName = data?.lastName || '';
             const firstName = data?.firstName || '';
@@ -199,10 +207,10 @@ const App: React.FC = () => {
               dashboardConfig: data?.dashboardConfig,
             };
           } else {
+            // First time user logic...
             const allUsersQuery = query(collection(db, 'users'), limit(1));
             const allUsersSnapshot = await getDocs(allUsersQuery);
             const role = allUsersSnapshot.empty ? 'Admin' : 'User';
-
             const displayName = firebaseUser.displayName || firebaseUser.email!;
             const nameParts = displayName.split(' ');
             const firstName = nameParts.pop() || '';
@@ -228,12 +236,10 @@ const App: React.FC = () => {
               unitIds: userData.unitIds,
             });
           }
-
           finalUserData = userData;
           setCurrentUser(userData);
-
         } catch (error) {
-          console.error("Error fetching or creating user data:", error);
+          console.error("Error fetching user data:", error);
           await signOut(auth);
           setCurrentUser(null);
         }
@@ -241,13 +247,9 @@ const App: React.FC = () => {
         setCurrentUser(null);
       }
 
-      if (isReservePage || isManagePage) {
-        setAppState('public');
-      } else if (finalUserData) {
-        setAppState('dashboard');
-      } else {
-        setAppState('login');
-      }
+      if (isReservePage || isManagePage) setAppState('public');
+      else if (finalUserData) setAppState('dashboard');
+      else setAppState('login');
     });
 
     return () => unsubscribe();
@@ -257,20 +259,8 @@ const App: React.FC = () => {
   // --- DATA LISTENERS ---
   useEffect(() => {
     if (isDemoMode) return;
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => setAllUsers(snapshot.docs.map(doc => {
-        const data = doc.data();
-        const lastName = data.lastName || '';
-        const firstName = data.firstName || '';
-        return { 
-            id: doc.id, 
-            ...data,
-            fullName: data.fullName || `${lastName} ${firstName}`.trim(),
-        } as User
-    })));
-    const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => {
-        const unitsFromDb = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unit));
-        setAllUnits(unitsFromDb);
-    });
+    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User))));
+    const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => setAllUnits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unit))));
     const unsubPerms = onSnapshot(collection(db, 'permissions'), snapshot => {
         const perms: RolePermissions = {};
         snapshot.forEach(doc => { perms[doc.id as User['role']] = doc.data() as Partial<Permissions>; });
@@ -279,7 +269,7 @@ const App: React.FC = () => {
     return () => { unsubUsers(); unsubUnits(); unsubPerms(); };
   }, [isDemoMode]);
 
-  // Data listeners that depend on currentUser
+  // Authenticated Data Listeners
   useEffect(() => {
     if (!currentUser || isDemoMode) return;
     setFirestoreError(null);
@@ -289,8 +279,8 @@ const App: React.FC = () => {
 
     const firestoreErrorHandler = (listenerName: string) => (err: any) => {
         console.error(`${listenerName} listener error:`, err);
-        if (err.message.includes("currently building") || err.message.includes("The query requires an index")) {
-            setFirestoreError("Az adatbázis indexek frissülnek a háttérben. Ez néhány percig is eltarthat. A funkciók korlátozottak lehetnek, amíg a folyamat befejeződik. Kérjük, próbálja meg később frissíteni az oldalt.");
+        if (err.message.includes("index")) {
+            setFirestoreError("Adatbázis index frissítés folyamatban...");
         }
     };
 
@@ -301,7 +291,7 @@ const App: React.FC = () => {
     );
 
     let todosQueryRef;
-    if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
+    if (!isSuperAdmin && currentUser.unitIds?.length) {
       todosQueryRef = query(collection(db, 'todos'), where('unitId', 'in', currentUser.unitIds));
     } else {
       todosQueryRef = collection(db, 'todos');
@@ -314,7 +304,7 @@ const App: React.FC = () => {
     }
 
     let shiftsQueryRef;
-    if (currentUser.role !== 'Admin' && currentUser.unitIds && currentUser.unitIds.length > 0) {
+    if (currentUser.role !== 'Admin' && currentUser.unitIds?.length) {
       shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
     } else {
       shiftsQueryRef = collection(db, 'shifts');
@@ -336,7 +326,7 @@ const App: React.FC = () => {
 
     const unsubFeedback = (() => {
       let queryRef;
-      if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
+      if (!isSuperAdmin && currentUser.unitIds?.length) {
         queryRef = query(collectionGroup(db, 'feedback'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
         return onSnapshot(queryRef, snapshot => 
             setFeedbackList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Feedback)))
@@ -352,7 +342,7 @@ const App: React.FC = () => {
 
     const unsubPolls = (() => {
       let queryRef;
-      if (!isSuperAdmin && currentUser.unitIds && currentUser.unitIds.length > 0) {
+      if (!isSuperAdmin && currentUser.unitIds?.length) {
         queryRef = query(collectionGroup(db, 'polls'), where('unitId', 'in', currentUser.unitIds), orderBy('unitId'), orderBy('createdAt', 'desc'));
         return onSnapshot(queryRef, snapshot =>
             setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)))
@@ -365,7 +355,6 @@ const App: React.FC = () => {
         setPolls(pollsData);
       }, firestoreErrorHandler("Polls"));
     })();
-
 
     return () => {
       unsubUnitPerms.forEach(unsub => unsub());
@@ -384,25 +373,16 @@ const App: React.FC = () => {
       case 'login': document.title = 'Sign in - mintleaf.hu'; break;
       case 'register': document.title = 'Regisztráció - mintleaf.hu'; break;
       case 'dashboard': document.title = 'Dashboard - mintleaf.hu'; break;
-      case 'public':
-         if(publicPage?.type === 'reserve') document.title = 'Foglalás - mintleaf.hu';
-         else if (publicPage?.type === 'manage') document.title = 'Foglalás kezelése - mintleaf.hu';
-        break;
-      case 'loading': document.title = 'MintLeaf'; break;
       default: document.title = 'MintLeaf';
     }
-  }, [appState, publicPage]);
+  }, [appState]);
 
   const handleLogout = async () => {
     if (isDemoMode) {
         window.location.href = window.location.pathname;
         return;
     }
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Error signing out:", error);
-    }
+    try { await signOut(auth); } catch (error) { console.error(error); }
   };
 
   const handleRegisterSuccess = () => {
@@ -411,57 +391,18 @@ const App: React.FC = () => {
 
   switch (appState) {
     case 'public':
-        if (publicPage?.type === 'reserve') {
-            return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
-        }
-        if (publicPage?.type === 'manage') {
-            return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
-        }
-            return (
-            <div
-              className="fixed inset-0 flex items-center justify-center p-4"
-              style={{
-                backgroundColor: 'var(--color-background)',
-                backgroundImage: 'var(--ui-bg-image)',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundAttachment: 'fixed',
-                color: 'var(--color-text-main)',
-              }}
-            >
-                <div className="text-center">
-                    <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
-                    <p className="mt-2">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
-                </div>
-            </div>
-        );
+        if (publicPage?.type === 'reserve') return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
+        if (publicPage?.type === 'manage') return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
+        return <div className="fixed inset-0 flex items-center justify-center">Hiba: {publicPage?.message}</div>;
     case 'loading':
-      return (
-        <div
-          className="fixed inset-0 flex items-center justify-center"
-          style={{
-            backgroundColor: 'var(--color-background)',
-            backgroundImage: 'var(--ui-bg-image)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundAttachment: 'fixed',
-            color: 'var(--color-text-main)',
-          }}
-        >
-          <LoadingSpinner />
-        </div>
-      );
+      return <div className="fixed inset-0 flex items-center justify-center"><LoadingSpinner /></div>;
     case 'register':
-      return (
-        <div className="fixed inset-0 flex items-center justify-center p-4 bg-gradient-to-br from-green-50 to-emerald-100">
-          <Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} />
-        </div>
-      );
+      return <div className="fixed inset-0 flex items-center justify-center"><Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} /></div>;
     case 'dashboard':
       return (
         <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-
-          {/* ThemeManager Logic */}
+          
+          {/* Bridge: Propok helyes továbbítása a ThemeManagernek */}
           <ThemeManagerBridge 
             allUnits={allUnits} 
             bases={themeBases} 
@@ -469,7 +410,6 @@ const App: React.FC = () => {
             useBrandTheme={useBrandTheme} 
           />
 
-          {/* Main Dashboard UI */}
           <Dashboard
             currentUser={currentUser}
             onLogout={handleLogout}
@@ -486,11 +426,12 @@ const App: React.FC = () => {
             feedbackList={feedbackList}
             polls={polls}
             firestoreError={firestoreError}
+            // Téma propok
             themeMode={themeMode}
             onThemeModeChange={setThemeMode}
             themeBases={themeBases}
             onThemeBasesChange={setThemeBases}
-            // Propok a Brand kapcsolóhoz:
+            // Brand propok
             useBrandTheme={useBrandTheme}
             onBrandChange={setUseBrandTheme}
           />
@@ -498,11 +439,7 @@ const App: React.FC = () => {
       );
     case 'login':
     default:
-      return (
-        <div className="fixed inset-0">
-          <Login loginMessage={loginMessage} />
-        </div>
-      );
+      return <div className="fixed inset-0"><Login loginMessage={loginMessage} /></div>;
   }
 };
 
