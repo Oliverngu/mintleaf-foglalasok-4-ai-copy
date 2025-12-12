@@ -548,6 +548,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   const isChatLayout = activeApp === 'chat';
   const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
+  const handleToggleTheme = useCallback(() => {
+    document.body.classList.add('no-transition');
+    onThemeModeChange(themeMode === 'light' ? 'dark' : 'light');
+    setTimeout(() => {
+      document.body.classList.remove('no-transition');
+    }, 100);
+  }, [onThemeModeChange, themeMode]);
+
   return (
     <>
       <div
@@ -668,6 +676,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundColor: 'var(--color-primary)',
             color: 'var(--color-text-on-primary)',
             backgroundImage: 'var(--ui-header-image)',
+            backgroundBlendMode: 'overlay',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
@@ -683,6 +692,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="font-semibold">{currentUser.fullName}</div>
               <div className="text-sm opacity-80">{currentUser.role}</div>
             </div>
+            <button
+              onClick={handleToggleTheme}
+              title="Téma váltása"
+              className="p-2 rounded-full hover:bg-white/20"
+              type="button"
+            >
+              {themeMode === 'dark' ? '🌙' : '☀️'}
+            </button>
             <button
               onClick={onLogout}
               title="Kijelentkezés"

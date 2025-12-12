@@ -46,6 +46,16 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
 
   const [selected, setSelected] = useState<ThemeMode>(initial);
 
+  const handleSelect = (mode: ThemeMode) => {
+    document.body.classList.add('no-transition');
+    document.documentElement.classList.add('no-transition');
+    setSelected(mode);
+    setTimeout(() => {
+      document.body.classList.remove('no-transition');
+      document.documentElement.classList.remove('no-transition');
+    }, 100);
+  };
+
   useEffect(() => {
     if (value && value !== selected) {
       setSelected(value);
@@ -71,7 +81,7 @@ const ThemeSelector: React.FC<ThemeSelectorProps> = ({ activeUnit, value, onThem
     return (
       <button
         type="button"
-        onClick={() => setSelected(id)}
+        onClick={() => handleSelect(id)}
         aria-label={label}
         className={`w-9 h-9 rounded-xl transition-all duration-200 flex items-center justify-center border-2 ${
           isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-110 shadow-lg border-transparent' : 'border-transparent opacity-70 hover:opacity-100'

@@ -47,13 +47,13 @@ const DEFAULT_CATEGORY_SEED: { title: string; subcategories?: string[] }[] = [
 ];
 
 const notePaperStyles: React.CSSProperties = {
-  backgroundColor: '#f8fbff',
-  backgroundImage:
-    'linear-gradient(to bottom, rgba(96,165,250,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.6) 1px, transparent 1px)',
-  backgroundSize: '100% 32px, 100% 64px',
-  borderLeft: '6px solid #2563eb',
-  boxShadow: '0 10px 30px rgba(37, 99, 235, 0.08)',
+  backgroundColor: 'var(--color-surface)',
+  backgroundImage: `repeating-linear-gradient(transparent, transparent 31px, var(--color-border) 32px)`,
+  lineHeight: '32px',
+  borderLeft: '6px solid var(--color-secondary)',
+  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.08)',
   position: 'relative',
+  color: 'var(--color-text-main)',
 };
 
 const FileUploadModal: FC<{

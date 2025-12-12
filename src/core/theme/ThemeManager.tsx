@@ -1,4 +1,4 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { Unit } from '../models/data';
 import { BrandOverride, ThemeBases, ThemeMode } from './types';
 
@@ -7,6 +7,7 @@ interface ThemeManagerProps {
   bases: ThemeBases;
   mode: ThemeMode;
   brandMode?: boolean;
+  adminHeaderImageUrl?: string;
 }
 
 const VARIABLE_KEYS = [
@@ -30,6 +31,7 @@ const VARIABLE_KEYS = [
   '--color-sidebar-text',
   '--color-accent',
   '--color-input-bg',
+  '--ui-header-image',
 ];
 
 const lightenColor = (hexColor: string, amount = 0.08) => {
@@ -68,10 +70,15 @@ const clearVariables = () => {
   VARIABLE_KEYS.forEach(key => rootStyle.removeProperty(key));
 };
 
-const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: BrandOverride) => {
+const applyPalette = (
+  palette: Required<ThemeBases>['light'],
+  brandOverride?: BrandOverride,
+  headerImage?: string | null
+) => {
   const rootStyle = document.documentElement.style;
   const primaryColor = brandOverride?.secondary || palette.primary;
   const surfaceColor = brandOverride?.surface || palette.surface;
+  const headerImageValue = headerImage ? `url('${headerImage}')` : 'none';
 
   rootStyle.setProperty('--color-surface-static', '#ffffff');
 
@@ -94,6 +101,7 @@ const applyPalette = (palette: Required<ThemeBases>['light'], brandOverride?: Br
   rootStyle.setProperty('--color-primary-hover', primaryColor);
   rootStyle.setProperty('--color-accent', palette.accent);
   rootStyle.setProperty('--color-input-bg', palette.inputBg);
+  rootStyle.setProperty('--ui-header-image', headerImageValue);
 };
 
 const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined => {
@@ -110,16 +118,35 @@ const deriveBrandOverride = (activeUnit: Unit | null): BrandOverride | undefined
   return Object.keys(override).length ? override : undefined;
 };
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, bases, mode, brandMode }) => {
+const resolveHeaderImage = (activeUnit: Unit | null, adminHeaderImageUrl?: string) => {
+  if (activeUnit?.uiHeaderImageUrl) return activeUnit.uiHeaderImageUrl;
+  if (adminHeaderImageUrl) return adminHeaderImageUrl;
+  return null;
+};
+
+const ThemeManager: React.FC<ThemeManagerProps> = ({
+  activeUnit,
+  bases,
+  mode,
+  brandMode,
+  adminHeaderImageUrl,
+}) => {
+  const previousSignatureRef = useRef<string | null>(null);
+
   useLayoutEffect(() => {
+    const palette = bases[mode];
+    const brandOverride = brandMode ? deriveBrandOverride(activeUnit) : undefined;
+    const headerImage = resolveHeaderImage(activeUnit, adminHeaderImageUrl);
+    const signature = JSON.stringify({ mode, brandMode: !!brandMode, palette, brandOverride, headerImage });
+
+    if (previousSignatureRef.current === signature) return;
+    previousSignatureRef.current = signature;
+
     document.documentElement.classList.add('no-transition');
     document.body.classList.add('no-transition');
     clearVariables();
 
-    const palette = bases[mode];
-    const brandOverride = brandMode ? deriveBrandOverride(activeUnit) : undefined;
-
-    applyPalette(palette, brandOverride);
+    applyPalette(palette, brandOverride, headerImage);
 
     // Force paint to avoid flicker before re-enabling transitions
     void getComputedStyle(document.documentElement).getPropertyValue('--color-primary');
@@ -132,7 +159,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, bases, mode, br
       document.documentElement.classList.remove('no-transition');
       document.body.classList.remove('no-transition');
     };
-  }, [activeUnit, bases, mode, brandMode]);
+  }, [activeUnit, adminHeaderImageUrl, bases, mode, brandMode]);
 
   return null;
 };
