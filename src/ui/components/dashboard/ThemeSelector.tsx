@@ -12,34 +12,52 @@ interface ThemeSelectorProps {
   onBrandChange: (enabled: boolean) => void;
 }
 
-const ThemeSelector: React.FC<ThemeSelectorProps> = ({ 
-  currentTheme, onThemeChange, activeUnit, useBrandTheme, onBrandChange
+const ThemeSelector: React.FC<ThemeSelectorProps> = ({
+  currentTheme,
+  onThemeChange,
+  activeUnit,
+  useBrandTheme,
+  onBrandChange,
 }) => {
   const handleSwitch = (cb: () => void) => {
     document.documentElement.classList.add('no-transition');
     cb();
   };
+
   const isLight = currentTheme === 'light';
-  const btnBase = "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 border-2 shadow-sm";
 
   return (
-    <div className="flex items-center gap-2 p-1 bg-white/30 backdrop-blur-md rounded-full border border-white/20">
-      <button 
-        onClick={() => handleSwitch(() => onThemeChange(isLight ? 'dark' : 'light'))} 
-        className={`${btnBase} ${isLight ? 'bg-white border-white text-green-600' : 'bg-slate-800 border-slate-700 text-white'}`}
+    <div className="flex items-center gap-2">
+      {/* Mode Switch */}
+      <button
+        onClick={() => handleSwitch(() => onThemeChange(isLight ? 'dark' : 'light'))}
+        className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all duration-200 shadow-sm ${
+          isLight ? 'bg-white/80 border-white/70 text-green-700' : 'bg-slate-800 border-slate-700 text-white'
+        }`}
+        type="button"
       >
-        <div className="w-4 h-4"><AppleLogo /></div>
+        <span className="flex items-center justify-center w-5 h-5">
+          <AppleLogo />
+        </span>
       </button>
-      <div className="w-px h-4 bg-white/50"></div>
+
+      {/* Brand Switch */}
       <button
         onClick={() => handleSwitch(() => onBrandChange(!useBrandTheme))}
         disabled={!activeUnit}
-        className={`${btnBase} ${useBrandTheme && activeUnit ? 'border-green-500 ring-1 ring-green-500' : 'border-transparent bg-white/50 grayscale opacity-70'}`}
+        className={`w-9 h-9 rounded-full overflow-hidden border transition-all duration-200 shadow-sm flex items-center justify-center ${
+          useBrandTheme && activeUnit
+            ? 'border-green-500 ring-1 ring-green-500'
+            : 'border-slate-200 bg-white/80 text-slate-500'
+        } ${!activeUnit ? 'opacity-60 cursor-not-allowed' : ''}`}
+        type="button"
       >
         {activeUnit?.logoUrl ? (
-          <img src={activeUnit.logoUrl} className="w-full h-full object-cover rounded-full" alt="" />
+          <img src={activeUnit.logoUrl} alt="Unit logo" className="w-full h-full object-cover" />
         ) : (
-          <div className="w-4 h-4 text-gray-600"><AppleLogo /></div>
+          <span className="flex items-center justify-center w-5 h-5">
+            <AppleLogo />
+          </span>
         )}
       </button>
     </div>
