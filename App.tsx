@@ -11,6 +11,7 @@ import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth
 import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy } from 'firebase/firestore';
 import LoadingSpinner from './components/LoadingSpinner';
 import { UnitProvider } from './src/ui/context/UnitContext';
+import { cleanFirestoreData } from './lib/firestoreCleaners';
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
@@ -163,7 +164,7 @@ const App: React.FC = () => {
               role: role,
               unitIds: [],
             };
-            await setDoc(userDocRef, {
+            const userDocData = cleanFirestoreData({
               name: userData.name,
               lastName: userData.lastName,
               firstName: userData.firstName,
@@ -172,6 +173,9 @@ const App: React.FC = () => {
               role: userData.role,
               unitIds: userData.unitIds,
             });
+
+            // Firestore rejects undefined values, so the payload must be cleaned before writing.
+            await setDoc(userDocRef, userDocData);
           }
           
           finalUserData = userData;

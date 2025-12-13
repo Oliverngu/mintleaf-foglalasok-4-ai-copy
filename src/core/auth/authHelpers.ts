@@ -1,5 +1,6 @@
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { cleanFirestoreData } from '../../lib/firestoreCleaners';
 import { auth, db } from '../firebase/config';
 
 export const AUTH_USERNAME_NOT_FOUND = 'AUTH_USERNAME_NOT_FOUND';
@@ -67,10 +68,13 @@ export async function saveNicknameForUser(
     }
   }
 
-  await setDoc(nicknameRef, {
+  const nicknamePayload = cleanFirestoreData({
     nickname: nickTrimmed,
     uid,
   });
+
+  // Firestore rejects undefined values, so the payload must be cleaned before writing.
+  await setDoc(nicknameRef, nicknamePayload);
 
   if (options.previousNicknameLower && options.previousNicknameLower !== nickLower) {
     await deleteDoc(doc(db, 'nicknames', options.previousNicknameLower));
@@ -79,11 +83,11 @@ export async function saveNicknameForUser(
   const userRef = doc(db, 'users', uid);
   await setDoc(
     userRef,
-    {
+    cleanFirestoreData({
       name: nickTrimmed,
       nickname: nickTrimmed,
       nicknameLower: nickLower,
-    },
+    }),
     { merge: true }
   );
 
