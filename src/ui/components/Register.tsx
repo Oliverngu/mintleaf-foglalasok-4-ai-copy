@@ -7,7 +7,7 @@ import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
-import { cleanFirestoreData } from '../../../lib/firestoreCleaners';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 
 interface RegisterProps {
   inviteCode: string;

@@ -17,7 +17,7 @@ import {
   InventoryIdealStock,
   InventoryCurrentStock,
 } from '../models/data';
-import { cleanFirestoreData } from '../../lib/firestoreCleaners';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 
 const unitCollection = (unitId: string, path: string) => collection(db, 'units', unitId, path);
 

@@ -2,7 +2,7 @@
 
 import { db } from '../firebase/config';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { cleanFirestoreData } from '../../lib/firestoreCleaners';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 import { EmailTypeId } from '../email/emailTypes';
 import { defaultTemplates } from '../email/defaultTemplates';
 import { EmailSettingsDocument } from '../models/data';

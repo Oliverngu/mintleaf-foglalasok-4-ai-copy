@@ -27,7 +27,7 @@ import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
-import { cleanFirestoreData } from '../../../lib/firestoreCleaners';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 
 type Locale = 'hu' | 'en';
 

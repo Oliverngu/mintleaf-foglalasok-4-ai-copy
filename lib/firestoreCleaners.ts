@@ -5,7 +5,8 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * Firestore rejects `undefined` values, so we must remove them before writes.
- * This utility keeps null/falsey values and cleans nested objects recursively.
+ * This utility keeps null/falsey values, cleans nested objects recursively, and
+ * strips undefined entries from arrays instead of replacing them with placeholders.
  */
 export const cleanFirestoreData = <T extends FirestoreValue>(data: T): T => {
   const cleanValue = (value: FirestoreValue): FirestoreValue => {
@@ -14,10 +15,11 @@ export const cleanFirestoreData = <T extends FirestoreValue>(data: T): T => {
     }
 
     if (Array.isArray(value)) {
-      return value.map((item) => {
-        const cleanedItem = cleanValue(item);
-        return cleanedItem === undefined ? null : cleanedItem;
-      });
+      const cleanedArray = value
+        .map(item => cleanValue(item))
+        .filter((item): item is FirestoreValue => item !== undefined);
+
+      return cleanedArray;
     }
 
     if (isPlainObject(value)) {
