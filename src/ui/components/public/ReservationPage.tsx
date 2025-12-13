@@ -27,6 +27,7 @@ import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
+import { cleanFirestoreData } from '../../../lib/firestoreCleaners';
 
 type Locale = 'hu' | 'en';
 
@@ -480,11 +481,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       const adminActionToken =
         settings.reservationMode === 'request'
           ? generateAdminActionToken()
-          : null;
+          : undefined;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
-      newReservation = {
+      newReservation = cleanFirestoreData({
         unitId,
         name: formData.name,
         headcount: parseInt(formData.headcount, 10),
@@ -499,12 +500,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         createdAt: Timestamp.now(),
         referenceCode,
         reservationMode: settings.reservationMode,
-        adminActionToken: adminActionToken || undefined,
+        ...(adminActionToken !== undefined ? { adminActionToken } : {}),
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
         customData: formData.customData,
-      };
+      });
 
+      // Firestore rejects undefined values, so the payload must be cleaned before writing.
       await setDoc(newReservationRef, newReservation);
 
       // ---- GUEST LOG: booking created ----
