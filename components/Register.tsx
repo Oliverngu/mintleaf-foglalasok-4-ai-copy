@@ -8,6 +8,7 @@ import EyeIcon from './icons/EyeIcon';
 import EyeSlashIcon from './icons/EyeSlashIcon';
 import { sendEmail } from '../core/api/emailGateway';
 import { getEmailSettingsForUnit, renderTemplate, resolveEmailTemplate } from '../core/api/emailSettingsService';
+import { cleanFirestoreData } from '../lib/firestoreCleaners';
 
 interface RegisterProps {
   inviteCode: string;
@@ -98,7 +99,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         displayName: userFullName,
       });
 
-      const userData = {
+      const userData = cleanFirestoreData({
         name: username.trim(),
         lastName: lastName.trim(),
         firstName: firstName.trim(),
@@ -107,7 +108,9 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         role: inviteDetails.role,
         unitIds: [inviteDetails.unitId],
         position: inviteDetails.position,
-      };
+      });
+
+      // Firestore rejects undefined values, so the payload must be cleaned before writing.
       await setDoc(doc(db, 'users', user.uid), userData);
 
       (async () => {
@@ -129,11 +132,14 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
           }
       })();
 
-      await updateDoc(doc(db, 'invitations', inviteCode), {
-        status: 'used',
-        usedBy: user.uid,
-        usedAt: new Date(),
-      });
+      await updateDoc(
+        doc(db, 'invitations', inviteCode),
+        cleanFirestoreData({
+          status: 'used',
+          usedBy: user.uid,
+          usedAt: new Date(),
+        })
+      );
 
       onRegisterSuccess();
     } catch (err: any) {

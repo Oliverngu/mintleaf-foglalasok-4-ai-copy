@@ -8,6 +8,7 @@ import CopyIcon from '../icons/CopyIcon';
 import { translations } from '../../lib/i18n';
 import { sendEmail } from '../../core/api/emailGateway';
 import { getEmailSettingsForUnit, resolveEmailTemplate, renderTemplate } from '../../core/api/emailSettingsService';
+import { cleanFirestoreData } from '../../lib/firestoreCleaners';
 
 type Locale = 'hu' | 'en';
 
@@ -246,7 +247,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
             const referenceCode = newReservationRef.id;
             const reservationStatus = settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
-            const newReservation = {
+            const newReservation = cleanFirestoreData({
                 unitId, name: formData.name, headcount: parseInt(formData.headcount),
                 startTime: Timestamp.fromDate(startDateTime), endTime: Timestamp.fromDate(endDateTime),
                 contact: { phoneE164: normalizePhone(formData.phone), email: formData.email.trim().toLowerCase() },
@@ -254,7 +255,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, allUnits, cur
                 occasion: formData.customData['occasion'] || '',
                 source: formData.customData['heardFrom'] || '',
                 customData: formData.customData,
-            };
+            });
+
+            // Firestore rejects undefined values, so the payload must be cleaned before writing.
             await setDoc(newReservationRef, newReservation);
             
             setSubmittedData({ ...newReservation, date: selectedDate });

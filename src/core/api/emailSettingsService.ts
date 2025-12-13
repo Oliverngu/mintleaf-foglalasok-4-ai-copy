@@ -2,6 +2,7 @@
 
 import { db } from '../firebase/config';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { cleanFirestoreData } from '../../lib/firestoreCleaners';
 import { EmailTypeId } from '../email/emailTypes';
 import { defaultTemplates } from '../email/defaultTemplates';
 import { EmailSettingsDocument } from '../models/data';
@@ -173,6 +174,9 @@ export async function savePartialEmailSettings(
 ): Promise<void> {
   console.log('[savePartialEmailSettings] unitId =', unitId, 'data =', data);
   const docRef = doc(db, 'email_settings', unitId);
-  await setDoc(docRef, data, { merge: true });
+  const payload = cleanFirestoreData(data);
+
+  // Firestore rejects undefined values, so the payload must be cleaned before writing.
+  await setDoc(docRef, payload, { merge: true });
   console.log('[savePartialEmailSettings] OK for', unitId);
 }
