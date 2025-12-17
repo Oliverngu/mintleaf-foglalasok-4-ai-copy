@@ -17,9 +17,11 @@ import {
   InventoryIdealStock,
   InventoryCurrentStock,
 } from '../models/data';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 
 const unitCollection = (unitId: string, path: string) => collection(db, 'units', unitId, path);
 
+// Firestore rejects undefined values, so every payload is cleaned before writes.
 export const InventoryService = {
   listenCategories: (unitId: string, cb: (items: InventoryCategory[]) => void) =>
     onSnapshot(query(unitCollection(unitId, 'inventoryCategories'), orderBy('name')), snapshot => {
@@ -47,49 +49,67 @@ export const InventoryService = {
     }),
 
   addCategory: (unitId: string, data: Omit<InventoryCategory, 'id' | 'createdAt' | 'updatedAt'>) =>
-    addDoc(unitCollection(unitId, 'inventoryCategories'), {
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }),
+    addDoc(
+      unitCollection(unitId, 'inventoryCategories'),
+      cleanFirestoreData({
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   updateCategory: (unitId: string, id: string, data: Partial<InventoryCategory>) =>
-    updateDoc(doc(db, 'units', unitId, 'inventoryCategories', id), {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }),
+    updateDoc(
+      doc(db, 'units', unitId, 'inventoryCategories', id),
+      cleanFirestoreData({
+        ...data,
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   deleteCategory: (unitId: string, id: string) =>
     deleteDoc(doc(db, 'units', unitId, 'inventoryCategories', id)),
 
   addSupplier: (unitId: string, data: Omit<InventorySupplier, 'id' | 'createdAt' | 'updatedAt'>) =>
-    addDoc(unitCollection(unitId, 'inventorySuppliers'), {
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }),
+    addDoc(
+      unitCollection(unitId, 'inventorySuppliers'),
+      cleanFirestoreData({
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   updateSupplier: (unitId: string, id: string, data: Partial<InventorySupplier>) =>
-    updateDoc(doc(db, 'units', unitId, 'inventorySuppliers', id), {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }),
+    updateDoc(
+      doc(db, 'units', unitId, 'inventorySuppliers', id),
+      cleanFirestoreData({
+        ...data,
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   deleteSupplier: (unitId: string, id: string) =>
     deleteDoc(doc(db, 'units', unitId, 'inventorySuppliers', id)),
 
   addProduct: (unitId: string, data: Omit<InventoryProduct, 'id' | 'createdAt' | 'updatedAt'>) =>
-    addDoc(unitCollection(unitId, 'inventoryProducts'), {
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }),
+    addDoc(
+      unitCollection(unitId, 'inventoryProducts'),
+      cleanFirestoreData({
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   updateProduct: (unitId: string, id: string, data: Partial<InventoryProduct>) =>
-    updateDoc(doc(db, 'units', unitId, 'inventoryProducts', id), {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }),
+    updateDoc(
+      doc(db, 'units', unitId, 'inventoryProducts', id),
+      cleanFirestoreData({
+        ...data,
+        updatedAt: serverTimestamp(),
+      })
+    ),
 
   deleteProduct: (unitId: string, id: string) =>
     deleteDoc(doc(db, 'units', unitId, 'inventoryProducts', id)),
@@ -101,11 +121,15 @@ export const InventoryService = {
     deleteDoc(doc(db, 'units', unitId, 'inventoryCurrentStocks', productId)),
 
   setIdealStock: (unitId: string, productId: string, idealQuantity: number) =>
-    setDoc(doc(db, 'units', unitId, 'inventoryIdealStocks', productId), {
-      productId,
-      idealQuantity,
-      updatedAt: serverTimestamp(),
-    }, { merge: true }),
+    setDoc(
+      doc(db, 'units', unitId, 'inventoryIdealStocks', productId),
+      cleanFirestoreData({
+        productId,
+        idealQuantity,
+        updatedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    ),
 
   setCurrentStock: (
     unitId: string,
@@ -115,12 +139,12 @@ export const InventoryService = {
   ) =>
     setDoc(
       doc(db, 'units', unitId, 'inventoryCurrentStocks', productId),
-      {
+      cleanFirestoreData({
         productId,
         currentQuantity,
         updatedAt: serverTimestamp(),
-        ...(updatedByUserId ? { updatedByUserId } : {}),
-      },
+        ...(updatedByUserId !== undefined ? { updatedByUserId } : {}),
+      }),
       { merge: true }
     ),
 

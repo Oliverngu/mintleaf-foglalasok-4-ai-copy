@@ -7,6 +7,7 @@ import ArrowIcon from '../../../components/icons/ArrowIcon';
 import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
+import { cleanFirestoreData } from '@/lib/firestoreCleaners';
 
 interface RegisterProps {
   inviteCode: string;
@@ -98,7 +99,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       });
 
       // 5. Create user document in Firestore
-      const userDataForDb = {
+      const userDataForDb = cleanFirestoreData({
         name: trimmedUsername,
         nickname: trimmedUsername,
         nicknameLower: trimmedUsername.toLowerCase(),
@@ -113,27 +114,35 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         notifications: {
           newSchedule: true, // Default to on
         },
-      };
+      });
+
+      // Firestore rejects undefined values, so the payload must be cleaned before writing.
       await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
       // 6. Send registration email via the new service
-      await addDoc(collection(db, 'email_queue'), {
-        typeId: 'register_welcome',
-        unitId: null,
-        payload: {
-          name: userDataForDb.firstName,
-          email: userDataForDb.email
-        },
-        createdAt: serverTimestamp(),
-        status: 'pending'
-      });
+      await addDoc(
+        collection(db, 'email_queue'),
+        cleanFirestoreData({
+          typeId: 'register_welcome',
+          unitId: null,
+          payload: {
+            name: userDataForDb.firstName,
+            email: userDataForDb.email,
+          },
+          createdAt: serverTimestamp(),
+          status: 'pending',
+        })
+      );
 
       // 7. Mark invitation as used
-      await updateDoc(doc(db, 'invitations', inviteCode), {
-        status: 'used',
-        usedBy: user.uid,
-        usedAt: new Date(),
-      });
+      await updateDoc(
+        doc(db, 'invitations', inviteCode),
+        cleanFirestoreData({
+          status: 'used',
+          usedBy: user.uid,
+          usedAt: new Date(),
+        })
+      );
 
       // 8. Call success callback
       onRegisterSuccess();
