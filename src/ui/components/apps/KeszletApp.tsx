@@ -695,7 +695,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
         const productRef = await InventoryService.addProduct(unitId, {
           name: newProductName.trim(),
           categoryId: newProductCategory || undefined,
-          supplierIds: newProductSupplierIds.length ? newProductSupplierIds : undefined,
+          supplierIds: (newProductSupplierIds ?? []).filter(Boolean),
           unitOfMeasure: newProductUnit.trim(),
           ...(avgDailyUsage !== undefined && !isNaN(avgDailyUsage) ? { avgDailyUsage } : {}),
           ...(unitPrice !== undefined && !isNaN(unitPrice)
