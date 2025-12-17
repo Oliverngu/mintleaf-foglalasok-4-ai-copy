@@ -291,6 +291,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     safetyStock: '',
   });
   const [productEditorOriginal, setProductEditorOriginal] = useState<typeof productEditorForm | null>(null);
+  const [isProductEditorEditMode, setIsProductEditorEditMode] = useState(false);
   const [idealEditorProduct, setIdealEditorProduct] = useState<InventoryProduct | null>(null);
   const [idealEditorValues, setIdealEditorValues] = useState<Record<string, string>>({});
   const [idealEditorOriginal, setIdealEditorOriginal] = useState<Record<string, string>>({});
@@ -443,6 +444,14 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
   const supplierNameMap = useMemo(
     () => Object.fromEntries(allSuppliers.map(s => [s.id, s.name])),
     [allSuppliers]
+  );
+  const productEditorSupplierNames = useMemo(
+    () => productEditorForm.supplierIds.map(id => supplierNameMap[id]).filter(Boolean) as string[],
+    [productEditorForm.supplierIds, supplierNameMap]
+  );
+  const productEditorCategoryName = useMemo(
+    () => (productEditorForm.categoryId ? categoryNameMap[productEditorForm.categoryId] : undefined),
+    [categoryNameMap, productEditorForm.categoryId]
   );
 
   const aggregatedProducts: AggregatedProductRow[] = useMemo(() => {
@@ -695,7 +704,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
         const productRef = await InventoryService.addProduct(unitId, {
           name: newProductName.trim(),
           categoryId: newProductCategory || undefined,
-          supplierIds: (newProductSupplierIds ?? []).filter(Boolean),
+          supplierIds: newProductSupplierIds,
           unitOfMeasure: newProductUnit.trim(),
           ...(avgDailyUsage !== undefined && !isNaN(avgDailyUsage) ? { avgDailyUsage } : {}),
           ...(unitPrice !== undefined && !isNaN(unitPrice)
@@ -751,6 +760,7 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
     };
     setProductEditorForm(formState);
     setProductEditorOriginal(formState);
+    setIsProductEditorEditMode(false);
   };
 
   const closeProductEditor = () => {
@@ -1707,200 +1717,265 @@ export const KeszletApp: React.FC<KeszletAppProps> = ({
 
       {productEditorProduct && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 space-y-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-xl font-semibold text-gray-900">Termék szerkesztése</h3>
+                <h3 className="text-xl font-semibold text-gray-900">Termék</h3>
                 <p className="text-sm text-gray-500">
-                  Módosítsd a termék adatait, beszállítóit és egység-hozzárendelését.
+                  {isProductEditorEditMode ? 'Szerkesztés mód' : 'Összegzés (csak olvasás)'}
                 </p>
               </div>
-              <button onClick={closeProductEditor} className="text-gray-500 hover:text-gray-700">✕</button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Terméknév</label>
-                <input
-                  value={productEditorForm.name}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Mértékegység</label>
-                <input
-                  value={productEditorForm.unitOfMeasure}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, unitOfMeasure: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
+              <div className="flex items-center gap-2">
+                {!isProductEditorEditMode ? (
+                  <button
+                    onClick={() => setIsProductEditorEditMode(true)}
+                    className="px-4 py-2 rounded-lg bg-green-700 text-white font-semibold hover:bg-green-800"
+                  >
+                    Szerkesztés
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsProductEditorEditMode(false)}
+                    className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700"
+                  >
+                    Kész
+                  </button>
+                )}
+                <button onClick={closeProductEditor} className="text-gray-500 hover:text-gray-700">✕</button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Kategória</label>
-                <select
-                  value={productEditorForm.categoryId}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, categoryId: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="">Nincs</option>
-                  {allCategories.map(category => (
-                    <option key={`${category.unitId}:${category.id}`} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Beszállítók</label>
-                <select
-                  multiple
-                  value={productEditorForm.supplierIds}
-                  onChange={e =>
-                    setProductEditorForm(prev => ({
-                      ...prev,
-                      supplierIds: Array.from(e.target.selectedOptions).map(option => option.value),
-                    }))
-                  }
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  {allSuppliers.map(supplier => (
-                    <option key={`${supplier.unitId}:${supplier.id}`} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500">Választhatsz több beszállítót is.</p>
-              </div>
-            </div>
+            {!isProductEditorEditMode && (
+              <div className="bg-gray-50 border rounded-lg p-4 space-y-3">
+                <div className="text-sm font-semibold text-gray-700">Összegzés</div>
+                {(() => {
+                  const summaryItems = [
+                    { label: 'Terméknév', value: productEditorForm.name?.trim() },
+                    { label: 'Mértékegység', value: productEditorForm.unitOfMeasure?.trim() },
+                    { label: 'Kategória', value: productEditorCategoryName },
+                    { label: 'Beszállítók', value: productEditorSupplierNames.join(', ') },
+                    { label: 'Átlagos napi fogyás', value: productEditorForm.avgDailyUsage?.trim() },
+                    {
+                      label: 'Egységár',
+                      value: productEditorForm.unitPrice?.trim()
+                        ? `${productEditorForm.unitPrice} ${productEditorForm.currency || 'HUF'}`
+                        : '',
+                    },
+                    { label: 'Min. rendelés (db)', value: productEditorForm.minOrderQuantity?.trim() },
+                    {
+                      label: 'Csomag kiszerelés',
+                      value: productEditorForm.packageSize?.trim()
+                        ? `${productEditorForm.packageSize}${
+                            productEditorForm.packageLabel ? ` ${productEditorForm.packageLabel}` : ''
+                          }`
+                        : '',
+                    },
+                    { label: 'Biztonsági készlet', value: productEditorForm.safetyStock?.trim() },
+                  ].filter(item => item.value);
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Átlagos napi fogyás</label>
-                <input
-                  type="number"
-                  value={productEditorForm.avgDailyUsage}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, avgDailyUsage: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Egységár</label>
-                <input
-                  type="number"
-                  value={productEditorForm.unitPrice}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, unitPrice: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Pénznem</label>
-                <input
-                  value={productEditorForm.currency}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, currency: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Min. rendelés (db)</label>
-                <input
-                  type="number"
-                  value={productEditorForm.minOrderQuantity}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, minOrderQuantity: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Csomag kiszerelés (db)</label>
-                <input
-                  type="number"
-                  value={productEditorForm.packageSize}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, packageSize: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Csomag megnevezés</label>
-                <input
-                  value={productEditorForm.packageLabel}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, packageLabel: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm text-gray-600">Biztonsági készlet</label>
-                <input
-                  type="number"
-                  value={productEditorForm.safetyStock}
-                  onChange={e => setProductEditorForm(prev => ({ ...prev, safetyStock: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-            </div>
-
-            {isUnitAdmin && (userUnitIds?.length || 0) > 1 && (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-gray-700">Egységek hozzárendelése</div>
-                <div className="flex flex-wrap gap-3">
-                  {(userUnitIds?.length ? allUnits.filter(u => userUnitIds.includes(u.id)) : allUnits).map(unit => {
-                    const checked = productEditorForm.unitIds.includes(unit.id);
-                    return (
-                      <label
-                        key={unit.id}
-                        className={`flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${
-                          checked ? 'border-green-600 bg-green-50' : 'border-gray-200'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={e =>
-                            setProductEditorForm(prev => ({
-                              ...prev,
-                              unitIds: e.target.checked
-                                ? Array.from(new Set([...prev.unitIds, unit.id]))
-                                : prev.unitIds.filter(id => id !== unit.id),
-                            }))
-                          }
-                        />
-                        <span>{unit.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                  return summaryItems.length ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {summaryItems.map(item => (
+                        <div key={item.label} className="space-y-1">
+                          <div className="text-xs text-gray-500">{item.label}</div>
+                          <div className="text-sm font-semibold text-gray-900">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">Nincs megjeleníthető adat.</div>
+                  );
+                })()}
               </div>
             )}
 
-            <div className="flex justify-between items-center pt-2">
-              <button
-                onClick={handleDeleteProduct}
-                className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
-              >
-                Termék törlése
-              </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={closeProductEditor}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700"
-                >
-                  Mégse
-                </button>
-                <button
-                  onClick={handleProductEditorSave}
-                  className="px-4 py-2 rounded-lg bg-green-700 text-white font-semibold hover:bg-green-800"
-                >
-                  Mentés
-                </button>
-              </div>
-            </div>
+            {isProductEditorEditMode && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Terméknév</label>
+                    <input
+                      value={productEditorForm.name}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Mértékegység</label>
+                    <input
+                      value={productEditorForm.unitOfMeasure}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, unitOfMeasure: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Kategória</label>
+                    <select
+                      value={productEditorForm.categoryId}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, categoryId: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    >
+                      <option value="">Nincs</option>
+                      {allCategories.map(category => (
+                        <option key={`${category.unitId}:${category.id}`} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Beszállítók</label>
+                    <select
+                      multiple
+                      value={productEditorForm.supplierIds}
+                      onChange={e =>
+                        setProductEditorForm(prev => ({
+                          ...prev,
+                          supplierIds: Array.from(e.target.selectedOptions).map(option => option.value),
+                        }))
+                      }
+                      className="w-full border rounded-lg px-3 py-2"
+                    >
+                      {allSuppliers.map(supplier => (
+                        <option key={`${supplier.unitId}:${supplier.id}`} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500">Választhatsz több beszállítót is.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Átlagos napi fogyás</label>
+                    <input
+                      type="number"
+                      value={productEditorForm.avgDailyUsage}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, avgDailyUsage: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Egységár</label>
+                    <input
+                      type="number"
+                      value={productEditorForm.unitPrice}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, unitPrice: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Pénznem</label>
+                    <input
+                      value={productEditorForm.currency}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, currency: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Min. rendelés (db)</label>
+                    <input
+                      type="number"
+                      value={productEditorForm.minOrderQuantity}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, minOrderQuantity: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Csomag kiszerelés (db)</label>
+                    <input
+                      type="number"
+                      value={productEditorForm.packageSize}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, packageSize: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Csomag megnevezés</label>
+                    <input
+                      value={productEditorForm.packageLabel}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, packageLabel: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-gray-600">Biztonsági készlet</label>
+                    <input
+                      type="number"
+                      value={productEditorForm.safetyStock}
+                      onChange={e => setProductEditorForm(prev => ({ ...prev, safetyStock: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                {isUnitAdmin && (userUnitIds?.length || 0) > 1 && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-gray-700">Egységek hozzárendelése</div>
+                    <div className="flex flex-wrap gap-3">
+                      {(userUnitIds?.length ? allUnits.filter(u => userUnitIds.includes(u.id)) : allUnits).map(unit => {
+                        const checked = productEditorForm.unitIds.includes(unit.id);
+                        return (
+                          <label
+                            key={unit.id}
+                            className={`flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${
+                              checked ? 'border-green-600 bg-green-50' : 'border-gray-200'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e =>
+                                setProductEditorForm(prev => ({
+                                  ...prev,
+                                  unitIds: e.target.checked
+                                    ? Array.from(new Set([...prev.unitIds, unit.id]))
+                                    : prev.unitIds.filter(id => id !== unit.id),
+                                }))
+                              }
+                            />
+                            <span>{unit.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    onClick={handleDeleteProduct}
+                    className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    Termék törlése
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={closeProductEditor}
+                      className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700"
+                    >
+                      Mégse
+                    </button>
+                    <button
+                      onClick={handleProductEditorSave}
+                      className="px-4 py-2 rounded-lg bg-green-700 text-white font-semibold hover:bg-green-800"
+                    >
+                      Mentés
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
