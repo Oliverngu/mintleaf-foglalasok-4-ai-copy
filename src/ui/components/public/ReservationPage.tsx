@@ -76,6 +76,8 @@ const DEFAULT_GUEST_FORM: GuestFormSettings = {
 
 const defaultReservationTheme = DEFAULT_THEME;
 
+const inputTextStyle = { color: '#111827' as const };
+
 const toRgba = (hex: string, alpha: number) => {
   const parsed = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!parsed) return `rgba(0,0,0,${alpha})`;
@@ -169,54 +171,81 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className={`${theme.styles.stepWrapper}`}>
-      {steps.map((label, index) => {
-        const stepNumber = index + 1;
-        const isCompleted = currentStep > stepNumber;
-        const isActive = currentStep === stepNumber;
-        return (
-          <React.Fragment key={stepNumber}>
-            <div className="flex flex-col items-center text-center">
-              <div
-                className={`w-9 h-9 flex items-center justify-center font-bold transition-all ${
-                  isCompleted ? theme.styles.stepActive : isActive ? theme.styles.stepActive : theme.styles.stepInactive
-                } ${theme.radiusClass}`}
-                style={{
-                  backgroundColor: isCompleted
-                    ? theme.colors.primary
-                    : isActive
-                    ? theme.colors.surface
-                    : theme.colors.surface,
-                  color: isCompleted ? '#fff' : isActive ? theme.colors.primary : theme.colors.textSecondary,
-                  borderColor: isActive ? theme.colors.primary : theme.colors.surface,
-                }}
-              >
-                {isCompleted ? '✓' : stepNumber}
-              </div>
-              <p
-                className={`mt-2 text-sm font-semibold transition-colors ${theme.fontFamilyClass}`}
-                style={{
-                  color: isActive ? theme.colors.textPrimary : theme.colors.textSecondary,
-                }}
-              >
-                {label}
-              </p>
-            </div>
-            {index < steps.length - 1 && (
-              <div className="flex-1 h-full mx-2 flex items-center">
+    <div className={`${theme.styles.stepWrapper} w-full max-w-2xl mx-auto`}> 
+      <div className="relative">
+        <div className="absolute inset-x-4 top-5 md:top-6" aria-hidden>
+          <div className="grid grid-cols-2 gap-4 items-center">
+            {[0, 1].map((segment) => {
+              const segmentActive = currentStep > segment + 1;
+              return (
                 <div
-                  className={`${theme.styles.stepTrack}`}
+                  key={`segment-${segment}`}
+                  className="h-1 rounded-full w-full transition-colors duration-300"
+                  style={{
+                    backgroundColor: segmentActive
+                      ? theme.colors.primary
+                      : theme.colors.surface,
+                    boxShadow: segmentActive
+                      ? `0 0 0 1px ${theme.colors.primary}`
+                      : `0 0 0 1px ${theme.colors.surface}`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+        <div className="grid grid-cols-3 items-center gap-4 relative">
+          {steps.map((label, index) => {
+            const stepNumber = index + 1;
+            const isCompleted = currentStep > stepNumber;
+            const isActive = currentStep === stepNumber;
+            return (
+              <div
+                key={stepNumber}
+                className="flex flex-col items-center text-center gap-2"
+              >
+                <div
+                  className={`w-10 h-10 flex items-center justify-center font-bold transition-all duration-300 ${
+                    isCompleted
+                      ? theme.styles.stepActive
+                      : isActive
+                      ? theme.styles.stepActive
+                      : theme.styles.stepInactive
+                  } ${theme.radiusClass}`}
                   style={{
                     backgroundColor: isCompleted
                       ? theme.colors.primary
                       : theme.colors.surface,
+                    color: isCompleted
+                      ? '#fff'
+                      : isActive
+                      ? theme.colors.primary
+                      : theme.colors.textSecondary,
+                    borderColor: isActive
+                      ? theme.colors.primary
+                      : theme.colors.surface,
+                    boxShadow: isActive
+                      ? `0 10px 30px ${toRgba(theme.colors.primary, 0.18)}`
+                      : undefined,
                   }}
-                />
+                >
+                  {isCompleted ? '✓' : stepNumber}
+                </div>
+                <p
+                  className={`text-sm font-semibold transition-colors leading-tight ${theme.fontFamilyClass}`}
+                  style={{
+                    color: isActive
+                      ? theme.colors.textPrimary
+                      : theme.colors.textSecondary,
+                  }}
+                >
+                  {label}
+                </p>
               </div>
-            )}
-          </React.Fragment>
-        );
-      })}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };
@@ -484,7 +513,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
-      newReservation = {
+      const baseReservation = {
         unitId,
         name: formData.name,
         headcount: parseInt(formData.headcount, 10),
@@ -496,13 +525,22 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         },
         locale,
         status: reservationStatus,
-        createdAt: Timestamp.now(),
+        createdAt: serverTimestamp(),
         referenceCode,
         reservationMode: settings.reservationMode,
-        adminActionToken: adminActionToken || undefined,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
         customData: formData.customData,
+      };
+
+      const adminActionFields =
+        typeof adminActionToken === 'string' && adminActionToken
+          ? { adminActionToken }
+          : {};
+
+      newReservation = {
+        ...baseReservation,
+        ...adminActionFields,
       };
 
       await setDoc(newReservationRef, newReservation);
@@ -557,14 +595,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden` ,
+      wrapper: `${theme.styles.page} relative overflow-hidden overflow-x-hidden min-h-screen w-full max-w-[100vw]`,
       card:
-        `${theme.styles.card} flex flex-col w-full mx-auto max-w-5xl px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
+        `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
         'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[calc(100vh-6rem)]',
       header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
       content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
-      contentScrollable: 'flex-1 overflow-y-auto pb-16 pr-1',
-      stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0',
+      contentScrollable:
+        'flex-1 overflow-y-auto overflow-x-hidden pr-1 px-1 overscroll-contain scroll-smooth',
+      stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0 transition-opacity duration-300',
       stepContent: 'flex-1 overflow-y-auto pb-12 pr-1',
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
@@ -695,12 +734,19 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                 </div>
 
                 <div className={`${themeClasses.content}`}>
-                  <div className={`${themeClasses.contentScrollable}`}>
+                  <div
+                    className={`${themeClasses.contentScrollable}`}
+                    style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                  >
                     <div
                       className="flex transition-transform duration-500 ease-in-out h-full"
                       style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
                     >
-                      <div className={themeClasses.stepPane}>
+                      <div
+                        className={`${themeClasses.stepPane} ${
+                          step === 1 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                        }`}
+                      >
                         <div className={themeClasses.stepContent}>
                           <Step1Date
                             settings={settings}
@@ -713,7 +759,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                           />
                         </div>
                       </div>
-                      <div className={themeClasses.stepPane}>
+                      <div
+                        className={`${themeClasses.stepPane} ${
+                          step === 2 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                        }`}
+                      >
                         <div className={themeClasses.stepContent}>
                           <Step2Details
                             selectedDate={selectedDate}
@@ -738,7 +788,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
                           />
                         </div>
                       </div>
-                      <div className={themeClasses.stepPane}>
+                      <div
+                        className={`${themeClasses.stepPane} ${
+                          step === 3 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                        }`}
+                      >
                         <div className={themeClasses.stepContent}>
                           <Step3Confirmation
                             onReset={resetFlow}
@@ -1036,7 +1090,7 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
         {t.step2Title}
       </h2>
       {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm">
+        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm">
           {error}
         </div>
       )}
@@ -1072,32 +1126,33 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
           )}
         </div>
       )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <input
-          type="text"
-          readOnly
-          value={selectedDate.toLocaleDateString(locale, {
-            weekday: 'long',
+      <form onSubmit={onSubmit} className="space-y-5">
+          <input
+            type="text"
+            readOnly
+            value={selectedDate.toLocaleDateString(locale, {
+              weekday: 'long',
             year: 'numeric',
             month: 'long',
             day: 'numeric',
           })}
-          className={`w-full p-2 border ${themeProps.radiusClass} text-center font-semibold`}
-          style={{
-            backgroundColor: themeProps.colors.surface,
-            color: themeProps.colors.textPrimary,
-            borderColor: themeProps.colors.surface,
-          }}
-        />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          className={`w-full p-3 border ${themeProps.radiusClass} text-center font-semibold placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+            style={{
+              ...inputTextStyle,
+              backgroundColor: themeProps.colors.surface,
+              borderColor: themeProps.colors.surface,
+            }}
+          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium">{t.name}</label>
+            <label className="block text-sm font-medium mb-1">{t.name}</label>
             <input
               type="text"
               name="name"
               value={formData.name}
               onChange={handleStandardChange}
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               required
             />
             {formErrors.name && (
@@ -1105,14 +1160,15 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.phone}</label>
+            <label className="block text-sm font-medium mb-1">{t.phone}</label>
             <input
               type="tel"
               name="phone"
               value={formData.phone}
               onChange={handleStandardChange}
               placeholder={t.phonePlaceholder}
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+              className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               required
             />
             {formErrors.phone && (
@@ -1120,25 +1176,27 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.headcount}</label>
+            <label className="block text-sm font-medium mb-1">{t.headcount}</label>
             <input
               type="number"
               name="headcount"
               value={formData.headcount}
               onChange={handleStandardChange}
               min="1"
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+                className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.email}</label>
+            <label className="block text-sm font-medium mb-1">{t.email}</label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleStandardChange}
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+                className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               required
             />
             {formErrors.email && (
@@ -1146,40 +1204,43 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
             )}
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium">{t.startTime}</label>
+            <label className="block text-sm font-medium mb-1">{t.startTime}</label>
             <input
               type="time"
               name="startTime"
               value={formData.startTime}
               onChange={handleStandardChange}
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+                className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               required
               min={settings.bookableWindow?.from}
               max={settings.bookableWindow?.to}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium">{t.endTime}</label>
+            <label className="block text-sm font-medium mb-1">{t.endTime}</label>
             <input
               type="time"
               name="endTime"
               value={formData.endTime}
               onChange={handleStandardChange}
-              className={`${themeProps.radiusClass} w-full mt-1 p-2 border`}
+                className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
               min={formData.startTime}
             />
           </div>
         </div>
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
           <div key={field.id}>
-            <label className="block text-sm font-medium">{field.label}</label>
+            <label className="block text-sm font-medium mb-1">{field.label}</label>
             <select
               name={field.id}
               value={formData.customData[field.id] || ''}
               onChange={handleCustomFieldChange}
-              className="w-full mt-1 p-2 border rounded-lg bg-white"
+              className="w-full p-3 border rounded-lg bg-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              style={inputTextStyle}
               required
             >
               <option value="" disabled>
@@ -1300,11 +1361,16 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
     buttonClasses?.primary ||
     `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
 
+  const confirmationSurface =
+    themeProps.uiTheme === 'minimal_glass'
+      ? toRgba(themeProps.colors.surface, 0.9)
+      : themeProps.colors.surface;
+
   return (
     <div
-      className={`p-8 ${themeProps.radiusClass} ${themeProps.shadowClass} text-center`}
+      className={`p-8 md:p-10 ${themeProps.radiusClass} ${themeProps.shadowClass} text-center space-y-5`}
       style={{
-        backgroundColor: themeProps.colors.surface,
+        backgroundColor: confirmationSurface,
         color: themeProps.colors.textPrimary,
         border: `1px solid ${themeProps.colors.surface}`,
       }}
@@ -1319,14 +1385,14 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
 
       {submittedData && (
         <div
-          className="mt-6 text-left p-4 border"
+          className="mt-6 text-left p-4 md:p-5 border rounded-xl shadow-sm space-y-2"
           style={{
-            backgroundColor: themeProps.colors.surface,
+            backgroundColor: confirmationSurface,
             color: themeProps.colors.textPrimary,
             borderColor: themeProps.colors.surface,
           }}
         >
-          <h3 className="font-bold text-center mb-3">{t.step3Details}</h3>
+          <h3 className="font-bold text-center mb-3 text-lg">{t.step3Details}</h3>
           <p>
             <strong>{t.referenceCode}:</strong>{' '}
             <span
@@ -1387,9 +1453,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       )}
 
       <div
-        className="mt-6 text-left p-4 rounded-lg border"
+        className="mt-6 text-left p-4 md:p-5 rounded-lg border shadow-sm space-y-2"
         style={{
-          backgroundColor: themeProps.colors.surface,
+          backgroundColor: confirmationSurface,
           color: themeProps.colors.textPrimary,
           borderColor: themeProps.colors.surface,
         }}
@@ -1409,8 +1475,8 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
             type="text"
             value={manageLink}
             readOnly
-            className="w-full bg-transparent text-sm focus:outline-none"
-            style={{ color: themeProps.colors.textPrimary }}
+            className="w-full bg-transparent text-sm focus:outline-none placeholder:text-gray-600"
+            style={inputTextStyle}
           />
           <button
             onClick={handleCopy}
@@ -1423,9 +1489,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
         </div>
       </div>
 
-      <div className="mt-6">
-        <h3 className="font-semibold mb-3">{t.addToCalendar}</h3>
-        <div className="flex justify-center gap-4">
+      <div className="mt-6 space-y-3">
+        <h3 className="font-semibold text-center">{t.addToCalendar}</h3>
+        <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
           <a
             href={googleLink}
             target="_blank"
@@ -1448,7 +1514,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
 
       <button
         onClick={onReset}
-        className={`${primaryButtonClass} mt-8`}
+        className={`${primaryButtonClass} mt-8 w-full sm:w-auto`}
         style={{ backgroundColor: themeProps.colors.primary }}
       >
         {t.newBooking}
