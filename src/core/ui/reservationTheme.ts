@@ -259,6 +259,8 @@ export const syncThemeCssVariables = (theme: ReservationThemeTokens) => {
   Object.entries(entries).forEach(([key, value]) => {
     root.style.setProperty(`--color-${key}`, value);
   });
+
+  root.dataset.uiTheme = theme.uiTheme;
 };
 
 const radiusFromSetting = (radius?: RadiusKey, fallback?: string) => {
