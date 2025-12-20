@@ -524,14 +524,46 @@ interface BeosztasAppProps {
   activeUnitIds: string[];
 }
 
-const getWeekDays = (date: Date): Date[] => {
+type ViewSpan = '1w' | '2w' | '3w' | '4w' | 'month';
+
+function getSettingsIndexForDate(date: Date): number {
+  const day = date.getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
+const getWeekStart = (date: Date): Date => {
   const startOfWeek = new Date(date);
   const day = startOfWeek.getDay();
   const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
   startOfWeek.setDate(diff);
   startOfWeek.setHours(0, 0, 0, 0);
+  return startOfWeek;
+};
 
-  return Array.from({ length: 7 }, (_, i) => {
+const getViewDays = (date: Date, span: ViewSpan): Date[] => {
+  const startOfWeek = getWeekStart(date);
+
+  if (span === 'month') {
+    const monthAnchor = new Date(date);
+    monthAnchor.setHours(0, 0, 0, 0);
+    monthAnchor.setDate(1);
+    const monthStartWeek = getWeekStart(monthAnchor);
+    const viewEnd = new Date(monthStartWeek);
+    viewEnd.setDate(viewEnd.getDate() + 41); // fix 6-week grid (42 nap)
+    const days: Date[] = [];
+    const cursor = new Date(monthStartWeek);
+    while (cursor <= viewEnd) {
+      const current = new Date(cursor);
+      days.push(current);
+      cursor.setDate(cursor.getDate() + 1);
+      if (days.length > 62) break; // safety
+    }
+    return days;
+  }
+
+  const weeks = Number(span.replace('w', '')) || 1;
+  const totalDays = weeks * 7;
+  return Array.from({ length: totalDays }, (_, i) => {
     const newDay = new Date(startOfWeek);
     newDay.setDate(startOfWeek.getDate() + i);
     return newDay;
@@ -1280,10 +1312,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   activeUnitIds
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewSpan, setViewSpan] = useState<ViewSpan>('1w');
   const [viewMode, setViewMode] = useState<'draft' | 'published'>(
     'published'
   );
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
+  const [tempUsers, setTempUsers] = useState<User[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
@@ -1345,6 +1379,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [successToast, setSuccessToast] = useState('');
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  const [isTempUserModalOpen, setIsTempUserModalOpen] = useState(false);
+  const [tempUserForm, setTempUserForm] = useState({
+    fullName: '',
+    position: '',
+    note: '',
+    unitId: activeUnitIds[0] || ''
+  });
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [lastFocusedCell, setLastFocusedCell] = useState<{
+    userId: string;
+    dayIndex: number;
+  } | null>(null);
+  const [isDraggingSelect, setIsDraggingSelect] = useState(false);
+  const [selectionOrigin, setSelectionOrigin] = useState<{
+    userId: string;
+    dayIndex: number;
+  } | null>(null);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
@@ -1389,6 +1440,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
     return activeUnitIds.sort().join('_');
+  }, [activeUnitIds]);
+
+  useEffect(() => {
+    setTempUserForm(prev => ({
+      ...prev,
+      unitId: prev.unitId || activeUnitIds[0] || ''
+    }));
   }, [activeUnitIds]);
 
   useEffect(() => {
@@ -1438,14 +1496,69 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [weekSettings]);
 
   const weekDays = useMemo(
-    () => getWeekDays(currentDate),
-    [currentDate]
+    () => getViewDays(currentDate, viewSpan),
+    [currentDate, viewSpan]
   );
 
   const weekStartDateStr = useMemo(
     () => toDateString(weekDays[0]),
     [weekDays]
   );
+
+  const scopeUnitId = useMemo(
+    () => activeUnitIds[0] || null,
+    [activeUnitIds]
+  );
+
+  const scheduleScopeId = useMemo(() => {
+    if (!scopeUnitId) return null;
+    return `${scopeUnitId}_${weekStartDateStr}`;
+  }, [scopeUnitId, weekStartDateStr]);
+
+  const dayKeyToDate = useMemo(() => {
+    const map = new Map<string, Date>();
+    weekDays.forEach(day => {
+      map.set(toDateString(day), day);
+    });
+    return map;
+  }, [weekDays]);
+
+  useEffect(() => {
+    if (!scheduleScopeId) {
+      setTempUsers([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      collection(db, 'unit_schedules', scheduleScopeId, 'tempUsers'),
+      snapshot => {
+        const mapped: User[] = snapshot.docs.map(docSnap => {
+          const data = docSnap.data() as any;
+          const docUnitIds = Array.isArray(data.unitIds)
+            ? (data.unitIds as string[])
+            : data.unitId
+              ? [data.unitId as string]
+              : scopeUnitId
+                ? [scopeUnitId]
+                : activeUnitIds;
+          return {
+            id: docSnap.id,
+            name: data.fullName,
+            fullName: data.fullName,
+            lastName: data.fullName,
+            firstName: '',
+            email: '',
+            role: 'User',
+            position: data.position,
+            unitIds: docUnitIds && docUnitIds.length ? docUnitIds : activeUnitIds,
+            isTemporary: true,
+            tempNote: data.note
+          } as User;
+        });
+        setTempUsers(mapped);
+      }
+    );
+    return () => unsub();
+  }, [scheduleScopeId, activeUnitIds]);
 
   const openingSettings = useMemo(
     () =>
@@ -1505,14 +1618,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    return allAppUsers
+    const baseUsers = allAppUsers
       .filter(
         u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
       )
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds]);
+    const temp = tempUsers.map(u => ({
+      ...u,
+      unitIds:
+        u.unitIds && u.unitIds.length
+          ? u.unitIds
+          : activeUnitIds
+    }));
+    return [...baseUsers, ...temp];
+  }, [allAppUsers, activeUnitIds, tempUsers]);
 
   useEffect(() => {
     if (!settingsDocId) return;
@@ -1626,6 +1747,41 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
   };
 
+  const handleCreateTempUser = async () => {
+    if (!scheduleScopeId) return;
+    if (
+      !tempUserForm.fullName.trim() ||
+      !tempUserForm.position.trim() ||
+      !tempUserForm.unitId
+    ) {
+      alert('A teljes név, a pozíció és az egység megadása kötelező.');
+      return;
+    }
+    try {
+      await addDoc(
+        collection(db, 'unit_schedules', scheduleScopeId, 'tempUsers'),
+        {
+          fullName: tempUserForm.fullName.trim(),
+          position: tempUserForm.position.trim(),
+          note: tempUserForm.note?.trim() || '',
+          unitId: tempUserForm.unitId,
+          createdAt: serverTimestamp(),
+          createdByUserId: currentUser.id
+        }
+      );
+      setTempUserForm({
+        fullName: '',
+        position: '',
+        note: '',
+        unitId: activeUnitIds[0] || ''
+      });
+      setIsTempUserModalOpen(false);
+    } catch (error) {
+      console.error('Failed to create temp user', error);
+      alert('Hiba történt az ideiglenes beugró mentésekor.');
+    }
+  };
+
   useEffect(() => {
     if (!canManage || activeUnitIds.length !== 1) {
       setWeekSettings(null);
@@ -1659,17 +1815,39 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [schedule, viewMode, activeUnitIds]
   );
 
+  const displayedDayKeys = useMemo(
+    () => new Set(weekDays.map(d => toDateString(d))),
+    [weekDays]
+  );
+
+  const userUnitUsage = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    activeShifts.forEach(shift => {
+      if (!shift.start || !shift.unitId) return;
+      if (shift.isDayOff) return;
+      if (shift.highlightOnly) return;
+      const key = toDateString(shift.start.toDate());
+      if (!displayedDayKeys.has(key)) return;
+      const existing = map.get(shift.userId) || new Set<string>();
+      existing.add(shift.unitId);
+      map.set(shift.userId, existing);
+    });
+    return map;
+  }, [activeShifts, displayedDayKeys]);
+
   const getUnitDaySetting = useCallback(
-    (shift: Shift, dayIndex: number): DailySetting | null => {
+    (shift: Shift, dayDate: Date): DailySetting | null => {
       if (!shift.unitId) return null;
 
       const unitSettings =
         unitWeekSettings[shift.unitId] ||
         (weekSettings?.unitId === shift.unitId ? weekSettings : undefined);
 
+      const idx = getSettingsIndexForDate(dayDate);
+
       return (
-        unitSettings?.dailySettings?.[dayIndex] ||
-        weekSettings?.dailySettings?.[dayIndex] ||
+        unitSettings?.dailySettings?.[idx] ||
+        weekSettings?.dailySettings?.[idx] ||
         null
       );
     },
@@ -1715,7 +1893,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const workHours = useMemo(() => {
     const userTotals: Record<string, number> = {};
-    const dayTotals: number[] = Array(7).fill(0);
+    const dayTotals: number[] = Array(weekDays.length).fill(0);
 
     orderedUsers.forEach(user => {
       userTotals[user.id] = 0;
@@ -1729,9 +1907,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             sum +
             calculateShiftDuration(shift, {
               closingTime:
-                getUnitDaySetting(shift, dayIndex)?.closingTime || null,
+                getUnitDaySetting(shift, day)?.closingTime || null,
               closingOffsetMinutes:
-                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
+                getUnitDaySetting(shift, day)?.closingOffsetMinutes || 0,
               referenceDate: weekDays[dayIndex]
             }),
           0
@@ -1787,23 +1965,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   let zebraRowIndex = 0;
 
+  const shiftDateBySpan = (date: Date, span: ViewSpan, delta: number) => {
+    const next = new Date(date);
+    if (span === 'month') {
+      next.setMonth(next.getMonth() + delta);
+      next.setDate(1);
+    } else {
+      const weeks = Number(span.replace('w', '')) || 1;
+      next.setDate(next.getDate() + delta * weeks * 7);
+    }
+    return next;
+  };
+
   const handlePrevWeek = () =>
-    setCurrentDate(d => {
-      const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() - 7);
-      return newDate;
-    });
+    setCurrentDate(d => shiftDateBySpan(d, viewSpan, -1));
 
   const handleNextWeek = () =>
-    setCurrentDate(d => {
-      const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() + 7);
-      return newDate;
-    });
+    setCurrentDate(d => shiftDateBySpan(d, viewSpan, 1));
 
   const handlePublishWeek = () => {
     const weekStart = weekDays[0];
-    const weekEnd = new Date(weekDays[6]);
+    const weekEnd = new Date(weekDays[weekDays.length - 1]);
     weekEnd.setHours(23, 59, 59, 999);
 
     const draftShifts = schedule.filter(
@@ -1854,7 +2036,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     const weekStart = weekDays[0];
-    const weekEnd = new Date(weekDays[6]);
+    const weekEnd = new Date(weekDays[weekDays.length - 1]);
     weekEnd.setHours(23, 59, 59, 999);
 
     const shiftsToPublish = schedule.filter(
@@ -1888,7 +2070,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {
         month: 'short',
         day: 'numeric'
-      })} - ${weekDays[6].toLocaleDateString('hu-HU', {
+      })} - ${weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
         month: 'short',
         day: 'numeric'
       })}`;
@@ -1940,13 +2122,32 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
   ) => {
+    const existingShift = shiftData.id
+      ? schedule.find(s => s.id === shiftData.id)
+      : null;
+    const resolvedUnitId =
+      existingShift?.unitId ||
+      (shiftData as any).unitId ||
+      activeUnitIds[0] ||
+      null;
+
+    if (!resolvedUnitId) {
+      alert('Nincs kiválasztott egység, a műszak mentése nem lehetséges.');
+      return;
+    }
+
     const shiftToSave = {
       ...shiftData,
-      unitId: activeUnitIds[0]
+      unitId: resolvedUnitId
     };
     if (shiftToSave.id) {
       const docId = shiftToSave.id;
+      const existing = schedule.find(s => s.id === docId);
       const { id, ...dataToUpdate } = shiftToSave;
+      if (existing && existing.highlight !== undefined) {
+        (dataToUpdate as any).highlight = existing.highlight;
+        (dataToUpdate as any).highlightOnly = existing.highlightOnly;
+      }
       await updateDoc(doc(db, 'shifts', docId), dataToUpdate);
     } else {
       const { id, ...dataToAdd } = shiftToSave;
@@ -2019,6 +2220,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
     tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+    tableClone.querySelectorAll('.selected-cell').forEach(el => el.classList.remove('selected-cell'));
+    tableClone
+      .querySelectorAll<HTMLElement>('[data-selected]')
+      .forEach(el => {
+        el.style.boxShadow = '';
+        el.removeAttribute('data-selected');
+      });
 
     tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
       el.style.whiteSpace = 'pre-wrap';
@@ -2122,7 +2330,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           !td.classList.contains('day-off-cell') &&
           !td.classList.contains('leave-cell')
         ) {
-          td.style.background = rowBg;
+          const inlineBg = td.style.background;
+          td.style.background = inlineBg || rowBg;
           td.style.color = rowText;
         }
       });
@@ -2132,11 +2341,39 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
 
-    html2canvas(exportContainer, {
-      useCORS: true,
-      scale: 2,
-      backgroundColor: '#ffffff'
-    })
+    const images = Array.from(
+      tableClone.querySelectorAll<HTMLImageElement>('img')
+    );
+    let imageError = false;
+    images.forEach(img => {
+      try {
+        img.crossOrigin = 'anonymous';
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    const ensureImagesLoaded = Promise.all(
+      images.map(
+        img =>
+          new Promise(resolve => {
+            if (img.complete) return resolve(null);
+            img.onload = () => resolve(null);
+            img.onerror = () => {
+              imageError = true;
+              resolve(null);
+            };
+          })
+      )
+    );
+
+    ensureImagesLoaded
+      .then(() =>
+        html2canvas(exportContainer, {
+          useCORS: true,
+          scale: 2,
+          backgroundColor: '#ffffff'
+        })
+      )
       .then(canvas => {
         const link = document.createElement('a');
         const weekStart = weekDays[0]
@@ -2150,6 +2387,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         link.download = `beosztas_${weekStart}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
+        if (imageError) {
+          alert(
+            'A PNG export elkészült, de néhány logó nem töltődött be CORS beállítás miatt.'
+          );
+        }
         resolve();
       })
       .catch(err => {
@@ -2163,6 +2405,239 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       });
   });
 };
+
+  const clearSelection = () => {
+    setSelectedCells(new Set());
+    setSelectionOrigin(null);
+    setLastFocusedCell(null);
+  };
+
+  const cellKey = (userId: string, dayKey: string) =>
+    `${userId}::${dayKey}`;
+
+  const getShiftsForCell = useCallback(
+    (userId: string, dayKey: string) =>
+      activeShifts.filter(
+        s =>
+          s.userId === userId &&
+          s.start &&
+          toDateString(s.start.toDate()) === dayKey
+      ),
+    [activeShifts]
+  );
+
+  const applyBulkAction = async (
+    action: 'dayOff' | 'clear' | 'highlight' | 'clearHighlight'
+  ) => {
+    if (!selectedCells.size) return;
+
+    if (action === 'dayOff') {
+      const hasConflicts = Array.from(selectedCells).some(key => {
+        const [userId, dayKey] = key.split('::');
+        const existing = getShiftsForCell(userId, dayKey);
+        return existing.some(s => !s.isDayOff);
+      });
+      if (hasConflicts) {
+        const confirmed = window.confirm(
+          'A kijelölt cellák némelyikében már van műszak. Felülírja szabadnappal?'
+        );
+        if (!confirmed) return;
+      }
+    }
+
+    const batch = writeBatch(db);
+    selectedCells.forEach(key => {
+      const [userId, dayKey] = key.split('::');
+      const day = dayKeyToDate.get(dayKey);
+      if (!day) return;
+      const dayStart = new Date(day);
+      dayStart.setHours(0, 0, 0, 0);
+      const user = orderedUsers.find(u => u.id === userId);
+      const existing = getShiftsForCell(userId, dayKey);
+      const existingUnitId = existing.find(s => s.unitId)?.unitId;
+      const primaryUserUnit =
+        user?.unitIds?.find(uid => activeUnitIds.includes(uid)) ||
+        user?.unitIds?.[0] ||
+        scopeUnitId;
+      const resolvedUnitId = existingUnitId || primaryUserUnit || null;
+      if (!resolvedUnitId) return;
+      const baseData = {
+        userId,
+        userName: user?.fullName || '',
+        unitId: resolvedUnitId,
+        position: user?.position || 'N/A',
+        start: Timestamp.fromDate(dayStart),
+        end: null as Timestamp | null,
+        status: viewMode,
+        note: '',
+        isDayOff: action === 'dayOff'
+      };
+
+      if (action === 'dayOff') {
+        if (existing.length) {
+          existing.forEach(shift => {
+            batch.update(doc(db, 'shifts', shift.id), {
+              ...baseData,
+              note: shift.note || '',
+              highlight: shift.highlight ?? null,
+              highlightOnly: false
+            });
+          });
+        } else {
+          const newDoc = doc(collection(db, 'shifts'));
+          batch.set(newDoc, {
+            ...baseData,
+            end: null
+          });
+        }
+      }
+
+      if (action === 'clear') {
+        existing.forEach(shift => batch.delete(doc(db, 'shifts', shift.id)));
+      }
+
+      if (action === 'highlight') {
+        if (existing.length) {
+          existing.forEach(shift =>
+            batch.update(doc(db, 'shifts', shift.id), {
+              highlight: 'orange',
+              highlightOnly: shift.highlightOnly || false
+            })
+          );
+        } else {
+          const newDoc = doc(collection(db, 'shifts'));
+          batch.set(newDoc, {
+            ...baseData,
+            isDayOff: false,
+            highlight: 'orange',
+            highlightOnly: true
+          });
+        }
+      }
+
+      if (action === 'clearHighlight') {
+        existing.forEach(shift => {
+          if (shift.highlightOnly) {
+            batch.delete(doc(db, 'shifts', shift.id));
+          } else {
+            batch.update(doc(db, 'shifts', shift.id), { highlight: null });
+          }
+        });
+      }
+    });
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      console.error('Bulk művelet hiba', error);
+      alert('Hiba történt a kijelölt cellák módosításakor.');
+    } finally {
+      clearSelection();
+    }
+  };
+
+  const handleCellMouseDown = (
+    e: React.MouseEvent,
+    userId: string,
+    dayIndex: number
+  ) => {
+    if (e.button !== 0) return;
+    const dayKey = toDateString(weekDays[dayIndex]);
+    const key = cellKey(userId, dayKey);
+
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(selectedCells);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setSelectedCells(next);
+      setLastFocusedCell({ userId, dayIndex });
+      return;
+    }
+
+    if (e.shiftKey && lastFocusedCell) {
+      const startRow = Math.min(
+        orderedUsers.findIndex(u => u.id === lastFocusedCell.userId),
+        orderedUsers.findIndex(u => u.id === userId)
+      );
+      const endRow = Math.max(
+        orderedUsers.findIndex(u => u.id === lastFocusedCell.userId),
+        orderedUsers.findIndex(u => u.id === userId)
+      );
+      const startCol = Math.min(lastFocusedCell.dayIndex, dayIndex);
+      const endCol = Math.max(lastFocusedCell.dayIndex, dayIndex);
+      const next = new Set<string>();
+      for (let r = startRow; r <= endRow; r++) {
+        const uid = orderedUsers[r]?.id;
+        if (!uid) continue;
+        for (let c = startCol; c <= endCol; c++) {
+          const dk = toDateString(weekDays[c]);
+          next.add(cellKey(uid, dk));
+        }
+      }
+      setSelectedCells(next);
+      return;
+    }
+
+    setIsDraggingSelect(true);
+    setSelectionOrigin({ userId, dayIndex });
+    setLastFocusedCell({ userId, dayIndex });
+    setSelectedCells(new Set([key]));
+  };
+
+  const handleCellMouseEnter = (
+    _e: React.MouseEvent,
+    userId: string,
+    dayIndex: number
+  ) => {
+    if (!isDraggingSelect || !selectionOrigin) return;
+    const startRow = Math.min(
+      orderedUsers.findIndex(u => u.id === selectionOrigin.userId),
+      orderedUsers.findIndex(u => u.id === userId)
+    );
+    const endRow = Math.max(
+      orderedUsers.findIndex(u => u.id === selectionOrigin.userId),
+      orderedUsers.findIndex(u => u.id === userId)
+    );
+    const startCol = Math.min(selectionOrigin.dayIndex, dayIndex);
+    const endCol = Math.max(selectionOrigin.dayIndex, dayIndex);
+    const next = new Set<string>();
+    for (let r = startRow; r <= endRow; r++) {
+      const uid = orderedUsers[r]?.id;
+      if (!uid) continue;
+      for (let c = startCol; c <= endCol; c++) {
+        const dk = toDateString(weekDays[c]);
+        next.add(cellKey(uid, dk));
+      }
+    }
+    setSelectedCells(next);
+  };
+
+  useEffect(() => {
+    const handleUp = () => {
+      setIsDraggingSelect(false);
+      setSelectionOrigin(null);
+    };
+    window.addEventListener('mouseup', handleUp);
+    return () => window.removeEventListener('mouseup', handleUp);
+  }, []);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        clearSelection();
+        setIsDraggingSelect(false);
+        setSelectionOrigin(null);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  useEffect(() => {
+    clearSelection();
+    setIsDraggingSelect(false);
+    setSelectionOrigin(null);
+  }, [weekDays, orderedUsers]);
 
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
@@ -2319,6 +2794,112 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         canManage={canManage}
       />
 
+      {isTempUserModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setIsTempUserModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 border-b flex justify-between items-center">
+              <h2 className="text-lg font-bold text-gray-800">
+                Új ideiglenes beugró
+              </h2>
+              <button
+                onClick={() => setIsTempUserModalOpen(false)}
+                className="p-2 rounded-full hover:bg-gray-200"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-sm font-medium">Teljes név *</label>
+                <input
+                  type="text"
+                  value={tempUserForm.fullName}
+                  onChange={e =>
+                    setTempUserForm(prev => ({
+                      ...prev,
+                      fullName: e.target.value
+                    }))
+                  }
+                  className="w-full mt-1 p-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Pozíció *</label>
+                <input
+                  type="text"
+                  value={tempUserForm.position}
+                  onChange={e =>
+                    setTempUserForm(prev => ({
+                      ...prev,
+                      position: e.target.value
+                    }))
+                  }
+                  className="w-full mt-1 p-2 border rounded-lg"
+                />
+              </div>
+              {activeUnitIds.length > 1 && (
+                <div>
+                  <label className="text-sm font-medium">Egység *</label>
+                  <select
+                    value={tempUserForm.unitId}
+                    onChange={e =>
+                      setTempUserForm(prev => ({
+                        ...prev,
+                        unitId: e.target.value
+                      }))
+                    }
+                    className="w-full mt-1 p-2 border rounded-lg"
+                  >
+                    {activeUnitIds.map(uid => (
+                      <option key={uid} value={uid}>
+                        {unitMap.get(uid)?.name || uid}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="text-sm font-medium">
+                  Megjegyzés (opcionális)
+                </label>
+                <textarea
+                  value={tempUserForm.note}
+                  onChange={e =>
+                    setTempUserForm(prev => ({
+                      ...prev,
+                      note: e.target.value
+                    }))
+                  }
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 flex justify-end gap-3 rounded-b-2xl">
+              <button
+                onClick={() => setIsTempUserModalOpen(false)}
+                className="bg-gray-200 px-4 py-2 rounded-lg font-semibold"
+              >
+                Mégse
+              </button>
+              <button
+                onClick={handleCreateTempUser}
+                className="text-white px-4 py-2 rounded-lg font-semibold"
+                style={{ backgroundColor: 'var(--color-primary)' }}
+              >
+                Mentés
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPublishModalOpen && (
         <PublishWeekModal
           units={unitsWithDrafts}
@@ -2347,7 +2928,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               day: 'numeric'
             })}{' '}
             -{' '}
-            {weekDays[6].toLocaleDateString('hu-HU', {
+            {weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
               year: 'numeric',
               month: 'long',
               day: 'numeric'
@@ -2359,8 +2940,36 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           >
             &gt;
           </button>
+          <div className="ml-2 flex items-center gap-2 text-sm">
+            <span className="text-gray-600">Nézet:</span>
+            <select
+              className="border rounded-lg px-2 py-1 text-sm"
+              value={viewSpan}
+              onChange={e => setViewSpan(e.target.value as ViewSpan)}
+            >
+              <option value="1w">1 hét</option>
+              <option value="2w">2 hét</option>
+              <option value="3w">3 hét</option>
+              <option value="4w">4 hét</option>
+              <option value="month">Hónap lefedése</option>
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-3">
+          {canManage && (
+            <button
+              onClick={() => setIsTempUserModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-full border text-sm font-semibold hover:bg-gray-100"
+              style={{
+                backgroundColor: 'var(--color-surface-static)',
+                color: 'var(--color-text-main)',
+                borderColor: 'var(--color-border)'
+              }}
+            >
+              <PlusIcon className="h-4 w-4" />
+              + Ideiglenes beugró
+            </button>
+          )}
           {hiddenUsers.length > 0 && (
             <div className="relative">
               <button
@@ -2718,6 +3327,43 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           borderColor: 'var(--color-border)',
         }}
       >
+        {selectedCells.size > 0 && (
+          <div className="export-hide flex flex-wrap items-center gap-3 px-3 py-2 border-b bg-amber-50 border-amber-200 text-sm font-semibold text-amber-800 sticky top-0 z-[6]">
+            <span>{selectedCells.size} cella kijelölve</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => applyBulkAction('dayOff')}
+                className="px-3 py-1 rounded-full bg-amber-200 hover:bg-amber-300 text-amber-900"
+              >
+                Szabadnap (X) beállítása
+              </button>
+              <button
+                onClick={() => applyBulkAction('clear')}
+                className="px-3 py-1 rounded-full bg-white border border-amber-300 hover:bg-amber-100"
+              >
+                Törlés
+              </button>
+              <button
+                onClick={() => applyBulkAction('highlight')}
+                className="px-3 py-1 rounded-full bg-orange-200 hover:bg-orange-300 text-orange-900"
+              >
+                Kiemelés (narancs)
+              </button>
+              <button
+                onClick={() => applyBulkAction('clearHighlight')}
+                className="px-3 py-1 rounded-full bg-white border border-orange-300 hover:bg-orange-100"
+              >
+                Kiemelés törlése
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-3 py-1 rounded-full bg-transparent underline"
+              >
+                Kijelölés törlése
+              </button>
+            </div>
+          </div>
+        )}
         <table
           ref={tableRef}
           className="min-w-full text-sm"
@@ -2762,7 +3408,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           key={i}
                           className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
-                          {weekSettings.dailySettings[i]?.openingTime || '-'}
+                          {weekSettings.dailySettings[getSettingsIndexForDate(weekDays[i])]
+                            ?.openingTime || '-'}
                         </td>
                       ))}
                     </tr>
@@ -2777,7 +3424,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           key={i}
                           className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
-                          {weekSettings.dailySettings[i]?.closingTime || '-'}
+                          {weekSettings.dailySettings[getSettingsIndexForDate(weekDays[i])]
+                            ?.closingTime || '-'}
                         </td>
                       ))}
                     </tr>
@@ -2868,8 +3516,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 <span className="text-sm font-medium text-slate-800 leading-tight">
                                   {user.fullName}
                                 </span>
-                                {isMultiUnitView && userUnit && (
-                                  <UnitLogoBadge unit={userUnit} size={18} />
+                                {isMultiUnitView && (
+                                  <div className="flex items-center gap-1">
+                                    {Array.from(
+                                      userUnitUsage.get(user.id) || []
+                                    ).map(uid => {
+                                      const unit = unitMap.get(uid);
+                                      if (!unit) return null;
+                                      return (
+                                        <UnitLogoBadge
+                                          key={uid}
+                                          unit={unit}
+                                          size={18}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {user.isTemporary && (
+                                  <span className="text-[10px] px-2 py-1 rounded-full bg-slate-200 text-slate-600">
+                                    ideiglenes
+                                  </span>
                                 )}
                               </div>
                               <span className="export-hide text-[11px] text-slate-400">
@@ -2984,6 +3651,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const canEditCell = canManage || user.id === currentUser.id;
                           const hasContent = displayParts.length > 0;
                           const hasNote = !!shiftNote;
+                          const isHighlighted =
+                            userDayShifts.some(s => s.highlight === 'orange');
+                          const hasMultiUnits =
+                            (userUnitUsage.get(user.id)?.size || 0) > 1;
+                          const cellUnitId =
+                            userDayShifts.find(s => s.unitId)?.unitId;
+                          const cellUnit =
+                            cellUnitId ? unitMap.get(cellUnitId) : undefined;
+                          const isSelected = selectedCells.has(
+                            cellKey(user.id, dayKey)
+                          );
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -2998,24 +3676,53 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           } else {
                             cellClasses += ' text-slate-400';
                           }
+                          if (isSelected) {
+                            cellClasses += ' selected-cell';
+                          }
+
+                          const cellStyle: React.CSSProperties =
+                            !isDayOff && !isLeave
+                              ? {
+                                  background: isHighlighted ? '#fff4e5' : rowBg,
+                                  color: rowTextColor,
+                                  boxShadow: isSelected
+                                    ? 'inset 0 0 0 2px rgba(249,115,22,0.4)'
+                                    : undefined
+                                }
+                              : {
+                                  boxShadow: isSelected
+                                    ? 'inset 0 0 0 2px rgba(249,115,22,0.4)'
+                                    : undefined
+                                };
 
                           return (
                             <td
                               key={dayIndex}
                               className={cellClasses}
-                              style={
-                                !isDayOff && !isLeave
-                                  ? { background: rowBg, color: rowTextColor }
-                                  : undefined
+                              style={cellStyle}
+                              data-selected={isSelected ? 'true' : undefined}
+                              onMouseDown={e =>
+                                handleCellMouseDown(e, user.id, dayIndex)
                               }
-                              onClick={() =>
-                                canEditCell &&
-                                handleOpenShiftModal(
-                                  userDayShifts[0] || null,
-                                  user.id,
-                                  day
-                                )
+                              onMouseEnter={e =>
+                                handleCellMouseEnter(e, user.id, dayIndex)
                               }
+                              onClick={e => {
+                                if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+                                if (isDraggingSelect) return;
+                                if (selectedCells.size > 1) return;
+                                if (selectedCells.size === 1) {
+                                  const onlyKey = Array.from(selectedCells)[0];
+                                  if (onlyKey !== cellKey(user.id, dayKey)) return;
+                                }
+                                if (canEditCell) {
+                                  handleOpenShiftModal(
+                                    userDayShifts[0] || null,
+                                    user.id,
+                                    day
+                                  );
+                                }
+                              }}
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
@@ -3027,6 +3734,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   <span className="handwritten-note tracking-tighter">
                                     {`"${shiftNote}"`}
                                   </span>
+                                )}
+                                {isMultiUnitView && cellUnit && (
+                                  <div className="absolute top-1 right-1">
+                                    <UnitLogoBadge
+                                      unit={cellUnit}
+                                      size={14}
+                                    />
+                                  </div>
                                 )}
                                 {!hasContent && canEditCell && (
                                   <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">

@@ -66,6 +66,7 @@ const UnitLogoBadge: React.FC<UnitLogoBadgeProps> = ({
       <img
         src={logoUrl}
         alt={`${unit?.name || 'Egység'} logó`}
+        crossOrigin="anonymous"
         className={`rounded-full object-cover border border-gray-200 ${className}`}
         style={dimensionStyle}
       />
