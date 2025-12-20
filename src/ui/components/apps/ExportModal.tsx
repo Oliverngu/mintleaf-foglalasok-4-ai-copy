@@ -45,6 +45,11 @@ const getContrastingTextColor = (hex: string): '#FFFFFF' | '#000000' => {
     return (yiq >= 128) ? '#000000' : '#FFFFFF';
 };
 
+const getDayIndexForSettings = (date: Date): number => {
+    const d = date.getDay();
+    return d === 0 ? 6 : d - 1;
+};
+
 
 export const generateExcelExport = async ({
   users,
@@ -70,30 +75,40 @@ export const generateExcelExport = async ({
                 return acc;
             }, {} as Record<string, User[]>);
 
+            const columnCount = weekDays.length + 1;
             const data: (string | number | null)[][] = [];
             // Header rows
-            data.push([monthName.charAt(0).toUpperCase() + monthName.slice(1), unitName, null, null, null, null, null, null]);
+            const headerRow = Array(columnCount).fill(null);
+            headerRow[0] = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+            headerRow[1] = unitName;
+            data.push(headerRow);
             data.push([]); 
 
             const dayHeader: (string|null)[] = ['Munkatárs'];
-            const dayNames = exportSettings.useFullNameForDays 
-                ? ['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap']
-                : ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'];
-            weekDays.forEach((day, index) => {
-                dayHeader.push(`${dayNames[index]}\n${day.toLocaleDateString('hu-HU', { month: '2-digit', day: '2-digit' })}`);
+            weekDays.forEach(day => {
+                const dayName = day.toLocaleDateString('hu-HU', {
+                    weekday: exportSettings.useFullNameForDays ? 'long' : 'short'
+                });
+                dayHeader.push(`${dayName}\n${day.toLocaleDateString('hu-HU', { month: '2-digit', day: '2-digit' })}`);
             });
             data.push(dayHeader);
 
             // Optional opening/closing time rows
             if (weekSettings?.showOpeningTime) {
                 const openingTimeRow: (string | null)[] = ['Nyitás'];
-                weekDays.forEach((_, i) => openingTimeRow.push(weekSettings.dailySettings[i]?.openingTime || ''));
+                weekDays.forEach(day => {
+                    const idx = getDayIndexForSettings(day);
+                    openingTimeRow.push(weekSettings.dailySettings[idx]?.openingTime || '');
+                });
                 data.push(openingTimeRow);
             }
 
             if (weekSettings?.showClosingTime) {
                 const closingTimeRow: (string | null)[] = ['Zárás'];
-                weekDays.forEach((_, i) => closingTimeRow.push(weekSettings.dailySettings[i]?.closingTime || ''));
+                weekDays.forEach(day => {
+                    const idx = getDayIndexForSettings(day);
+                    closingTimeRow.push(weekSettings.dailySettings[idx]?.closingTime || '');
+                });
                 data.push(closingTimeRow);
             }
             
@@ -110,7 +125,9 @@ export const generateExcelExport = async ({
 
             sortedPositionKeys.forEach(position => {
                 positionHeaderRowIndices.add(data.length);
-                data.push([position, null, null, null, null, null, null, null]);
+                const positionRow = Array(columnCount).fill(null);
+                positionRow[0] = position;
+                data.push(positionRow);
             usersByPosition[position].forEach(user => {
                 const userRow: (string | number | null)[] = [user.fullName];
                 weekDays.forEach(day => {
@@ -149,7 +166,7 @@ export const generateExcelExport = async ({
 
             const ws = XLSX.utils.aoa_to_sheet(data);
             
-            const colWidths = Array.from({ length: 8 }, (_, colIndex) => {
+            const colWidths = Array.from({ length: columnCount }, (_, colIndex) => {
                 let maxLength = 0;
                 data.forEach(row => {
                     const cellContent = row[colIndex];
@@ -180,9 +197,9 @@ export const generateExcelExport = async ({
             });
             ws['!rows'] = rowHeights;
             
-            const merges = [{ s: { r: 0, c: 1 }, e: { r: 0, c: 7 } }];
+            const merges = [{ s: { r: 0, c: 1 }, e: { r: 0, c: columnCount - 1 } }];
             positionHeaderRowIndices.forEach(rowIndex => {
-                merges.push({ s: { r: rowIndex, c: 0 }, e: { r: rowIndex, c: 7 } });
+                merges.push({ s: { r: rowIndex, c: 0 }, e: { r: rowIndex, c: columnCount - 1 } });
             });
             ws['!merges'] = merges;
 

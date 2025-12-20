@@ -51,6 +51,9 @@ export interface User {
     newSchedule?: boolean;
   };
   registrationEmailSent?: boolean;
+  // Virtual/ephemeral helpers for schedule UI
+  isTemporary?: boolean;
+  tempNote?: string;
 }
 
 export interface Request {
@@ -164,6 +167,9 @@ export interface Shift {
   note?: string;
   status: 'draft' | 'published';
   isDayOff?: boolean;
+  // Highlighting support for schedule cells
+  highlight?: 'orange' | null;
+  highlightOnly?: boolean;
 }
 
 export interface TimeEntry {
