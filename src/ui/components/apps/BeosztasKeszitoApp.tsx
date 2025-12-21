@@ -1387,6 +1387,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }>({ fullName: '', position: '', unitId: '' });
   const [settingsWarning, setSettingsWarning] = useState<string | null>(null);
   const settingsWarnedRef = useRef(false);
+  const lastSettingsScopeStartRef = useRef<string | null>(null);
+  const lastSettingsUnitsRef = useRef<string>('');
+  const settingsPermissionScopesRef = useRef<Set<string>>(new Set());
+  const tempPermissionScopesRef = useRef<Set<string>>(new Set());
+  const tempWarningShownRef = useRef(false);
+  const lastTempScopeStartRef = useRef<string | null>(null);
+  const lastTempUnitsRef = useRef<string>('');
   const exportSettingsHaveChanged = useMemo(
     () =>
       JSON.stringify(exportSettings) !==
@@ -1463,13 +1470,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [allAppUsers, tempUsersByScope]);
   const permissionWarned = useRef(false);
   const handleSnapshotError = useCallback(
-    (error: any) => {
+    (error: any, onPermissionDenied?: () => void) => {
       if (error?.name === 'AbortError') return;
       if (error?.code === 'permission-denied') {
         if (!permissionWarned.current) {
           console.warn('Firestore permission denied');
           permissionWarned.current = true;
         }
+        onPermissionDenied?.();
         return;
       }
       console.error('Firestore listener error', error);
@@ -1560,21 +1568,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [normalizedStartDate, viewSpan]
   );
 
+  const viewStartKey = useMemo(
+    () => toDateString(viewDays[0]),
+    [viewDays]
+  );
+
   const viewDayKeys = useMemo(
     () => viewDays.map(d => toDateString(d)),
     [viewDays]
   );
 
-  const viewStartDateKey = useMemo(
-    () => toDateString(normalizedStartDate),
-    [normalizedStartDate]
-  );
-
   const openingSettings = useMemo(
     () =>
       weekSettings ||
-      createDefaultSettings(activeUnitIds[0] || 'default', viewStartDateKey),
-    [weekSettings, activeUnitIds, viewStartDateKey]
+      createDefaultSettings(activeUnitIds[0] || 'default', viewStartKey),
+    [weekSettings, activeUnitIds, viewStartKey]
   );
 
   useEffect(() => {
@@ -1619,13 +1627,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [activeUnitIds]);
 
   useEffect(() => {
-    settingsWarnedRef.current = false;
+    const unitsKey = [...activeUnitIds].sort().join(',');
+    const scopeStart = viewStartKey;
+    if (
+      lastSettingsScopeStartRef.current !== scopeStart ||
+      lastSettingsUnitsRef.current !== unitsKey
+    ) {
+      settingsWarnedRef.current = false;
+      lastSettingsScopeStartRef.current = scopeStart;
+      lastSettingsUnitsRef.current = unitsKey;
+      setSettingsWarning(null);
+    }
     if (!activeUnitIds || activeUnitIds.length === 0) {
       setUnitWeekSettings({});
       setTempUsersByScope({});
       return;
     }
-    const scopeStart = viewStartDateKey;
+    if (
+      lastTempScopeStartRef.current !== scopeStart ||
+      lastTempUnitsRef.current !== unitsKey
+    ) {
+      tempWarningShownRef.current = false;
+      lastTempScopeStartRef.current = scopeStart;
+      lastTempUnitsRef.current = unitsKey;
+      setTempUserWarning(null);
+    }
     const unsubs: (() => void)[] = [];
     const localTempUsers: Record<string, TempUser[]> = {};
 
@@ -1634,22 +1660,39 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const loadSettings = async () => {
       const entries = await Promise.all(
         activeUnitIds.map(async unitId => {
+          const settingsId = `${unitId}_${viewStartKey}`;
+          if (settingsPermissionScopesRef.current.has(settingsId)) {
+            if (!settingsWarnedRef.current) {
+              setSettingsWarning(
+                'A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.'
+              );
+              settingsWarnedRef.current = true;
+            }
+            return createDefaultSettings(unitId, viewStartKey);
+          }
           try {
-            const settingsId = `${unitId}_${viewStartDateKey}`;
             const snap = await getDoc(
               doc(db, 'schedule_settings', settingsId)
             );
             if (snap.exists()) {
-              return snap.data() as ScheduleSettings;
+              const data = snap.data() as ScheduleSettings;
+              return {
+                ...data,
+                id: settingsId,
+                weekStartDate: viewStartKey
+              };
             }
-            return createDefaultSettings(unitId, viewStartDateKey);
-          } catch (error) {
+            return createDefaultSettings(unitId, viewStartKey);
+          } catch (error: any) {
+            if (error?.code === 'permission-denied') {
+              settingsPermissionScopesRef.current.add(settingsId);
+            }
             if (!settingsWarnedRef.current) {
               console.warn('Failed to load schedule settings for unit', unitId, error);
               settingsWarnedRef.current = true;
               setSettingsWarning('A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.');
             }
-            return createDefaultSettings(unitId, viewStartDateKey);
+            return createDefaultSettings(unitId, viewStartKey);
           }
         })
       );
@@ -1672,6 +1715,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     activeUnitIds.forEach(unitId => {
       const scopeId = `${unitId}_${scopeStart}`;
+      if (tempPermissionScopesRef.current.has(scopeId)) {
+        setTempUsersByScope(prev => ({
+          ...prev,
+          [scopeId]: []
+        }));
+        if (!tempWarningShownRef.current) {
+          setTempUserWarning(
+            'A beugrósok listája nem elérhető ehhez a nézethez (engedély hiányzik).'
+          );
+          tempWarningShownRef.current = true;
+        }
+        return;
+      }
       const collectionRef = collection(
         db,
         'unit_schedules',
@@ -1688,6 +1744,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               id: docSnap.id,
               tempId: docSnap.id,
               scopeId,
+              scopeStart: data.scopeStart || scopeStart,
               ...data,
               isTemporary: true
             } as TempUser;
@@ -1696,18 +1753,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ...prev,
             ...localTempUsers
           }));
+          setTempUserWarning(null);
         },
         err => {
-          handleSnapshotError(err);
-          if (err?.code === 'permission-denied') {
+          handleSnapshotError(err, () => {
+            tempPermissionScopesRef.current.add(scopeId);
             setTempUsersByScope(prev => ({
               ...prev,
               [scopeId]: []
             }));
-            setTempUserWarning(
-              'A beugrósok listája nem elérhető ehhez a nézethez (engedély hiányzik).'
-            );
-          }
+            if (!tempWarningShownRef.current) {
+              setTempUserWarning(
+                'A beugrósok listája nem elérhető ehhez a nézethez (engedély hiányzik).'
+              );
+              tempWarningShownRef.current = true;
+            }
+          });
         }
       );
       unsubs.push(unsub);
@@ -1717,11 +1778,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       isMounted = false;
       unsubs.forEach(u => u());
     };
-  }, [activeUnitIds, viewDays, viewStartDateKey, handleSnapshotError]);
+  }, [activeUnitIds, handleSnapshotError, viewSpan, viewStartKey]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    const scopeIdBase = viewStartDateKey;
+    const scopeIdBase = viewStartKey;
     const tempUsers = activeUnitIds.flatMap(unitId => {
       const scopeId = `${unitId}_${scopeIdBase}`;
       return tempUsersByScope[scopeId] || [];
@@ -1734,7 +1795,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds, tempUsersByScope, viewDays]);
+  }, [allAppUsers, activeUnitIds, tempUsersByScope, viewStartKey]);
 
   useEffect(() => {
     if (!settingsDocId) return;
@@ -1862,22 +1923,50 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
     const unitId = activeUnitIds[0];
-    const settingsId = `${unitId}_${viewStartDateKey}`;
+    const settingsId = `${unitId}_${viewStartKey}`;
+    if (settingsPermissionScopesRef.current.has(settingsId)) {
+      setWeekSettings(createDefaultSettings(unitId, viewStartKey));
+      if (!settingsWarnedRef.current) {
+        setSettingsWarning(
+          'A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.'
+        );
+        settingsWarnedRef.current = true;
+      }
+      return;
+    }
     const unsub = onSnapshot(
       doc(db, 'schedule_settings', settingsId),
       docSnap => {
         if (docSnap.exists()) {
-          setWeekSettings(docSnap.data() as ScheduleSettings);
+          const data = docSnap.data() as ScheduleSettings;
+          setWeekSettings({
+            ...data,
+            id: settingsId,
+            weekStartDate: viewStartKey
+          });
+          if (!settingsWarnedRef.current) {
+            setSettingsWarning(null);
+          }
         } else {
           setWeekSettings(
-            createDefaultSettings(unitId, viewStartDateKey)
+            createDefaultSettings(unitId, viewStartKey)
           );
         }
       },
-      handleSnapshotError
+      error =>
+        handleSnapshotError(error, () => {
+          settingsPermissionScopesRef.current.add(settingsId);
+          if (!settingsWarnedRef.current) {
+            setSettingsWarning(
+              'A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.'
+            );
+            settingsWarnedRef.current = true;
+          }
+          setWeekSettings(createDefaultSettings(unitId, viewStartKey));
+        })
     );
     return () => unsub();
-  }, [activeUnitIds, viewDays, canManage, viewStartDateKey]);
+  }, [activeUnitIds, canManage, viewSpan, viewStartKey, handleSnapshotError]);
 
   const activeShifts = useMemo(
     () =>
@@ -2235,7 +2324,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           prev ||
           createDefaultSettings(
             activeUnitIds[0] || 'default',
-            viewStartDateKey
+            viewStartKey
           );
 
         const updated = updater(baseSettings);
@@ -2249,7 +2338,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return updated;
       });
     },
-    [canManage, activeUnitIds, viewStartDateKey]
+    [canManage, activeUnitIds, viewStartKey]
   );
 
   const buildRangeKeys = useCallback(
@@ -2970,29 +3059,42 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                     alert('A név, pozíció és egység megadása kötelező.');
                     return;
                   }
-                  const scopeId = `${targetUnit}_${toDateString(viewDays[0])}`;
+                  const scopeId = `${targetUnit}_${viewStartKey}`;
                   try {
-                    const docRef = doc(
-                      collection(db, 'unit_schedules', scopeId, 'tempUsers')
+                    const colRef = collection(
+                      db,
+                      'unit_schedules',
+                      scopeId,
+                      'tempUsers'
                     );
-                    await setDoc(docRef, {
-                      id: docRef.id,
+                    const ref = await addDoc(colRef, {
                       fullName: tempForm.fullName,
                       position: tempForm.position,
+                      unitId: targetUnit,
                       unitIds: [targetUnit],
-                      isTemporary: true
+                      scopeStart: viewStartKey,
+                      isTemporary: true,
+                      createdAt: serverTimestamp(),
+                      createdBy: currentUser.id
                     });
+                    await updateDoc(ref, { id: ref.id });
                     setTempForm({ fullName: '', position: '', unitId: '' });
                     setTempUserWarning(null);
                     setIsTempModalOpen(false);
                   } catch (error: any) {
-                    handleSnapshotError(error);
                     if (error?.code === 'permission-denied') {
-                      setTempUserWarning(
-                        'Nincs jogosultság beugrós felvételéhez ebben a nézetben.'
-                      );
+                      tempPermissionScopesRef.current.add(scopeId);
+                      if (!tempWarningShownRef.current) {
+                        setTempUserWarning(
+                          'Nincs jogosultság beugrós felvételéhez ebben a nézetben.'
+                        );
+                        tempWarningShownRef.current = true;
+                      }
                     } else {
-                      alert('Hiba történt a beugrós mentésekor.');
+                      handleSnapshotError(error);
+                      setTempUserWarning(
+                        'Hiba történt a beugrós mentésekor.'
+                      );
                     }
                   }
                 }}

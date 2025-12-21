@@ -33,11 +33,43 @@ const ThemeManagerBridge: React.FC<{
   useBrandTheme,
 }) => {
   const { selectedUnits } = useUnitContext();
+  const [unitTheme, setUnitTheme] = useState<ThemeBases | null>(null);
+  const unitThemeDeniedRef = React.useRef<Set<string>>(new Set());
+  const unitThemeWarnedRef = React.useRef(false);
   const activeUnit = selectedUnits.length
     ? allUnits.find(u => u.id === selectedUnits[0]) || null
     : null;
 
   const resolvedBases = previewBases || bases;
+
+  useEffect(() => {
+    if (!activeUnit) {
+      setUnitTheme(null);
+      return;
+    }
+    if (unitThemeDeniedRef.current.has(activeUnit.id)) {
+      setUnitTheme(null);
+      return;
+    }
+    const ref = doc(db, 'unit_themes', activeUnit.id);
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        setUnitTheme((snap.data() as ThemeBases) || null);
+      },
+      err => {
+        if (err?.code === 'permission-denied') {
+          unitThemeDeniedRef.current.add(activeUnit.id);
+        }
+        if (!unitThemeWarnedRef.current) {
+          console.warn('Unit theme load failed', err);
+          unitThemeWarnedRef.current = true;
+        }
+        setUnitTheme(null);
+      }
+    );
+    return () => unsub();
+  }, [activeUnit]);
 
   // JAVÍTVA: adminConfig={bases}, themeMode={themeMode}
   return (
@@ -46,6 +78,7 @@ const ThemeManagerBridge: React.FC<{
       themeMode={themeMode}
       useBrandTheme={useBrandTheme}
       adminConfig={resolvedBases} // Fontos: adminConfig a neve, nem bases!
+      unitTheme={unitTheme}
     />
   );
 };
