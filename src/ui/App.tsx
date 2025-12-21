@@ -34,6 +34,8 @@ const ThemeManagerBridge: React.FC<{
 }) => {
   const { selectedUnits } = useUnitContext();
   const [unitTheme, setUnitTheme] = useState<ThemeBases | null>(null);
+  const unitThemeDeniedRef = React.useRef<Set<string>>(new Set());
+  const unitThemeWarnedRef = React.useRef(false);
   const activeUnit = selectedUnits.length
     ? allUnits.find(u => u.id === selectedUnits[0]) || null
     : null;
@@ -45,6 +47,10 @@ const ThemeManagerBridge: React.FC<{
       setUnitTheme(null);
       return;
     }
+    if (unitThemeDeniedRef.current.has(activeUnit.id)) {
+      setUnitTheme(null);
+      return;
+    }
     const ref = doc(db, 'unit_themes', activeUnit.id);
     const unsub = onSnapshot(
       ref,
@@ -52,7 +58,13 @@ const ThemeManagerBridge: React.FC<{
         setUnitTheme((snap.data() as ThemeBases) || null);
       },
       err => {
-        console.warn('Unit theme load failed', err);
+        if (err?.code === 'permission-denied') {
+          unitThemeDeniedRef.current.add(activeUnit.id);
+        }
+        if (!unitThemeWarnedRef.current) {
+          console.warn('Unit theme load failed', err);
+          unitThemeWarnedRef.current = true;
+        }
         setUnitTheme(null);
       }
     );

@@ -91,10 +91,10 @@ export const resolveThemePalette = ({
     pickColor(unitTheme?.border, globalTheme?.border) ?? defaults.border;
 
   return {
-    surface,
-    surfaceCard,
-    text,
-    border,
+    surface: surface || defaults.surface,
+    surfaceCard: surfaceCard || defaults.surfaceCard,
+    text: text || defaults.text,
+    border: border || defaults.border,
   };
 };
 
