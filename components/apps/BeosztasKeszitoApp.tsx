@@ -766,6 +766,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
+    const modalOpenTokenRef = useRef<string | null>(null);
 
 
     const settingsDocId = useMemo(() => {
@@ -1124,8 +1125,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         clearSelection();
     }, [clearSelection]);
     
+    // Modal open call sites:
+    // - handleCellTap (grid cell) -> handleOpenShiftModal
     const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
-        if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal' });
+        if (DEBUG_SELECTION) {
+            console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal', token: modalOpenTokenRef.current });
+            console.debug('[SHIFT_MODAL_OPEN_STACK]', new Error('SHIFT_MODAL_OPEN').stack);
+        }
+        if (!modalOpenTokenRef.current) {
+            console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date });
+            if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: modalOpenTokenRef.current });
+            return;
+        }
+        modalOpenTokenRef.current = null;
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
     }, []);
@@ -1156,6 +1168,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         }
 
         selectionArmedRef.current[selectionKey] = false;
+        modalOpenTokenRef.current = selectionKey;
         if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
         handleOpenShiftModal(dayShifts[0] || null, userId, day);
     }, [selectedCells, selectedCount, handleOpenShiftModal]);
