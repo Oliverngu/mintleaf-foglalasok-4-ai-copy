@@ -760,6 +760,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const [selectedCells, setSelectedCells] = useState<Record<string, { userId: string, dayKey: string }>>({});
     const selectedCount = Object.keys(selectedCells).length;
     const clearSelection = useCallback(() => setSelectedCells({}), []);
+    const lastSelectionAtRef = useRef<number>(0);
 
 
     const settingsDocId = useMemo(() => {
@@ -1118,26 +1119,35 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         clearSelection();
     }, [clearSelection]);
     
-    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
+    const handleOpenShiftModal = (shift: Shift | null, userId: string, date: Date) => {
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
-    }, []);
+    };
     
     const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
         if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
-        const isAlreadySelected = !!selectedCells[selectionKey];
+        
+        setSelectedCells(prev => {
+            const isAlreadySelected = !!prev[selectionKey];
+            if (!isAlreadySelected) {
+                const nextCount = Object.keys(prev).length + 1;
+                if (DEBUG_SELECTION) console.debug('Selecting cell', selectionKey, 'current count', nextCount);
+                lastSelectionAtRef.current = Date.now();
+                return { ...prev, [selectionKey]: { userId, dayKey } };
+            }
 
-        if (!isAlreadySelected) {
-            if (DEBUG_SELECTION) console.debug('Selecting cell', selectionKey, 'current count', Object.keys(selectedCells).length + 1);
-            setSelectedCells(prev => ({ ...prev, [selectionKey]: { userId, dayKey } }));
-            return;
-        }
-
-        if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey);
-        handleOpenShiftModal(dayShifts[0] || null, userId, day);
-    }, [selectedCells, handleOpenShiftModal]);
+            const elapsed = Date.now() - lastSelectionAtRef.current;
+            if (elapsed > 350) {
+                if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
+                handleOpenShiftModal(dayShifts[0] || null, userId, day);
+            } else if (DEBUG_SELECTION) {
+                console.debug('Ignoring ghost click for selected cell', selectionKey, 'after', elapsed, 'ms');
+            }
+            return prev;
+        });
+    }, [handleOpenShiftModal]);
     
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
         const shiftToSave = { ...shiftData, unitId: activeUnitIds[0] };
