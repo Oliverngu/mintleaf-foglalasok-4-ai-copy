@@ -50,6 +50,7 @@ export interface User {
   notifications?: {
     newSchedule?: boolean;
   };
+  isTemporary?: boolean;
   registrationEmailSent?: boolean;
 }
 
@@ -164,6 +165,8 @@ export interface Shift {
   note?: string;
   status: 'draft' | 'published';
   isDayOff?: boolean;
+  highlight?: 'orange' | null;
+  highlightOnly?: boolean;
 }
 
 export interface TimeEntry {
@@ -342,6 +345,7 @@ export interface Unit {
       primary: string; // Header
       secondary: string; // Buttons, Active Menu Item
       background: string; // App Background
+      surface?: string; // Optional card surface override
     };
     uiTheme?: 'default' | 'brand';
     uiHeaderImageUrl?: string;
