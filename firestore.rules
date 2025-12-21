@@ -532,6 +532,18 @@ service cloud.firestore {
         );
     }
 
+    // --- unit_schedules / tempUsers ---
+    match /unit_schedules/{scopeId}/tempUsers/{tempId} {
+      allow read: if resource.data.unitId != null && canViewUnit(resource.data.unitId);
+
+      allow create: if request.resource.data.unitId != null
+        && request.resource.data.scopeStart != null
+        && canManageUnit(request.resource.data.unitId);
+
+      allow update, delete: if resource.data.unitId != null
+        && canManageUnit(resource.data.unitId);
+    }
+
     // --- user_private_data ---
 
     match /user_private_data/{userId} {
