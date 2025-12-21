@@ -1400,6 +1400,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [successToast, setSuccessToast] = useState('');
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  useEffect(() => {
+    if (!successToast) return;
+    const timeoutId = window.setTimeout(() => setSuccessToast(''), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [successToast]);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
@@ -1560,16 +1565,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [viewDays]
   );
 
-  const weekStartDateStr = useMemo(
-    () => toDateString(viewDays[0]),
-    [viewDays]
+  const viewStartDateKey = useMemo(
+    () => toDateString(normalizedStartDate),
+    [normalizedStartDate]
   );
 
   const openingSettings = useMemo(
     () =>
       weekSettings ||
-      createDefaultSettings(activeUnitIds[0] || 'default', weekStartDateStr),
-    [weekSettings, activeUnitIds, weekStartDateStr]
+      createDefaultSettings(activeUnitIds[0] || 'default', viewStartDateKey),
+    [weekSettings, activeUnitIds, viewStartDateKey]
   );
 
   useEffect(() => {
@@ -1589,9 +1594,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     };
     window.addEventListener('mouseup', stopDrag);
     window.addEventListener('mouseleave', stopDrag);
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+    window.addEventListener('pointerleave', stopDrag);
     return () => {
       window.removeEventListener('mouseup', stopDrag);
       window.removeEventListener('mouseleave', stopDrag);
+      window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
+      window.removeEventListener('pointerleave', stopDrag);
     };
   }, []);
 
@@ -1614,7 +1625,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       setTempUsersByScope({});
       return;
     }
-    const scopeStart = toDateString(viewDays[0]);
+    const scopeStart = viewStartDateKey;
     const unsubs: (() => void)[] = [];
     const localTempUsers: Record<string, TempUser[]> = {};
 
@@ -1624,21 +1635,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const entries = await Promise.all(
         activeUnitIds.map(async unitId => {
           try {
-            const settingsId = `${unitId}_${weekStartDateStr}`;
+            const settingsId = `${unitId}_${viewStartDateKey}`;
             const snap = await getDoc(
               doc(db, 'schedule_settings', settingsId)
             );
             if (snap.exists()) {
               return snap.data() as ScheduleSettings;
             }
-            return createDefaultSettings(unitId, weekStartDateStr);
+            return createDefaultSettings(unitId, viewStartDateKey);
           } catch (error) {
             if (!settingsWarnedRef.current) {
               console.warn('Failed to load schedule settings for unit', unitId, error);
               settingsWarnedRef.current = true;
               setSettingsWarning('A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.');
             }
-            return null;
+            return createDefaultSettings(unitId, viewStartDateKey);
           }
         })
       );
@@ -1652,7 +1663,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         }
       });
       setUnitWeekSettings(map);
-      if (Object.keys(map).length > 0) {
+      if (!settingsWarnedRef.current && Object.keys(map).length > 0) {
         setSettingsWarning(null);
       }
     };
@@ -1706,11 +1717,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       isMounted = false;
       unsubs.forEach(u => u());
     };
-  }, [activeUnitIds, viewDays, weekStartDateStr, handleSnapshotError]);
+  }, [activeUnitIds, viewDays, viewStartDateKey, handleSnapshotError]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    const scopeIdBase = toDateString(viewDays[0]);
+    const scopeIdBase = viewStartDateKey;
     const tempUsers = activeUnitIds.flatMap(unitId => {
       const scopeId = `${unitId}_${scopeIdBase}`;
       return tempUsersByScope[scopeId] || [];
@@ -1851,8 +1862,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
     const unitId = activeUnitIds[0];
-    const weekStartDateStr = toDateString(viewDays[0]);
-    const settingsId = `${unitId}_${weekStartDateStr}`;
+    const settingsId = `${unitId}_${viewStartDateKey}`;
     const unsub = onSnapshot(
       doc(db, 'schedule_settings', settingsId),
       docSnap => {
@@ -1860,14 +1870,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           setWeekSettings(docSnap.data() as ScheduleSettings);
         } else {
           setWeekSettings(
-            createDefaultSettings(unitId, weekStartDateStr)
+            createDefaultSettings(unitId, viewStartDateKey)
           );
         }
       },
       handleSnapshotError
     );
     return () => unsub();
-  }, [activeUnitIds, viewDays, canManage]);
+  }, [activeUnitIds, viewDays, canManage, viewStartDateKey]);
 
   const activeShifts = useMemo(
     () =>
@@ -2225,7 +2235,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           prev ||
           createDefaultSettings(
             activeUnitIds[0] || 'default',
-            weekStartDateStr
+            viewStartDateKey
           );
 
         const updated = updater(baseSettings);
@@ -2239,7 +2249,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return updated;
       });
     },
-    [canManage, activeUnitIds, weekStartDateStr]
+    [canManage, activeUnitIds, viewStartDateKey]
   );
 
   const buildRangeKeys = useCallback(
@@ -2328,9 +2338,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     dayKey: string,
     userIndex: number,
     dayIndex: number,
-    event: React.MouseEvent
+    event: React.PointerEvent
   ) => {
-    if (event.button !== 0) return;
+    const isPrimaryButton =
+      event.button === 0 ||
+      event.pointerType === 'touch' ||
+      event.pointerType === 'pen';
+    if (!isPrimaryButton) return;
     event.preventDefault();
     isRangeDragActive.current = true;
     dragStartRef.current = { userIndex, dayIndex };
@@ -2999,11 +3013,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
-      {successToast && (
-        <div className="mb-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg text-sm">
-          {successToast}
-        </div>
-      )}
       {settingsWarning && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           {settingsWarning}
@@ -3766,7 +3775,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             Math.floor(dayIndex / 7) % 2 === 1;
 
                           let cellClasses =
-                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
+                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors select-none';
                           if (isDayOff) {
                             cellClasses +=
                               ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
@@ -3811,7 +3820,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 canEditCell &&
                                 handleCellSelect(user, day, userIndex, dayIndex, e)
                               }
-                              onMouseDown={e =>
+                              onPointerDown={e =>
                                 canEditCell &&
                                 handleCellMouseDown(
                                   user,
@@ -3821,12 +3830,49 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   e
                                 )
                               }
-                              onMouseEnter={() =>
+                              onPointerEnter={() =>
                                 canEditCell &&
                                 handleCellMouseEnter(userIndex, dayIndex)
                               }
                             >
-                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
+                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1 overflow-hidden">
+                                {isSelected && (
+                                  <span
+                                    className="pointer-events-none absolute inset-0 bg-emerald-50/60 ring-2 ring-emerald-500/80 ring-offset-1 ring-offset-white shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                                    style={(() => {
+                                      const neighborKey = (
+                                        rowOffset: number,
+                                        colOffset: number
+                                      ) => {
+                                        const neighborUser = visibleFlatUsers[userIndex + rowOffset];
+                                        const neighborDay = viewDayKeys[dayIndex + colOffset];
+                                        if (!neighborUser || !neighborDay) return null;
+                                        return createCellKey(neighborUser.id, neighborDay);
+                                      };
+                                      const topKey = neighborKey(-1, 0);
+                                      const bottomKey = neighborKey(1, 0);
+                                      const leftKey = neighborKey(0, -1);
+                                      const rightKey = neighborKey(0, 1);
+                                      const hasTopNeighbor = topKey ? selectedCells.has(topKey) : false;
+                                      const hasBottomNeighbor = bottomKey
+                                        ? selectedCells.has(bottomKey)
+                                        : false;
+                                      const hasLeftNeighbor = leftKey ? selectedCells.has(leftKey) : false;
+                                      const hasRightNeighbor = rightKey ? selectedCells.has(rightKey) : false;
+                                      const radius = 10;
+                                      return {
+                                        borderTopLeftRadius:
+                                          !hasTopNeighbor || !hasLeftNeighbor ? radius : 0,
+                                        borderTopRightRadius:
+                                          !hasTopNeighbor || !hasRightNeighbor ? radius : 0,
+                                        borderBottomLeftRadius:
+                                          !hasBottomNeighbor || !hasLeftNeighbor ? radius : 0,
+                                        borderBottomRightRadius:
+                                          !hasBottomNeighbor || !hasRightNeighbor ? radius : 0
+                                      };
+                                    })()}
+                                  />
+                                )}
                                 {isMultiUnitView &&
                                   userDayShifts.length > 0 &&
                                   userDayShifts[0]?.unitId &&
@@ -3840,17 +3886,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-500" />
                                 )}
                                 {hasContent && (
-                                  <span className="whitespace-pre-wrap leading-tight">
+                                  <span className="relative z-10 whitespace-pre-wrap leading-tight">
                                     {displayParts.join('\n')}
                                   </span>
                                 )}
                                 {hasNote && (
-                                  <span className="handwritten-note tracking-tighter">
+                                  <span className="relative z-10 handwritten-note tracking-tighter">
                                     {`"${shiftNote}"`}
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
-                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
+                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light relative z-10">
                                     +
                                   </span>
                                 )}
@@ -3930,7 +3976,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {successToast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur-sm transition duration-300 ease-out"
+        >
           {successToast}
         </div>
       )}
