@@ -764,9 +764,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         lastSelectionAtByKeyRef.current = {};
         selectionArmedRef.current = {};
         lastInteractionAtByKeyRef.current = {};
+        lastTapAtByKeyRef.current = {};
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
     const lastInteractionAtByKeyRef = useRef<Record<string, number>>({});
+    const lastTapAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
     const modalOpenTokenRef = useRef<string | null>(null);
 
@@ -1143,13 +1145,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         modalOpenTokenRef.current = null;
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
-    }, []);
+    }, [setEditingShift, setIsShiftModalOpen]);
     
     const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean, eventType: string = 'pointerup') => {
         if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
-        lastInteractionAtByKeyRef.current[selectionKey] = Date.now();
+        const now = Date.now();
+        const prevTapAt = lastTapAtByKeyRef.current[selectionKey] || 0;
+        const sinceLastTap = now - prevTapAt;
+        lastTapAtByKeyRef.current[selectionKey] = now;
+        if (sinceLastTap < 250) {
+            if (DEBUG_SELECTION) console.debug('Ignoring rapid duplicate tap', { selectionKey, sinceLastTap, eventType });
+            return;
+        }
+        lastInteractionAtByKeyRef.current[selectionKey] = now;
 
         const isAlreadySelected = !!selectedCells[selectionKey];
 
@@ -1162,19 +1172,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             return;
         }
 
-        const lastAt = lastSelectionAtByKeyRef.current[selectionKey] || 0;
-        const elapsed = Date.now() - lastAt;
         const armed = selectionArmedRef.current[selectionKey] === true;
-        const sinceInteraction = Date.now() - (lastInteractionAtByKeyRef.current[selectionKey] || 0);
-        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, armed, elapsed, sinceInteraction, eventType });
-        if (!armed || elapsed <= 350 || sinceInteraction < 50) {
-            if (DEBUG_SELECTION) console.debug('Ignoring ghost click/unarmed tap for selected cell', selectionKey, 'after', elapsed, 'ms');
+        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, armed, sinceLastTap, eventType });
+        if (!armed) {
+            if (DEBUG_SELECTION) console.debug('Ignoring unarmed tap for selected cell', selectionKey);
             return;
         }
 
         selectionArmedRef.current[selectionKey] = false;
         modalOpenTokenRef.current = selectionKey;
-        if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
+        if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey);
         handleOpenShiftModal(dayShifts[0] || null, userId, day, 'grid');
     }, [selectedCells, selectedCount, handleOpenShiftModal]);
     
@@ -1758,6 +1765,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                         <button
                                                                             className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide"
                                                                             onPointerUp={(e) => { e.preventDefault(); e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup'); }}
+                                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                         >
                                                                             <PlusIcon className="h-5 w-5" />
                                                                         </button>
