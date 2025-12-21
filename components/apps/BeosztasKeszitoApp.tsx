@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, FC, useRef } from 'react';
 import { Shift, Request, User, Unit, Position, ScheduleSettings, ExportStyleSettings } from '../../data/mockData';
 import { db, Timestamp } from '../../firebase/config';
-import { collection, doc, onSnapshot, orderBy, writeBatch, updateDoc, addDoc, deleteDoc, setDoc, query, getDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, writeBatch, updateDoc, deleteDoc, setDoc, query } from 'firebase/firestore';
 import LoadingSpinner from '../LoadingSpinner';
 import PencilIcon from '../icons/PencilIcon';
 import TrashIcon from '../icons/TrashIcon';
@@ -38,6 +38,19 @@ const calculateShiftDuration = (shift: Shift, dailyClosingTime?: string | null):
 
     const durationMs = end.getTime() - shift.start.toDate().getTime();
     return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
+};
+
+const DEBUG_SELECTION = false;
+
+const parseDayKeyLocal = (dayKey: string): Date | null => {
+    const [yy, mm, dd] = dayKey.split('-').map(Number);
+    if (!yy || !mm || !dd || Number.isNaN(yy) || Number.isNaN(mm) || Number.isNaN(dd) || mm < 1 || mm > 12 || dd < 1 || dd > 31) {
+        console.warn('Invalid dayKey received for shift save:', dayKey);
+        return null;
+    }
+    const date = new Date(yy, mm - 1, dd);
+    date.setHours(0, 0, 0, 0);
+    return date;
 };
 
 
@@ -744,6 +757,44 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     const [exportConfirmation, setExportConfirmation] = useState<{ type: 'PNG' | 'Excel' } | null>(null);
     const [successToast, setSuccessToast] = useState('');
+    const [selectedCells, setSelectedCells] = useState<Record<string, { userId: string, dayKey: string }>>({});
+    const selectedCount = Object.keys(selectedCells).length;
+    const [isTouchLike, setIsTouchLike] = useState(false);
+    const clearSelection = useCallback(() => {
+        setSelectedCells({});
+        lastSelectionAtByKeyRef.current = {};
+        selectionArmedRef.current = {};
+        lastInteractionAtByKeyRef.current = {};
+        lastTapAtByKeyRef.current = {};
+        lastGridTapActionRef.current = null;
+        pendingOpenRef.current = null;
+    }, []);
+    const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
+    const lastInteractionAtByKeyRef = useRef<Record<string, number>>({});
+    const lastTapAtByKeyRef = useRef<Record<string, number>>({});
+    const selectionArmedRef = useRef<Record<string, boolean>>({});
+    const modalOpenTokenRef = useRef<string | null>(null);
+    const pendingOpenRef = useRef<{ userId: string; day: Date; shift: Shift | null; selectionKey: string; allowModalOnTouch: boolean } | null>(null);
+    const lastGridTapActionRef = useRef<'select' | 'open' | 'ignore' | null>(null);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !window.matchMedia) return;
+        const mq = window.matchMedia('(pointer: coarse)');
+        const update = () => setIsTouchLike(!!mq.matches);
+        update();
+        if (mq.addEventListener) {
+            mq.addEventListener('change', update);
+        } else if (mq.addListener) {
+            mq.addListener(update);
+        }
+        return () => {
+            if (mq.removeEventListener) {
+                mq.removeEventListener('change', update);
+            } else if (mq.removeListener) {
+                mq.removeListener(update);
+            }
+        };
+    }, []);
 
 
     const settingsDocId = useMemo(() => {
@@ -773,6 +824,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, []);
 
     const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
+    const weekStartKey = useMemo(() => toDateString(weekDays[0]), [weekDays]);
     
     const filteredUsers = useMemo(() => {
         if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -964,15 +1016,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, [orderedUsers, visibleUsersByPosition]);
     
     const hiddenUsers = useMemo(() => allAppUsers.filter(u => hiddenUserIds.has(u.id)), [allAppUsers, hiddenUserIds]);
+    const canEdit = canManage && viewMode === 'draft';
+
+    useEffect(() => {
+        clearSelection();
+    }, [weekStartKey, settingsDocId, clearSelection]);
 
 
     const handlePrevWeek = () => setCurrentDate(d => {
+        clearSelection();
         const newDate = new Date(d);
         newDate.setDate(newDate.getDate() - 7);
         return newDate;
     });
 
     const handleNextWeek = () => setCurrentDate(d => {
+        clearSelection();
         const newDate = new Date(d);
         newDate.setDate(newDate.getDate() + 7);
         return newDate;
@@ -1089,28 +1148,206 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setIsPublishModalOpen(false);
     };
     
-    const handleOpenShiftModal = (shift: Shift | null, userId: string, date: Date) => {
+    const handleCloseShiftModal = useCallback(() => {
+        setIsShiftModalOpen(false);
+        clearSelection();
+    }, [clearSelection]);
+    
+    // Modal open call sites:
+    // - handleCellTap (grid cell) -> handleOpenShiftModal
+    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date, source: 'grid' | 'other' = 'other', allowTouchModal: boolean = false) => {
+        if (DEBUG_SELECTION) {
+            console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal', token: modalOpenTokenRef.current, source });
+            console.debug('[SHIFT_MODAL_OPEN_STACK]', new Error('SHIFT_MODAL_OPEN').stack);
+            if (source === 'grid' && lastGridTapActionRef.current !== 'open') {
+                console.debug('[MODAL_OPEN_UNEXPECTED]', { lastGridTapAction: lastGridTapActionRef.current });
+            }
+        }
+        if (source === 'grid') {
+            if (!modalOpenTokenRef.current || (isTouchLike && !allowTouchModal)) {
+                console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source, allowTouchModal });
+                if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: modalOpenTokenRef.current });
+                modalOpenTokenRef.current = null;
+                return;
+            }
+            modalOpenTokenRef.current = null;
+        }
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
-    }
+    }, [isTouchLike, setEditingShift, setIsShiftModalOpen]);
+    
+    const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean, eventType: string = 'pointerup', intent: 'cell' | 'plus' = 'cell') => {
+        if (!canEditCell) return;
+        const dayKey = toDateString(day);
+        const selectionKey = `${userId}|${dayKey}`;
+        const now = Date.now();
+        const prevTapAt = lastTapAtByKeyRef.current[selectionKey] || 0;
+        const sinceLastTap = now - prevTapAt;
+        lastTapAtByKeyRef.current[selectionKey] = now;
+        if (sinceLastTap < 250) {
+            lastGridTapActionRef.current = 'ignore';
+            if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, allowModalOnTouch, action: 'ignore', eventType, sinceLastTap });
+            return;
+        }
+        lastInteractionAtByKeyRef.current[selectionKey] = now;
+
+        let shouldOpen: { userId: string; day: Date; shift: Shift | null; selectionKey: string; allowTouchModal: boolean } | null = null;
+
+        setSelectedCells(prev => {
+            const isAlreadySelected = !!prev[selectionKey];
+            if (!isAlreadySelected) {
+                selectionArmedRef.current = {};
+                selectionArmedRef.current[selectionKey] = true;
+                lastSelectionAtByKeyRef.current[selectionKey] = now;
+                lastGridTapActionRef.current = 'select';
+                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'select', eventType });
+                const nextState = { ...prev, [selectionKey]: { userId, dayKey } };
+                if (isTouchLike && intent === 'plus') {
+                    shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
+                    selectionArmedRef.current[selectionKey] = false;
+                    lastGridTapActionRef.current = 'open';
+                }
+                return nextState;
+            }
+
+            if (isTouchLike && intent !== 'plus') {
+                lastGridTapActionRef.current = 'ignore';
+                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+                return prev;
+            }
+
+            if (isTouchLike && intent === 'plus') {
+                shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
+                selectionArmedRef.current[selectionKey] = false;
+                lastGridTapActionRef.current = 'open';
+                return prev;
+            }
+
+            const armed = selectionArmedRef.current[selectionKey] === true;
+            if (!armed) {
+                lastGridTapActionRef.current = 'ignore';
+                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+                return prev;
+            }
+
+            shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: false };
+            selectionArmedRef.current[selectionKey] = false;
+            lastGridTapActionRef.current = 'open';
+            return prev;
+        });
+
+        if (shouldOpen) {
+            queueMicrotask(() => {
+                modalOpenTokenRef.current = shouldOpen!.selectionKey;
+                handleOpenShiftModal(shouldOpen!.shift, shouldOpen!.userId, shouldOpen!.day, 'grid', shouldOpen!.allowTouchModal);
+            });
+        }
+    }, [handleOpenShiftModal, isTouchLike]);
     
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
         const shiftToSave = { ...shiftData, unitId: activeUnitIds[0] };
-        if (shiftToSave.id) {
-            const docId = shiftToSave.id;
-            const { id, ...dataToUpdate } = shiftToSave;
-            await updateDoc(doc(db, 'shifts', docId), dataToUpdate);
-        } else {
-            const { id, ...dataToAdd } = shiftToSave;
-            await addDoc(collection(db, 'shifts'), dataToAdd);
+        const { id, ...dataWithoutId } = shiftToSave;
+
+        const targets = selectedCount > 0
+            ? Object.values(selectedCells)
+            : editingShift
+                ? [{ userId: editingShift.userId, dayKey: toDateString(editingShift.date) }]
+                : shiftToSave.start && shiftToSave.userId
+                    ? [{ userId: shiftToSave.userId, dayKey: toDateString(shiftToSave.start.toDate()) }]
+                    : [];
+
+        if (targets.length === 0) {
+            handleCloseShiftModal();
+            return;
         }
-        setIsShiftModalOpen(false);
+
+        if (DEBUG_SELECTION) console.debug('Saving shifts for targets count', targets.length);
+        const shouldBatch = selectedCount > 1;
+        const batch = shouldBatch ? writeBatch(db) : null;
+
+        try {
+            for (const target of targets) {
+                const targetUser = allAppUsers.find(u => u.id === target.userId);
+                if (!targetUser) continue;
+
+                const targetDate = parseDayKeyLocal(target.dayKey);
+                if (!targetDate) continue;
+
+                let startTimestamp: Timestamp | null = null;
+                let endTimestamp: Timestamp | null = null;
+
+                if (dataWithoutId.isDayOff) {
+                    startTimestamp = Timestamp.fromDate(new Date(targetDate));
+                    endTimestamp = null;
+                } else if (dataWithoutId.start) {
+                    const referenceStart = dataWithoutId.start.toDate();
+                    const referenceEnd = dataWithoutId.end?.toDate();
+                    const newStart = new Date(targetDate);
+                    newStart.setHours(referenceStart.getHours(), referenceStart.getMinutes(), 0, 0);
+                    let newEnd: Date | null = null;
+                    if (referenceEnd) {
+                        let durationMs = referenceEnd.getTime() - referenceStart.getTime();
+                        if (durationMs <= 0) {
+                            durationMs += 24 * 60 * 60 * 1000;
+                        }
+                        const maxDuration = 24 * 60 * 60 * 1000;
+                        if (durationMs > maxDuration && DEBUG_SELECTION) {
+                            console.debug('Unusually long shift duration detected (ms)', durationMs, 'for', target.dayKey);
+                        }
+                        newEnd = new Date(newStart.getTime() + durationMs);
+                    }
+                    startTimestamp = Timestamp.fromDate(newStart);
+                    endTimestamp = newEnd ? Timestamp.fromDate(newEnd) : null;
+                } else {
+                    console.warn('Missing start time for shift save; skipping target', target);
+                    continue;
+                }
+
+                const existingShift = shiftsByUserDay.get(target.userId)?.get(target.dayKey)?.[0];
+                const docRef = existingShift?.id ? doc(db, 'shifts', existingShift.id) : doc(collection(db, 'shifts'));
+
+                const dataToPersist = {
+                    ...dataWithoutId,
+                    userId: targetUser.id,
+                    userName: targetUser.fullName,
+                    position: targetUser.position || 'N/A',
+                    start: startTimestamp,
+                    end: endTimestamp,
+                };
+
+                if (DEBUG_SELECTION) console.debug('Persisting shift', { target, hasExisting: !!existingShift?.id });
+
+                if (existingShift?.id) {
+                    if (batch) {
+                        batch.update(docRef, dataToPersist);
+                    } else {
+                        await updateDoc(docRef, dataToPersist);
+                    }
+                } else {
+                    if (batch) {
+                        batch.set(docRef, dataToPersist);
+                    } else {
+                        await setDoc(docRef, dataToPersist);
+                    }
+                }
+            }
+
+            if (batch) {
+                await batch.commit();
+                if (DEBUG_SELECTION) console.debug('Batch commit successful');
+            }
+
+            handleCloseShiftModal();
+        } catch (error) {
+            console.error('Failed to save shifts for selected cells', error);
+            if (DEBUG_SELECTION) console.debug('Batch commit failed');
+        }
     };
 
     const handleDeleteShift = async (shiftId: string) => {
         if(window.confirm('Biztosan törölni szeretnéd ezt a műszakot?')){
             await deleteDoc(doc(db, 'shifts', shiftId));
-            setIsShiftModalOpen(false);
+            handleCloseShiftModal();
         }
     };
 
@@ -1321,7 +1558,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             
             <ShiftModal 
                 isOpen={isShiftModalOpen}
-                onClose={() => setIsShiftModalOpen(false)}
+                onClose={handleCloseShiftModal}
                 onSave={handleSaveShift}
                 onDelete={handleDeleteShift}
                 shift={editingShift?.shift || null}
@@ -1455,6 +1692,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                     {successToast}
                 </div>
             )}
+
+            {selectedCount > 0 && (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 text-green-800 px-4 py-2 rounded-xl mb-3">
+                    <span className="font-semibold">Kijelölve: {selectedCount}</span>
+                    <button onClick={clearSelection} className="text-sm font-semibold underline underline-offset-2">Törlés</button>
+                </div>
+            )}
             
             <div className="overflow-x-auto bg-white rounded-2xl shadow-lg border border-gray-400">
                 <table ref={tableRef} className="w-full min-w-[1080px] border-collapse">
@@ -1547,15 +1791,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                     const dayKey = toDateString(day);
                                                     const isOnLeave = userRequests?.has(dayKey);
                                                     const dayShifts = shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+                                                    const selectionKey = `${user.id}|${dayKey}`;
+                                                    const isSelected = !!selectedCells[selectionKey];
+                                                    const canEditCell = canEdit && !isOnLeave;
                                                     
                                                     return (
-                                                        <td key={dayKey} className={`p-1 border-l border-gray-400 text-center align-middle ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')}`}>
+                                                        <td
+                                                            key={dayKey}
+                                                            className={`relative p-1 border-l border-gray-400 text-center align-middle ${canEditCell ? 'cursor-pointer' : ''} ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')} ${isSelected ? 'ring-2 ring-green-600 ring-offset-2 ring-offset-white' : ''}`}
+                                                            onPointerUp={(e) => { e.preventDefault(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup'); }}
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                        >
                                                             {isOnLeave ? (
                                                                 <div className="font-bold text-red-600 p-2">SZ</div>
                                                             ) : (
                                                                 <div className="space-y-1">
                                                                     {dayShifts.map(shift => (
-                                                                        <div key={shift.id} onClick={() => canManage && handleOpenShiftModal(shift, user.id, day)} className={`p-2 rounded-lg text-center ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}>
+                                                                        <div key={shift.id} className={`p-2 rounded-lg text-center ${canEditCell ? 'hover:bg-gray-200' : ''}`}>
                                                                             {shift.isDayOff ? (
                                                                                 <p className="font-bold text-lg">X</p>
                                                                             ) : (
@@ -1569,8 +1821,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                             )}
                                                                         </div>
                                                                     ))}
-                                                                    {canManage && (
-                                                                        <button onClick={() => handleOpenShiftModal(null, user.id, day)} className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide">
+                                                                    {canEditCell && (
+                                                                        <button
+                                                                            className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide"
+                                                                            onPointerUp={(e) => { e.preventDefault(); e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup', true); }}
+                                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                                        >
                                                                             <PlusIcon className="h-5 w-5" />
                                                                         </button>
                                                                     )}
