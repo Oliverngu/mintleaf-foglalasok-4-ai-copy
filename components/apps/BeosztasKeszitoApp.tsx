@@ -774,7 +774,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const lastTapAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
     const modalOpenTokenRef = useRef<string | null>(null);
-    const pendingOpenRef = useRef<{ userId: string; day: Date; shift: Shift | null; selectionKey: string; allowModalOnTouch: boolean } | null>(null);
+    const pendingOpenRef = useRef<{ userId: string; day: Date; shift: Shift | null; selectionKey: string; allowTouchModal: boolean } | null>(null);
     const lastGridTapActionRef = useRef<'select' | 'open' | 'ignore' | null>(null);
 
     useEffect(() => {
@@ -1186,7 +1186,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         lastTapAtByKeyRef.current[selectionKey] = now;
         if (sinceLastTap < 250) {
             lastGridTapActionRef.current = 'ignore';
-            if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, allowModalOnTouch, action: 'ignore', eventType, sinceLastTap });
+            if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType, sinceLastTap });
             return;
         }
         lastInteractionAtByKeyRef.current[selectionKey] = now;
@@ -1238,8 +1238,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
         if (shouldOpen) {
             queueMicrotask(() => {
-                modalOpenTokenRef.current = shouldOpen!.selectionKey;
-                handleOpenShiftModal(shouldOpen!.shift, shouldOpen!.userId, shouldOpen!.day, 'grid', shouldOpen!.allowTouchModal);
+                const open = shouldOpen;
+                if (!open) return;
+                modalOpenTokenRef.current = open.selectionKey;
+                handleOpenShiftModal(open.shift, open.userId, open.day, 'grid', open.allowTouchModal, open.selectionKey);
             });
         }
     }, [handleOpenShiftModal, isTouchLike]);
@@ -1825,6 +1827,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                         <button
                                                                             className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide"
                                                                             onPointerUp={(e) => { e.preventDefault(); e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup', true); }}
+                                                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                         >
                                                                             <PlusIcon className="h-5 w-5" />
