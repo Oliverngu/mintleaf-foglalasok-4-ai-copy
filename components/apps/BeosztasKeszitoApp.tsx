@@ -759,8 +759,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const [successToast, setSuccessToast] = useState('');
     const [selectedCells, setSelectedCells] = useState<Record<string, { userId: string, dayKey: string }>>({});
     const selectedCount = Object.keys(selectedCells).length;
-    const clearSelection = useCallback(() => setSelectedCells({}), []);
-    const lastSelectionAtRef = useRef<number>(0);
+    const clearSelection = useCallback(() => {
+        setSelectedCells({});
+        lastSelectionAtByKeyRef.current = {};
+    }, []);
+    const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
 
 
     const settingsDocId = useMemo(() => {
@@ -1124,7 +1127,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setIsShiftModalOpen(true);
     }, []);
     
-    const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
+    const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean, eventType: string = 'pointerup') => {
         if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
@@ -1134,12 +1137,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         if (!isAlreadySelected) {
             const nextCount = selectedCount + 1;
             if (DEBUG_SELECTION) console.debug('Selecting cell', selectionKey, 'current count', nextCount);
-            lastSelectionAtRef.current = Date.now();
+            lastSelectionAtByKeyRef.current[selectionKey] = Date.now();
             setSelectedCells(prev => ({ ...prev, [selectionKey]: { userId, dayKey } }));
             return;
         }
 
-        const elapsed = Date.now() - lastSelectionAtRef.current;
+        const lastAt = lastSelectionAtByKeyRef.current[selectionKey] || 0;
+        const elapsed = Date.now() - lastAt;
+        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, elapsed, eventType });
         if (elapsed <= 350) {
             if (DEBUG_SELECTION) console.debug('Ignoring ghost click for selected cell', selectionKey, 'after', elapsed, 'ms');
             return;
@@ -1704,7 +1709,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                         <td
                                                             key={dayKey}
                                                             className={`relative p-1 border-l border-gray-400 text-center align-middle ${canEditCell ? 'cursor-pointer' : ''} ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')} ${isSelected ? 'ring-2 ring-green-600 ring-offset-2 ring-offset-white' : ''}`}
-                                                            onClick={() => handleCellTap(user.id, day, dayShifts, canEditCell)}
+                                                            onPointerUp={(e) => { e.preventDefault(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup'); }}
                                                         >
                                                             {isOnLeave ? (
                                                                 <div className="font-bold text-red-600 p-2">SZ</div>
@@ -1728,7 +1733,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                     {canEditCell && (
                                                                         <button
                                                                             className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide"
-                                                                            onClick={(e) => { e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell); }}
+                                                                            onPointerUp={(e) => { e.preventDefault(); e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell, 'pointerup'); }}
                                                                         >
                                                                             <PlusIcon className="h-5 w-5" />
                                                                         </button>
