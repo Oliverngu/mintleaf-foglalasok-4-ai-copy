@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, FC, useRef } from 'react';
 import { Shift, Request, User, Unit, Position, ScheduleSettings, ExportStyleSettings } from '../../data/mockData';
 import { db, Timestamp } from '../../firebase/config';
-import { collection, doc, onSnapshot, orderBy, writeBatch, updateDoc, addDoc, deleteDoc, setDoc, query, getDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, writeBatch, updateDoc, deleteDoc, setDoc, query } from 'firebase/firestore';
 import LoadingSpinner from '../LoadingSpinner';
 import PencilIcon from '../icons/PencilIcon';
 import TrashIcon from '../icons/TrashIcon';
@@ -744,6 +744,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     const [exportConfirmation, setExportConfirmation] = useState<{ type: 'PNG' | 'Excel' } | null>(null);
     const [successToast, setSuccessToast] = useState('');
+    const [selectedCells, setSelectedCells] = useState<Record<string, { userId: string, dayKey: string }>>({});
+    const selectedCount = useMemo(() => Object.keys(selectedCells).length, [selectedCells]);
+    const clearSelection = useCallback(() => setSelectedCells({}), []);
 
 
     const settingsDocId = useMemo(() => {
@@ -964,15 +967,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, [orderedUsers, visibleUsersByPosition]);
     
     const hiddenUsers = useMemo(() => allAppUsers.filter(u => hiddenUserIds.has(u.id)), [allAppUsers, hiddenUserIds]);
+    const canEdit = canManage && viewMode === 'draft';
+
+    useEffect(() => {
+        clearSelection();
+    }, [weekDays, clearSelection]);
 
 
     const handlePrevWeek = () => setCurrentDate(d => {
+        clearSelection();
         const newDate = new Date(d);
         newDate.setDate(newDate.getDate() - 7);
         return newDate;
     });
 
     const handleNextWeek = () => setCurrentDate(d => {
+        clearSelection();
         const newDate = new Date(d);
         newDate.setDate(newDate.getDate() + 7);
         return newDate;
@@ -1089,28 +1099,115 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setIsPublishModalOpen(false);
     };
     
+    const handleCloseShiftModal = useCallback(() => {
+        setIsShiftModalOpen(false);
+        clearSelection();
+    }, [clearSelection]);
+    
     const handleOpenShiftModal = (shift: Shift | null, userId: string, date: Date) => {
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
     }
     
+    const handleCellTap = (userId: string, day: Date, dayShifts: Shift[]) => {
+        if (!canEdit) return;
+        const dayKey = toDateString(day);
+        const selectionKey = `${userId}|${dayKey}`;
+        const isAlreadySelected = !!selectedCells[selectionKey];
+
+        if (!isAlreadySelected) {
+            setSelectedCells(prev => ({ ...prev, [selectionKey]: { userId, dayKey } }));
+            return;
+        }
+
+        handleOpenShiftModal(dayShifts[0] || null, userId, day);
+    }
+    
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
         const shiftToSave = { ...shiftData, unitId: activeUnitIds[0] };
-        if (shiftToSave.id) {
-            const docId = shiftToSave.id;
-            const { id, ...dataToUpdate } = shiftToSave;
-            await updateDoc(doc(db, 'shifts', docId), dataToUpdate);
-        } else {
-            const { id, ...dataToAdd } = shiftToSave;
-            await addDoc(collection(db, 'shifts'), dataToAdd);
+        const { id, ...dataWithoutId } = shiftToSave;
+
+        const targets = selectedCount > 0
+            ? Object.values(selectedCells)
+            : editingShift
+                ? [{ userId: editingShift.userId, dayKey: toDateString(editingShift.date) }]
+                : shiftToSave.start && shiftToSave.userId
+                    ? [{ userId: shiftToSave.userId, dayKey: toDateString(shiftToSave.start.toDate()) }]
+                    : [];
+
+        if (targets.length === 0) {
+            handleCloseShiftModal();
+            return;
         }
-        setIsShiftModalOpen(false);
+
+        const shouldBatch = selectedCount > 1;
+        const batch = shouldBatch ? writeBatch(db) : null;
+
+        for (const target of targets) {
+            const targetUser = allAppUsers.find(u => u.id === target.userId);
+            if (!targetUser) continue;
+
+            const targetDate = new Date(target.dayKey);
+            targetDate.setHours(0, 0, 0, 0);
+
+            let startTimestamp: Timestamp | null = null;
+            let endTimestamp: Timestamp | null = null;
+
+            if (dataWithoutId.isDayOff) {
+                startTimestamp = Timestamp.fromDate(new Date(targetDate));
+                endTimestamp = null;
+            } else if (dataWithoutId.start) {
+                const referenceStart = dataWithoutId.start.toDate();
+                const referenceEnd = dataWithoutId.end?.toDate();
+                const newStart = new Date(targetDate);
+                newStart.setHours(referenceStart.getHours(), referenceStart.getMinutes(), 0, 0);
+                let newEnd: Date | null = null;
+                if (referenceEnd) {
+                    const durationMs = referenceEnd.getTime() - referenceStart.getTime();
+                    newEnd = new Date(newStart.getTime() + durationMs);
+                }
+                startTimestamp = Timestamp.fromDate(newStart);
+                endTimestamp = newEnd ? Timestamp.fromDate(newEnd) : null;
+            }
+
+            const existingShift = shiftsByUserDay.get(target.userId)?.get(target.dayKey)?.[0];
+            const docRef = existingShift?.id ? doc(db, 'shifts', existingShift.id) : doc(collection(db, 'shifts'));
+
+            const dataToPersist = {
+                ...dataWithoutId,
+                userId: targetUser.id,
+                userName: targetUser.fullName,
+                position: targetUser.position || 'N/A',
+                start: startTimestamp,
+                end: endTimestamp,
+            };
+
+            if (existingShift?.id) {
+                if (batch) {
+                    batch.update(docRef, dataToPersist);
+                } else {
+                    await updateDoc(docRef, dataToPersist);
+                }
+            } else {
+                if (batch) {
+                    batch.set(docRef, dataToPersist);
+                } else {
+                    await setDoc(docRef, dataToPersist);
+                }
+            }
+        }
+
+        if (batch) {
+            await batch.commit();
+        }
+
+        handleCloseShiftModal();
     };
 
     const handleDeleteShift = async (shiftId: string) => {
         if(window.confirm('Biztosan törölni szeretnéd ezt a műszakot?')){
             await deleteDoc(doc(db, 'shifts', shiftId));
-            setIsShiftModalOpen(false);
+            handleCloseShiftModal();
         }
     };
 
@@ -1321,7 +1418,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             
             <ShiftModal 
                 isOpen={isShiftModalOpen}
-                onClose={() => setIsShiftModalOpen(false)}
+                onClose={handleCloseShiftModal}
                 onSave={handleSaveShift}
                 onDelete={handleDeleteShift}
                 shift={editingShift?.shift || null}
@@ -1455,6 +1552,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                     {successToast}
                 </div>
             )}
+
+            {selectedCount > 0 && (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 text-green-800 px-4 py-2 rounded-xl mb-3">
+                    <span className="font-semibold">Kijelölve: {selectedCount}</span>
+                    <button onClick={clearSelection} className="text-sm font-semibold underline underline-offset-2">Törlés</button>
+                </div>
+            )}
             
             <div className="overflow-x-auto bg-white rounded-2xl shadow-lg border border-gray-400">
                 <table ref={tableRef} className="w-full min-w-[1080px] border-collapse">
@@ -1547,15 +1651,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                     const dayKey = toDateString(day);
                                                     const isOnLeave = userRequests?.has(dayKey);
                                                     const dayShifts = shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+                                                    const selectionKey = `${user.id}|${dayKey}`;
+                                                    const isSelected = !!selectedCells[selectionKey];
+                                                    const canEditCell = canEdit && !isOnLeave;
                                                     
                                                     return (
-                                                        <td key={dayKey} className={`p-1 border-l border-gray-400 text-center align-middle ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')}`}>
+                                                        <td
+                                                            key={dayKey}
+                                                            className={`relative p-1 border-l border-gray-400 text-center align-middle ${canEditCell ? 'cursor-pointer' : ''} ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')} ${isSelected ? 'ring-2 ring-green-600 ring-offset-2 ring-offset-white' : ''}`}
+                                                            onClick={() => handleCellTap(user.id, day, dayShifts)}
+                                                        >
                                                             {isOnLeave ? (
                                                                 <div className="font-bold text-red-600 p-2">SZ</div>
                                                             ) : (
                                                                 <div className="space-y-1">
                                                                     {dayShifts.map(shift => (
-                                                                        <div key={shift.id} onClick={() => canManage && handleOpenShiftModal(shift, user.id, day)} className={`p-2 rounded-lg text-center ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}>
+                                                                        <div key={shift.id} className={`p-2 rounded-lg text-center ${canEditCell ? 'hover:bg-gray-200' : ''}`}>
                                                                             {shift.isDayOff ? (
                                                                                 <p className="font-bold text-lg">X</p>
                                                                             ) : (
@@ -1569,8 +1680,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                             )}
                                                                         </div>
                                                                     ))}
-                                                                    {canManage && (
-                                                                        <button onClick={() => handleOpenShiftModal(null, user.id, day)} className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide">
+                                                                    {canEditCell && (
+                                                                        <button className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide">
                                                                             <PlusIcon className="h-5 w-5" />
                                                                         </button>
                                                                     )}
