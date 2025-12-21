@@ -767,14 +767,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         lastInteractionAtByKeyRef.current = {};
         lastTapAtByKeyRef.current = {};
         lastGridTapActionRef.current = null;
-        pendingOpenRef.current = null;
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
     const lastInteractionAtByKeyRef = useRef<Record<string, number>>({});
     const lastTapAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
     const modalOpenTokenRef = useRef<string | null>(null);
-    const pendingOpenRef = useRef<{ userId: string; day: Date; shift: Shift | null; selectionKey: string; allowTouchModal: boolean } | null>(null);
     const lastGridTapActionRef = useRef<'select' | 'open' | 'ignore' | null>(null);
 
     useEffect(() => {
@@ -1155,7 +1153,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     
     // Modal open call sites:
     // - handleCellTap (grid cell) -> handleOpenShiftModal
-    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date, source: 'grid' | 'other' = 'other', allowTouchModal: boolean = false) => {
+    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date, source: 'grid' | 'other' = 'other', allowTouchModal: boolean = false, expectedToken?: string) => {
         if (DEBUG_SELECTION) {
             console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal', token: modalOpenTokenRef.current, source });
             console.debug('[SHIFT_MODAL_OPEN_STACK]', new Error('SHIFT_MODAL_OPEN').stack);
@@ -1164,9 +1162,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             }
         }
         if (source === 'grid') {
-            if (!modalOpenTokenRef.current || (isTouchLike && !allowTouchModal)) {
-                console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source, allowTouchModal });
-                if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: modalOpenTokenRef.current });
+            const currentToken = modalOpenTokenRef.current;
+            let reason: 'NO_TOKEN' | 'TOKEN_MISMATCH' | 'TOUCH_BLOCK' | null = null;
+            if (!currentToken) reason = 'NO_TOKEN';
+            else if (expectedToken && currentToken !== expectedToken) reason = 'TOKEN_MISMATCH';
+            else if (isTouchLike && !allowTouchModal) reason = 'TOUCH_BLOCK';
+
+            if (reason) {
+                console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source, allowTouchModal, reason, expectedToken });
+                if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: currentToken, expectedToken });
                 modalOpenTokenRef.current = null;
                 return;
             }
