@@ -40,6 +40,19 @@ const calculateShiftDuration = (shift: Shift, dailyClosingTime?: string | null):
     return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
 };
 
+const DEBUG_SELECTION = false;
+
+const parseDayKeyLocal = (dayKey: string): Date | null => {
+    const [yy, mm, dd] = dayKey.split('-').map(Number);
+    if (!yy || !mm || !dd || Number.isNaN(yy) || Number.isNaN(mm) || Number.isNaN(dd) || mm < 1 || mm > 12 || dd < 1 || dd > 31) {
+        console.warn('Invalid dayKey received for shift save:', dayKey);
+        return null;
+    }
+    const date = new Date(yy, mm - 1, dd);
+    date.setHours(0, 0, 0, 0);
+    return date;
+};
+
 
 interface ShiftModalProps {
     isOpen: boolean;
@@ -745,7 +758,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const [exportConfirmation, setExportConfirmation] = useState<{ type: 'PNG' | 'Excel' } | null>(null);
     const [successToast, setSuccessToast] = useState('');
     const [selectedCells, setSelectedCells] = useState<Record<string, { userId: string, dayKey: string }>>({});
-    const selectedCount = useMemo(() => Object.keys(selectedCells).length, [selectedCells]);
+    const selectedCount = Object.keys(selectedCells).length;
     const clearSelection = useCallback(() => setSelectedCells({}), []);
 
 
@@ -972,7 +985,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     useEffect(() => {
         clearSelection();
-    }, [weekStartKey, clearSelection]);
+    }, [weekStartKey, settingsDocId, clearSelection]);
 
 
     const handlePrevWeek = () => setCurrentDate(d => {
@@ -1105,24 +1118,26 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         clearSelection();
     }, [clearSelection]);
     
-    const handleOpenShiftModal = (shift: Shift | null, userId: string, date: Date) => {
+    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
-    }
+    }, []);
     
-    const handleCellTap = (userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
+    const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
         if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
         const isAlreadySelected = !!selectedCells[selectionKey];
 
         if (!isAlreadySelected) {
+            if (DEBUG_SELECTION) console.debug('Selecting cell', selectionKey, 'current count', Object.keys(selectedCells).length + 1);
             setSelectedCells(prev => ({ ...prev, [selectionKey]: { userId, dayKey } }));
             return;
         }
 
+        if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey);
         handleOpenShiftModal(dayShifts[0] || null, userId, day);
-    }
+    }, [selectedCells, handleOpenShiftModal]);
     
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
         const shiftToSave = { ...shiftData, unitId: activeUnitIds[0] };
@@ -1141,72 +1156,87 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             return;
         }
 
+        if (DEBUG_SELECTION) console.debug('Saving shifts for targets count', targets.length);
         const shouldBatch = selectedCount > 1;
         const batch = shouldBatch ? writeBatch(db) : null;
 
-        for (const target of targets) {
-            const targetUser = allAppUsers.find(u => u.id === target.userId);
-            if (!targetUser) continue;
+        try {
+            for (const target of targets) {
+                const targetUser = allAppUsers.find(u => u.id === target.userId);
+                if (!targetUser) continue;
 
-            const [yy, mm, dd] = target.dayKey.split('-').map(Number);
-            const targetDate = new Date(yy, (mm || 1) - 1, dd || 1);
-            targetDate.setHours(0, 0, 0, 0);
+                const targetDate = parseDayKeyLocal(target.dayKey);
+                if (!targetDate) continue;
 
-            let startTimestamp: Timestamp | null = null;
-            let endTimestamp: Timestamp | null = null;
+                let startTimestamp: Timestamp | null = null;
+                let endTimestamp: Timestamp | null = null;
 
-            if (dataWithoutId.isDayOff) {
-                startTimestamp = Timestamp.fromDate(new Date(targetDate));
-                endTimestamp = null;
-            } else if (dataWithoutId.start) {
-                const referenceStart = dataWithoutId.start.toDate();
-                const referenceEnd = dataWithoutId.end?.toDate();
-                const newStart = new Date(targetDate);
-                newStart.setHours(referenceStart.getHours(), referenceStart.getMinutes(), 0, 0);
-                let newEnd: Date | null = null;
-                if (referenceEnd) {
-                    let durationMs = referenceEnd.getTime() - referenceStart.getTime();
-                    if (durationMs <= 0) {
-                        durationMs += 24 * 60 * 60 * 1000;
+                if (dataWithoutId.isDayOff) {
+                    startTimestamp = Timestamp.fromDate(new Date(targetDate));
+                    endTimestamp = null;
+                } else if (dataWithoutId.start) {
+                    const referenceStart = dataWithoutId.start.toDate();
+                    const referenceEnd = dataWithoutId.end?.toDate();
+                    const newStart = new Date(targetDate);
+                    newStart.setHours(referenceStart.getHours(), referenceStart.getMinutes(), 0, 0);
+                    let newEnd: Date | null = null;
+                    if (referenceEnd) {
+                        let durationMs = referenceEnd.getTime() - referenceStart.getTime();
+                        if (durationMs <= 0) {
+                            durationMs += 24 * 60 * 60 * 1000;
+                        }
+                        const maxDuration = 24 * 60 * 60 * 1000;
+                        if (durationMs > maxDuration && DEBUG_SELECTION) {
+                            console.debug('Unusually long shift duration detected (ms)', durationMs, 'for', target.dayKey);
+                        }
+                        newEnd = new Date(newStart.getTime() + durationMs);
                     }
-                    newEnd = new Date(newStart.getTime() + durationMs);
+                    startTimestamp = Timestamp.fromDate(newStart);
+                    endTimestamp = newEnd ? Timestamp.fromDate(newEnd) : null;
+                } else {
+                    console.warn('Missing start time for shift save; skipping target', target);
+                    continue;
                 }
-                startTimestamp = Timestamp.fromDate(newStart);
-                endTimestamp = newEnd ? Timestamp.fromDate(newEnd) : null;
+
+                const existingShift = shiftsByUserDay.get(target.userId)?.get(target.dayKey)?.[0];
+                const docRef = existingShift?.id ? doc(db, 'shifts', existingShift.id) : doc(collection(db, 'shifts'));
+
+                const dataToPersist = {
+                    ...dataWithoutId,
+                    userId: targetUser.id,
+                    userName: targetUser.fullName,
+                    position: targetUser.position || 'N/A',
+                    start: startTimestamp,
+                    end: endTimestamp,
+                };
+
+                if (DEBUG_SELECTION) console.debug('Persisting shift', { target, hasExisting: !!existingShift?.id });
+
+                if (existingShift?.id) {
+                    if (batch) {
+                        batch.update(docRef, dataToPersist);
+                    } else {
+                        await updateDoc(docRef, dataToPersist);
+                    }
+                } else {
+                    if (batch) {
+                        batch.set(docRef, dataToPersist);
+                    } else {
+                        await setDoc(docRef, dataToPersist);
+                    }
+                }
             }
 
-            const existingShift = shiftsByUserDay.get(target.userId)?.get(target.dayKey)?.[0];
-            const docRef = existingShift?.id ? doc(db, 'shifts', existingShift.id) : doc(collection(db, 'shifts'));
-
-            const dataToPersist = {
-                ...dataWithoutId,
-                userId: targetUser.id,
-                userName: targetUser.fullName,
-                position: targetUser.position || 'N/A',
-                start: startTimestamp,
-                end: endTimestamp,
-            };
-
-            if (existingShift?.id) {
-                if (batch) {
-                    batch.update(docRef, dataToPersist);
-                } else {
-                    await updateDoc(docRef, dataToPersist);
-                }
-            } else {
-                if (batch) {
-                    batch.set(docRef, dataToPersist);
-                } else {
-                    await setDoc(docRef, dataToPersist);
-                }
+            if (batch) {
+                await batch.commit();
+                if (DEBUG_SELECTION) console.debug('Batch commit successful');
             }
-        }
 
-        if (batch) {
-            await batch.commit();
+            handleCloseShiftModal();
+        } catch (error) {
+            console.error('Failed to save shifts for selected cells', error);
+            if (DEBUG_SELECTION) console.debug('Batch commit failed');
         }
-
-        handleCloseShiftModal();
     };
 
     const handleDeleteShift = async (shiftId: string) => {
