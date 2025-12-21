@@ -763,8 +763,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setSelectedCells({});
         lastSelectionAtByKeyRef.current = {};
         selectionArmedRef.current = {};
+        lastInteractionAtByKeyRef.current = {};
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
+    const lastInteractionAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
     const modalOpenTokenRef = useRef<string | null>(null);
 
@@ -1127,14 +1129,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     
     // Modal open call sites:
     // - handleCellTap (grid cell) -> handleOpenShiftModal
-    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
+    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date, source: 'grid' | 'other' = 'other') => {
         if (DEBUG_SELECTION) {
-            console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal', token: modalOpenTokenRef.current });
+            console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal', token: modalOpenTokenRef.current, source });
             console.debug('[SHIFT_MODAL_OPEN_STACK]', new Error('SHIFT_MODAL_OPEN').stack);
         }
-        if (!modalOpenTokenRef.current) {
-            console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date });
+        if (source === 'grid' && !modalOpenTokenRef.current) {
+            console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source });
             if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: modalOpenTokenRef.current });
+            modalOpenTokenRef.current = null;
             return;
         }
         modalOpenTokenRef.current = null;
@@ -1146,6 +1149,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
+        lastInteractionAtByKeyRef.current[selectionKey] = Date.now();
 
         const isAlreadySelected = !!selectedCells[selectionKey];
 
@@ -1161,8 +1165,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         const lastAt = lastSelectionAtByKeyRef.current[selectionKey] || 0;
         const elapsed = Date.now() - lastAt;
         const armed = selectionArmedRef.current[selectionKey] === true;
-        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, armed, elapsed, eventType });
-        if (!armed || elapsed <= 350) {
+        const sinceInteraction = Date.now() - (lastInteractionAtByKeyRef.current[selectionKey] || 0);
+        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, armed, elapsed, sinceInteraction, eventType });
+        if (!armed || elapsed <= 350 || sinceInteraction < 50) {
             if (DEBUG_SELECTION) console.debug('Ignoring ghost click/unarmed tap for selected cell', selectionKey, 'after', elapsed, 'ms');
             return;
         }
@@ -1170,7 +1175,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         selectionArmedRef.current[selectionKey] = false;
         modalOpenTokenRef.current = selectionKey;
         if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
-        handleOpenShiftModal(dayShifts[0] || null, userId, day);
+        handleOpenShiftModal(dayShifts[0] || null, userId, day, 'grid');
     }, [selectedCells, selectedCount, handleOpenShiftModal]);
     
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
