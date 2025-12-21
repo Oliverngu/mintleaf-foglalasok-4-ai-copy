@@ -45,6 +45,8 @@ import ArrowDownIcon from '../../../../components/icons/ArrowDownIcon';
 import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
+import XIcon from '../../../../components/icons/XIcon';
+import UserPlusIcon from '../../../../components/icons/UserPlusIcon';
 
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
@@ -524,16 +526,49 @@ interface BeosztasAppProps {
   activeUnitIds: string[];
 }
 
-const getWeekDays = (date: Date): Date[] => {
+type ViewSpan = 7 | 14 | 21 | 28 | 42; // 42 = fixed month view (6 weeks)
+type TempUser = User & { tempId: string; scopeId: string };
+
+const VIEW_SPAN_OPTIONS: { label: string; value: ViewSpan }[] = [
+  { label: '1 hét', value: 7 },
+  { label: '2 hét', value: 14 },
+  { label: '3 hét', value: 21 },
+  { label: '4 hét', value: 28 },
+  { label: 'Havi (6 hét)', value: 42 }
+];
+
+const WEEKDAY_LABELS = [
+  'Hétfő',
+  'Kedd',
+  'Szerda',
+  'Csütörtök',
+  'Péntek',
+  'Szombat',
+  'Vasárnap'
+];
+
+const getStartOfWeek = (date: Date): Date => {
   const startOfWeek = new Date(date);
   const day = startOfWeek.getDay();
   const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
   startOfWeek.setDate(diff);
   startOfWeek.setHours(0, 0, 0, 0);
+  return startOfWeek;
+};
 
-  return Array.from({ length: 7 }, (_, i) => {
-    const newDay = new Date(startOfWeek);
-    newDay.setDate(startOfWeek.getDate() + i);
+const getMonthViewStart = (date: Date): Date => {
+  const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  return getStartOfWeek(firstDayOfMonth);
+};
+
+const getViewDays = (date: Date, span: ViewSpan): Date[] => {
+  const start =
+    span === 42 ? getMonthViewStart(date) : getStartOfWeek(date);
+
+  return Array.from({ length: span }, (_, i) => {
+    const newDay = new Date(start);
+    newDay.setDate(start.getDate() + i);
+    newDay.setHours(0, 0, 0, 0);
     return newDay;
   });
 };
@@ -543,6 +578,11 @@ const toDateString = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const parseDayKeyLocal = (dayKey: string): Date => {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
 };
 
 const createDefaultSettings = (
@@ -1280,6 +1320,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   activeUnitIds
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewSpan, setViewSpan] = useState<ViewSpan>(7);
   const [viewMode, setViewMode] = useState<'draft' | 'published'>(
     'published'
   );
@@ -1332,6 +1373,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [unitWeekSettings, setUnitWeekSettings] = useState<
     Record<string, ScheduleSettings>
   >({});
+  const [tempUsersByScope, setTempUsersByScope] = useState<
+    Record<string, TempUser[]>
+  >({});
+  const [tempUserWarning, setTempUserWarning] = useState<string | null>(
+    null
+  );
+  const [isTempModalOpen, setIsTempModalOpen] = useState(false);
+  const [tempForm, setTempForm] = useState<{
+    fullName: string;
+    position: string;
+    unitId: string;
+  }>({ fullName: '', position: '', unitId: '' });
+  const [settingsWarning, setSettingsWarning] = useState<string | null>(null);
+  const settingsWarnedRef = useRef(false);
   const exportSettingsHaveChanged = useMemo(
     () =>
       JSON.stringify(exportSettings) !==
@@ -1345,9 +1400,42 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [successToast, setSuccessToast] = useState('');
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  useEffect(() => {
+    if (!successToast) return;
+    const timeoutId = window.setTimeout(() => setSuccessToast(''), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [successToast]);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(
+    new Set()
+  );
+  const [lastSelectedCell, setLastSelectedCell] = useState<{
+    userId: string;
+    dayKey: string;
+  } | null>(null);
+  const isRangeDragActive = useRef(false);
+  const dragStartRef = useRef<{ userIndex: number; dayIndex: number } | null>(
+    null
+  );
+  const clearSelection = useCallback(() => {
+    setSelectedCells(new Set());
+    setLastSelectedCell(null);
+    isRangeDragActive.current = false;
+    dragStartRef.current = null;
+  }, []);
+  const createCellKey = useCallback(
+    (userId: string, dayKey: string) => `${userId}__${dayKey}`,
+    []
+  );
+  const parseCellKey = useCallback(
+    (key: string) => {
+      const [userId, dayKey] = key.split('__');
+      return { userId, dayKey };
+    },
+    []
+  );
 
   // Subtle zebra palette for the UI table, mirroring export defaults
   const tableZebraDelta = useMemo(
@@ -1367,6 +1455,26 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const unitMap = useMemo(
     () => new Map(allUnits.map(unit => [unit.id, unit])),
     [allUnits]
+  );
+  const userMap = useMemo(() => {
+    const temps = Object.values(tempUsersByScope).flat();
+    const combined = [...allAppUsers, ...temps];
+    return new Map(combined.map(user => [user.id, user]));
+  }, [allAppUsers, tempUsersByScope]);
+  const permissionWarned = useRef(false);
+  const handleSnapshotError = useCallback(
+    (error: any) => {
+      if (error?.name === 'AbortError') return;
+      if (error?.code === 'permission-denied') {
+        if (!permissionWarned.current) {
+          console.warn('Firestore permission denied');
+          permissionWarned.current = true;
+        }
+        return;
+      }
+      console.error('Firestore listener error', error);
+    },
+    []
   );
 
   const activeBrandColors = useMemo(() => {
@@ -1392,23 +1500,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [activeUnitIds]);
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
-      setAllAppUsers(
-        snapshot.docs.map(docSnap => {
-          const data = docSnap.data() as any;
-          const lastName = data.lastName || '';
-          const firstName = data.firstName || '';
-          return {
-            id: docSnap.id,
-            ...data,
-            fullName:
-              data.fullName ||
-              `${lastName} ${firstName}`.trim()
-          } as User;
-        })
-      );
-      setIsDataLoading(false);
-    });
+    const unsubUsers = onSnapshot(
+      collection(db, 'users'),
+      snapshot => {
+        setAllAppUsers(
+          snapshot.docs.map(docSnap => {
+            const data = docSnap.data() as any;
+            const lastName = data.lastName || '';
+            const firstName = data.firstName || '';
+            return {
+              id: docSnap.id,
+              ...data,
+              fullName:
+                data.fullName ||
+                `${lastName} ${firstName}`.trim()
+            } as User;
+          })
+        );
+        setIsDataLoading(false);
+      },
+      handleSnapshotError
+    );
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
@@ -1419,7 +1531,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ...(docSnap.data() as any)
           })) as Position[]
         );
-      }
+      },
+      handleSnapshotError
     );
 
     return () => {
@@ -1437,28 +1550,84 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
   }, [weekSettings]);
 
-  const weekDays = useMemo(
-    () => getWeekDays(currentDate),
-    [currentDate]
+  const normalizedStartDate = useMemo(
+    () => (viewSpan === 42 ? getMonthViewStart(currentDate) : getStartOfWeek(currentDate)),
+    [currentDate, viewSpan]
   );
 
-  const weekStartDateStr = useMemo(
-    () => toDateString(weekDays[0]),
-    [weekDays]
+  const viewDays = useMemo(
+    () => getViewDays(normalizedStartDate, viewSpan),
+    [normalizedStartDate, viewSpan]
+  );
+
+  const viewDayKeys = useMemo(
+    () => viewDays.map(d => toDateString(d)),
+    [viewDays]
+  );
+
+  const viewStartDateKey = useMemo(
+    () => toDateString(normalizedStartDate),
+    [normalizedStartDate]
   );
 
   const openingSettings = useMemo(
     () =>
       weekSettings ||
-      createDefaultSettings(activeUnitIds[0] || 'default', weekStartDateStr),
-    [weekSettings, activeUnitIds, weekStartDateStr]
+      createDefaultSettings(activeUnitIds[0] || 'default', viewStartDateKey),
+    [weekSettings, activeUnitIds, viewStartDateKey]
   );
 
   useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        clearSelection();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [clearSelection]);
+
+  useEffect(() => {
+    const stopDrag = () => {
+      isRangeDragActive.current = false;
+      dragStartRef.current = null;
+    };
+    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener('mouseleave', stopDrag);
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+    window.addEventListener('pointerleave', stopDrag);
+    return () => {
+      window.removeEventListener('mouseup', stopDrag);
+      window.removeEventListener('mouseleave', stopDrag);
+      window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
+      window.removeEventListener('pointerleave', stopDrag);
+    };
+  }, []);
+
+  useEffect(() => {
+    clearSelection();
+  }, [clearSelection, normalizedStartDate, viewSpan, viewMode, activeUnitIds]);
+
+  useEffect(() => {
+    if (activeUnitIds.length === 1) {
+      setTempForm(prev => ({ ...prev, unitId: activeUnitIds[0] }));
+    } else {
+      setTempForm(prev => ({ ...prev, unitId: '' }));
+    }
+  }, [activeUnitIds]);
+
+  useEffect(() => {
+    settingsWarnedRef.current = false;
     if (!activeUnitIds || activeUnitIds.length === 0) {
       setUnitWeekSettings({});
+      setTempUsersByScope({});
       return;
     }
+    const scopeStart = viewStartDateKey;
+    const unsubs: (() => void)[] = [];
+    const localTempUsers: Record<string, TempUser[]> = {};
 
     let isMounted = true;
 
@@ -1466,21 +1635,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const entries = await Promise.all(
         activeUnitIds.map(async unitId => {
           try {
-            const settingsId = `${unitId}_${weekStartDateStr}`;
+            const settingsId = `${unitId}_${viewStartDateKey}`;
             const snap = await getDoc(
               doc(db, 'schedule_settings', settingsId)
             );
             if (snap.exists()) {
               return snap.data() as ScheduleSettings;
             }
-            return createDefaultSettings(unitId, weekStartDateStr);
+            return createDefaultSettings(unitId, viewStartDateKey);
           } catch (error) {
-            console.error(
-              'Failed to load schedule settings for unit',
-              unitId,
-              error
-            );
-            return null;
+            if (!settingsWarnedRef.current) {
+              console.warn('Failed to load schedule settings for unit', unitId, error);
+              settingsWarnedRef.current = true;
+              setSettingsWarning('A heti beállítások nem érhetők el, alapértelmezett értékekkel jelenítjük meg.');
+            }
+            return createDefaultSettings(unitId, viewStartDateKey);
           }
         })
       );
@@ -1494,39 +1663,96 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         }
       });
       setUnitWeekSettings(map);
+      if (!settingsWarnedRef.current && Object.keys(map).length > 0) {
+        setSettingsWarning(null);
+      }
     };
 
     loadSettings();
 
+    activeUnitIds.forEach(unitId => {
+      const scopeId = `${unitId}_${scopeStart}`;
+      const collectionRef = collection(
+        db,
+        'unit_schedules',
+        scopeId,
+        'tempUsers'
+      );
+      const unsub = onSnapshot(
+        collectionRef,
+        snapshot => {
+          if (!isMounted) return;
+          localTempUsers[scopeId] = snapshot.docs.map(docSnap => {
+            const data = docSnap.data() as any;
+            return {
+              id: docSnap.id,
+              tempId: docSnap.id,
+              scopeId,
+              ...data,
+              isTemporary: true
+            } as TempUser;
+          });
+          setTempUsersByScope(prev => ({
+            ...prev,
+            ...localTempUsers
+          }));
+        },
+        err => {
+          handleSnapshotError(err);
+          if (err?.code === 'permission-denied') {
+            setTempUsersByScope(prev => ({
+              ...prev,
+              [scopeId]: []
+            }));
+            setTempUserWarning(
+              'A beugrósok listája nem elérhető ehhez a nézethez (engedély hiányzik).'
+            );
+          }
+        }
+      );
+      unsubs.push(unsub);
+    });
+
     return () => {
       isMounted = false;
+      unsubs.forEach(u => u());
     };
-  }, [activeUnitIds, weekDays, weekStartDateStr]);
+  }, [activeUnitIds, viewDays, viewStartDateKey, handleSnapshotError]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    return allAppUsers
+    const scopeIdBase = viewStartDateKey;
+    const tempUsers = activeUnitIds.flatMap(unitId => {
+      const scopeId = `${unitId}_${scopeIdBase}`;
+      return tempUsersByScope[scopeId] || [];
+    });
+    const combinedUsers = [...allAppUsers, ...tempUsers];
+    return combinedUsers
       .filter(
         u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
       )
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds]);
+  }, [allAppUsers, activeUnitIds, tempUsersByScope, viewDays]);
 
   useEffect(() => {
     if (!settingsDocId) return;
     const docRef = doc(db, 'schedule_display_settings', settingsDocId);
-    const unsubscribe = onSnapshot(docRef, docSnap => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as any;
-        setSavedOrderedUserIds(data.orderedUserIds || []);
-        setSavedHiddenUserIds(data.hiddenUserIds || []);
-      } else {
-        setSavedOrderedUserIds([]);
-        setSavedHiddenUserIds([]);
-      }
-    });
+    const unsubscribe = onSnapshot(
+      docRef,
+      docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as any;
+          setSavedOrderedUserIds(data.orderedUserIds || []);
+          setSavedHiddenUserIds(data.hiddenUserIds || []);
+        } else {
+          setSavedOrderedUserIds([]);
+          setSavedHiddenUserIds([]);
+        }
+      },
+      handleSnapshotError
+    );
     return () => unsubscribe();
   }, [settingsDocId]);
 
@@ -1581,14 +1807,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     const unitId = activeUnitIds[0];
     const settingsDocRef = doc(db, 'unit_export_settings', unitId);
-    const unsub = onSnapshot(settingsDocRef, docSnap => {
-      const settings = {
-        ...DEFAULT_EXPORT_SETTINGS,
-        ...(docSnap.data() || {})
-      } as ExportStyleSettings;
-      setExportSettings(settings);
-      setInitialExportSettings(settings);
-    });
+    const unsub = onSnapshot(
+      settingsDocRef,
+      docSnap => {
+        const settings = {
+          ...DEFAULT_EXPORT_SETTINGS,
+          ...(docSnap.data() || {})
+        } as ExportStyleSettings;
+        setExportSettings(settings);
+        setInitialExportSettings(settings);
+      },
+      handleSnapshotError
+    );
     return () => unsub();
   }, [activeUnitIds, canManage]);
 
@@ -1632,8 +1862,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
     const unitId = activeUnitIds[0];
-    const weekStartDateStr = toDateString(weekDays[0]);
-    const settingsId = `${unitId}_${weekStartDateStr}`;
+    const settingsId = `${unitId}_${viewStartDateKey}`;
     const unsub = onSnapshot(
       doc(db, 'schedule_settings', settingsId),
       docSnap => {
@@ -1641,13 +1870,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           setWeekSettings(docSnap.data() as ScheduleSettings);
         } else {
           setWeekSettings(
-            createDefaultSettings(unitId, weekStartDateStr)
+            createDefaultSettings(unitId, viewStartDateKey)
           );
         }
-      }
+      },
+      handleSnapshotError
     );
     return () => unsub();
-  }, [activeUnitIds, weekDays, canManage]);
+  }, [activeUnitIds, viewDays, canManage, viewStartDateKey]);
 
   const activeShifts = useMemo(
     () =>
@@ -1662,14 +1892,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const getUnitDaySetting = useCallback(
     (shift: Shift, dayIndex: number): DailySetting | null => {
       if (!shift.unitId) return null;
+      const normalizedIndex = dayIndex % 7;
 
       const unitSettings =
         unitWeekSettings[shift.unitId] ||
         (weekSettings?.unitId === shift.unitId ? weekSettings : undefined);
 
       return (
-        unitSettings?.dailySettings?.[dayIndex] ||
-        weekSettings?.dailySettings?.[dayIndex] ||
+        unitSettings?.dailySettings?.[normalizedIndex] ||
+        weekSettings?.dailySettings?.[normalizedIndex] ||
         null
       );
     },
@@ -1715,25 +1946,28 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const workHours = useMemo(() => {
     const userTotals: Record<string, number> = {};
-    const dayTotals: number[] = Array(7).fill(0);
+    const dayTotals: number[] = Array(viewDays.length).fill(0);
 
     orderedUsers.forEach(user => {
       userTotals[user.id] = 0;
-      weekDays.forEach((day, dayIndex) => {
+      viewDays.forEach((day, dayIndex) => {
         const dayKey = toDateString(day);
         const dayShifts =
           shiftsByUserDay.get(user.id)?.get(dayKey) || [];
 
         const dayHours = dayShifts.reduce(
           (sum, shift) =>
-            sum +
-            calculateShiftDuration(shift, {
-              closingTime:
-                getUnitDaySetting(shift, dayIndex)?.closingTime || null,
-              closingOffsetMinutes:
-                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
-              referenceDate: weekDays[dayIndex]
-            }),
+            shift.highlightOnly
+              ? sum
+              : sum +
+                calculateShiftDuration(shift, {
+                  closingTime:
+                    getUnitDaySetting(shift, dayIndex % 7)?.closingTime || null,
+                  closingOffsetMinutes:
+                    getUnitDaySetting(shift, dayIndex % 7)?.closingOffsetMinutes ||
+                    0,
+                  referenceDate: viewDays[dayIndex]
+                }),
           0
         );
         userTotals[user.id] += dayHours;
@@ -1747,7 +1981,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [
     orderedUsers,
     hiddenUserIds,
-    weekDays,
+    viewDays,
     shiftsByUserDay,
     weekSettings,
     getUnitDaySetting
@@ -1778,6 +2012,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         visibleUsersByPosition[pos].length > 0
     );
   }, [orderedUsers, visibleUsersByPosition]);
+  const visibleFlatUsers = useMemo(
+    () =>
+      visiblePositionOrder.flatMap(
+        pos => visibleUsersByPosition[pos] || []
+      ),
+    [visiblePositionOrder, visibleUsersByPosition]
+  );
+  const visibleUserIndexMap = useMemo(
+    () =>
+      new Map<string, number>(
+        visibleFlatUsers.map((user, idx) => [user.id, idx])
+      ),
+    [visibleFlatUsers]
+  );
+  const selectedCellEntries = useMemo(
+    () => Array.from(selectedCells).map(parseCellKey),
+    [parseCellKey, selectedCells]
+  );
 
   const hiddenUsers = useMemo(
     () =>
@@ -1787,23 +2039,33 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   let zebraRowIndex = 0;
 
-  const handlePrevWeek = () =>
+  const handlePrevView = () =>
     setCurrentDate(d => {
       const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() - 7);
+      if (viewSpan === 42) {
+        newDate.setMonth(newDate.getMonth() - 1);
+        newDate.setDate(1);
+      } else {
+        newDate.setDate(newDate.getDate() - viewSpan);
+      }
       return newDate;
     });
 
-  const handleNextWeek = () =>
+  const handleNextView = () =>
     setCurrentDate(d => {
       const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() + 7);
+      if (viewSpan === 42) {
+        newDate.setMonth(newDate.getMonth() + 1);
+        newDate.setDate(1);
+      } else {
+        newDate.setDate(newDate.getDate() + viewSpan);
+      }
       return newDate;
     });
 
   const handlePublishWeek = () => {
-    const weekStart = weekDays[0];
-    const weekEnd = new Date(weekDays[6]);
+    const weekStart = viewDays[0];
+    const weekEnd = new Date(viewDays[viewDays.length - 1]);
     weekEnd.setHours(23, 59, 59, 999);
 
     const draftShifts = schedule.filter(
@@ -1853,8 +2115,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
 
-    const weekStart = weekDays[0];
-    const weekEnd = new Date(weekDays[6]);
+    const weekStart = viewDays[0];
+    const weekEnd = new Date(viewDays[viewDays.length - 1]);
     weekEnd.setHours(23, 59, 59, 999);
 
     const shiftsToPublish = schedule.filter(
@@ -1885,10 +2147,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
 
       const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
-      const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {
+      const weekLabel = `${viewDays[0].toLocaleDateString('hu-HU', {
         month: 'short',
         day: 'numeric'
-      })} - ${weekDays[6].toLocaleDateString('hu-HU', {
+      })} - ${viewDays[viewDays.length - 1].toLocaleDateString('hu-HU', {
         month: 'short',
         day: 'numeric'
       })}`;
@@ -1973,7 +2235,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           prev ||
           createDefaultSettings(
             activeUnitIds[0] || 'default',
-            weekStartDateStr
+            viewStartDateKey
           );
 
         const updated = updater(baseSettings);
@@ -1987,159 +2249,455 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return updated;
       });
     },
-    [canManage, activeUnitIds, weekStartDateStr]
+    [canManage, activeUnitIds, viewStartDateKey]
   );
 
-  // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (!tableRef.current) {
-      reject(new Error('Table ref not found'));
+  const buildRangeKeys = useCallback(
+    (startRow: number, endRow: number, startDay: number, endDay: number) => {
+      const keys: string[] = [];
+      for (let r = startRow; r <= endRow; r++) {
+        const user = visibleFlatUsers[r];
+        if (!user) continue;
+        for (let d = startDay; d <= endDay; d++) {
+          const dayKey = viewDayKeys[d];
+          if (dayKey) {
+            keys.push(createCellKey(user.id, dayKey));
+          }
+        }
+      }
+      return keys;
+    },
+    [createCellKey, visibleFlatUsers, viewDayKeys]
+  );
+
+  const handleCellSelect = (
+    user: User,
+    day: Date,
+    userIndex: number,
+    dayIndex: number,
+    event?: React.MouseEvent | React.PointerEvent
+  ) => {
+    const dayKey = toDateString(day);
+    const key = createCellKey(user.id, dayKey);
+    const hasSelection = selectedCells.size > 0;
+    const isSelected = selectedCells.has(key);
+    const mouseEvt = event as React.MouseEvent;
+    const isMeta = !!(mouseEvt && (mouseEvt.metaKey || mouseEvt.ctrlKey));
+    const isShiftKey = !!(mouseEvt && mouseEvt.shiftKey);
+
+    if (isMeta) {
+      const next = new Set(selectedCells);
+      if (isSelected) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      setSelectedCells(next);
+      setLastSelectedCell({ userId: user.id, dayKey });
       return;
     }
 
-    setIsPngExporting(true);
-
-    // Offscreen konténer – csak háttér + padding
-    const exportContainer = document.createElement('div');
-    Object.assign(exportContainer.style, {
-      position: 'absolute',
-      left: '-9999px',
-      top: '0',
-      backgroundColor: '#ffffff',
-      padding: '20px',
-      display: 'inline-block',
-      overflow: 'hidden'
-    } as CSSStyleDeclaration);
-
-    // Teljes tábla klónozása – minden Tailwind osztály megmarad
-    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
-    exportContainer.appendChild(tableClone);
-    document.body.appendChild(exportContainer);
-
-    // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
-    tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
-
-    tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
-      el.style.whiteSpace = 'pre-wrap';
-      el.style.maxWidth = 'none';
-      el.style.overflow = 'visible';
-      el.style.textOverflow = 'unset';
-    });
-
-    const dayHeaderTextColor = getContrastingTextColor(
-      exportSettings.dayHeaderBgColor
-    );
-    const nameHeaderTextColor = getContrastingTextColor(
-      exportSettings.nameColumnColor
-    );
-
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('thead th')
-      .forEach((th, idx) => {
-        const isNameHeader = idx === 0;
-        const bg = isNameHeader
-          ? exportSettings.nameColumnColor
-          : exportSettings.dayHeaderBgColor;
-        th.style.background = bg;
-        th.style.color = isNameHeader
-          ? nameHeaderTextColor
-          : dayHeaderTextColor;
-      });
-
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
-      .forEach(td => {
-        td.style.background = exportSettings.categoryHeaderBgColor;
-        td.style.color = exportSettings.categoryHeaderTextColor;
-      });
-
-    // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
-    if (hideEmptyUsers) {
-      tableClone.querySelectorAll('tbody tr').forEach(row => {
-        const isCategoryRow = row.querySelector('td[colSpan]');
-        const isSummaryRow = row.classList.contains('summary-row');
-        if (isCategoryRow || isSummaryRow) return;
-        if (row.classList.contains('no-shifts-week')) {
-          row.remove();
-        }
-      });
+    if (isShiftKey && lastSelectedCell) {
+      const lastUserIndex = visibleUserIndexMap.get(lastSelectedCell.userId);
+      const lastDayIndex = viewDayKeys.indexOf(lastSelectedCell.dayKey);
+      if (lastUserIndex !== undefined && lastDayIndex !== -1) {
+        const minRow = Math.min(lastUserIndex, userIndex);
+        const maxRow = Math.max(lastUserIndex, userIndex);
+        const minDay = Math.min(lastDayIndex, dayIndex);
+        const maxDay = Math.max(lastDayIndex, dayIndex);
+        const keysToAdd = buildRangeKeys(minRow, maxRow, minDay, maxDay);
+        const next = new Set(selectedCells);
+        keysToAdd.forEach(k => next.add(k));
+        setSelectedCells(next);
+        setLastSelectedCell({ userId: user.id, dayKey });
+        return;
+      }
     }
 
-    // 3) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
-    tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
-      el.style.position = '';
-      el.style.left = '';
-      el.style.zIndex = '';
-    });
+    if (!hasSelection) {
+      setSelectedCells(new Set([key]));
+      setLastSelectedCell({ userId: user.id, dayKey });
+      return;
+    }
 
-    // 4) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
-    tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
-      const txt = (td.textContent || '').trim().toUpperCase();
-      if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
-        td.textContent = '';
+    if (!isSelected) {
+      const next = new Set(selectedCells);
+      next.add(key);
+      setSelectedCells(next);
+      setLastSelectedCell({ userId: user.id, dayKey });
+      return;
+    }
+
+    const userDayShifts =
+      shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+    handleOpenShiftModal(userDayShifts[0] || null, user.id, day);
+  };
+
+  const handleCellMouseDown = (
+    user: User,
+    dayKey: string,
+    userIndex: number,
+    dayIndex: number,
+    event: React.PointerEvent
+  ) => {
+    const isPrimaryButton =
+      event.button === 0 ||
+      event.pointerType === 'touch' ||
+      event.pointerType === 'pen';
+    if (!isPrimaryButton) return;
+    event.preventDefault();
+    isRangeDragActive.current = true;
+    dragStartRef.current = { userIndex, dayIndex };
+  };
+
+  const handleCellMouseEnter = (userIndex: number, dayIndex: number) => {
+    if (!isRangeDragActive.current || !dragStartRef.current) return;
+    const start = dragStartRef.current;
+    const minRow = Math.min(start.userIndex, userIndex);
+    const maxRow = Math.max(start.userIndex, userIndex);
+    const minDay = Math.min(start.dayIndex, dayIndex);
+    const maxDay = Math.max(start.dayIndex, dayIndex);
+    const keysToAdd = buildRangeKeys(minRow, maxRow, minDay, maxDay);
+    setSelectedCells(prev => {
+      const next = new Set(prev);
+      keysToAdd.forEach(k => next.add(k));
+      return next;
+    });
+  };
+
+  const getDayStart = (dayKey: string) => {
+    const date = parseDayKeyLocal(dayKey);
+    return date;
+  };
+
+  const handleBulkDayOff = async () => {
+    if (!canManage || selectedCellEntries.length === 0) return;
+    const needsConfirm = selectedCellEntries.some(cell =>
+      (shiftsByUserDay.get(cell.userId)?.get(cell.dayKey) || []).some(
+        s => !s.isDayOff
+      )
+    );
+    if (needsConfirm) {
+      const confirmed = window.confirm(
+        'A kijelölt műszakok szabadnapra állnak. Folytatod?'
+      );
+      if (!confirmed) return;
+    }
+
+    const batch = writeBatch(db);
+    selectedCellEntries.forEach(cell => {
+      const user = userMap.get(cell.userId);
+      if (!user) return;
+      const targetShifts =
+        shiftsByUserDay.get(cell.userId)?.get(cell.dayKey) || [];
+      if (targetShifts.length > 0) {
+        targetShifts.forEach(shift => {
+          batch.update(doc(db, 'shifts', shift.id), {
+            isDayOff: true,
+            end: null,
+            highlight: null,
+            highlightOnly: false
+          });
+        });
+      } else {
+        const startDate = getDayStart(cell.dayKey);
+        const newDocRef = doc(collection(db, 'shifts'));
+        const unitId =
+          activeUnitIds.find(id => user.unitIds?.includes(id)) ||
+          user.unitIds?.[0] ||
+          activeUnitIds[0];
+        batch.set(newDocRef, {
+          id: newDocRef.id,
+          userId: user.id,
+          userName: user.fullName,
+          unitId,
+          position: user.position || 'N/A',
+          start: Timestamp.fromDate(startDate),
+          end: null,
+          status: viewMode,
+          isDayOff: true,
+          highlight: null,
+          highlightOnly: false
+        } as Shift);
       }
     });
+    await batch.commit();
+    clearSelection();
+  };
 
-    // 5) Összesítő sor (Napi összes) kiszedése
-    tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
-
-    // 6) Zebra csíkozás alkalmazása az exportált táblára
-    const zebraBase = exportSettings.zebraColor;
-    const zebraDelta = exportSettings.zebraStrength / 5;
-    const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-    const nameBase = exportSettings.nameColumnColor;
-    const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
-
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('th, td')
-      .forEach(cell => {
-        cell.style.borderWidth = '0.5px';
+  const handleBulkDelete = async () => {
+    if (!canManage || selectedCellEntries.length === 0) return;
+    const batch = writeBatch(db);
+    selectedCellEntries.forEach(cell => {
+      const targetShifts =
+        shiftsByUserDay.get(cell.userId)?.get(cell.dayKey) || [];
+      targetShifts.forEach(shift => {
+        batch.delete(doc(db, 'shifts', shift.id));
       });
+    });
+    await batch.commit();
+    clearSelection();
+  };
 
-    let dataRowIndex = 0;
-    tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
-      const isCategoryRow = row.querySelector('td[colSpan]');
-      const isSummaryRow = row.classList.contains('summary-row');
-      if (isCategoryRow || isSummaryRow) return;
-
-      const isAltRow = dataRowIndex % 2 === 1;
-      const rowBg = isAltRow ? zebraAlt : zebraBase;
-      const rowText = getContrastingTextColor(rowBg);
-      row.style.background = rowBg;
-      row.style.color = rowText;
-
-      const nameCell = row.querySelector('td');
-      if (nameCell) {
-        const nameBg = isAltRow ? nameAlt : nameBase;
-        nameCell.style.background = nameBg;
-        nameCell.style.color = getContrastingTextColor(nameBg);
+  const handleBulkHighlight = async () => {
+    if (!canManage || selectedCellEntries.length === 0) return;
+    const batch = writeBatch(db);
+    selectedCellEntries.forEach(cell => {
+      const user = userMap.get(cell.userId);
+      if (!user) return;
+      const targetShifts =
+        shiftsByUserDay.get(cell.userId)?.get(cell.dayKey) || [];
+      if (targetShifts.length > 0) {
+        targetShifts.forEach(shift => {
+          batch.update(doc(db, 'shifts', shift.id), {
+            highlight: 'orange',
+            highlightOnly: false
+          });
+        });
+      } else {
+        const startDate = getDayStart(cell.dayKey);
+        const newDocRef = doc(collection(db, 'shifts'));
+        const unitId =
+          activeUnitIds.find(id => user.unitIds?.includes(id)) ||
+          user.unitIds?.[0] ||
+          activeUnitIds[0];
+        batch.set(newDocRef, {
+          id: newDocRef.id,
+          userId: user.id,
+          userName: user.fullName,
+          unitId,
+          position: user.position || 'N/A',
+          start: Timestamp.fromDate(startDate),
+          end: null,
+          status: viewMode,
+          isDayOff: false,
+          highlight: 'orange',
+          highlightOnly: true
+        } as Shift);
       }
+    });
+    await batch.commit();
+    clearSelection();
+  };
 
-      row.querySelectorAll<HTMLTableCellElement>('td:not(:first-child)').forEach(td => {
-        if (
-          !td.classList.contains('day-off-cell') &&
-          !td.classList.contains('leave-cell')
-        ) {
-          td.style.background = rowBg;
-          td.style.color = rowText;
+  const handleBulkClearHighlight = async () => {
+    if (!canManage || selectedCellEntries.length === 0) return;
+    const batch = writeBatch(db);
+    selectedCellEntries.forEach(cell => {
+      const targetShifts =
+        shiftsByUserDay.get(cell.userId)?.get(cell.dayKey) || [];
+      targetShifts.forEach(shift => {
+        if (shift.highlightOnly) {
+          batch.delete(doc(db, 'shifts', shift.id));
+        } else {
+          batch.update(doc(db, 'shifts', shift.id), {
+            highlight: null,
+            highlightOnly: false
+          });
         }
       });
-
-      dataRowIndex += 1;
     });
+    await batch.commit();
+    clearSelection();
+  };
 
-    // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
+  // --- UPDATED PNG EXPORT FUNCTION (staged multi-block capture) ---
+  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      if (!tableRef.current) {
+        reject(new Error('Table ref not found'));
+        return;
+      }
 
-    html2canvas(exportContainer, {
-      useCORS: true,
-      scale: 2,
-      backgroundColor: '#ffffff'
-    })
-      .then(canvas => {
+      setIsPngExporting(true);
+
+      const exportContainer = document.createElement('div');
+      Object.assign(exportContainer.style, {
+        position: 'absolute',
+        left: '-9999px',
+        top: '0',
+        backgroundColor: '#ffffff',
+        padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '20px',
+        width: `${tableRef.current.clientWidth + 40}px`
+      } as CSSStyleDeclaration);
+
+      const tableToBlock = (startIdx: number, endIdx: number) => {
+        const tableClone = tableRef.current!.cloneNode(true) as HTMLTableElement;
+        tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+        tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+          el.style.whiteSpace = 'pre-wrap';
+          el.style.maxWidth = 'none';
+          el.style.overflow = 'visible';
+          el.style.textOverflow = 'unset';
+        });
+
+        tableClone.querySelectorAll<HTMLElement>('*').forEach(el => {
+          const toRemove = Array.from(el.classList).filter(cls =>
+            cls.startsWith('ring-') || cls.startsWith('shadow-') || cls === 'ring-offset-2'
+          );
+          if (toRemove.length) {
+            toRemove.forEach(cls => el.classList.remove(cls));
+            el.style.boxShadow = '';
+            el.style.outline = '';
+          }
+        });
+
+        const dayHeaderTextColor = getContrastingTextColor(
+          exportSettings.dayHeaderBgColor
+        );
+        const nameHeaderTextColor = getContrastingTextColor(
+          exportSettings.nameColumnColor
+        );
+
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('thead th')
+          .forEach((th, idx) => {
+            const isNameHeader = idx === 0;
+            const bg = isNameHeader
+              ? exportSettings.nameColumnColor
+              : exportSettings.dayHeaderBgColor;
+            th.style.background = bg;
+            th.style.color = isNameHeader
+              ? nameHeaderTextColor
+              : dayHeaderTextColor;
+          });
+
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
+          .forEach(td => {
+            td.style.background = exportSettings.categoryHeaderBgColor;
+            td.style.color = exportSettings.categoryHeaderTextColor;
+            td.colSpan = 1 + (endIdx - startIdx + 1);
+          });
+
+        const withinRange = (cellIndex: number) =>
+          cellIndex === 0 || (cellIndex - 1 >= startIdx && cellIndex - 1 <= endIdx);
+
+        tableClone.querySelectorAll('tr').forEach(row => {
+          const cells = Array.from(row.children);
+          cells.forEach((cell, idx) => {
+            if (!withinRange(idx)) {
+              row.removeChild(cell);
+            }
+          });
+        });
+
+        if (hideEmptyUsers) {
+          tableClone.querySelectorAll('tbody tr').forEach(row => {
+            const isCategoryRow = row.querySelector('td[colSpan]');
+            const isSummaryRow = row.classList.contains('summary-row');
+            if (isCategoryRow || isSummaryRow) return;
+            if (row.classList.contains('no-shifts-week')) {
+              row.remove();
+            }
+          });
+        }
+
+        tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
+          el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
+          el.style.position = '';
+          el.style.left = '';
+          el.style.zIndex = '';
+        });
+
+        tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
+          const txt = (td.textContent || '').trim().toUpperCase();
+          if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+            td.textContent = '';
+          }
+        });
+
+        tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+
+        const zebraBase = exportSettings.zebraColor;
+        const zebraDelta = exportSettings.zebraStrength / 5;
+        const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
+        const nameBase = exportSettings.nameColumnColor;
+        const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('th, td')
+          .forEach(cell => {
+            cell.style.borderWidth = '0.5px';
+          });
+
+        let dataRowIndex = 0;
+        tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
+          const isCategoryRow = row.querySelector('td[colSpan]');
+          const isSummaryRow = row.classList.contains('summary-row');
+          if (isCategoryRow || isSummaryRow) return;
+
+          const isAltRow = dataRowIndex % 2 === 1;
+          const rowBg = isAltRow ? zebraAlt : zebraBase;
+          const rowText = getContrastingTextColor(rowBg);
+          row.style.background = rowBg;
+          row.style.color = rowText;
+
+          const nameCell = row.querySelector('td');
+          if (nameCell) {
+            const nameBg = isAltRow ? nameAlt : nameBase;
+            nameCell.style.background = nameBg;
+            nameCell.style.color = getContrastingTextColor(nameBg);
+          }
+
+          row.querySelectorAll<HTMLTableCellElement>('td:not(:first-child)').forEach(td => {
+            if (
+              !td.classList.contains('day-off-cell') &&
+              !td.classList.contains('leave-cell')
+            ) {
+              td.style.background = rowBg;
+              td.style.color = rowText;
+            }
+          });
+
+          dataRowIndex += 1;
+        });
+
+        return tableClone;
+      };
+
+      const shouldBlock = viewSpan === 28 || viewSpan === 42;
+      const blockSize = shouldBlock ? 14 : viewDays.length;
+      const blockCount = Math.max(1, Math.ceil(viewDays.length / blockSize));
+
+      for (let block = 0; block < blockCount; block++) {
+        const startIdx = block * blockSize;
+        const endIdx = Math.min(viewDays.length - 1, startIdx + blockSize - 1);
+        const blockWrapper = document.createElement('div');
+        blockWrapper.style.display = 'block';
+        blockWrapper.style.overflow = 'hidden';
+        blockWrapper.appendChild(tableToBlock(startIdx, endIdx));
+        exportContainer.appendChild(blockWrapper);
+      }
+
+      document.body.appendChild(exportContainer);
+
+      const waitForImages = () =>
+        Promise.all(
+          Array.from(exportContainer.querySelectorAll('img')).map(
+            img =>
+              new Promise<void>(resolveImg => {
+                img.crossOrigin = 'anonymous';
+                if (img.complete) return resolveImg();
+                img.onload = () => resolveImg();
+                img.onerror = () => resolveImg();
+              })
+          )
+        );
+
+      try {
+        await waitForImages();
+        const canvas = await html2canvas(exportContainer, {
+          useCORS: true,
+          scale: 2,
+          backgroundColor: '#ffffff'
+        });
         const link = document.createElement('a');
-        const weekStart = weekDays[0]
+        const weekStart = viewDays[0]
           .toLocaleDateString('hu-HU', {
             year: 'numeric',
             month: '2-digit',
@@ -2151,19 +2709,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         link.href = canvas.toDataURL('image/png');
         link.click();
         resolve();
-      })
-      .catch(err => {
-        console.error('PNG export failed:', err);
-        alert('Hiba történt a PNG exportálás során.');
-        reject(err);
-      })
-      .finally(() => {
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          resolve();
+        } else {
+          console.error('PNG export failed:', err);
+          alert('Hiba történt a PNG exportálás során.');
+          reject(err);
+        }
+      } finally {
         document.body.removeChild(exportContainer);
         setIsPngExporting(false);
-      });
-  });
-};
-
+      }
+    });
+  };
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
     setClickGuardUntil(Date.now() + 500);
@@ -2319,6 +2878,133 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         canManage={canManage}
       />
 
+      {isTempModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setIsTempModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-lg font-bold text-slate-800">
+                Ideiglenes Alkalmazott Hozzáadása
+              </h3>
+              <button
+                className="rounded-full p-2 hover:bg-slate-100"
+                onClick={() => setIsTempModalOpen(false)}
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 px-4 py-4">
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">
+                  Teljes név*
+                </label>
+                <input
+                  type="text"
+                  value={tempForm.fullName}
+                  onChange={e =>
+                    setTempForm(prev => ({ ...prev, fullName: e.target.value }))
+                  }
+                  className="w-full rounded-lg border px-3 py-2"
+                  placeholder="Pl. Beugrós Béla"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">
+                  Pozíció*
+                </label>
+                <input
+                  type="text"
+                  value={tempForm.position}
+                  onChange={e =>
+                    setTempForm(prev => ({ ...prev, position: e.target.value }))
+                  }
+                  className="w-full rounded-lg border px-3 py-2"
+                  placeholder="Pl. Pultos"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-slate-700">
+                  Egység*
+                </label>
+                <select
+                  value={tempForm.unitId}
+                  onChange={e =>
+                    setTempForm(prev => ({ ...prev, unitId: e.target.value }))
+                  }
+                  className="w-full rounded-lg border px-3 py-2"
+                >
+                  <option value="">Válassz egységet</option>
+                  {activeUnitIds.map(uid => {
+                    const unit = unitMap.get(uid);
+                    return (
+                      <option key={uid} value={uid}>
+                        {unit?.name || 'Ismeretlen egység'}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              {tempUserWarning && (
+                <p className="text-sm text-amber-600">
+                  {tempUserWarning}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <button
+                onClick={() => setIsTempModalOpen(false)}
+                className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Mégse
+              </button>
+              <button
+                onClick={async () => {
+                  const targetUnit =
+                    tempForm.unitId || (activeUnitIds.length === 1 ? activeUnitIds[0] : '');
+                  if (!tempForm.fullName || !tempForm.position || !targetUnit) {
+                    alert('A név, pozíció és egység megadása kötelező.');
+                    return;
+                  }
+                  const scopeId = `${targetUnit}_${toDateString(viewDays[0])}`;
+                  try {
+                    const docRef = doc(
+                      collection(db, 'unit_schedules', scopeId, 'tempUsers')
+                    );
+                    await setDoc(docRef, {
+                      id: docRef.id,
+                      fullName: tempForm.fullName,
+                      position: tempForm.position,
+                      unitIds: [targetUnit],
+                      isTemporary: true
+                    });
+                    setTempForm({ fullName: '', position: '', unitId: '' });
+                    setTempUserWarning(null);
+                    setIsTempModalOpen(false);
+                  } catch (error: any) {
+                    handleSnapshotError(error);
+                    if (error?.code === 'permission-denied') {
+                      setTempUserWarning(
+                        'Nincs jogosultság beugrós felvételéhez ebben a nézetben.'
+                      );
+                    } else {
+                      alert('Hiba történt a beugrós mentésekor.');
+                    }
+                  }
+                }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                Mentés
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPublishModalOpen && (
         <PublishWeekModal
           units={unitsWithDrafts}
@@ -2327,34 +3013,34 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
-      {successToast && (
-        <div className="mb-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg text-sm">
-          {successToast}
+      {settingsWarning && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {settingsWarning}
         </div>
       )}
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="flex items-center gap-4">
           <button
-            onClick={handlePrevWeek}
+            onClick={handlePrevView}
             className="p-2 rounded-full hover:bg-gray-200"
           >
             &lt;
           </button>
           <h2 className="text-xl font-bold text-center">
-            {weekDays[0].toLocaleDateString('hu-HU', {
+            {viewDays[0].toLocaleDateString('hu-HU', {
               month: 'long',
               day: 'numeric'
             })}{' '}
             -{' '}
-            {weekDays[6].toLocaleDateString('hu-HU', {
+            {viewDays[viewDays.length - 1].toLocaleDateString('hu-HU', {
               year: 'numeric',
               month: 'long',
               day: 'numeric'
             })}
           </h2>
           <button
-            onClick={handleNextWeek}
+            onClick={handleNextView}
             className="p-2 rounded-full hover:bg-gray-200"
           >
             &gt;
@@ -2402,6 +3088,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               )}
             </div>
           )}
+          <button
+            onClick={() => setIsTempModalOpen(true)}
+            className="p-2 rounded-full hover:bg-gray-200"
+            title="Beugrós hozzáadása"
+          >
+            <UserPlusIcon className="h-6 w-6" />
+          </button>
           {canManage && (
             <button
               onClick={() => setShowSettings(!showSettings)}
@@ -2521,6 +3214,26 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div className="p-6 overflow-y-auto">
               {activeSettingsTab === 'opening' && (
                 <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700">
+                      Nézet hossza
+                      <select
+                        value={viewSpan}
+                        onChange={e => {
+                          const parsed = Number(e.target.value) as ViewSpan;
+                          setViewSpan(parsed);
+                          setSelectedCells(new Set());
+                        }}
+                        className="p-2 border rounded"
+                      >
+                        {VIEW_SPAN_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <label className="flex items-center gap-2">
                       <input
@@ -2557,9 +3270,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
                     >
                       <span className="font-semibold w-24">
-                        {weekDays[i].toLocaleDateString('hu-HU', {
-                          weekday: 'long'
-                        })}
+                        {WEEKDAY_LABELS[i]}
                       </span>
                       <input
                         type="time"
@@ -2692,21 +3403,64 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <div className="mb-4 flex items-center justify-between">
           <button
             onClick={() => setIsEditMode(!isEditMode)}
-            className="text-sm px-3 py-1 rounded-full border transition-colors"
+            className={`rounded-full border p-2 transition-colors ${
+              isEditMode ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white text-slate-700'
+            }`}
+            title="Sorrend szerkesztése"
             style={{
               backgroundColor: 'var(--color-surface-static)',
               color: 'var(--color-text-main)',
               borderColor: 'var(--color-border)',
             }}
           >
-            {isEditMode
-              ? 'Sorrend szerkesztése: BE'
-              : 'Sorrend szerkesztése: KI'}
+            <PencilIcon className="h-5 w-5" />
           </button>
-          <span className="text-xs text-gray-500">
-            Edit módban: a nyilakkal mozgathatod a dolgozókat / pozíció
-            blokkokat, a szem ikonnal elrejtheted őket a táblázatból.
+        </div>
+      )}
+
+      {selectedCells.size > 0 && (
+        <div className="sticky top-2 z-30 mb-2 flex flex-wrap items-center gap-2 bg-white/90 backdrop-blur rounded-xl border shadow-sm px-3 py-2">
+          <span className="text-sm font-semibold text-slate-700">
+            {selectedCells.size} cella kijelölve
           </span>
+          <button
+            onClick={handleBulkDayOff}
+            disabled={!canManage}
+            className="flex items-center gap-1 rounded-full bg-rose-50 text-rose-600 px-3 py-1 text-sm font-semibold hover:bg-rose-100"
+            title="Szabadnap"
+          >
+            <XIcon className="h-4 w-4" />
+            Szabadnap
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            disabled={!canManage}
+            className="flex items-center gap-1 rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-sm font-semibold hover:bg-slate-200"
+          >
+            <TrashIcon className="h-4 w-4" />
+            Törlés
+          </button>
+          <button
+            onClick={handleBulkHighlight}
+            disabled={!canManage}
+            className="flex items-center gap-1 rounded-full bg-orange-50 text-orange-700 px-3 py-1 text-sm font-semibold hover:bg-orange-100"
+          >
+            <span className="h-3 w-3 rounded-full bg-orange-500" />
+            Kiemelés
+          </button>
+          <button
+            onClick={handleBulkClearHighlight}
+            disabled={!canManage}
+            className="flex items-center gap-1 rounded-full bg-white border border-orange-200 text-orange-700 px-3 py-1 text-sm font-semibold hover:bg-orange-50"
+          >
+            Kiemelés törlése
+          </button>
+          <button
+            onClick={clearSelection}
+            className="ml-auto text-sm text-slate-600 hover:text-slate-800 underline"
+          >
+            Kijelölés törlése
+          </button>
         </div>
       )}
 
@@ -2731,21 +3485,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
                 Munkatárs
               </th>
-              {weekDays.map((day, idx) => (
-                <th
-                  key={idx}
-                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
-                >
-                  {day.toLocaleDateString('hu-HU', {
-                    weekday: 'short'
-                  })}
-                  <br />
-                  {day.toLocaleDateString('hu-HU', {
-                    month: '2-digit',
-                    day: '2-digit'
-                  })}
-                </th>
-              ))}
+              {viewDays.map((day, idx) => {
+                const isAltWeekBlock =
+                  viewSpan >= 28 &&
+                  Math.floor(idx / 7) % 2 === 1;
+                return (
+                  <th
+                    key={idx}
+                    className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
+                    style={isAltWeekBlock ? { backgroundColor: '#f8fafc' } : undefined}
+                  >
+                    {day.toLocaleDateString('hu-HU', {
+                      weekday: 'short'
+                    })}
+                    <br />
+                    {day.toLocaleDateString('hu-HU', {
+                      month: '2-digit',
+                      day: '2-digit'
+                    })}
+                  </th>
+                );
+              })}
             </tr>
 
             {weekSettings &&
@@ -2757,12 +3517,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
                         Nyitás
                       </td>
-                      {weekDays.map((_, i) => (
+                      {viewDays.map((_, i) => (
                         <td
                           key={i}
                           className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
-                          {weekSettings.dailySettings[i]?.openingTime || '-'}
+                          {weekSettings.dailySettings[i % 7]?.openingTime || '-'}
                         </td>
                       ))}
                     </tr>
@@ -2772,12 +3532,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
                         Zárás
                       </td>
-                      {weekDays.map((_, i) => (
+                      {viewDays.map((_, i) => (
                         <td
                           key={i}
                           className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
-                          {weekSettings.dailySettings[i]?.closingTime || '-'}
+                          {weekSettings.dailySettings[i % 7]?.closingTime || '-'}
                         </td>
                       ))}
                     </tr>
@@ -2796,7 +3556,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   {/* Pozíció fejléce */}
                   <tr>
                     <td
-                      colSpan={1 + weekDays.length}
+                      colSpan={1 + viewDays.length}
                       className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
                     >
                       <div className="flex items-center justify-between">
@@ -2837,10 +3597,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                     const userUnit = userUnitId
                       ? unitMap.get(userUnitId)
                       : undefined;
-                    const weeklyHours = workHours.userTotals[user.id] || 0;
-                    const isEmptyWeek = weeklyHours === 0;
+                      const weeklyHours = workHours.userTotals[user.id] || 0;
+                      const isEmptyWeek = weeklyHours === 0;
 
-                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const currentRowIndex = zebraRowIndex;
+                    const userIndex = visibleUserIndexMap.get(user.id) ?? 0;
+                    const isAltRow = currentRowIndex % 2 === 1;
                     const rowBg = isAltRow
                       ? tableAltZebraColor
                       : tableBaseZebraColor;
@@ -2858,23 +3620,35 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                         style={{ background: rowBg }}
                       >
                         {/* Név oszlop */}
-                        <td
-                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
-                          style={{ background: nameBg, color: nameTextColor }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-800 leading-tight">
-                                  {user.fullName}
-                                </span>
-                                {isMultiUnitView && userUnit && (
-                                  <UnitLogoBadge unit={userUnit} size={18} />
-                                )}
+                    <td
+                      className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                      style={{ background: nameBg, color: nameTextColor }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-800 leading-tight">
+                              {user.fullName}
+                            </span>
+                            {isMultiUnitView && (
+                              <div className="flex items-center gap-1">
+                                {(user.unitIds || [])
+                                  .filter(uid => activeUnitIds.includes(uid))
+                                  .map(uid => unitMap.get(uid))
+                                  .filter(Boolean)
+                                  .map(unit => (
+                                    <UnitLogoBadge
+                                      key={unit!.id}
+                                      unit={unit!}
+                                      size={16}
+                                    />
+                                  ))}
                               </div>
-                              <span className="export-hide text-[11px] text-slate-400">
-                                {weeklyHours.toFixed(1)} óra / hét
-                              </span>
+                            )}
+                          </div>
+                          <span className="export-hide text-[11px] text-slate-400">
+                            {weeklyHours.toFixed(1)} óra / hét
+                          </span>
                             </div>
                             {isEditMode && (
                               <div className="flex items-center gap-1 export-hide">
@@ -2912,7 +3686,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                         </td>
 
                         {/* Napok */}
-                        {weekDays.map((day, dayIndex) => {
+                        {viewDays.map((day, dayIndex) => {
                           const dayKey = toDateString(day);
                           const userDayShifts =
                             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
@@ -2932,6 +3706,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
                             )?.note || '';
+                          const highlightShift = userDayShifts.find(
+                            s => s.highlight === 'orange' || s.highlightOnly
+                          );
 
                           if (userDayShifts.length > 0) {
                             const dayOffShift = userDayShifts.find(
@@ -2982,11 +3759,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           }
 
                           const canEditCell = canManage || user.id === currentUser.id;
-                          const hasContent = displayParts.length > 0;
+                          const hasHighlight = !!highlightShift;
+                          const hasContent =
+                            displayParts.length > 0 ||
+                            (hasHighlight && highlightShift?.highlightOnly);
                           const hasNote = !!shiftNote;
+                          const shiftUnit =
+                            userDayShifts[0]?.unitId &&
+                            unitMap.get(userDayShifts[0].unitId || '');
+                          const isSelected = selectedCells.has(
+                            createCellKey(user.id, dayKey)
+                          );
+                          const weekBlockAlt =
+                            viewSpan >= 28 &&
+                            Math.floor(dayIndex / 7) % 2 === 1;
 
                           let cellClasses =
-                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
+                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors select-none';
                           if (isDayOff) {
                             cellClasses +=
                               ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
@@ -2998,6 +3787,25 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           } else {
                             cellClasses += ' text-slate-400';
                           }
+                          if (isSelected) {
+                            cellClasses +=
+                              ' ring-2 ring-emerald-500 ring-offset-2 ring-offset-white';
+                          }
+
+                          const baseBg =
+                            !isDayOff && !isLeave
+                              ? weekBlockAlt
+                                ? adjustColor(rowBg, 4)
+                                : rowBg
+                              : undefined;
+                          const finalBg =
+                            hasHighlight && !isDayOff && !isLeave
+                              ? '#FFF7ED'
+                              : baseBg;
+                          const finalTextColor =
+                            hasHighlight && !isDayOff && !isLeave
+                              ? '#92400e'
+                              : rowTextColor;
 
                           return (
                             <td
@@ -3005,31 +3813,90 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               className={cellClasses}
                               style={
                                 !isDayOff && !isLeave
-                                  ? { background: rowBg, color: rowTextColor }
+                                  ? { background: finalBg, color: finalTextColor }
                                   : undefined
                               }
-                              onClick={() =>
+                              onClick={e =>
                                 canEditCell &&
-                                handleOpenShiftModal(
-                                  userDayShifts[0] || null,
-                                  user.id,
-                                  day
+                                handleCellSelect(user, day, userIndex, dayIndex, e)
+                              }
+                              onPointerDown={e =>
+                                canEditCell &&
+                                handleCellMouseDown(
+                                  user,
+                                  dayKey,
+                                  userIndex,
+                                  dayIndex,
+                                  e
                                 )
                               }
+                              onPointerEnter={() =>
+                                canEditCell &&
+                                handleCellMouseEnter(userIndex, dayIndex)
+                              }
                             >
-                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
+                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1 overflow-hidden">
+                                {isSelected && (
+                                  <span
+                                    className="pointer-events-none absolute inset-0 bg-emerald-50/60 ring-2 ring-emerald-500/80 ring-offset-1 ring-offset-white shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                                    style={(() => {
+                                      const neighborKey = (
+                                        rowOffset: number,
+                                        colOffset: number
+                                      ) => {
+                                        const neighborUser = visibleFlatUsers[userIndex + rowOffset];
+                                        const neighborDay = viewDayKeys[dayIndex + colOffset];
+                                        if (!neighborUser || !neighborDay) return null;
+                                        return createCellKey(neighborUser.id, neighborDay);
+                                      };
+                                      const topKey = neighborKey(-1, 0);
+                                      const bottomKey = neighborKey(1, 0);
+                                      const leftKey = neighborKey(0, -1);
+                                      const rightKey = neighborKey(0, 1);
+                                      const hasTopNeighbor = topKey ? selectedCells.has(topKey) : false;
+                                      const hasBottomNeighbor = bottomKey
+                                        ? selectedCells.has(bottomKey)
+                                        : false;
+                                      const hasLeftNeighbor = leftKey ? selectedCells.has(leftKey) : false;
+                                      const hasRightNeighbor = rightKey ? selectedCells.has(rightKey) : false;
+                                      const radius = 10;
+                                      return {
+                                        borderTopLeftRadius:
+                                          !hasTopNeighbor || !hasLeftNeighbor ? radius : 0,
+                                        borderTopRightRadius:
+                                          !hasTopNeighbor || !hasRightNeighbor ? radius : 0,
+                                        borderBottomLeftRadius:
+                                          !hasBottomNeighbor || !hasLeftNeighbor ? radius : 0,
+                                        borderBottomRightRadius:
+                                          !hasBottomNeighbor || !hasRightNeighbor ? radius : 0
+                                      };
+                                    })()}
+                                  />
+                                )}
+                                {isMultiUnitView &&
+                                  userDayShifts.length > 0 &&
+                                  userDayShifts[0]?.unitId &&
+                                  shiftUnit &&
+                                  userDayShifts[0].unitId !== userUnitId && (
+                                    <div className="absolute left-1 top-1">
+                                      <UnitLogoBadge unit={shiftUnit} size={14} />
+                                    </div>
+                                  )}
+                                {hasHighlight && (
+                                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-500" />
+                                )}
                                 {hasContent && (
-                                  <span className="whitespace-pre-wrap leading-tight">
+                                  <span className="relative z-10 whitespace-pre-wrap leading-tight">
                                     {displayParts.join('\n')}
                                   </span>
                                 )}
                                 {hasNote && (
-                                  <span className="handwritten-note tracking-tighter">
+                                  <span className="relative z-10 handwritten-note tracking-tighter">
                                     {`"${shiftNote}"`}
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
-                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
+                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light relative z-10">
                                     +
                                   </span>
                                 )}
@@ -3049,7 +3916,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
                 Napi összes (óra)
               </td>
-              {weekDays.map((_, i) => (
+              {viewDays.map((_, i) => (
                 <td
                   key={i}
                   className="px-3 py-2 text-center text-xs font-semibold text-slate-700"
@@ -3087,7 +3954,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 // Excel export
                 try {
                   await generateExcelExport({
-                    weekDays,
+                    weekDays: viewDays,
                     orderedUsers,
                     visiblePositionOrder,
                     shiftsByUserDay,
@@ -3109,7 +3976,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {successToast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur-sm transition duration-300 ease-out"
+        >
           {successToast}
         </div>
       )}

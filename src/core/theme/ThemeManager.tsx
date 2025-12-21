@@ -31,6 +31,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
       '--color-text-main',
       '--color-text-secondary',
       '--color-border',
+      '--color-surface-static',
     ];
     resetVars.forEach(v => root.style.removeProperty(v));
 
@@ -46,6 +47,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     set('--color-secondary', config?.secondary || '#15803d');
     set('--color-background', config?.background || (isLight ? '#f1f5f9' : '#020617'));
     set('--color-surface', config?.surface || (isLight ? '#ffffff' : '#1e293b'));
+    set('--color-surface-static', '#ffffff');
     set('--color-header-bg', config?.headerBg || (isLight ? '#15803d' : '#0f172a'));
     set('--color-sidebar-bg', config?.sidebarBg || (isLight ? '#ffffff' : '#1e293b'));
     set('--color-sidebar-hover', config?.sidebarHover || (isLight ? '#ecfdf3' : '#334155'));
@@ -61,11 +63,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
 
     // 3. Brand overrides
     if (useBrandTheme && activeUnit) {
+      const brandSurface =
+        activeUnit.brandColors?.surface || activeUnit.brandColors?.background;
       if (activeUnit.brandColors?.primary) {
         set('--color-primary', activeUnit.brandColors.primary);
         set('--color-header-bg', activeUnit.brandColors.primary);
       }
       if (activeUnit.brandColors?.secondary) set('--color-secondary', activeUnit.brandColors.secondary);
+      if (brandSurface) {
+        set('--color-surface', brandSurface);
+      }
       if (activeUnit.brandColors?.background) {
         set('--color-background', activeUnit.brandColors.background);
         set('--color-sidebar-bg', activeUnit.brandColors.background);
