@@ -1,15 +1,26 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { Unit } from '../models/data';
 import { ThemeMode, ThemeBases } from './types';
+import { DEFAULT_BASES } from './storage';
+import { normalizeColor, resolveThemePalette, mergeThemeBases } from './utils';
 
 interface ThemeManagerProps {
   activeUnit: Unit | null;
   themeMode: ThemeMode;
   useBrandTheme?: boolean;
   adminConfig?: ThemeBases;
+  unitTheme?: ThemeBases | null;
 }
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useBrandTheme, adminConfig }) => {
+const ThemeManager: React.FC<ThemeManagerProps> = ({
+  activeUnit,
+  themeMode,
+  useBrandTheme,
+  adminConfig,
+  unitTheme,
+}) => {
+  const lastAppliedKey = useRef<string>('');
+
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.add('no-transition');
@@ -23,6 +34,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
       '--color-secondary',
       '--color-background',
       '--color-surface',
+      '--color-surface-card',
       '--color-header-bg',
       '--color-sidebar-bg',
       '--color-sidebar-hover',
@@ -38,44 +50,74 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     if (themeMode === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
 
     const isLight = themeMode === 'light';
-    const config = isLight ? adminConfig?.light : adminConfig?.dark;
-
+    const bases = mergeThemeBases(adminConfig, DEFAULT_BASES);
+    const unitBases = unitTheme ? mergeThemeBases(unitTheme, bases) : bases;
+    const config = isLight ? bases.light : bases.dark;
+    const unitConfig = isLight ? unitBases.light : unitBases.dark;
     const set = (k: string, v: string) => root.style.setProperty(k, v);
+    const pick = (
+      key: keyof ThemeBases['light'],
+      override?: Partial<ThemeBases['light']>
+    ) =>
+      normalizeColor(override?.[key]) ||
+      normalizeColor(unitConfig?.[key]) ||
+      normalizeColor(config?.[key]) ||
+      DEFAULT_BASES[isLight ? 'light' : 'dark'][key] ||
+      '';
+
+    const resolvedPalette = resolveThemePalette({
+      mode: isLight ? 'light' : 'dark',
+      globalTheme: config,
+      unitTheme: unitConfig,
+    });
 
     // 2. Base admin configuration
-    set('--color-primary', config?.primary || '#15803d');
-    set('--color-secondary', config?.secondary || '#15803d');
-    set('--color-background', config?.background || (isLight ? '#f1f5f9' : '#020617'));
-    set('--color-surface', config?.surface || (isLight ? '#ffffff' : '#1e293b'));
+    set('--color-primary', pick('primary'));
+    set('--color-secondary', pick('secondary'));
+    set('--color-background', pick('background'));
+    set('--color-surface', resolvedPalette.surface);
+    set('--color-surface-card', resolvedPalette.surfaceCard);
     set('--color-surface-static', '#ffffff');
-    set('--color-header-bg', config?.headerBg || (isLight ? '#15803d' : '#0f172a'));
-    set('--color-sidebar-bg', config?.sidebarBg || (isLight ? '#ffffff' : '#1e293b'));
-    set('--color-sidebar-hover', config?.sidebarHover || (isLight ? '#ecfdf3' : '#334155'));
-    set('--color-accent', config?.accent || (isLight ? '#f97316' : '#22d3ee'));
-    set('--color-input-bg', config?.inputBg || (isLight ? '#ffffff' : '#0f172a'));
-    set('--color-text-main', config?.textMain || (isLight ? '#000000' : '#ffffff'));
-    set('--color-text-secondary', config?.textSecondary || (isLight ? '#64748b' : '#94a3b8'));
-    set('--color-border', config?.border || '#e2e8f0');
+    set('--color-header-bg', pick('headerBg'));
+    set('--color-sidebar-bg', pick('sidebarBg'));
+    set('--color-sidebar-hover', pick('sidebarHover'));
+    set('--color-accent', pick('accent'));
+    set('--color-input-bg', pick('inputBg'));
+    set('--color-text-main', resolvedPalette.text);
+    set('--color-text-secondary', pick('textSecondary'));
+    set('--color-border', resolvedPalette.border);
 
-    let headerImage = config?.headerImage ? `url('${config.headerImage}')` : 'none';
-    const sidebarImage = config?.sidebarImage ? `url('${config.sidebarImage}')` : 'none';
+    const headerImageValue = config?.headerImage || '';
+    let headerImage = headerImageValue ? `url('${headerImageValue}')` : 'none';
+    const sidebarImageValue = config?.sidebarImage || '';
+    const sidebarImage = sidebarImageValue ? `url('${sidebarImageValue}')` : 'none';
     set('--ui-sidebar-image', sidebarImage);
 
     // 3. Brand overrides
     if (useBrandTheme && activeUnit) {
       const brandSurface =
         activeUnit.brandColors?.surface || activeUnit.brandColors?.background;
-      if (activeUnit.brandColors?.primary) {
-        set('--color-primary', activeUnit.brandColors.primary);
-        set('--color-header-bg', activeUnit.brandColors.primary);
+      const brandPrimary = normalizeColor(activeUnit.brandColors?.primary);
+      const brandSecondary = normalizeColor(activeUnit.brandColors?.secondary);
+      const brandBackground = normalizeColor(activeUnit.brandColors?.background);
+      const brandSurfaceResolved = normalizeColor(brandSurface);
+      const brandSurfaceCard =
+        normalizeColor(activeUnit.brandColors?.surface) ||
+        normalizeColor(activeUnit.brandColors?.background);
+      if (brandPrimary) {
+        set('--color-primary', brandPrimary);
+        set('--color-header-bg', brandPrimary);
       }
-      if (activeUnit.brandColors?.secondary) set('--color-secondary', activeUnit.brandColors.secondary);
-      if (brandSurface) {
-        set('--color-surface', brandSurface);
+      if (brandSecondary) set('--color-secondary', brandSecondary);
+      if (brandSurfaceResolved) {
+        set('--color-surface', brandSurfaceResolved);
       }
-      if (activeUnit.brandColors?.background) {
-        set('--color-background', activeUnit.brandColors.background);
-        set('--color-sidebar-bg', activeUnit.brandColors.background);
+      if (brandSurfaceCard) {
+        set('--color-surface-card', brandSurfaceCard);
+      }
+      if (brandBackground) {
+        set('--color-background', brandBackground);
+        set('--color-sidebar-bg', brandBackground);
       }
 
       if (activeUnit.uiHeaderImageUrl) {
@@ -88,8 +130,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     const shouldTintHeader = headerImage !== 'none';
     set('--ui-header-blend-mode', shouldTintHeader ? 'overlay' : 'normal');
 
-    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transition')));
-  }, [activeUnit, themeMode, useBrandTheme, adminConfig]);
+    const appliedKey = `${themeMode}-${resolvedPalette.surfaceCard}-${resolvedPalette.text}-${resolvedPalette.border}`;
+    if (appliedKey !== lastAppliedKey.current) {
+      lastAppliedKey.current = appliedKey;
+    }
+
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => root.classList.remove('no-transition'))
+    );
+  }, [activeUnit, themeMode, useBrandTheme, adminConfig, unitTheme]);
 
   return null;
 };

@@ -81,6 +81,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [wages, setWages] = useState<Record<string, number | ''>>({});
   const isMultiUnitView = activeUnitIds.length > 1;
   const [showThemeEditor, setShowThemeEditor] = useState(false);
+  const surfaceCardBg = 'var(--color-surface-card, var(--color-surface, rgba(255,255,255,0.92)))';
 
   // --- Data Filtering based on activeUnitIds ---
   const filteredTimeEntries = useMemo(() => 
@@ -268,7 +269,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div
             className="p-6 rounded-2xl shadow-md border flex flex-col items-center justify-between text-center h-full transition-colors duration-200"
             style={{ 
-                backgroundColor: 'var(--color-surface)', 
+                backgroundColor: surfaceCardBg, 
                 color: 'var(--color-text-main)', 
                 borderColor: 'var(--color-border)' 
             }}
@@ -322,7 +323,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
         style={{ 
-            backgroundColor: 'var(--color-surface)', 
+            backgroundColor: surfaceCardBg, 
             color: 'var(--color-text-main)', 
             borderColor: 'var(--color-border)' 
         }}
@@ -360,7 +361,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
             style={{ 
-                backgroundColor: 'var(--color-surface)', 
+                backgroundColor: surfaceCardBg, 
                 color: 'var(--color-text-main)', 
                 borderColor: 'var(--color-border)' 
             }}
@@ -389,7 +390,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     <div
         className="p-5 rounded-2xl shadow-md border h-full flex flex-col justify-center transition-colors duration-200"
         style={{ 
-            backgroundColor: 'var(--color-surface)', 
+            backgroundColor: surfaceCardBg, 
             color: 'var(--color-text-main)', 
             borderColor: 'var(--color-border)' 
         }}
@@ -408,7 +409,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
             style={{ 
-                backgroundColor: 'var(--color-surface)', 
+                backgroundColor: surfaceCardBg, 
                 color: 'var(--color-text-main)', 
                 borderColor: 'var(--color-border)' 
             }}
@@ -455,7 +456,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
         style={{ 
-            backgroundColor: 'var(--color-surface)', 
+            backgroundColor: surfaceCardBg, 
             color: 'var(--color-text-main)', 
             borderColor: 'var(--color-border)' 
         }}
@@ -469,7 +470,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     <div
         className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
         style={{ 
-            backgroundColor: 'var(--color-surface)', 
+            backgroundColor: surfaceCardBg, 
             color: 'var(--color-text-main)', 
             borderColor: 'var(--color-border)' 
         }}
@@ -496,7 +497,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
             style={{ 
-                backgroundColor: 'var(--color-surface)', 
+                backgroundColor: surfaceCardBg, 
                 color: 'var(--color-text-main)', 
                 borderColor: 'var(--color-border)' 
             }}
@@ -651,7 +652,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                         <div
                           className="absolute top-2 right-2 z-10 flex items-center gap-0.5 backdrop-blur-md p-1 rounded-full shadow border border-gray-200"
                           style={{
-                            backgroundColor: 'var(--color-surface)',
+                            backgroundColor: surfaceCardBg,
                             color: 'var(--color-text-main)',
                             opacity: 0.95,
                           }}

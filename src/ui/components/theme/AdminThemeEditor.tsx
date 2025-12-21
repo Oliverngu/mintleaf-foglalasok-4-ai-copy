@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeBases } from '../../../core/theme/types';
+import { normalizeColor } from '../../../core/theme/utils';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import ColorPicker from '../common/ColorPicker';
 
@@ -16,9 +17,16 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
   useEffect(() => { setLocalConfig(bases); }, [bases]);
 
   const updateValue = (key: keyof ThemeBases['light'], value: string) => {
+    const normalized = normalizeColor(value);
+    const nextTab = { ...localConfig[activeTab] };
+    if (normalized) {
+      nextTab[key] = normalized;
+    } else {
+      delete nextTab[key];
+    }
     const newConfig = {
       ...localConfig,
-      [activeTab]: { ...localConfig[activeTab], [key]: value }
+      [activeTab]: nextTab
     };
     setLocalConfig(newConfig);
     onChangeBases(newConfig); // AZONNALI FRISSÍTÉS
@@ -41,6 +49,7 @@ const AdminThemeEditor: React.FC<AdminThemeEditorProps> = ({ bases, onChangeBase
           <ColorPicker label="Secondary" value={currentColors.secondary || '#15803d'} onChange={(c) => updateValue('secondary', c)} />
           <ColorPicker label="Background" value={currentColors.background || '#f1f5f9'} onChange={(c) => updateValue('background', c)} />
           <ColorPicker label="Surface (Card)" value={currentColors.surface || '#ffffff'} onChange={(c) => updateValue('surface', c)} />
+          <ColorPicker label="Surface Card" value={currentColors.surfaceCard || currentColors.surface || '#ffffff'} onChange={(c) => updateValue('surfaceCard', c)} />
           <ColorPicker label="Header Bg" value={currentColors.headerBg || '#15803d'} onChange={(c) => updateValue('headerBg', c)} />
           <ColorPicker label="Text Main" value={currentColors.textMain || '#000000'} onChange={(c) => updateValue('textMain', c)} />
       </div>
