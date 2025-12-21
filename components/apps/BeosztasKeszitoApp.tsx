@@ -761,6 +761,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const selectedCount = Object.keys(selectedCells).length;
     const clearSelection = useCallback(() => setSelectedCells({}), []);
     const lastSelectionAtRef = useRef<number>(0);
+    const pendingOpenRef = useRef<null | { userId: string; day: Date; shift: Shift | null }>(null);
 
 
     const settingsDocId = useMemo(() => {
@@ -1119,10 +1120,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         clearSelection();
     }, [clearSelection]);
     
-    const handleOpenShiftModal = (shift: Shift | null, userId: string, date: Date) => {
+    const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
-    };
+    }, []);
     
     const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
         if (!canEditCell) return;
@@ -1140,13 +1141,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
             const elapsed = Date.now() - lastSelectionAtRef.current;
             if (elapsed > 350) {
-                if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
-                handleOpenShiftModal(dayShifts[0] || null, userId, day);
+                pendingOpenRef.current = { userId, day, shift: dayShifts[0] || null };
+                if (DEBUG_SELECTION) console.debug('Queueing modal open from selected cell', selectionKey, 'after', elapsed, 'ms');
             } else if (DEBUG_SELECTION) {
                 console.debug('Ignoring ghost click for selected cell', selectionKey, 'after', elapsed, 'ms');
             }
             return prev;
         });
+        
+        if (pendingOpenRef.current) {
+            const pending = pendingOpenRef.current;
+            pendingOpenRef.current = null;
+            handleOpenShiftModal(pending.shift, pending.userId, pending.day);
+        }
     }, [handleOpenShiftModal]);
     
     const handleSaveShift = async (shiftData: Partial<Shift> & { id?: string }) => {
