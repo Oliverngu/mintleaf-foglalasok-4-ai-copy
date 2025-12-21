@@ -762,8 +762,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     const clearSelection = useCallback(() => {
         setSelectedCells({});
         lastSelectionAtByKeyRef.current = {};
+        selectionArmedRef.current = {};
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
+    const selectionArmedRef = useRef<Record<string, boolean>>({});
 
 
     const settingsDocId = useMemo(() => {
@@ -1123,6 +1125,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, [clearSelection]);
     
     const handleOpenShiftModal = useCallback((shift: Shift | null, userId: string, date: Date) => {
+        if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN]', { userId, date, from: 'handleOpenShiftModal' });
         setEditingShift({shift, userId, date});
         setIsShiftModalOpen(true);
     }, []);
@@ -1138,18 +1141,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             const nextCount = selectedCount + 1;
             if (DEBUG_SELECTION) console.debug('Selecting cell', selectionKey, 'current count', nextCount);
             lastSelectionAtByKeyRef.current[selectionKey] = Date.now();
+            selectionArmedRef.current[selectionKey] = true;
             setSelectedCells(prev => ({ ...prev, [selectionKey]: { userId, dayKey } }));
             return;
         }
 
         const lastAt = lastSelectionAtByKeyRef.current[selectionKey] || 0;
         const elapsed = Date.now() - lastAt;
-        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, elapsed, eventType });
-        if (elapsed <= 350) {
-            if (DEBUG_SELECTION) console.debug('Ignoring ghost click for selected cell', selectionKey, 'after', elapsed, 'ms');
+        const armed = selectionArmedRef.current[selectionKey] === true;
+        if (DEBUG_SELECTION) console.debug('Tap on selected cell', { selectionKey, isAlreadySelected, armed, elapsed, eventType });
+        if (!armed || elapsed <= 350) {
+            if (DEBUG_SELECTION) console.debug('Ignoring ghost click/unarmed tap for selected cell', selectionKey, 'after', elapsed, 'ms');
             return;
         }
 
+        selectionArmedRef.current[selectionKey] = false;
         if (DEBUG_SELECTION) console.debug('Opening modal from selected cell', selectionKey, 'after', elapsed, 'ms');
         handleOpenShiftModal(dayShifts[0] || null, userId, day);
     }, [selectedCells, selectedCount, handleOpenShiftModal]);
