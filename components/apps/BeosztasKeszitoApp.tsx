@@ -776,6 +776,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     }, []);
 
     const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
+    const weekStartKey = useMemo(() => toDateString(weekDays[0]), [weekDays]);
     
     const filteredUsers = useMemo(() => {
         if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -971,7 +972,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
     useEffect(() => {
         clearSelection();
-    }, [weekDays, clearSelection]);
+    }, [weekStartKey, clearSelection]);
 
 
     const handlePrevWeek = () => setCurrentDate(d => {
@@ -1109,8 +1110,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setIsShiftModalOpen(true);
     }
     
-    const handleCellTap = (userId: string, day: Date, dayShifts: Shift[]) => {
-        if (!canEdit) return;
+    const handleCellTap = (userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean) => {
+        if (!canEditCell) return;
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
         const isAlreadySelected = !!selectedCells[selectionKey];
@@ -1147,7 +1148,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             const targetUser = allAppUsers.find(u => u.id === target.userId);
             if (!targetUser) continue;
 
-            const targetDate = new Date(target.dayKey);
+            const [yy, mm, dd] = target.dayKey.split('-').map(Number);
+            const targetDate = new Date(yy, (mm || 1) - 1, dd || 1);
             targetDate.setHours(0, 0, 0, 0);
 
             let startTimestamp: Timestamp | null = null;
@@ -1163,7 +1165,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                 newStart.setHours(referenceStart.getHours(), referenceStart.getMinutes(), 0, 0);
                 let newEnd: Date | null = null;
                 if (referenceEnd) {
-                    const durationMs = referenceEnd.getTime() - referenceStart.getTime();
+                    let durationMs = referenceEnd.getTime() - referenceStart.getTime();
+                    if (durationMs <= 0) {
+                        durationMs += 24 * 60 * 60 * 1000;
+                    }
                     newEnd = new Date(newStart.getTime() + durationMs);
                 }
                 startTimestamp = Timestamp.fromDate(newStart);
@@ -1659,7 +1664,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                         <td
                                                             key={dayKey}
                                                             className={`relative p-1 border-l border-gray-400 text-center align-middle ${canEditCell ? 'cursor-pointer' : ''} ${isOnLeave ? 'bg-red-50' : (isEven ? 'bg-slate-100' : 'bg-white')} ${isSelected ? 'ring-2 ring-green-600 ring-offset-2 ring-offset-white' : ''}`}
-                                                            onClick={() => handleCellTap(user.id, day, dayShifts)}
+                                                            onClick={() => handleCellTap(user.id, day, dayShifts, canEditCell)}
                                                         >
                                                             {isOnLeave ? (
                                                                 <div className="font-bold text-red-600 p-2">SZ</div>
@@ -1681,7 +1686,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                                                                         </div>
                                                                     ))}
                                                                     {canEditCell && (
-                                                                        <button className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide">
+                                                                        <button
+                                                                            className="w-full flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:bg-green-100 hover:text-green-700 export-hide"
+                                                                            onClick={(e) => { e.stopPropagation(); handleCellTap(user.id, day, dayShifts, canEditCell); }}
+                                                                        >
                                                                             <PlusIcon className="h-5 w-5" />
                                                                         </button>
                                                                     )}
