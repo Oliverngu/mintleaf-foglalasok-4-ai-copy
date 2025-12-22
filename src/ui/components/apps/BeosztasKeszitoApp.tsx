@@ -2863,12 +2863,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           pointer-events: none;
         }
         .ml-selection-glass::after {
-          content: none;
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(
+            135deg,
+            rgba(255,255,255,0.15),
+            rgba(255,255,255,0.00) 60%
+          );
+          opacity: 0.25;
+          pointer-events: none;
         }`}
       </style>
 
       {selectedCellKeys.size > 0 && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] max-w-3xl w-[calc(100%-2rem)] sm:w-auto">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] max-w-[min(92vw,720px)] w-full sm:w-auto">
           <div className="backdrop-blur-md bg-white/85 border border-slate-200 shadow-lg rounded-full px-4 py-2 flex flex-wrap items-center gap-2 justify-center">
             <span className="text-sm font-semibold text-slate-700">
               Kijelölt: {selectedCellKeys.size}
