@@ -1824,6 +1824,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     modalOpenTokenRef.current = null;
     setSelectedCellKeys(new Set());
     setSelectionOverlays([]);
+    cellRefs.current = {};
   }, []);
 
   // Selection overlay checklist:
@@ -2172,6 +2173,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     const wrapRect = wrap.getBoundingClientRect();
     const inset = 2;
+    const firstUser = renderedUserOrder[0];
+    const firstDayKey = weekDayKeys[0];
+    const firstDayCell = firstUser
+      ? cellRefs.current[`${firstUser.id}-${firstDayKey}`]
+      : null;
+    const minLeft = firstDayCell
+      ? firstDayCell.getBoundingClientRect().left - wrapRect.left + inset
+      : 0;
+
     const overlays = finalized
       .map(rect => {
         const topLeftKey = `${renderedUserOrder[rect.startRow].id}-${weekDayKeys[rect.startCol]}`;
@@ -2183,16 +2193,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         const topRect = topEl.getBoundingClientRect();
         const bottomRect = bottomEl.getBoundingClientRect();
 
-        const left = topRect.left - wrapRect.left + inset;
+        let left = topRect.left - wrapRect.left + inset;
         const top = topRect.top - wrapRect.top + inset;
         const right = bottomRect.right - wrapRect.left - inset;
         const bottom = bottomRect.bottom - wrapRect.top - inset;
+
+        if (minLeft && left < minLeft) {
+          left = minLeft;
+        }
+        const width = Math.max(0, right - left);
 
         return {
           id: `${rect.startRow}-${rect.endRow}-${rect.startCol}-${rect.endCol}`,
           left,
           top,
-          width: Math.max(0, right - left),
+          width,
           height: Math.max(0, bottom - top)
         };
       })
@@ -2208,10 +2223,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   useEffect(() => {
     const handle = () => recomputeSelectionOverlays();
     window.addEventListener('resize', handle);
+    window.addEventListener('scroll', handle, { passive: true });
     const wrap = scrollWrapRef.current;
     wrap?.addEventListener('scroll', handle, { passive: true } as any);
     return () => {
       window.removeEventListener('resize', handle);
+      window.removeEventListener('scroll', handle as any);
       wrap?.removeEventListener('scroll', handle as any);
     };
   }, [recomputeSelectionOverlays]);
@@ -2590,6 +2607,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         .ml-selection-glass {
           position: absolute;
           border-radius: 10px;
+          background: rgba(16, 185, 129, 0.12);
           background: linear-gradient(
             180deg,
             color-mix(in srgb, var(--color-primary) 20%, transparent),
