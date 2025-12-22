@@ -1993,7 +1993,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       setEditingShift({ shift, userId, date });
       setIsShiftModalOpen(true);
     },
-    [clickGuardUntil, isTouchLike]
+    [clickGuardUntil, isTouchLike, setSelectedCellKey]
   );
 
   const handleCellTap = useCallback(
@@ -3126,21 +3126,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           }
                           if (isSelected) {
                             cellClasses +=
-                              ' ring-2 ring-emerald-500 ring-offset-2 ring-offset-white';
+                              ' ring-2 ring-emerald-500 ring-offset-2 ring-offset-white outline outline-2 outline-emerald-500 outline-offset-[-2px]';
                             if (!isDayOff && !isLeave) {
                               cellClasses += ' bg-emerald-50/40';
                             }
+                          }
+
+                          let cellStyle: React.CSSProperties | undefined;
+                          if (!isDayOff && !isLeave) {
+                            cellStyle = isSelected
+                              ? { color: rowTextColor }
+                              : { background: rowBg, color: rowTextColor };
                           }
 
                           return (
                             <td
                               key={dayIndex}
                               className={cellClasses}
-                              style={
-                                !isDayOff && !isLeave
-                                  ? { background: rowBg, color: rowTextColor }
-                                  : undefined
-                              }
+                              style={cellStyle}
                               onClick={() => {
                                 if (!canEditCell) return;
                                 handleCellTap({
