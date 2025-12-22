@@ -1330,6 +1330,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [selectionOverlays, setSelectionOverlays] = useState<
     { id: string; left: number; top: number; width: number; height: number }[]
   >([]);
+  const scrollWrapRef = useRef<HTMLDivElement>(null);
   const gridWrapRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
   const [isEditMode, setIsEditMode] = useState(false);
@@ -1825,6 +1826,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setSelectionOverlays([]);
   }, []);
 
+  // Selection overlay checklist:
+  // [ ] tap toggles selection, no modal
+  // [ ] plus opens modal
+  // [ ] multiple selection works
+  // [ ] adjacent selections merge H+V
+  // [ ] overlay stays aligned during scroll/resize
+  // [ ] overlay uses theme main color tint
+
   const handlePrevWeek = () => {
     resetSelectionState();
     setCurrentDate(d => {
@@ -2086,13 +2095,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [
       handleOpenShiftModal,
       isTouchLike,
-      issueModalOpenToken,
-      selectedCellKeys
+      issueModalOpenToken
     ]
   );
 
   const recomputeSelectionOverlays = useCallback(() => {
-    const wrap = gridWrapRef.current;
+    const wrap = scrollWrapRef.current;
     if (!wrap) return;
     if (!renderedUserOrder.length || selectedCellKeys.size === 0) {
       setSelectionOverlays([]);
@@ -2112,16 +2120,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     renderedUserOrder.forEach((user, rowIndex) => {
       const rowRuns: { start: number; end: number }[] = [];
-      let runStart: number | null = null;
+      let inRun = false;
+      let runStart = 0;
       weekDayKeys.forEach((dayKey, colIndex) => {
         const key = `${user.id}-${dayKey}`;
         const isSel = selectedCellKeys.has(key);
-        if (isSel && runStart === null) runStart = colIndex;
+
+        if (isSel && !inRun) {
+          inRun = true;
+          runStart = colIndex;
+        }
+
         const atRowEnd = colIndex === weekDayKeys.length - 1;
-        if (runStart !== null && (!isSel || atRowEnd)) {
+        if ((!isSel && inRun) || (inRun && atRowEnd)) {
           const endCol = (!isSel && !atRowEnd) ? colIndex - 1 : colIndex;
           rowRuns.push({ start: runStart, end: endCol });
-          runStart = null;
+          inRun = false;
         }
       });
 
@@ -2194,7 +2208,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   useEffect(() => {
     const handle = () => recomputeSelectionOverlays();
     window.addEventListener('resize', handle);
-    const wrap = gridWrapRef.current;
+    const wrap = scrollWrapRef.current;
     wrap?.addEventListener('scroll', handle, { passive: true } as any);
     return () => {
       window.removeEventListener('resize', handle);
@@ -3011,28 +3025,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       )}
 
       <div
-        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
+        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm relative"
+        ref={scrollWrapRef}
         style={{
           backgroundColor: 'var(--color-surface-static)',
           color: 'var(--color-text-main)',
           borderColor: 'var(--color-border)',
         }}
       >
+        <div className="pointer-events-none absolute inset-0 z-[5]">
+          {selectionOverlays.map(overlay => (
+            <div
+              key={overlay.id}
+              className="ml-selection-glass"
+              style={{
+                left: overlay.left,
+                top: overlay.top,
+                width: overlay.width,
+                height: overlay.height
+              }}
+            />
+          ))}
+        </div>
         <div ref={gridWrapRef} className="relative">
-          <div className="pointer-events-none absolute inset-0 z-[5]">
-            {selectionOverlays.map(overlay => (
-              <div
-                key={overlay.id}
-                className="ml-selection-glass"
-                style={{
-                  left: overlay.left,
-                  top: overlay.top,
-                  width: overlay.width,
-                  height: overlay.height
-                }}
-              />
-            ))}
-          </div>
           <table
             ref={tableRef}
             className="min-w-full text-sm"
