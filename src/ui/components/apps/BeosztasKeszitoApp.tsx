@@ -1323,6 +1323,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const armedCellKeyRef = useRef<string | null>(null);
   const modalOpenTokenRef = useRef<string | null>(null);
   const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
+  const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1796,19 +1797,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   let zebraRowIndex = 0;
 
-  const handlePrevWeek = () =>
+  const resetSelectionState = useCallback(() => {
+    selectionArmedRef.current = false;
+    armedCellKeyRef.current = null;
+    modalOpenTokenRef.current = null;
+    setSelectedCellKey(null);
+  }, []);
+
+  const handlePrevWeek = () => {
+    resetSelectionState();
     setCurrentDate(d => {
       const newDate = new Date(d);
       newDate.setDate(newDate.getDate() - 7);
       return newDate;
     });
+  };
 
-  const handleNextWeek = () =>
+  const handleNextWeek = () => {
+    resetSelectionState();
     setCurrentDate(d => {
       const newDate = new Date(d);
       newDate.setDate(newDate.getDate() + 7);
       return newDate;
     });
+  };
 
   const handlePublishWeek = () => {
     const weekStart = weekDays[0];
@@ -1977,6 +1989,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       modalOpenTokenRef.current = null;
       selectionArmedRef.current = false;
       armedCellKeyRef.current = null;
+      setSelectedCellKey(null);
       setEditingShift({ shift, userId, date });
       setIsShiftModalOpen(true);
     },
@@ -1999,6 +2012,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (now - lastOpen < 900) return;
         lastOpenAttemptAtByKeyRef.current[cellKey] = now;
 
+        setSelectedCellKey(cellKey);
         const token = issueModalOpenToken();
         handleOpenShiftModal({
           shift,
@@ -2014,6 +2028,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (isTouchLike) {
         selectionArmedRef.current = true;
         armedCellKeyRef.current = cellKey;
+        setSelectedCellKey(cellKey);
         return;
       }
 
@@ -2035,17 +2050,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       selectionArmedRef.current = true;
       armedCellKeyRef.current = cellKey;
+      setSelectedCellKey(cellKey);
     },
     [handleOpenShiftModal, isTouchLike, issueModalOpenToken]
   );
 
   useEffect(() => {
     if (!isShiftModalOpen) {
-      selectionArmedRef.current = false;
-      armedCellKeyRef.current = null;
-      modalOpenTokenRef.current = null;
+      resetSelectionState();
     }
-  }, [isShiftModalOpen]);
+  }, [isShiftModalOpen, resetSelectionState]);
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -3023,6 +3037,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
                         {/* Napok */}
                         {weekDays.map((day, dayIndex) => {
+                          const cellKey = `${user.id}-${toDateString(day)}`;
+                          const isSelected = selectedCellKey === cellKey;
                           const dayKey = toDateString(day);
                           const userDayShifts =
                             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
@@ -3107,6 +3123,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             cellClasses += ' text-slate-800';
                           } else {
                             cellClasses += ' text-slate-400';
+                          }
+                          if (isSelected) {
+                            cellClasses +=
+                              ' ring-2 ring-emerald-500 ring-offset-2 ring-offset-white';
+                            if (!isDayOff && !isLeave) {
+                              cellClasses += ' bg-emerald-50/40';
+                            }
                           }
 
                           return (
