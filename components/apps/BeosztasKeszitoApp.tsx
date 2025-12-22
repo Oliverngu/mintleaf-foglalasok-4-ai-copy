@@ -1169,7 +1169,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             else if (isTouchLike && !allowTouchModal) reason = 'TOUCH_BLOCK';
 
             if (reason) {
-                console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source, allowTouchModal, reason, expectedToken });
+                console.warn('[SHIFT_MODAL_BLOCKED]', { userId, date, source, allowTouchModal, reason, expectedToken, token: currentToken });
                 if (DEBUG_SELECTION) console.debug('[SHIFT_MODAL_OPEN_STATE]', { token: currentToken, expectedToken });
                 modalOpenTokenRef.current = null;
                 return;
@@ -1180,6 +1180,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         setIsShiftModalOpen(true);
     }, [isTouchLike, setEditingShift, setIsShiftModalOpen]);
     
+    // Touch: cell tap selects only; modal opens via explicit plus intent. Desktop: first click selects, second (armed) click opens; plus opens directly.
     const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean, eventType: string = 'pointerup', intent: 'cell' | 'plus' = 'cell') => {
         if (!canEditCell) return;
         const dayKey = toDateString(day);
@@ -1214,14 +1215,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                 return nextState;
             }
 
-            if (isTouchLike && intent !== 'plus') {
-                lastGridTapActionRef.current = 'ignore';
-                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+            if (isTouchLike) {
+                if (intent === 'plus') {
+                    shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
+                    selectionArmedRef.current[selectionKey] = false;
+                    lastGridTapActionRef.current = 'open';
+                } else {
+                    lastGridTapActionRef.current = 'ignore';
+                    if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+                }
                 return prev;
             }
 
-            if (isTouchLike && intent === 'plus') {
-                shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
+            if (intent === 'plus') {
+                shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: false };
                 selectionArmedRef.current[selectionKey] = false;
                 lastGridTapActionRef.current = 'open';
                 return prev;
