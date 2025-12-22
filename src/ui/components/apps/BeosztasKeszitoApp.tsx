@@ -1856,6 +1856,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [allAppUsers, hiddenUserIds]
   );
 
+  const parseCellKey = useCallback((cellKey: string) => {
+    const lastDash = cellKey.lastIndexOf('-');
+    if (lastDash === -1) return { userId: '', dayKey: '' };
+    const dayKey = cellKey.slice(lastDash - 9, lastDash + 1);
+    const userId = cellKey.slice(0, lastDash - 9);
+    if (dayKey.length !== 10 || !userId) return { userId: '', dayKey: '' };
+    return { userId, dayKey };
+  }, []);
+
   let zebraRowIndex = 0;
   const getCellTargets = useCallback(() => {
     const targets: {
@@ -1868,6 +1877,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }[] = [];
     selectedCellKeys.forEach(cellKey => {
       const { userId, dayKey } = parseCellKey(cellKey);
+      if (!userId || !dayKey) return;
       const user = allAppUsers.find(u => u.id === userId);
       if (!user) return;
       const dayIndex = weekDayKeys.indexOf(dayKey);
@@ -1970,13 +1980,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setSelectedCellKeys(new Set());
     setSelectionOverlays([]);
     cellRefs.current = {};
-  }, []);
-
-  const parseCellKey = useCallback((cellKey: string) => {
-    if (cellKey.length < 12) return { userId: cellKey, dayKey: '' };
-    const dayKey = cellKey.slice(cellKey.length - 10);
-    const userId = cellKey.slice(0, cellKey.length - 11);
-    return { userId, dayKey };
   }, []);
 
   // Selection overlay checklist:
