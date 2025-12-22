@@ -1373,6 +1373,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const gridWrapRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
   const overlayRafRef = useRef<number | null>(null);
+  const toggleCellSelection = useCallback(
+    (cellKey: string) => {
+      setSelectedCellKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(cellKey)) {
+          next.delete(cellKey);
+        } else {
+          next.add(cellKey);
+        }
+        return next;
+      });
+    },
+    []
+  );
   const parseCellKey = useCallback((cellKey: string) => {
     const dash = cellKey.lastIndexOf('-');
     if (dash <= 0) return { userId: cellKey, dayKey: '' };
@@ -2236,15 +2250,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
 
-      setSelectedCellKeys(prev => {
-        const next = new Set(prev);
-        if (next.has(cellKey)) {
-          next.delete(cellKey);
-        } else {
-          next.add(cellKey);
-        }
-        return next;
-      });
+      toggleCellSelection(cellKey);
 
       selectionArmedRef.current = true;
       armedCellKeyRef.current = cellKey;
@@ -2253,11 +2259,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
     },
-    [
-      handleOpenShiftModal,
-      isTouchLike,
-      issueModalOpenToken
-    ]
+    [handleOpenShiftModal, isTouchLike, issueModalOpenToken, toggleCellSelection]
   );
 
   const recomputeSelectionOverlays = useCallback(() => {
@@ -2851,38 +2853,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         .ml-selection-glass {
           position: absolute;
           border-radius: 10px;
-          background: color-mix(in srgb, var(--color-primary) 16%, transparent);
-          background: linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--color-primary) 20%, transparent),
-            color-mix(in srgb, var(--color-primary) 10%, transparent)
-          );
-          backdrop-filter: blur(4px) saturate(1.05);
-          -webkit-backdrop-filter: blur(4px) saturate(1.05);
+          background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+          backdrop-filter: blur(1px) saturate(1.02);
+          -webkit-backdrop-filter: blur(1px) saturate(1.02);
           box-shadow:
-            0 4px 12px rgba(0,0,0,0.08),
-            inset 0 1px 0 rgba(255,255,255,0.3),
-            inset 0 -1px 0 rgba(0,0,0,0.08);
+            0 3px 10px rgba(0,0,0,0.06),
+            inset 0 1px 0 rgba(255,255,255,0.2),
+            inset 0 -1px 0 rgba(0,0,0,0.06);
           pointer-events: none;
         }
         .ml-selection-glass::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          background: linear-gradient(
-            135deg,
-            rgba(255,255,255,0.20),
-            rgba(255,255,255,0.00) 55%
-          );
-          opacity: 0.8;
-          pointer-events: none;
+          content: none;
         }`}
       </style>
 
       {selectedCellKeys.size > 0 && (
-        <div className="fixed top-4 right-4 z-[70] max-w-xl w-full sm:w-auto">
-          <div className="backdrop-blur-md bg-white/80 border border-slate-200 shadow-lg rounded-full px-4 py-2 flex flex-wrap items-center gap-2">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] max-w-3xl w-[calc(100%-2rem)] sm:w-auto">
+          <div className="backdrop-blur-md bg-white/85 border border-slate-200 shadow-lg rounded-full px-4 py-2 flex flex-wrap items-center gap-2 justify-center">
             <span className="text-sm font-semibold text-slate-700">
               Kijelölt: {selectedCellKeys.size}
             </span>
@@ -3680,12 +3667,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               style={cellStyle}
                               onClick={() => {
                                 if (!canEditCell) return;
-                                handleCellTap({
-                                  intent: 'cell',
-                                  shift: userDayShifts[0] || null,
-                                  userId: user.id,
-                                  date: day
-                                });
+                                toggleCellSelection(cellKey);
                               }}
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
@@ -3702,20 +3684,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 {!hasContent && canEditCell && (
                                   <button
                                     type="button"
-                                    className="export-hide select-none text-slate-200 text-lg font-light"
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      handleCellTap({
-                                        intent: 'plus',
-                                        shift: userDayShifts[0] || null,
-                                        userId: user.id,
-                                        date: day
-                                      });
-                                    }}
-                                  >
-                                    +
-                                  </button>
-                                )}
+                            className="export-hide select-none text-slate-200 text-lg font-light"
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (selectedCellKeys.size === 0) {
+                                handleCellTap({
+                                  intent: 'plus',
+                                  shift: userDayShifts[0] || null,
+                                  userId: user.id,
+                                  date: day
+                                });
+                              } else {
+                                toggleCellSelection(cellKey);
+                              }
+                            }}
+                          >
+                            +
+                          </button>
+                        )}
                               </div>
                             </td>
                           );
