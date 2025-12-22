@@ -1322,6 +1322,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const selectionArmedRef = useRef(false);
   const armedCellKeyRef = useRef<string | null>(null);
   const modalOpenTokenRef = useRef<string | null>(null);
+  const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1948,13 +1949,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       date: Date;
       expectedToken: string;
       allowTouchModal?: boolean;
+      cellKey?: string;
     }) => {
       const {
         shift,
         userId,
         date,
         expectedToken,
-        allowTouchModal = false
+        allowTouchModal = false,
+        cellKey
       } = params;
 
       if (!expectedToken) return;
@@ -1963,6 +1966,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
       if (isTouchLike && !allowTouchModal) return;
+
+      if (cellKey) {
+        const now = Date.now();
+        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
+        if (now - lastOpen < 900) return;
+        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+      }
 
       modalOpenTokenRef.current = null;
       selectionArmedRef.current = false;
@@ -1990,13 +2000,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           userId,
           date,
           expectedToken: token,
-          allowTouchModal: true
+          allowTouchModal: true,
+          cellKey
         });
         return;
       }
 
       if (isTouchLike) {
-        selectionArmedRef.current = false;
+        selectionArmedRef.current = true;
         armedCellKeyRef.current = cellKey;
         return;
       }
@@ -2011,7 +2022,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           userId,
           date,
           expectedToken: token,
-          allowTouchModal: false
+          allowTouchModal: false,
+          cellKey
         });
         return;
       }
