@@ -767,10 +767,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         lastInteractionAtByKeyRef.current = {};
         lastTapAtByKeyRef.current = {};
         lastGridTapActionRef.current = null;
+        lastOpenAttemptAtByKeyRef.current = {};
     }, []);
     const lastSelectionAtByKeyRef = useRef<Record<string, number>>({});
     const lastInteractionAtByKeyRef = useRef<Record<string, number>>({});
     const lastTapAtByKeyRef = useRef<Record<string, number>>({});
+    const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
     const selectionArmedRef = useRef<Record<string, boolean>>({});
     const modalOpenTokenRef = useRef<string | null>(null);
     const lastGridTapActionRef = useRef<'select' | 'open' | 'ignore' | null>(null);
@@ -1208,6 +1210,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                 if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'select', eventType });
                 const nextState = { ...prev, [selectionKey]: { userId, dayKey } };
                 if (isTouchLike && intent === 'plus') {
+                    const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
+                    if (now - lastOpen < 1000) {
+                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                        return nextState;
+                    }
+                    lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
                     shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
                     selectionArmedRef.current[selectionKey] = false;
                     lastGridTapActionRef.current = 'open';
@@ -1217,6 +1225,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
 
             if (isTouchLike) {
                 if (intent === 'plus') {
+                    const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
+                    if (now - lastOpen < 1000) {
+                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                        return prev;
+                    }
+                    lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
                     shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: true };
                     selectionArmedRef.current[selectionKey] = false;
                     lastGridTapActionRef.current = 'open';
@@ -1228,6 +1242,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             }
 
             if (intent === 'plus') {
+                const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
+                if (now - lastOpen < 1000) {
+                    if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                    return prev;
+                }
+                lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
                 shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: false };
                 selectionArmedRef.current[selectionKey] = false;
                 lastGridTapActionRef.current = 'open';
@@ -1241,6 +1261,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                 return prev;
             }
 
+            const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
+            if (now - lastOpen < 1000) {
+                if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                return prev;
+            }
+            lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
             shouldOpen = { userId, day, shift: dayShifts[0] || null, selectionKey, allowTouchModal: false };
             selectionArmedRef.current[selectionKey] = false;
             lastGridTapActionRef.current = 'open';
