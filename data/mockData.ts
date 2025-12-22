@@ -144,6 +144,7 @@ export interface Shift {
   note?: string;
   status: 'draft' | 'published';
   isDayOff?: boolean;
+  isHighlighted?: boolean;
 }
 
 export interface TimeEntry {

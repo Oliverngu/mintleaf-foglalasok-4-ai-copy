@@ -3,6 +3,7 @@ import React, {
   useMemo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   FC,
   useRef
 } from 'react';
@@ -118,7 +119,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
     userId: userId,
     startTime: '',
     endTime: '',
-    note: ''
+    note: '',
+    isHighlighted: false
   });
   const [isDayOff, setIsDayOff] = useState(false);
 
@@ -133,11 +135,18 @@ const ShiftModal: FC<ShiftModalProps> = ({
         endTime: shift.isDayOff
           ? ''
           : shift.end?.toDate()?.toTimeString().substring(0, 5) || '',
-        note: shift.note || ''
+        note: shift.note || '',
+        isHighlighted: !!shift.isHighlighted
       });
     } else {
       setIsDayOff(false);
-      setFormData({ userId: userId, startTime: '', endTime: '', note: '' });
+      setFormData({
+        userId: userId,
+        startTime: '',
+        endTime: '',
+        note: '',
+        isHighlighted: false
+      });
     }
   }, [shift, userId, isOpen]);
 
@@ -223,7 +232,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: null,
         note: formData.note,
         status: viewMode,
-        isDayOff: true
+        isDayOff: true,
+        isHighlighted: false
       });
     } else {
       const [startHour, startMinute] = formData.startTime.split(':').map(Number);
@@ -250,7 +260,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: endDate ? Timestamp.fromDate(endDate) : null,
         note: formData.note,
         status: viewMode,
-        isDayOff: false
+        isDayOff: false,
+        isHighlighted: formData.isHighlighted
       });
     }
   };
@@ -336,13 +347,13 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 </label>
                 <input
                   type="time"
-                value={formData.endTime}
-                onChange={e =>
-                  setFormData(f => ({ ...f, endTime: e.target.value }))
-                }
-                className="w-full mt-1 p-2 border rounded-lg"
-                disabled={!canEditTime || isDayOff}
-              />
+                  value={formData.endTime}
+                  onChange={e =>
+                    setFormData(f => ({ ...f, endTime: e.target.value }))
+                  }
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  disabled={!canEditTime || isDayOff}
+                />
                 {endPresets.length > 0 && !isDayOff && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {endPresets.map(time => (
@@ -372,6 +383,31 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 className="w-full mt-1 p-2 border rounded-lg"
                 disabled={!canEditNote}
               />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium">Kiemelés (narancs)</label>
+              <input
+                type="checkbox"
+                checked={!!formData.isHighlighted && !isDayOff}
+                onChange={e =>
+                  setFormData(prev => ({
+                    ...prev,
+                    isHighlighted: isDayOff ? false : e.target.checked
+                  }))
+                }
+                disabled={isDayOff}
+              />
+              {formData.isHighlighted && !isDayOff && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData(prev => ({ ...prev, isHighlighted: false }))
+                  }
+                  className="text-xs text-orange-600 font-semibold underline"
+                >
+                  Kiemelés törlése
+                </button>
+              )}
             </div>
           </div>
           <div className="p-4 bg-gray-50 flex justify-between items-center rounded-b-2xl">
@@ -1314,6 +1350,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [isHiddenMenuOpen, setIsHiddenMenuOpen] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
 
+  const isTouchLike = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.matchMedia?.('(pointer: coarse)')?.matches) return true;
+    return 'ontouchstart' in window;
+  }, []);
+  const selectionArmedRef = useRef(false);
+  const armedCellKeyRef = useRef<string | null>(null);
+  const modalOpenTokenRef = useRef<string | null>(null);
+  const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
+  const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [selectionOverlays, setSelectionOverlays] = useState<
+    { id: string; left: number; top: number; width: number; height: number }[]
+  >([]);
+  const [bulkTimeModal, setBulkTimeModal] = useState<{
+    type: 'start' | 'end';
+    value: string;
+  } | null>(null);
+  const scrollWrapRef = useRef<HTMLDivElement>(null);
+  const gridWrapRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const overlayRafRef = useRef<number | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1440,6 +1499,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const weekDays = useMemo(
     () => getWeekDays(currentDate),
     [currentDate]
+  );
+  const weekDayKeys = useMemo(
+    () => weekDays.map(day => toDateString(day)),
+    [weekDays]
   );
 
   const weekStartDateStr = useMemo(
@@ -1779,27 +1842,171 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
   }, [orderedUsers, visibleUsersByPosition]);
 
+  const renderedUserOrder = useMemo(
+    () =>
+      visiblePositionOrder.flatMap(
+        pos => visibleUsersByPosition[pos] || []
+      ),
+    [visiblePositionOrder, visibleUsersByPosition]
+  );
+
   const hiddenUsers = useMemo(
     () =>
       allAppUsers.filter(u => hiddenUserIds.has(u.id)),
     [allAppUsers, hiddenUserIds]
   );
 
-  let zebraRowIndex = 0;
+  const parseCellKey = useCallback((cellKey: string) => {
+    const lastDash = cellKey.lastIndexOf('-');
+    if (lastDash === -1) return { userId: '', dayKey: '' };
+    const dayKey = cellKey.slice(lastDash - 9, lastDash + 1);
+    const userId = cellKey.slice(0, lastDash - 9);
+    if (dayKey.length !== 10 || !userId) return { userId: '', dayKey: '' };
+    return { userId, dayKey };
+  }, []);
 
-  const handlePrevWeek = () =>
+  let zebraRowIndex = 0;
+  const getCellTargets = useCallback(() => {
+    const targets: {
+      cellKey: string;
+      user: User;
+      dayKey: string;
+      date: Date;
+      shift: Shift | null;
+      canEdit: boolean;
+    }[] = [];
+    selectedCellKeys.forEach(cellKey => {
+      const { userId, dayKey } = parseCellKey(cellKey);
+      if (!userId || !dayKey) return;
+      const user = allAppUsers.find(u => u.id === userId);
+      if (!user) return;
+      const dayIndex = weekDayKeys.indexOf(dayKey);
+      if (dayIndex === -1) return;
+      const date = weekDays[dayIndex];
+      const shifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+      targets.push({
+        cellKey,
+        user,
+        dayKey,
+        date,
+        shift: shifts[0] || null,
+        canEdit: canManage || userId === currentUser.id
+      });
+    });
+    return targets;
+  }, [
+    allAppUsers,
+    canManage,
+    currentUser.id,
+    parseCellKey,
+    selectedCellKeys,
+    shiftsByUserDay,
+    weekDayKeys,
+    weekDays
+  ]);
+
+  const applyBulkUpdates = useCallback(
+    async (
+      updater: (
+        target: {
+          cellKey: string;
+          user: User;
+          dayKey: string;
+          date: Date;
+          shift: Shift | null;
+          canEdit: boolean;
+        }
+      ) => Promise<boolean>
+    ) => {
+      const targets = getCellTargets();
+      let skipped = 0;
+      let applied = 0;
+      for (const target of targets) {
+        if (!target.canEdit) {
+          skipped += 1;
+          continue;
+        }
+        const ok = await updater(target);
+        applied += ok ? 1 : 0;
+      }
+      if (skipped > 0 || applied === 0) {
+        alert(
+          `Művelet kész. Sikeres: ${applied}. Kihagyva (nincs jogosultság vagy hiba): ${skipped}.`
+        );
+      }
+    },
+    [getCellTargets]
+  );
+
+  const ensureShiftForTarget = useCallback(
+    async (
+      target: {
+        user: User;
+        date: Date;
+        shift: Shift | null;
+      },
+      baseFields?: Partial<Shift>
+    ): Promise<Shift> => {
+      if (target.shift) return target.shift;
+      const dayStart = new Date(target.date);
+      dayStart.setHours(0, 0, 0, 0);
+      const newData: Omit<Shift, 'id'> = {
+        userId: target.user.id,
+        userName: target.user.fullName,
+        position: target.user.position || 'N/A',
+        unitId: target.shift?.unitId || target.user.unitIds?.[0] || activeUnitIds[0],
+        start: Timestamp.fromDate(dayStart),
+        end: null,
+        note: '',
+        status: viewMode,
+        isDayOff: false,
+        isHighlighted: baseFields?.isHighlighted || false
+      };
+      const cleanData = Object.fromEntries(
+        Object.entries({ ...newData, ...baseFields }).filter(
+          ([, v]) => v !== undefined
+        )
+      );
+      const docRef = await addDoc(collection(db, 'shifts'), cleanData);
+      return { id: docRef.id, ...(cleanData as any) } as Shift;
+    },
+    [activeUnitIds, viewMode]
+  );
+
+  const resetSelectionState = useCallback(() => {
+    selectionArmedRef.current = false;
+    armedCellKeyRef.current = null;
+    modalOpenTokenRef.current = null;
+    setSelectedCellKeys(new Set());
+    setSelectionOverlays([]);
+    cellRefs.current = {};
+  }, []);
+
+  // Selection overlay checklist:
+  // [ ] tap toggles selection, no modal
+  // [ ] plus opens modal
+  // [ ] multiple selection works
+  // [ ] adjacent selections merge H+V
+  // [ ] overlay stays aligned during scroll/resize
+  // [ ] overlay uses theme main color tint
+
+  const handlePrevWeek = () => {
+    resetSelectionState();
     setCurrentDate(d => {
       const newDate = new Date(d);
       newDate.setDate(newDate.getDate() - 7);
       return newDate;
     });
+  };
 
-  const handleNextWeek = () =>
+  const handleNextWeek = () => {
+    resetSelectionState();
     setCurrentDate(d => {
       const newDate = new Date(d);
       newDate.setDate(newDate.getDate() + 7);
       return newDate;
     });
+  };
 
   const handlePublishWeek = () => {
     const weekStart = weekDays[0];
@@ -1925,17 +2132,351 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setIsPublishModalOpen(false);
   };
 
-  const handleOpenShiftModal = (
-    shift: Shift | null,
-    userId: string,
-    date: Date
-  ) => {
-    if (clickGuardUntil && Date.now() < clickGuardUntil) {
+  const issueModalOpenToken = useCallback(() => {
+    const token = `${Date.now()}-${Math.random()
+      .toString(16)
+      .slice(2)}`;
+    modalOpenTokenRef.current = token;
+    return token;
+  }, []);
+
+  const handleOpenShiftModal = useCallback(
+    (params: {
+      shift: Shift | null;
+      userId: string;
+      date: Date;
+      expectedToken: string;
+      allowTouchModal?: boolean;
+      cellKey?: string;
+    }) => {
+      const {
+        shift,
+        userId,
+        date,
+        expectedToken,
+        allowTouchModal = false,
+        cellKey
+      } = params;
+
+      if (!expectedToken) return;
+      if (modalOpenTokenRef.current !== expectedToken) return;
+      if (clickGuardUntil && Date.now() < clickGuardUntil) {
+        return;
+      }
+      if (isTouchLike && !allowTouchModal) return;
+
+      if (cellKey) {
+        const now = Date.now();
+        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
+        if (now - lastOpen < 900) return;
+        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+      }
+
+      modalOpenTokenRef.current = null;
+      selectionArmedRef.current = false;
+      armedCellKeyRef.current = null;
+      setSelectedCellKeys(new Set());
+      setEditingShift({ shift, userId, date });
+      setIsShiftModalOpen(true);
+    },
+    [clickGuardUntil, isTouchLike, setSelectedCellKeys]
+  );
+
+  const handleCellTap = useCallback(
+    (params: {
+      intent: 'cell' | 'plus';
+      shift: Shift | null;
+      userId: string;
+      date: Date;
+    }) => {
+      const { intent, shift, userId, date } = params;
+      const cellKey = `${userId}-${toDateString(date)}`;
+
+      if (intent === 'plus') {
+        const now = Date.now();
+        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
+        if (now - lastOpen < 900) return;
+        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+
+        setSelectedCellKeys(prev => {
+          const next = new Set(prev);
+          next.add(cellKey);
+          return next;
+        });
+        const token = issueModalOpenToken();
+        handleOpenShiftModal({
+          shift,
+          userId,
+          date,
+          expectedToken: token,
+          allowTouchModal: true,
+          cellKey
+        });
+        return;
+      }
+
+      if (
+        selectionArmedRef.current &&
+        armedCellKeyRef.current === cellKey
+      ) {
+        const token = issueModalOpenToken();
+        handleOpenShiftModal({
+          shift,
+          userId,
+          date,
+          expectedToken: token,
+          allowTouchModal: false,
+          cellKey
+        });
+        return;
+      }
+
+      setSelectedCellKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(cellKey)) {
+          next.delete(cellKey);
+        } else {
+          next.add(cellKey);
+        }
+        return next;
+      });
+
+      selectionArmedRef.current = true;
+      armedCellKeyRef.current = cellKey;
+
+      if (isTouchLike) {
+        return;
+      }
+    },
+    [
+      handleOpenShiftModal,
+      isTouchLike,
+      issueModalOpenToken
+    ]
+  );
+
+  const recomputeSelectionOverlays = useCallback(() => {
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    if (!renderedUserOrder.length || selectedCellKeys.size === 0) {
+      setSelectionOverlays([]);
       return;
     }
-    setEditingShift({ shift, userId, date });
-    setIsShiftModalOpen(true);
-  };
+
+    const activeRects = new Map<
+      string,
+      { startCol: number; endCol: number; startRow: number; endRow: number }
+    >();
+    const finalized: {
+      startCol: number;
+      endCol: number;
+      startRow: number;
+      endRow: number;
+    }[] = [];
+
+    renderedUserOrder.forEach((user, rowIndex) => {
+      const rowRuns: { start: number; end: number }[] = [];
+      let inRun = false;
+      let runStart = 0;
+      weekDayKeys.forEach((dayKey, colIndex) => {
+        const key = `${user.id}-${dayKey}`;
+        const isSel = selectedCellKeys.has(key);
+
+        if (isSel && !inRun) {
+          inRun = true;
+          runStart = colIndex;
+        }
+
+        const atRowEnd = colIndex === weekDayKeys.length - 1;
+        if ((!isSel && inRun) || (inRun && atRowEnd)) {
+          const endCol = (!isSel && !atRowEnd) ? colIndex - 1 : colIndex;
+          rowRuns.push({ start: runStart, end: endCol });
+          inRun = false;
+        }
+      });
+
+      const nextActive = new Map<
+        string,
+        { startCol: number; endCol: number; startRow: number; endRow: number }
+      >();
+      rowRuns.forEach(run => {
+        const key = `${run.start}-${run.end}`;
+        const existing = activeRects.get(key);
+        if (existing && existing.endRow === rowIndex - 1) {
+          nextActive.set(key, {
+            ...existing,
+            endRow: rowIndex
+          });
+        } else {
+          nextActive.set(key, {
+            startCol: run.start,
+            endCol: run.end,
+            startRow: rowIndex,
+            endRow: rowIndex
+          });
+        }
+      });
+
+      activeRects.forEach((rect, key) => {
+        if (!nextActive.has(key)) finalized.push(rect);
+      });
+      activeRects.clear();
+      nextActive.forEach((rect, key) => activeRects.set(key, rect));
+    });
+
+    activeRects.forEach(rect => finalized.push(rect));
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const inset = 2;
+    const firstUser = renderedUserOrder[0];
+    const firstDayKey = weekDayKeys[0];
+    const firstDayCell = firstUser
+      ? cellRefs.current[`${firstUser.id}-${firstDayKey}`]
+      : null;
+    const minLeft = firstDayCell
+      ? firstDayCell.getBoundingClientRect().left - wrapRect.left + inset
+      : 0;
+
+    const overlays = finalized
+      .map(rect => {
+        const topLeftKey = `${renderedUserOrder[rect.startRow].id}-${weekDayKeys[rect.startCol]}`;
+        const bottomRightKey = `${renderedUserOrder[rect.endRow].id}-${weekDayKeys[rect.endCol]}`;
+        const topEl = cellRefs.current[topLeftKey];
+        const bottomEl = cellRefs.current[bottomRightKey];
+        if (!topEl || !bottomEl) return null;
+
+        const topRect = topEl.getBoundingClientRect();
+        const bottomRect = bottomEl.getBoundingClientRect();
+
+        let left = topRect.left - wrapRect.left + inset;
+        const top = topRect.top - wrapRect.top + inset;
+        const right = bottomRect.right - wrapRect.left - inset;
+        const bottom = bottomRect.bottom - wrapRect.top - inset;
+
+        if (minLeft && left < minLeft) {
+          left = minLeft;
+        }
+        const width = Math.max(0, right - left);
+
+        return {
+          id: `${rect.startRow}-${rect.endRow}-${rect.startCol}-${rect.endCol}`,
+          left,
+          top,
+          width,
+          height: Math.max(0, bottom - top)
+        };
+      })
+      .filter((o): o is { id: string; left: number; top: number; width: number; height: number } => !!o);
+
+    setSelectionOverlays(overlays);
+  }, [renderedUserOrder, selectedCellKeys, weekDayKeys]);
+
+  useLayoutEffect(() => {
+    recomputeSelectionOverlays();
+  }, [recomputeSelectionOverlays]);
+
+  useEffect(() => {
+    const handle = () => {
+      if (overlayRafRef.current !== null) return;
+      overlayRafRef.current = requestAnimationFrame(() => {
+        overlayRafRef.current = null;
+        recomputeSelectionOverlays();
+      });
+    };
+    window.addEventListener('resize', handle);
+    window.addEventListener('scroll', handle, { passive: true });
+    const wrap = scrollWrapRef.current;
+    wrap?.addEventListener('scroll', handle, { passive: true } as any);
+    return () => {
+      window.removeEventListener('resize', handle);
+      window.removeEventListener('scroll', handle as any);
+      wrap?.removeEventListener('scroll', handle as any);
+      if (overlayRafRef.current !== null) {
+        cancelAnimationFrame(overlayRafRef.current);
+        overlayRafRef.current = null;
+      }
+    };
+  }, [recomputeSelectionOverlays]);
+
+  useEffect(() => {
+    if (!isShiftModalOpen) {
+      resetSelectionState();
+    }
+  }, [isShiftModalOpen, resetSelectionState]);
+
+  const handleBulkDayOff = useCallback(async () => {
+    await applyBulkUpdates(async target => {
+      const dayStart = new Date(target.date);
+      dayStart.setHours(0, 0, 0, 0);
+      const base = target.shift
+        ? { ...target.shift }
+        : await ensureShiftForTarget(target, { isDayOff: true });
+      const update = {
+        start: Timestamp.fromDate(dayStart),
+        end: null,
+        isDayOff: true,
+        isHighlighted: false
+      };
+      const data = Object.fromEntries(
+        Object.entries(update).filter(([, v]) => v !== undefined)
+      );
+      if (base.id) {
+        await updateDoc(doc(db, 'shifts', base.id), data);
+      }
+      return true;
+    });
+  }, [applyBulkUpdates, ensureShiftForTarget]);
+
+  const handleBulkHighlight = useCallback(
+    async (value: boolean) => {
+      await applyBulkUpdates(async target => {
+        const shift = await ensureShiftForTarget(target, { isHighlighted: value });
+        if (shift.id) {
+          await updateDoc(doc(db, 'shifts', shift.id), {
+            isHighlighted: value
+          });
+        }
+        return true;
+      });
+    },
+    [applyBulkUpdates, ensureShiftForTarget]
+  );
+
+  const handleBulkDeleteNote = useCallback(async () => {
+    await applyBulkUpdates(async target => {
+      const shift = target.shift || (await ensureShiftForTarget(target));
+      if (shift.id) {
+        await updateDoc(doc(db, 'shifts', shift.id), { note: '' });
+      }
+      return true;
+    });
+  }, [applyBulkUpdates, ensureShiftForTarget]);
+
+  const handleBulkSetTime = useCallback(
+    async (type: 'start' | 'end', value: string) => {
+      const [h, m] = value.split(':').map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) {
+        alert('Érvénytelen időformátum');
+        return;
+      }
+      await applyBulkUpdates(async target => {
+        const shift = await ensureShiftForTarget(target);
+        const date = new Date(target.date);
+        date.setHours(h, m, 0, 0);
+        const payload =
+          type === 'start'
+            ? { start: Timestamp.fromDate(date), isDayOff: false }
+            : { end: Timestamp.fromDate(date), isDayOff: false };
+        if (shift.id) {
+          await updateDoc(doc(db, 'shifts', shift.id), payload);
+        }
+        return true;
+      });
+    },
+    [applyBulkUpdates, ensureShiftForTarget]
+  );
+
+  const handleBulkClearSelection = () => setSelectedCellKeys(new Set());
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -2301,8 +2842,99 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           line-height: 1.1;
           letter-spacing: -0.5px;
           font-size: 0.9em;
+        }
+        .ml-selection-glass {
+          position: absolute;
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+          background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-primary) 20%, transparent),
+            color-mix(in srgb, var(--color-primary) 10%, transparent)
+          );
+          backdrop-filter: blur(4px) saturate(1.05);
+          -webkit-backdrop-filter: blur(4px) saturate(1.05);
+          box-shadow:
+            0 4px 12px rgba(0,0,0,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.3),
+            inset 0 -1px 0 rgba(0,0,0,0.08);
+          pointer-events: none;
+        }
+        .ml-selection-glass::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(
+            135deg,
+            rgba(255,255,255,0.20),
+            rgba(255,255,255,0.00) 55%
+          );
+          opacity: 0.8;
+          pointer-events: none;
         }`}
       </style>
+
+      {selectedCellKeys.size > 0 && (
+        <div className="fixed top-4 right-4 z-[70] max-w-xl w-full sm:w-auto">
+          <div className="backdrop-blur-md bg-white/80 border border-slate-200 shadow-lg rounded-full px-4 py-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700">
+              Kijelölt: {selectedCellKeys.size}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={handleBulkDayOff}
+              >
+                Szabadnap
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
+              >
+                Kezdés beállítása
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
+              >
+                Befejezés beállítása
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={handleBulkDeleteNote}
+              >
+                Bejegyzés törlése
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-200"
+                onClick={() => handleBulkHighlight(true)}
+              >
+                Kiemelés
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200"
+                onClick={() => handleBulkHighlight(false)}
+              >
+                Kiemelés törlése
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-red-100 text-red-700 hover:bg-red-200 border border-red-200"
+                onClick={handleBulkClearSelection}
+              >
+                Kijelölés törlése
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ShiftModal
         isOpen={isShiftModalOpen}
@@ -2711,21 +3343,37 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       )}
 
       <div
-        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
+        className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm relative"
+        ref={scrollWrapRef}
         style={{
           backgroundColor: 'var(--color-surface-static)',
           color: 'var(--color-text-main)',
           borderColor: 'var(--color-border)',
         }}
       >
-        <table
-          ref={tableRef}
-          className="min-w-full text-sm"
-          style={{
-            fontFamily:
-              '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
-          }}
-        >
+        <div className="pointer-events-none absolute inset-0 z-[5]">
+          {selectionOverlays.map(overlay => (
+            <div
+              key={overlay.id}
+              className="ml-selection-glass"
+              style={{
+                left: overlay.left,
+                top: overlay.top,
+                width: overlay.width,
+                height: overlay.height
+              }}
+            />
+          ))}
+        </div>
+        <div ref={gridWrapRef} className="relative">
+          <table
+            ref={tableRef}
+            className="min-w-full text-sm"
+            style={{
+              fontFamily:
+                '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+            }}
+          >
           <thead className="bg-slate-100">
             <tr>
               <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
@@ -2913,6 +3561,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
                         {/* Napok */}
                         {weekDays.map((day, dayIndex) => {
+                          const cellKey = `${user.id}-${toDateString(day)}`;
+                          const isSelected = selectedCellKeys.has(cellKey);
                           const dayKey = toDateString(day);
                           const userDayShifts =
                             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
@@ -2928,6 +3578,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const displayParts: string[] = [];
                           let isDayOff = false;
                           const isLeave = !!leaveRequest && userDayShifts.length === 0;
+                          const hasHighlight =
+                            !isLeave &&
+                            userDayShifts.some(s => s.isHighlighted && !s.isDayOff);
                           const shiftNote =
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
@@ -2998,24 +3651,37 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           } else {
                             cellClasses += ' text-slate-400';
                           }
+                          let cellStyle: React.CSSProperties | undefined;
+                          if (!isDayOff && !isLeave) {
+                            if (hasHighlight) {
+                              cellStyle = {
+                                background: '#fff7ed',
+                                color: '#9a3412'
+                              };
+                            } else {
+                              cellStyle = isSelected
+                                ? { color: rowTextColor }
+                                : { background: rowBg, color: rowTextColor };
+                            }
+                          }
 
                           return (
                             <td
                               key={dayIndex}
                               className={cellClasses}
-                              style={
-                                !isDayOff && !isLeave
-                                  ? { background: rowBg, color: rowTextColor }
-                                  : undefined
-                              }
-                              onClick={() =>
-                                canEditCell &&
-                                handleOpenShiftModal(
-                                  userDayShifts[0] || null,
-                                  user.id,
-                                  day
-                                )
-                              }
+                              ref={el => {
+                                cellRefs.current[cellKey] = el;
+                              }}
+                              style={cellStyle}
+                              onClick={() => {
+                                if (!canEditCell) return;
+                                handleCellTap({
+                                  intent: 'cell',
+                                  shift: userDayShifts[0] || null,
+                                  userId: user.id,
+                                  date: day
+                                });
+                              }}
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
@@ -3029,9 +3695,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
-                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
+                                  <button
+                                    type="button"
+                                    className="export-hide select-none text-slate-200 text-lg font-light"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleCellTap({
+                                        intent: 'plus',
+                                        shift: userDayShifts[0] || null,
+                                        userId: user.id,
+                                        date: day
+                                      });
+                                    }}
+                                  >
                                     +
-                                  </span>
+                                  </button>
                                 )}
                               </div>
                             </td>
@@ -3060,6 +3738,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Export megerősítő modal */}
@@ -3105,6 +3784,48 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             }
           }}
         />
+      )}
+
+      {bulkTimeModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl p-4 w-full max-w-sm space-y-3">
+            <h3 className="text-lg font-semibold text-slate-800">
+              {bulkTimeModal.type === 'start'
+                ? 'Kezdés beállítása'
+                : 'Befejezés beállítása'}
+            </h3>
+            <input
+              type="time"
+              value={bulkTimeModal.value}
+              onChange={e =>
+                setBulkTimeModal(prev =>
+                  prev ? { ...prev, value: e.target.value } : prev
+                )
+              }
+              className="w-full p-2 border rounded-lg"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-slate-100 text-slate-700"
+                onClick={() => setBulkTimeModal(null)}
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-green-600 text-white"
+                onClick={async () => {
+                  if (!bulkTimeModal.value) return;
+                  await handleBulkSetTime(bulkTimeModal.type, bulkTimeModal.value);
+                  setBulkTimeModal(null);
+                }}
+              >
+                Alkalmaz
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
