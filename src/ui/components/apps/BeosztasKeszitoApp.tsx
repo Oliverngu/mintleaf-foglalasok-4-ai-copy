@@ -1314,6 +1314,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [isHiddenMenuOpen, setIsHiddenMenuOpen] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
 
+  const isTouchLike = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.matchMedia?.('(pointer: coarse)')?.matches) return true;
+    return 'ontouchstart' in window;
+  }, []);
+  const selectionArmedRef = useRef(false);
+  const armedCellKeyRef = useRef<string | null>(null);
+  const modalOpenTokenRef = useRef<string | null>(null);
+  const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1925,17 +1934,105 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setIsPublishModalOpen(false);
   };
 
-  const handleOpenShiftModal = (
-    shift: Shift | null,
-    userId: string,
-    date: Date
-  ) => {
-    if (clickGuardUntil && Date.now() < clickGuardUntil) {
-      return;
-    }
-    setEditingShift({ shift, userId, date });
-    setIsShiftModalOpen(true);
-  };
+  const issueModalOpenToken = useCallback(() => {
+    const token = `${Date.now()}-${Math.random()
+      .toString(16)
+      .slice(2)}`;
+    modalOpenTokenRef.current = token;
+    return token;
+  }, []);
+
+  const handleOpenShiftModal = useCallback(
+    (params: {
+      shift: Shift | null;
+      userId: string;
+      date: Date;
+      expectedToken: string;
+      allowTouchModal?: boolean;
+      cellKey?: string;
+    }) => {
+      const {
+        shift,
+        userId,
+        date,
+        expectedToken,
+        allowTouchModal = false,
+        cellKey
+      } = params;
+
+      if (!expectedToken) return;
+      if (modalOpenTokenRef.current !== expectedToken) return;
+      if (clickGuardUntil && Date.now() < clickGuardUntil) {
+        return;
+      }
+      if (isTouchLike && !allowTouchModal) return;
+
+      if (cellKey) {
+        const now = Date.now();
+        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
+        if (now - lastOpen < 900) return;
+        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+      }
+
+      modalOpenTokenRef.current = null;
+      selectionArmedRef.current = false;
+      armedCellKeyRef.current = null;
+      setEditingShift({ shift, userId, date });
+      setIsShiftModalOpen(true);
+    },
+    [clickGuardUntil, isTouchLike]
+  );
+
+  const handleCellTap = useCallback(
+    (params: {
+      intent: 'cell' | 'plus';
+      shift: Shift | null;
+      userId: string;
+      date: Date;
+    }) => {
+      const { intent, shift, userId, date } = params;
+      const cellKey = `${userId}-${toDateString(date)}`;
+
+      if (intent === 'plus') {
+        const token = issueModalOpenToken();
+        handleOpenShiftModal({
+          shift,
+          userId,
+          date,
+          expectedToken: token,
+          allowTouchModal: true,
+          cellKey
+        });
+        return;
+      }
+
+      if (isTouchLike) {
+        selectionArmedRef.current = true;
+        armedCellKeyRef.current = cellKey;
+        return;
+      }
+
+      if (
+        selectionArmedRef.current &&
+        armedCellKeyRef.current === cellKey
+      ) {
+        const token = issueModalOpenToken();
+        handleOpenShiftModal({
+          shift,
+          userId,
+          date,
+          expectedToken: token,
+          allowTouchModal: false,
+          cellKey
+        });
+        return;
+      }
+
+      selectionArmedRef.current = true;
+      armedCellKeyRef.current = cellKey;
+    },
+    [handleOpenShiftModal, isTouchLike, issueModalOpenToken]
+  );
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -3008,14 +3105,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   ? { background: rowBg, color: rowTextColor }
                                   : undefined
                               }
-                              onClick={() =>
-                                canEditCell &&
-                                handleOpenShiftModal(
-                                  userDayShifts[0] || null,
-                                  user.id,
-                                  day
-                                )
-                              }
+                              onClick={() => {
+                                if (!canEditCell) return;
+                                handleCellTap({
+                                  intent: 'cell',
+                                  shift: userDayShifts[0] || null,
+                                  userId: user.id,
+                                  date: day
+                                });
+                              }}
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
@@ -3029,9 +3127,21 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   </span>
                                 )}
                                 {!hasContent && canEditCell && (
-                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
+                                  <button
+                                    type="button"
+                                    className="export-hide select-none text-slate-200 text-lg font-light"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleCellTap({
+                                        intent: 'plus',
+                                        shift: userDayShifts[0] || null,
+                                        userId: user.id,
+                                        date: day
+                                      });
+                                    }}
+                                  >
                                     +
-                                  </span>
+                                  </button>
                                 )}
                               </div>
                             </td>
