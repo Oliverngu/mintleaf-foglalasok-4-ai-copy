@@ -119,7 +119,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
     userId: userId,
     startTime: '',
     endTime: '',
-    note: ''
+    note: '',
+    isHighlighted: false
   });
   const [isDayOff, setIsDayOff] = useState(false);
 
@@ -134,11 +135,18 @@ const ShiftModal: FC<ShiftModalProps> = ({
         endTime: shift.isDayOff
           ? ''
           : shift.end?.toDate()?.toTimeString().substring(0, 5) || '',
-        note: shift.note || ''
+        note: shift.note || '',
+        isHighlighted: !!shift.isHighlighted
       });
     } else {
       setIsDayOff(false);
-      setFormData({ userId: userId, startTime: '', endTime: '', note: '' });
+      setFormData({
+        userId: userId,
+        startTime: '',
+        endTime: '',
+        note: '',
+        isHighlighted: false
+      });
     }
   }, [shift, userId, isOpen]);
 
@@ -224,7 +232,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: null,
         note: formData.note,
         status: viewMode,
-        isDayOff: true
+        isDayOff: true,
+        isHighlighted: false
       });
     } else {
       const [startHour, startMinute] = formData.startTime.split(':').map(Number);
@@ -251,7 +260,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: endDate ? Timestamp.fromDate(endDate) : null,
         note: formData.note,
         status: viewMode,
-        isDayOff: false
+        isDayOff: false,
+        isHighlighted: formData.isHighlighted
       });
     }
   };
@@ -337,13 +347,13 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 </label>
                 <input
                   type="time"
-                value={formData.endTime}
-                onChange={e =>
-                  setFormData(f => ({ ...f, endTime: e.target.value }))
-                }
-                className="w-full mt-1 p-2 border rounded-lg"
-                disabled={!canEditTime || isDayOff}
-              />
+                  value={formData.endTime}
+                  onChange={e =>
+                    setFormData(f => ({ ...f, endTime: e.target.value }))
+                  }
+                  className="w-full mt-1 p-2 border rounded-lg"
+                  disabled={!canEditTime || isDayOff}
+                />
                 {endPresets.length > 0 && !isDayOff && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {endPresets.map(time => (
@@ -373,6 +383,31 @@ const ShiftModal: FC<ShiftModalProps> = ({
                 className="w-full mt-1 p-2 border rounded-lg"
                 disabled={!canEditNote}
               />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium">Kiemelés (narancs)</label>
+              <input
+                type="checkbox"
+                checked={!!formData.isHighlighted && !isDayOff}
+                onChange={e =>
+                  setFormData(prev => ({
+                    ...prev,
+                    isHighlighted: isDayOff ? false : e.target.checked
+                  }))
+                }
+                disabled={isDayOff}
+              />
+              {formData.isHighlighted && !isDayOff && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData(prev => ({ ...prev, isHighlighted: false }))
+                  }
+                  className="text-xs text-orange-600 font-semibold underline"
+                >
+                  Kiemelés törlése
+                </button>
+              )}
             </div>
           </div>
           <div className="p-4 bg-gray-50 flex justify-between items-center rounded-b-2xl">
@@ -1330,9 +1365,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [selectionOverlays, setSelectionOverlays] = useState<
     { id: string; left: number; top: number; width: number; height: number }[]
   >([]);
+  const [bulkTimeModal, setBulkTimeModal] = useState<{
+    type: 'start' | 'end';
+    value: string;
+  } | null>(null);
   const scrollWrapRef = useRef<HTMLDivElement>(null);
   const gridWrapRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const overlayRafRef = useRef<number | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1817,6 +1857,111 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   let zebraRowIndex = 0;
+  const getCellTargets = useCallback(() => {
+    const targets: {
+      cellKey: string;
+      user: User;
+      dayKey: string;
+      date: Date;
+      shift: Shift | null;
+      canEdit: boolean;
+    }[] = [];
+    selectedCellKeys.forEach(cellKey => {
+      const { userId, dayKey } = parseCellKey(cellKey);
+      const user = allAppUsers.find(u => u.id === userId);
+      if (!user) return;
+      const dayIndex = weekDayKeys.indexOf(dayKey);
+      if (dayIndex === -1) return;
+      const date = weekDays[dayIndex];
+      const shifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+      targets.push({
+        cellKey,
+        user,
+        dayKey,
+        date,
+        shift: shifts[0] || null,
+        canEdit: canManage || userId === currentUser.id
+      });
+    });
+    return targets;
+  }, [
+    allAppUsers,
+    canManage,
+    currentUser.id,
+    parseCellKey,
+    selectedCellKeys,
+    shiftsByUserDay,
+    weekDayKeys,
+    weekDays
+  ]);
+
+  const applyBulkUpdates = useCallback(
+    async (
+      updater: (
+        target: {
+          cellKey: string;
+          user: User;
+          dayKey: string;
+          date: Date;
+          shift: Shift | null;
+          canEdit: boolean;
+        }
+      ) => Promise<boolean>
+    ) => {
+      const targets = getCellTargets();
+      let skipped = 0;
+      let applied = 0;
+      for (const target of targets) {
+        if (!target.canEdit) {
+          skipped += 1;
+          continue;
+        }
+        const ok = await updater(target);
+        applied += ok ? 1 : 0;
+      }
+      if (skipped > 0 || applied === 0) {
+        alert(
+          `Művelet kész. Sikeres: ${applied}. Kihagyva (nincs jogosultság vagy hiba): ${skipped}.`
+        );
+      }
+    },
+    [getCellTargets]
+  );
+
+  const ensureShiftForTarget = useCallback(
+    async (
+      target: {
+        user: User;
+        date: Date;
+        shift: Shift | null;
+      },
+      baseFields?: Partial<Shift>
+    ): Promise<Shift> => {
+      if (target.shift) return target.shift;
+      const dayStart = new Date(target.date);
+      dayStart.setHours(0, 0, 0, 0);
+      const newData: Omit<Shift, 'id'> = {
+        userId: target.user.id,
+        userName: target.user.fullName,
+        position: target.user.position || 'N/A',
+        unitId: target.shift?.unitId || target.user.unitIds?.[0] || activeUnitIds[0],
+        start: Timestamp.fromDate(dayStart),
+        end: null,
+        note: '',
+        status: viewMode,
+        isDayOff: false,
+        isHighlighted: baseFields?.isHighlighted || false
+      };
+      const cleanData = Object.fromEntries(
+        Object.entries({ ...newData, ...baseFields }).filter(
+          ([, v]) => v !== undefined
+        )
+      );
+      const docRef = await addDoc(collection(db, 'shifts'), cleanData);
+      return { id: docRef.id, ...(cleanData as any) } as Shift;
+    },
+    [activeUnitIds, viewMode]
+  );
 
   const resetSelectionState = useCallback(() => {
     selectionArmedRef.current = false;
@@ -1825,6 +1970,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setSelectedCellKeys(new Set());
     setSelectionOverlays([]);
     cellRefs.current = {};
+  }, []);
+
+  const parseCellKey = useCallback((cellKey: string) => {
+    if (cellKey.length < 12) return { userId: cellKey, dayKey: '' };
+    const dayKey = cellKey.slice(cellKey.length - 10);
+    const userId = cellKey.slice(0, cellKey.length - 11);
+    return { userId, dayKey };
   }, []);
 
   // Selection overlay checklist:
@@ -2221,7 +2373,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [recomputeSelectionOverlays]);
 
   useEffect(() => {
-    const handle = () => recomputeSelectionOverlays();
+    const handle = () => {
+      if (overlayRafRef.current !== null) return;
+      overlayRafRef.current = requestAnimationFrame(() => {
+        overlayRafRef.current = null;
+        recomputeSelectionOverlays();
+      });
+    };
     window.addEventListener('resize', handle);
     window.addEventListener('scroll', handle, { passive: true });
     const wrap = scrollWrapRef.current;
@@ -2230,6 +2388,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       window.removeEventListener('resize', handle);
       window.removeEventListener('scroll', handle as any);
       wrap?.removeEventListener('scroll', handle as any);
+      if (overlayRafRef.current !== null) {
+        cancelAnimationFrame(overlayRafRef.current);
+        overlayRafRef.current = null;
+      }
     };
   }, [recomputeSelectionOverlays]);
 
@@ -2238,6 +2400,80 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       resetSelectionState();
     }
   }, [isShiftModalOpen, resetSelectionState]);
+
+  const handleBulkDayOff = useCallback(async () => {
+    await applyBulkUpdates(async target => {
+      const dayStart = new Date(target.date);
+      dayStart.setHours(0, 0, 0, 0);
+      const base = target.shift
+        ? { ...target.shift }
+        : await ensureShiftForTarget(target, { isDayOff: true });
+      const update = {
+        start: Timestamp.fromDate(dayStart),
+        end: null,
+        isDayOff: true,
+        isHighlighted: false
+      };
+      const data = Object.fromEntries(
+        Object.entries(update).filter(([, v]) => v !== undefined)
+      );
+      if (base.id) {
+        await updateDoc(doc(db, 'shifts', base.id), data);
+      }
+      return true;
+    });
+  }, [applyBulkUpdates, ensureShiftForTarget]);
+
+  const handleBulkHighlight = useCallback(
+    async (value: boolean) => {
+      await applyBulkUpdates(async target => {
+        const shift = await ensureShiftForTarget(target, { isHighlighted: value });
+        if (shift.id) {
+          await updateDoc(doc(db, 'shifts', shift.id), {
+            isHighlighted: value
+          });
+        }
+        return true;
+      });
+    },
+    [applyBulkUpdates, ensureShiftForTarget]
+  );
+
+  const handleBulkDeleteNote = useCallback(async () => {
+    await applyBulkUpdates(async target => {
+      const shift = target.shift || (await ensureShiftForTarget(target));
+      if (shift.id) {
+        await updateDoc(doc(db, 'shifts', shift.id), { note: '' });
+      }
+      return true;
+    });
+  }, [applyBulkUpdates, ensureShiftForTarget]);
+
+  const handleBulkSetTime = useCallback(
+    async (type: 'start' | 'end', value: string) => {
+      const [h, m] = value.split(':').map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) {
+        alert('Érvénytelen időformátum');
+        return;
+      }
+      await applyBulkUpdates(async target => {
+        const shift = await ensureShiftForTarget(target);
+        const date = new Date(target.date);
+        date.setHours(h, m, 0, 0);
+        const payload =
+          type === 'start'
+            ? { start: Timestamp.fromDate(date), isDayOff: false }
+            : { end: Timestamp.fromDate(date), isDayOff: false };
+        if (shift.id) {
+          await updateDoc(doc(db, 'shifts', shift.id), payload);
+        }
+        return true;
+      });
+    },
+    [applyBulkUpdates, ensureShiftForTarget]
+  );
+
+  const handleBulkClearSelection = () => setSelectedCellKeys(new Set());
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -2607,18 +2843,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         .ml-selection-glass {
           position: absolute;
           border-radius: 10px;
-          background: rgba(16, 185, 129, 0.12);
+          background: color-mix(in srgb, var(--color-primary) 16%, transparent);
           background: linear-gradient(
             180deg,
             color-mix(in srgb, var(--color-primary) 20%, transparent),
             color-mix(in srgb, var(--color-primary) 10%, transparent)
           );
-          backdrop-filter: blur(8px) saturate(1.2);
-          -webkit-backdrop-filter: blur(8px) saturate(1.2);
+          backdrop-filter: blur(4px) saturate(1.05);
+          -webkit-backdrop-filter: blur(4px) saturate(1.05);
           box-shadow:
-            0 6px 18px rgba(0,0,0,0.1),
-            inset 0 1px 0 rgba(255,255,255,0.35),
-            inset 0 -1px 0 rgba(0,0,0,0.1);
+            0 4px 12px rgba(0,0,0,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.3),
+            inset 0 -1px 0 rgba(0,0,0,0.08);
           pointer-events: none;
         }
         .ml-selection-glass::after {
@@ -2635,6 +2871,67 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           pointer-events: none;
         }`}
       </style>
+
+      {selectedCellKeys.size > 0 && (
+        <div className="fixed top-4 right-4 z-[70] max-w-xl w-full sm:w-auto">
+          <div className="backdrop-blur-md bg-white/80 border border-slate-200 shadow-lg rounded-full px-4 py-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700">
+              Kijelölt: {selectedCellKeys.size}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={handleBulkDayOff}
+              >
+                Szabadnap
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
+              >
+                Kezdés beállítása
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
+              >
+                Befejezés beállítása
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200"
+                onClick={handleBulkDeleteNote}
+              >
+                Bejegyzés törlése
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-200"
+                onClick={() => handleBulkHighlight(true)}
+              >
+                Kiemelés
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200"
+                onClick={() => handleBulkHighlight(false)}
+              >
+                Kiemelés törlése
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1 rounded-full bg-red-100 text-red-700 hover:bg-red-200 border border-red-200"
+                onClick={handleBulkClearSelection}
+              >
+                Kijelölés törlése
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ShiftModal
         isOpen={isShiftModalOpen}
@@ -3278,6 +3575,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const displayParts: string[] = [];
                           let isDayOff = false;
                           const isLeave = !!leaveRequest && userDayShifts.length === 0;
+                          const hasHighlight =
+                            !isLeave &&
+                            userDayShifts.some(s => s.isHighlighted && !s.isDayOff);
                           const shiftNote =
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
@@ -3350,9 +3650,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           }
                           let cellStyle: React.CSSProperties | undefined;
                           if (!isDayOff && !isLeave) {
-                            cellStyle = isSelected
-                              ? { color: rowTextColor }
-                              : { background: rowBg, color: rowTextColor };
+                            if (hasHighlight) {
+                              cellStyle = {
+                                background: '#fff7ed',
+                                color: '#9a3412'
+                              };
+                            } else {
+                              cellStyle = isSelected
+                                ? { color: rowTextColor }
+                                : { background: rowBg, color: rowTextColor };
+                            }
                           }
 
                           return (
@@ -3474,6 +3781,48 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             }
           }}
         />
+      )}
+
+      {bulkTimeModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl p-4 w-full max-w-sm space-y-3">
+            <h3 className="text-lg font-semibold text-slate-800">
+              {bulkTimeModal.type === 'start'
+                ? 'Kezdés beállítása'
+                : 'Befejezés beállítása'}
+            </h3>
+            <input
+              type="time"
+              value={bulkTimeModal.value}
+              onChange={e =>
+                setBulkTimeModal(prev =>
+                  prev ? { ...prev, value: e.target.value } : prev
+                )
+              }
+              className="w-full p-2 border rounded-lg"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-slate-100 text-slate-700"
+                onClick={() => setBulkTimeModal(null)}
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-green-600 text-white"
+                onClick={async () => {
+                  if (!bulkTimeModal.value) return;
+                  await handleBulkSetTime(bulkTimeModal.type, bulkTimeModal.value);
+                  setBulkTimeModal(null);
+                }}
+              >
+                Alkalmaz
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
