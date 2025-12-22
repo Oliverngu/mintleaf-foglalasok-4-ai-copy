@@ -3,6 +3,7 @@ import React, {
   useMemo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   FC,
   useRef
 } from 'react';
@@ -1323,7 +1324,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const armedCellKeyRef = useRef<string | null>(null);
   const modalOpenTokenRef = useRef<string | null>(null);
   const lastOpenAttemptAtByKeyRef = useRef<Record<string, number>>({});
-  const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
+  const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [selectionOverlays, setSelectionOverlays] = useState<
+    { id: string; left: number; top: number; width: number; height: number }[]
+  >([]);
+  const gridWrapRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1450,6 +1458,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const weekDays = useMemo(
     () => getWeekDays(currentDate),
     [currentDate]
+  );
+  const weekDayKeys = useMemo(
+    () => weekDays.map(day => toDateString(day)),
+    [weekDays]
   );
 
   const weekStartDateStr = useMemo(
@@ -1789,6 +1801,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
   }, [orderedUsers, visibleUsersByPosition]);
 
+  const renderedUserOrder = useMemo(
+    () =>
+      visiblePositionOrder.flatMap(
+        pos => visibleUsersByPosition[pos] || []
+      ),
+    [visiblePositionOrder, visibleUsersByPosition]
+  );
+
   const hiddenUsers = useMemo(
     () =>
       allAppUsers.filter(u => hiddenUserIds.has(u.id)),
@@ -1801,7 +1821,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     selectionArmedRef.current = false;
     armedCellKeyRef.current = null;
     modalOpenTokenRef.current = null;
-    setSelectedCellKey(null);
+    setSelectedCellKeys(new Set());
+    setSelectionOverlays([]);
   }, []);
 
   const handlePrevWeek = () => {
@@ -1989,11 +2010,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       modalOpenTokenRef.current = null;
       selectionArmedRef.current = false;
       armedCellKeyRef.current = null;
-      setSelectedCellKey(null);
+      setSelectedCellKeys(new Set());
       setEditingShift({ shift, userId, date });
       setIsShiftModalOpen(true);
     },
-    [clickGuardUntil, isTouchLike, setSelectedCellKey]
+    [clickGuardUntil, isTouchLike, setSelectedCellKeys]
   );
 
   const handleCellTap = useCallback(
@@ -2012,7 +2033,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (now - lastOpen < 900) return;
         lastOpenAttemptAtByKeyRef.current[cellKey] = now;
 
-        setSelectedCellKey(cellKey);
+        setSelectedCellKeys(prev => {
+          const next = new Set(prev);
+          next.add(cellKey);
+          return next;
+        });
         const token = issueModalOpenToken();
         handleOpenShiftModal({
           shift,
@@ -2022,13 +2047,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           allowTouchModal: true,
           cellKey
         });
-        return;
-      }
-
-      if (isTouchLike) {
-        selectionArmedRef.current = true;
-        armedCellKeyRef.current = cellKey;
-        setSelectedCellKey(cellKey);
         return;
       }
 
@@ -2048,12 +2066,141 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
 
+      setSelectedCellKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(cellKey)) {
+          next.delete(cellKey);
+        } else {
+          next.add(cellKey);
+        }
+        return next;
+      });
+
       selectionArmedRef.current = true;
       armedCellKeyRef.current = cellKey;
-      setSelectedCellKey(cellKey);
+
+      if (isTouchLike) {
+        return;
+      }
     },
-    [handleOpenShiftModal, isTouchLike, issueModalOpenToken]
+    [
+      handleOpenShiftModal,
+      isTouchLike,
+      issueModalOpenToken,
+      selectedCellKeys
+    ]
   );
+
+  const recomputeSelectionOverlays = useCallback(() => {
+    const wrap = gridWrapRef.current;
+    if (!wrap) return;
+    if (!renderedUserOrder.length || selectedCellKeys.size === 0) {
+      setSelectionOverlays([]);
+      return;
+    }
+
+    const activeRects = new Map<
+      string,
+      { startCol: number; endCol: number; startRow: number; endRow: number }
+    >();
+    const finalized: {
+      startCol: number;
+      endCol: number;
+      startRow: number;
+      endRow: number;
+    }[] = [];
+
+    renderedUserOrder.forEach((user, rowIndex) => {
+      const rowRuns: { start: number; end: number }[] = [];
+      let runStart: number | null = null;
+      weekDayKeys.forEach((dayKey, colIndex) => {
+        const key = `${user.id}-${dayKey}`;
+        const isSel = selectedCellKeys.has(key);
+        if (isSel && runStart === null) runStart = colIndex;
+        const atRowEnd = colIndex === weekDayKeys.length - 1;
+        if (runStart !== null && (!isSel || atRowEnd)) {
+          const endCol = (!isSel && !atRowEnd) ? colIndex - 1 : colIndex;
+          rowRuns.push({ start: runStart, end: endCol });
+          runStart = null;
+        }
+      });
+
+      const nextActive = new Map<
+        string,
+        { startCol: number; endCol: number; startRow: number; endRow: number }
+      >();
+      rowRuns.forEach(run => {
+        const key = `${run.start}-${run.end}`;
+        const existing = activeRects.get(key);
+        if (existing && existing.endRow === rowIndex - 1) {
+          nextActive.set(key, {
+            ...existing,
+            endRow: rowIndex
+          });
+        } else {
+          nextActive.set(key, {
+            startCol: run.start,
+            endCol: run.end,
+            startRow: rowIndex,
+            endRow: rowIndex
+          });
+        }
+      });
+
+      activeRects.forEach((rect, key) => {
+        if (!nextActive.has(key)) finalized.push(rect);
+      });
+      activeRects.clear();
+      nextActive.forEach((rect, key) => activeRects.set(key, rect));
+    });
+
+    activeRects.forEach(rect => finalized.push(rect));
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const inset = 2;
+    const overlays = finalized
+      .map(rect => {
+        const topLeftKey = `${renderedUserOrder[rect.startRow].id}-${weekDayKeys[rect.startCol]}`;
+        const bottomRightKey = `${renderedUserOrder[rect.endRow].id}-${weekDayKeys[rect.endCol]}`;
+        const topEl = cellRefs.current[topLeftKey];
+        const bottomEl = cellRefs.current[bottomRightKey];
+        if (!topEl || !bottomEl) return null;
+
+        const topRect = topEl.getBoundingClientRect();
+        const bottomRect = bottomEl.getBoundingClientRect();
+
+        const left = topRect.left - wrapRect.left + inset;
+        const top = topRect.top - wrapRect.top + inset;
+        const right = bottomRect.right - wrapRect.left - inset;
+        const bottom = bottomRect.bottom - wrapRect.top - inset;
+
+        return {
+          id: `${rect.startRow}-${rect.endRow}-${rect.startCol}-${rect.endCol}`,
+          left,
+          top,
+          width: Math.max(0, right - left),
+          height: Math.max(0, bottom - top)
+        };
+      })
+      .filter((o): o is { id: string; left: number; top: number; width: number; height: number } => !!o);
+
+    setSelectionOverlays(overlays);
+  }, [renderedUserOrder, selectedCellKeys, weekDayKeys]);
+
+  useLayoutEffect(() => {
+    recomputeSelectionOverlays();
+  }, [recomputeSelectionOverlays]);
+
+  useEffect(() => {
+    const handle = () => recomputeSelectionOverlays();
+    window.addEventListener('resize', handle);
+    const wrap = gridWrapRef.current;
+    wrap?.addEventListener('scroll', handle, { passive: true } as any);
+    return () => {
+      window.removeEventListener('resize', handle);
+      wrap?.removeEventListener('scroll', handle as any);
+    };
+  }, [recomputeSelectionOverlays]);
 
   useEffect(() => {
     if (!isShiftModalOpen) {
@@ -2425,6 +2572,35 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           line-height: 1.1;
           letter-spacing: -0.5px;
           font-size: 0.9em;
+        }
+        .ml-selection-glass {
+          position: absolute;
+          border-radius: 10px;
+          background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-primary) 20%, transparent),
+            color-mix(in srgb, var(--color-primary) 10%, transparent)
+          );
+          backdrop-filter: blur(8px) saturate(1.2);
+          -webkit-backdrop-filter: blur(8px) saturate(1.2);
+          box-shadow:
+            0 6px 18px rgba(0,0,0,0.1),
+            inset 0 1px 0 rgba(255,255,255,0.35),
+            inset 0 -1px 0 rgba(0,0,0,0.1);
+          pointer-events: none;
+        }
+        .ml-selection-glass::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(
+            135deg,
+            rgba(255,255,255,0.20),
+            rgba(255,255,255,0.00) 55%
+          );
+          opacity: 0.8;
+          pointer-events: none;
         }`}
       </style>
 
@@ -2842,14 +3018,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           borderColor: 'var(--color-border)',
         }}
       >
-        <table
-          ref={tableRef}
-          className="min-w-full text-sm"
-          style={{
-            fontFamily:
-              '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
-          }}
-        >
+        <div ref={gridWrapRef} className="relative">
+          <div className="pointer-events-none absolute inset-0 z-[5]">
+            {selectionOverlays.map(overlay => (
+              <div
+                key={overlay.id}
+                className="ml-selection-glass"
+                style={{
+                  left: overlay.left,
+                  top: overlay.top,
+                  width: overlay.width,
+                  height: overlay.height
+                }}
+              />
+            ))}
+          </div>
+          <table
+            ref={tableRef}
+            className="min-w-full text-sm"
+            style={{
+              fontFamily:
+                '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+            }}
+          >
           <thead className="bg-slate-100">
             <tr>
               <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
@@ -3038,7 +3229,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                         {/* Napok */}
                         {weekDays.map((day, dayIndex) => {
                           const cellKey = `${user.id}-${toDateString(day)}`;
-                          const isSelected = selectedCellKey === cellKey;
+                          const isSelected = selectedCellKeys.has(cellKey);
                           const dayKey = toDateString(day);
                           const userDayShifts =
                             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
@@ -3124,14 +3315,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           } else {
                             cellClasses += ' text-slate-400';
                           }
-                          if (isSelected) {
-                            cellClasses +=
-                              ' ring-2 ring-emerald-500 ring-offset-2 ring-offset-white outline outline-2 outline-emerald-500 outline-offset-[-2px]';
-                            if (!isDayOff && !isLeave) {
-                              cellClasses += ' bg-emerald-50/40';
-                            }
-                          }
-
                           let cellStyle: React.CSSProperties | undefined;
                           if (!isDayOff && !isLeave) {
                             cellStyle = isSelected
@@ -3143,6 +3326,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             <td
                               key={dayIndex}
                               className={cellClasses}
+                              ref={el => {
+                                cellRefs.current[cellKey] = el;
+                              }}
                               style={cellStyle}
                               onClick={() => {
                                 if (!canEditCell) return;
@@ -3209,6 +3395,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Export megerősítő modal */}
