@@ -1185,6 +1185,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
     // Touch: cell tap selects only; modal opens via explicit plus intent. Desktop: first click selects, second (armed) click opens; plus opens directly.
     const handleCellTap = useCallback((userId: string, day: Date, dayShifts: Shift[], canEditCell: boolean, eventType: string = 'pointerup', intent: 'cell' | 'plus' = 'cell') => {
         if (!canEditCell) return;
+        const normalizedIntent: 'cell' | 'plus' =
+          intent === 'plus' ? 'plus' : 'cell';
+
+// opcionálisan DEBUG:
+        if (DEBUG_SELECTION && intent !== normalizedIntent) {
+          console.debug('[INTENT_NORMALIZED]', { original: intent, normalizedIntent });
+}
         const dayKey = toDateString(day);
         const selectionKey = `${userId}|${dayKey}`;
         const now = Date.now();
@@ -1193,7 +1200,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
         lastTapAtByKeyRef.current[selectionKey] = now;
         if (sinceLastTap < 250) {
             lastGridTapActionRef.current = 'ignore';
-            if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType, sinceLastTap });
+            if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, normalizedIntent, action: 'ignore', eventType, sinceLastTap });
             return;
         }
         lastInteractionAtByKeyRef.current[selectionKey] = now;
@@ -1207,12 +1214,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                 selectionArmedRef.current[selectionKey] = true;
                 lastSelectionAtByKeyRef.current[selectionKey] = now;
                 lastGridTapActionRef.current = 'select';
-                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'select', eventType });
+                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, normalizedIntent, action: 'select', eventType });
                 const nextState = { ...prev, [selectionKey]: { userId, dayKey } };
-                if (isTouchLike && intent === 'plus') {
+                if (isTouchLike && normalizedIntent === 'plus') {
                     const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
                     if (now - lastOpen < 1000) {
-                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, normalizedIntent, reason: 'COOLDOWN', lastOpen });
                         return nextState;
                     }
                     lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
@@ -1224,10 +1231,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             }
 
             if (isTouchLike) {
-                if (intent === 'plus') {
+                if (normalizedIntent === 'plus') {
                     const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
                     if (now - lastOpen < 1000) {
-                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                        if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, normalizedIntent, reason: 'COOLDOWN', lastOpen });
                         return prev;
                     }
                     lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
@@ -1236,15 +1243,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
                     lastGridTapActionRef.current = 'open';
                 } else {
                     lastGridTapActionRef.current = 'ignore';
-                    if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+                    if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, normalizedIntent, action: 'ignore', eventType });
                 }
                 return prev;
             }
 
-            if (intent === 'plus') {
+            if (normalizedIntent === 'plus') {
                 const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
                 if (now - lastOpen < 1000) {
-                    if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                    if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, normalizedIntent, reason: 'COOLDOWN', lastOpen });
                     return prev;
                 }
                 lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
@@ -1257,13 +1264,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({ schedule, requests, currentU
             const armed = selectionArmedRef.current[selectionKey] === true;
             if (!armed) {
                 lastGridTapActionRef.current = 'ignore';
-                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, intent, action: 'ignore', eventType });
+                if (DEBUG_SELECTION) console.debug('[GRID_TAP]', { selectionKey, isTouchLike, normalizedIntent, action: 'ignore', eventType });
                 return prev;
             }
 
             const lastOpen = lastOpenAttemptAtByKeyRef.current[selectionKey] || 0;
             if (now - lastOpen < 1000) {
-                if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, intent, reason: 'COOLDOWN', lastOpen });
+                if (DEBUG_SELECTION) console.debug('[OPEN_ATTEMPT_BLOCKED]', { selectionKey, normalizedIntent, reason: 'COOLDOWN', lastOpen });
                 return prev;
             }
             lastOpenAttemptAtByKeyRef.current[selectionKey] = now;
