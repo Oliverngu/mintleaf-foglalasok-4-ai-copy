@@ -1394,13 +1394,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
   const parseCellKey = useCallback((cellKey: string) => {
-    const dash = cellKey.lastIndexOf('-');
-    if (dash <= 0) return { userId: cellKey, dayKey: '' };
-    return {
-      userId: cellKey.slice(0, dash),
-      dayKey: cellKey.slice(dash + 1)
-    };
-  }, []);
+  if (!cellKey || cellKey.length < 12) {
+    return { userId: '', dayKey: '' };
+  }
+
+  const dayKey = cellKey.slice(-10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    return { userId: '', dayKey: '' };
+  }
+
+  const sepIndex = cellKey.length - 11;
+  if (cellKey[sepIndex] !== '-') {
+    return { userId: '', dayKey: '' };
+  }
+
+  const userId = cellKey.slice(0, sepIndex);
+  return { userId, dayKey };
+}, []);
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -2020,6 +2030,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       let applied = 0;
 
       for (const target of targets) {
+        const unitId = activeUnitIds[0];
         if (!target.canEdit) {
           skippedPerm += 1;
           continue;
@@ -2072,7 +2083,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             skippedPerm += 1;
             continue;
           }
-          await updateDoc(doc(db, 'shifts', shift.id), updatePayload);
+          await updateDoc(
+  doc(db, 'shifts', shift.id),
+  {
+    ...updatePayload,
+    unitId
+  }
+);
           applied += 1;
         } catch (err) {
           console.warn('Bulk update failed', err);
