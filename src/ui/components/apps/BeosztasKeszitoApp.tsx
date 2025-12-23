@@ -3807,6 +3807,34 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               onClick={() => {
                                 if (!canEditCell) return;
                                 handleCellTap({
+                                  if (intent === 'cell') {
+  // Ha van bejegyzés, akkor modal (ne kijelölés)
+  if (shift?.id) {
+    const token = issueModalOpenToken();
+    handleOpenShiftModal({
+      shift,
+      userId,
+      date,
+      expectedToken: token,
+      allowTouchModal: true,
+      cellKey
+    });
+    return;
+  }
+
+  // Üres cella: kijelölés toggle
+  if (selectedCellKeys.has(cellKey)) {
+    toggleCellSelection(cellKey);
+    selectionArmedRef.current = false;
+    armedCellKeyRef.current = null;
+    return;
+  }
+
+  toggleCellSelection(cellKey);
+  selectionArmedRef.current = true;
+  armedCellKeyRef.current = cellKey;
+  return;
+}
                                   intent: 'cell',
                                   shift: userDayShifts[0] || null,
                                   userId: user.id,
