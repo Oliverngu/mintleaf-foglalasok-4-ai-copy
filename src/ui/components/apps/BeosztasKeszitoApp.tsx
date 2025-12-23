@@ -2074,15 +2074,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             updatePayload = { note: '' };
             baseFields = updatePayload;
           } else if (action === 'highlight') {
-            updatePayload = { isHighlighted: !!payload?.value };
-            baseFields = updatePayload;
-          }
-
-          const shift = await ensureShiftForTarget(target, baseFields);
-          if (!shift) {
-            skippedPerm += 1;
-            continue;
-          }
+  // Highlight ne hozzon létre shiftet üres cellára
+  if (!target.shift?.id) {
+    // nincs bejegyzés -> nincs mit perzisztálni
+    continue;
+  }
+  updatePayload = { isHighlighted: !!payload?.value };
+  await updateDoc(doc(db, 'shifts', target.shift.id), { ...updatePayload, unitId: activeUnitIds[0] });
+  applied += 1;
+  continue;
+}
           await updateDoc(
   doc(db, 'shifts', shift.id),
   {
