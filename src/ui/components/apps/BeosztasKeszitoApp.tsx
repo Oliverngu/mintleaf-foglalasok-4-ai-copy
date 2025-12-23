@@ -2364,23 +2364,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const cellKey = `${userId}-${toDateString(date)}`;
 
       if (intent === 'plus') {
-        if (selectedCellKeys.size > 0) return;
-        const now = Date.now();
-        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
-        if (now - lastOpen < 900) return;
-        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+  if (selectedCellKeys.size > 0) return;
 
-        const token = issueModalOpenToken();
-        handleOpenShiftModal({
-          shift,
-          userId,
-          date,
-          expectedToken: token,
-          allowTouchModal: true,
-          cellKey
-        });
-        return;
-      }
+  const token = issueModalOpenToken();
+  handleOpenShiftModal({
+    shift,
+    userId,
+    date,
+    expectedToken: token,
+    allowTouchModal: true,
+    cellKey
+  });
+  return;
+}
 
       if (intent === 'cell' && selectedCellKeys.has(cellKey)) {
         toggleCellSelection(cellKey);
