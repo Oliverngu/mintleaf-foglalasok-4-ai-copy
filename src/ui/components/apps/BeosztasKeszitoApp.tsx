@@ -2372,64 +2372,59 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const handleCellTap = useCallback(
-    (params: {
-      intent: 'cell' | 'plus';
-      shift: Shift | null;
-      userId: string;
-      date: Date;
-    }) => {
-      const { intent, shift, userId, date } = params;
-      const cellKey = `${userId}-${toDateString(date)}`;
+  (params: {
+    intent: 'cell' | 'plus';
+    shift: Shift | null;
+    userId: string;
+    date: Date;
+  }) => {
+    const { intent, shift, userId, date } = params;
+    const cellKey = `${userId}-${toDateString(date)}`;
 
-      if (intent === 'plus') {
-  if (selectedCellKeys.size > 0) return;
+    // PLUS: csak üres kijelölésnél nyisson modalt
+    if (intent === 'plus') {
+      if (selectedCellKeys.size > 0) return;
 
-  const token = issueModalOpenToken();
-  handleOpenShiftModal({
-    shift,
-    userId,
-    date,
-    expectedToken: token,
-    allowTouchModal: true,
-    cellKey
-  });
-  return;
-}
+      const token = issueModalOpenToken();
+      handleOpenShiftModal({
+        shift,
+        userId,
+        date,
+        expectedToken: token,
+        allowTouchModal: true,
+        cellKey
+      });
+      return;
+    }
 
-      if (intent === 'cell' && selectedCellKeys.has(cellKey)) {
-        toggleCellSelection(cellKey);
-        selectionArmedRef.current = false;
-        armedCellKeyRef.current = null;
-        return;
-      }
+    // CELL: ha van bejegyzés (shift), azonnal modal (ne kijelölés)
+    if (shift?.id) {
+      const token = issueModalOpenToken();
+      handleOpenShiftModal({
+        shift,
+        userId,
+        date,
+        expectedToken: token,
+        allowTouchModal: true,
+        cellKey
+      });
+      return;
+    }
 
-      if (
-        selectionArmedRef.current &&
-        armedCellKeyRef.current === cellKey
-      ) {
-        const token = issueModalOpenToken();
-        handleOpenShiftModal({
-          shift,
-          userId,
-          date,
-          expectedToken: token,
-          allowTouchModal: false,
-          cellKey
-        });
-        return;
-      }
-
+    // CELL: üres -> kijelölés toggle
+    if (selectedCellKeys.has(cellKey)) {
       toggleCellSelection(cellKey);
+      selectionArmedRef.current = false;
+      armedCellKeyRef.current = null;
+      return;
+    }
 
-      selectionArmedRef.current = true;
-      armedCellKeyRef.current = cellKey;
-
-      if (isTouchLike) {
-        return;
-      }
-    },
-    [handleOpenShiftModal, isTouchLike, issueModalOpenToken, toggleCellSelection, selectedCellKeys]
-  );
+    toggleCellSelection(cellKey);
+    selectionArmedRef.current = true;
+    armedCellKeyRef.current = cellKey;
+  },
+  [selectedCellKeys, toggleCellSelection, issueModalOpenToken, handleOpenShiftModal]
+);
 
   const recomputeSelectionOverlays = useCallback(() => {
     const wrap = scrollWrapRef.current;
