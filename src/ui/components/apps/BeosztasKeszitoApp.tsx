@@ -1365,6 +1365,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [selectionOverlays, setSelectionOverlays] = useState<
     { id: string; left: number; top: number; width: number; height: number }[]
   >([]);
+  const [bulkConfirm, setBulkConfirm] = useState<{
+    action: 'dayOff' | 'setStart' | 'setEnd' | 'deleteNote' | 'highlight';
+    time?: string;
+    payload?: any;
+    counts: { total: number; editable: number; hasContent: number };
+  } | null>(null);
   const [bulkTimeModal, setBulkTimeModal] = useState<{
     type: 'start' | 'end';
     value: string;
@@ -1388,13 +1394,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
   const parseCellKey = useCallback((cellKey: string) => {
-    const dash = cellKey.lastIndexOf('-');
-    if (dash <= 0) return { userId: cellKey, dayKey: '' };
-    return {
-      userId: cellKey.slice(0, dash),
-      dayKey: cellKey.slice(dash + 1)
-    };
-  }, []);
+  if (!cellKey || cellKey.length < 12) {
+    return { userId: '', dayKey: '' };
+  }
+
+  const dayKey = cellKey.slice(-10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    return { userId: '', dayKey: '' };
+  }
+
+  const sepIndex = cellKey.length - 11;
+  if (cellKey[sepIndex] !== '-') {
+    return { userId: '', dayKey: '' };
+  }
+
+  const userId = cellKey.slice(0, sepIndex);
+  return { userId, dayKey };
+}, []);
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
@@ -1933,51 +1949,217 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     weekDays,
     shiftsByUserDay,
     canManage,
-    currentUser.id
+    currentUser.id,
+    activeUnitIds
   ]);
 
-  const applyBulkUpdates = useCallback(
+  const ensureShiftForTarget = useCallback(
     async (
-      updater: (
-        target: {
-          cellKey: string;
-          user: User;
-          dayKey: string;
-          date: Date;
-          shift: Shift | null;
-          canEdit: boolean;
-        }
-      ) => Promise<'applied' | 'no-shift' | 'error'>
+      target: {
+        cellKey: string;
+        user: User;
+        dayKey: string;
+        date: Date;
+        shift: Shift | null;
+        canEdit: boolean;
+      },
+      baseFields: Partial<Shift> = {}
+    ): Promise<Shift | null> => {
+      if (target.shift?.id) return target.shift;
+
+      const activeUnitId = activeUnitIds[0];
+      const userInActiveUnit =
+        !!activeUnitId && !!target.user.unitIds?.includes(activeUnitId);
+      if (!canManage && !userInActiveUnit) {
+        return null;
+      }
+
+      const dayStart = new Date(target.date);
+      dayStart.setHours(0, 0, 0, 0);
+
+      const newShiftData: Omit<Shift, 'id'> = {
+        userId: target.user.id,
+        userName: target.user.fullName || target.user.id || 'N/A',
+        position: target.user.position || '',
+        unitId: activeUnitIds[0],
+        status: viewMode,
+        start: Timestamp.fromDate(dayStart),
+        end: null,
+        note: '',
+        isDayOff: false,
+        isHighlighted: false,
+        ...baseFields
+      };
+
+      const docRef = await addDoc(collection(db, 'shifts'), newShiftData);
+      return { id: docRef.id, ...newShiftData };
+    },
+    [activeUnitIds, canManage, viewMode]
+  );
+
+  const executeBulk = useCallback(
+    async (
+      action: 'dayOff' | 'setStart' | 'setEnd' | 'deleteNote' | 'highlight',
+      payload?: any
     ) => {
       const targets = getCellTargets();
+      if (!targets.length) return;
+      const timeValue =
+        typeof payload === 'string' ? payload : payload?.time ?? null;
+      const parsedTime =
+        action === 'setStart' || action === 'setEnd'
+          ? (() => {
+              if (!timeValue || typeof timeValue !== 'string') return null;
+              const [h, m] = timeValue.split(':').map(Number);
+              if (Number.isNaN(h) || Number.isNaN(m)) return null;
+              return { hours: h, minutes: m };
+            })()
+          : null;
+
+      if (
+        (action === 'setStart' || action === 'setEnd') &&
+        !parsedTime
+      ) {
+        alert('Adj meg egy időpontot (HH:MM)');
+        return;
+      }
+
       let skippedPerm = 0;
-      let skippedNoShift = 0;
       let errors = 0;
       let permDenied = 0;
       let applied = 0;
+
       for (const target of targets) {
+        const unitId = activeUnitIds[0];
         if (!target.canEdit) {
           skippedPerm += 1;
           continue;
         }
+
         try {
-          const res = await updater(target);
-          if (res === 'applied') applied += 1;
-          else if (res === 'no-shift') skippedNoShift += 1;
-          else if (res === 'error') errors += 1;
+          let updatePayload: Partial<Shift> = {};
+          let baseFields: Partial<Shift> = {};
+
+          if (action === 'dayOff') {
+            const dayStart = new Date(target.date);
+            dayStart.setHours(0, 0, 0, 0);
+            const startTs = Timestamp.fromDate(dayStart);
+            updatePayload = {
+              start: startTs,
+              end: null,
+              isDayOff: true,
+              isHighlighted: false
+            };
+            baseFields = updatePayload;
+          } else if (action === 'setStart') {
+            const date = new Date(target.date);
+            date.setHours(parsedTime.hours, parsedTime.minutes || 0, 0, 0);
+            const ts = Timestamp.fromDate(date);
+            updatePayload = { start: ts, isDayOff: false };
+            baseFields = { ...updatePayload };
+          } else if (action === 'setEnd') {
+            const date = new Date(target.date);
+            date.setHours(parsedTime.hours, parsedTime.minutes || 0, 0, 0);
+            const dayStart = new Date(target.date);
+            dayStart.setHours(0, 0, 0, 0);
+            updatePayload = {
+              end: Timestamp.fromDate(date),
+              isDayOff: false
+            };
+            if (!target.shift?.start) {
+              updatePayload.start = Timestamp.fromDate(dayStart);
+            }
+            baseFields = { start: Timestamp.fromDate(dayStart), ...updatePayload };
+          } else if (action === 'deleteNote') {
+            updatePayload = { note: '' };
+            baseFields = updatePayload;
+          } else if (action === 'highlight') {
+  // Highlight ne hozzon létre shiftet üres cellára
+  if (!target.shift?.id) {
+    // nincs bejegyzés -> nincs mit perzisztálni
+    continue;
+  }
+  updatePayload = { isHighlighted: !!payload?.value };
+  await updateDoc(doc(db, 'shifts', target.shift.id), { ...updatePayload, unitId: activeUnitIds[0] });
+  applied += 1;
+  continue;
+}
+          await updateDoc(
+  doc(db, 'shifts', shift.id),
+  {
+    ...updatePayload,
+    unitId
+  }
+);
+          applied += 1;
         } catch (err) {
           console.warn('Bulk update failed', err);
           if ((err as any)?.code === 'permission-denied') permDenied += 1;
           errors += 1;
         }
       }
-      if (skippedPerm > 0 || skippedNoShift > 0 || errors > 0 || applied === 0) {
+
+      if (skippedPerm > 0 || errors > 0 || applied === 0) {
         alert(
-          `Művelet kész. Sikeres: ${applied}. Kihagyva jogosultság hiányában: ${skippedPerm}. Kihagyva műszak nélkül: ${skippedNoShift}. Hibás/tiltott: ${errors}. Permission denied: ${permDenied}.`
+          `Művelet kész. Sikeres: ${applied}. Kihagyva jogosultság hiányában: ${skippedPerm}. Hibás/tiltott: ${errors}. Permission denied: ${permDenied}.`
         );
       }
+      setBulkConfirm(null);
     },
-    [getCellTargets]
+    [ensureShiftForTarget, getCellTargets]
+  );
+
+  const launchBulkWithConfirmation = useCallback(
+    (
+      action: 'dayOff' | 'setStart' | 'setEnd' | 'deleteNote' | 'highlight',
+      payload?: any
+    ) => {
+      const targets = getCellTargets();
+      if (!targets.length) return;
+      const counts = {
+        total: targets.length,
+        editable: targets.filter(t => t.canEdit).length,
+        hasContent: targets.filter(
+          t => {
+            if (!t.shift) return false;
+            const dayStart = new Date(t.date);
+            dayStart.setHours(0, 0, 0, 0);
+            const startDate = t.shift.start?.toDate?.();
+            const hasNonPlaceholderStart =
+              !!startDate && startDate.getTime() !== dayStart.getTime();
+
+            return (
+              !!t.shift.isDayOff ||
+              !!t.shift.end ||
+              !!(t.shift.note && t.shift.note.trim()) ||
+              !!t.shift.isHighlighted ||
+              hasNonPlaceholderStart
+            );
+          }
+        ).length
+      };
+
+      const requiresConfirmation =
+        action === 'dayOff' ||
+        action === 'setStart' ||
+        action === 'setEnd' ||
+        action === 'deleteNote';
+
+      if (requiresConfirmation && counts.hasContent > 0) {
+        const timeValue =
+          typeof payload === 'string' ? payload : payload?.time;
+        setBulkConfirm({
+          action,
+          time: timeValue,
+          payload,
+          counts
+        });
+        return;
+      }
+
+      executeBulk(action, payload);
+    },
+    [executeBulk, getCellTargets]
   );
 
   const resetSelectionState = useCallback(() => {
@@ -2190,61 +2372,59 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const handleCellTap = useCallback(
-    (params: {
-      intent: 'cell' | 'plus';
-      shift: Shift | null;
-      userId: string;
-      date: Date;
-    }) => {
-      const { intent, shift, userId, date } = params;
-      const cellKey = `${userId}-${toDateString(date)}`;
+  (params: {
+    intent: 'cell' | 'plus';
+    shift: Shift | null;
+    userId: string;
+    date: Date;
+  }) => {
+    const { intent, shift, userId, date } = params;
+    const cellKey = `${userId}-${toDateString(date)}`;
 
-      if (intent === 'plus') {
-        if (selectedCellKeys.size > 0) return;
-        const now = Date.now();
-        const lastOpen = lastOpenAttemptAtByKeyRef.current[cellKey] || 0;
-        if (now - lastOpen < 900) return;
-        lastOpenAttemptAtByKeyRef.current[cellKey] = now;
+    // PLUS: csak üres kijelölésnél nyisson modalt
+    if (intent === 'plus') {
+      if (selectedCellKeys.size > 0) return;
 
-        const token = issueModalOpenToken();
-        handleOpenShiftModal({
-          shift,
-          userId,
-          date,
-          expectedToken: token,
-          allowTouchModal: true,
-          cellKey
-        });
-        return;
-      }
+      const token = issueModalOpenToken();
+      handleOpenShiftModal({
+        shift,
+        userId,
+        date,
+        expectedToken: token,
+        allowTouchModal: true,
+        cellKey
+      });
+      return;
+    }
 
-      if (
-        selectionArmedRef.current &&
-        armedCellKeyRef.current === cellKey
-      ) {
-        const token = issueModalOpenToken();
-        handleOpenShiftModal({
-          shift,
-          userId,
-          date,
-          expectedToken: token,
-          allowTouchModal: false,
-          cellKey
-        });
-        return;
-      }
+    // CELL: ha van bejegyzés (shift), azonnal modal (ne kijelölés)
+    if (shift?.id) {
+      const token = issueModalOpenToken();
+      handleOpenShiftModal({
+        shift,
+        userId,
+        date,
+        expectedToken: token,
+        allowTouchModal: true,
+        cellKey
+      });
+      return;
+    }
 
+    // CELL: üres -> kijelölés toggle
+    if (selectedCellKeys.has(cellKey)) {
       toggleCellSelection(cellKey);
+      selectionArmedRef.current = false;
+      armedCellKeyRef.current = null;
+      return;
+    }
 
-      selectionArmedRef.current = true;
-      armedCellKeyRef.current = cellKey;
-
-      if (isTouchLike) {
-        return;
-      }
-    },
-    [handleOpenShiftModal, isTouchLike, issueModalOpenToken, toggleCellSelection, selectedCellKeys]
-  );
+    toggleCellSelection(cellKey);
+    selectionArmedRef.current = true;
+    armedCellKeyRef.current = cellKey;
+  },
+  [selectedCellKeys, toggleCellSelection, issueModalOpenToken, handleOpenShiftModal]
+);
 
   const recomputeSelectionOverlays = useCallback(() => {
     const wrap = scrollWrapRef.current;
@@ -2395,94 +2575,28 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
   }, [isShiftModalOpen, resetSelectionState]);
 
-  const handleBulkDayOff = useCallback(async () => {
-    await applyBulkUpdates(async target => {
-      const shift = target.shift;
-      if (!shift?.id) return 'no-shift';
-      if (shift.unitId && activeUnitIds[0] && shift.unitId !== activeUnitIds[0])
-        return 'error';
-      const dayStart = new Date(target.date);
-      dayStart.setHours(0, 0, 0, 0);
-      try {
-        await updateDoc(doc(db, 'shifts', shift.id), {
-          start: Timestamp.fromDate(dayStart),
-          end: null,
-          isDayOff: true,
-          isHighlighted: false
-        });
-        return 'applied';
-      } catch (e) {
-        console.warn('Bulk day off failed', e);
-        return 'error';
-      }
-    });
-  }, [applyBulkUpdates, activeUnitIds]);
+  const handleBulkDayOff = useCallback(() => {
+    launchBulkWithConfirmation('dayOff');
+  }, [launchBulkWithConfirmation]);
+
+  const handleBulkDeleteNote = useCallback(() => {
+    launchBulkWithConfirmation('deleteNote');
+  }, [launchBulkWithConfirmation]);
 
   const handleBulkHighlight = useCallback(
-    async (value: boolean) => {
-      await applyBulkUpdates(async target => {
-        const shift = target.shift;
-        if (!shift?.id) return 'no-shift';
-        if (shift.unitId && activeUnitIds[0] && shift.unitId !== activeUnitIds[0])
-          return 'error';
-        try {
-          await updateDoc(doc(db, 'shifts', shift.id), {
-            isHighlighted: value
-          });
-          return 'applied';
-        } catch (e) {
-          console.warn('Bulk highlight failed', e);
-          return 'error';
-        }
-      });
+    (value: boolean) => {
+      launchBulkWithConfirmation('highlight', { value });
     },
-    [applyBulkUpdates, activeUnitIds]
+    [launchBulkWithConfirmation]
   );
 
-  const handleBulkDeleteNote = useCallback(async () => {
-    await applyBulkUpdates(async target => {
-      const shift = target.shift;
-      if (!shift?.id) return 'no-shift';
-      if (shift.unitId && activeUnitIds[0] && shift.unitId !== activeUnitIds[0])
-        return 'error';
-      try {
-        await updateDoc(doc(db, 'shifts', shift.id), { note: '' });
-        return 'applied';
-      } catch (e) {
-        console.warn('Bulk delete note failed', e);
-        return 'error';
-      }
-    });
-  }, [applyBulkUpdates, activeUnitIds]);
-
   const handleBulkSetTime = useCallback(
-    async (type: 'start' | 'end', value: string) => {
-      const [h, m] = value.split(':').map(Number);
-      if (Number.isNaN(h) || Number.isNaN(m)) {
-        alert('Érvénytelen időformátum');
-        return;
-      }
-      await applyBulkUpdates(async target => {
-        const shift = target.shift;
-        if (!shift?.id) return 'no-shift';
-        if (shift.unitId && activeUnitIds[0] && shift.unitId !== activeUnitIds[0])
-          return 'error';
-        const date = new Date(target.date);
-        date.setHours(h, m, 0, 0);
-        const payload =
-          type === 'start'
-            ? { start: Timestamp.fromDate(date), isDayOff: false }
-            : { end: Timestamp.fromDate(date), isDayOff: false };
-        try {
-          await updateDoc(doc(db, 'shifts', shift.id), payload);
-          return 'applied';
-        } catch (e) {
-          console.warn('Bulk set time failed', e);
-          return 'error';
-        }
+    (type: 'start' | 'end', value: string) => {
+      launchBulkWithConfirmation(type === 'start' ? 'setStart' : 'setEnd', {
+        time: value
       });
     },
-    [applyBulkUpdates, activeUnitIds]
+    [launchBulkWithConfirmation]
   );
 
   const handleBulkClearSelection = () => setSelectedCellKeys(new Set());
@@ -3693,7 +3807,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                   userId: user.id,
                                   date: day
                                 });
-                              }}
+                            }}
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
                                 {hasContent && (
@@ -3802,6 +3916,59 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
+      {bulkConfirm && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-md space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-slate-800">
+                Biztosan folytatod?
+              </h3>
+              <p className="text-sm text-slate-600">
+                {bulkConfirm.counts.hasContent} kijelölt cellában már van
+                meglévő tartalom. A(z){' '}
+                <span className="font-semibold">
+                  {bulkConfirm.action === 'dayOff'
+                    ? 'Szabadnap'
+                    : bulkConfirm.action === 'setStart'
+                      ? 'Kezdés beállítása'
+                      : bulkConfirm.action === 'setEnd'
+                        ? 'Befejezés beállítása'
+                        : 'Bejegyzés törlése'}
+                </span>{' '}
+                művelet felülírhatja vagy törölheti ezeket.
+              </p>
+              {bulkConfirm.time && (
+                <p className="text-sm text-slate-600">
+                  Időpont: <span className="font-semibold">{bulkConfirm.time}</span>
+                </p>
+              )}
+              <div className="text-xs text-slate-500 space-y-1">
+                <div>Kijelölve: {bulkConfirm.counts.total}</div>
+                <div>Szerkeszthető: {bulkConfirm.counts.editable}</div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-slate-100 text-slate-700"
+                onClick={() => setBulkConfirm(null)}
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-red-600 text-white"
+                onClick={() =>
+                  executeBulk(bulkConfirm.action, bulkConfirm.payload)
+                }
+              >
+                Alkalmaz
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bulkTimeModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl p-4 w-full max-w-sm space-y-3">
@@ -3831,9 +3998,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               <button
                 type="button"
                 className="px-3 py-1 rounded-lg bg-green-600 text-white"
-                onClick={async () => {
+                onClick={() => {
                   if (!bulkTimeModal.value) return;
-                  await handleBulkSetTime(bulkTimeModal.type, bulkTimeModal.value);
+                  handleBulkSetTime(bulkTimeModal.type, bulkTimeModal.value);
                   setBulkTimeModal(null);
                 }}
               >
