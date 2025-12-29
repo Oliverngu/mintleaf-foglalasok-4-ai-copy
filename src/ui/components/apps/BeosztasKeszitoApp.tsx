@@ -4,7 +4,8 @@ import React, {
   useCallback,
   useEffect,
   FC,
-  useRef
+  useRef,
+  CSSProperties
 } from 'react';
 import {
   Shift,
@@ -58,8 +59,9 @@ const calculateShiftDuration = (
 ): number => {
   if (shift.isDayOff || !shift.start) return 0;
 
+  const startDate = shift.start.toDate();
   let end = shift.end?.toDate();
-  const referenceDate = options?.referenceDate || shift.start.toDate();
+  const referenceDate = options?.referenceDate || startDate;
 
   if (!end && referenceDate) {
     const closingTime = options?.closingTime;
@@ -74,7 +76,6 @@ const calculateShiftDuration = (
       0
     );
 
-    const startDate = shift.start.toDate();
     if (end < startDate) {
       end.setDate(end.getDate() + 1);
     }
@@ -82,7 +83,7 @@ const calculateShiftDuration = (
 
   if (!end) return 0;
 
-  const durationMs = end.getTime() - shift.start.toDate().getTime();
+  const durationMs = end.getTime() - startDate.getTime();
   return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
 };
 
@@ -197,10 +198,12 @@ const ShiftModal: FC<ShiftModalProps> = ({
     note: ''
   });
   const [isDayOff, setIsDayOff] = useState(false);
+  const [isHighlighted, setIsHighlighted] = useState(false);
 
   useEffect(() => {
     if (shift) {
       setIsDayOff(!!shift.isDayOff);
+      setIsHighlighted(!!shift.isHighlighted);
       setFormData({
         userId: shift.userId,
         startTime: shift.isDayOff
@@ -214,6 +217,7 @@ const ShiftModal: FC<ShiftModalProps> = ({
     } else {
       setIsDayOff(false);
       setFormData({ userId: userId, startTime: '', endTime: '', note: '' });
+      setIsHighlighted(false);
     }
   }, [shift, userId, isOpen]);
 
@@ -299,7 +303,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: null,
         note: formData.note,
         status: viewMode,
-        isDayOff: true
+        isDayOff: true,
+        isHighlighted
       });
     } else {
       const [startHour, startMinute] = formData.startTime.split(':').map(Number);
@@ -326,7 +331,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
         end: endDate ? Timestamp.fromDate(endDate) : null,
         note: formData.note,
         status: viewMode,
-        isDayOff: false
+        isDayOff: false,
+        isHighlighted
       });
     }
   };
@@ -374,6 +380,19 @@ const ShiftModal: FC<ShiftModalProps> = ({
               />
               <label htmlFor="isDayOff" className="font-medium text-gray-700">
                 Szabadnap (X)
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isHighlighted"
+                checked={isHighlighted}
+                onChange={e => setIsHighlighted(e.target.checked)}
+                className="h-5 w-5 rounded text-orange-500 focus:ring-orange-500"
+                disabled={!(canManage || isOwnShift)}
+              />
+              <label htmlFor="isHighlighted" className="font-medium text-gray-700">
+                Kiemelés
               </label>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -1438,6 +1457,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [successToast, setSuccessToast] = useState('');
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  const [isPngExportRenderMode, setIsPngExportRenderMode] =
+    useState(false);
+  const [pngHideEmptyUsers, setPngHideEmptyUsers] = useState(false);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
@@ -1780,7 +1802,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               doc(db, 'schedule_settings', settingsId)
             );
             if (snap.exists()) {
-              return snap.data() as ScheduleSettings;
+              const data = snap.data() as ScheduleSettings;
+              return data.unitId ? data : { ...data, unitId };
             }
             return createDefaultSettings(unitId, weekStartDateStr);
           } catch (error) {
@@ -1947,7 +1970,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       doc(db, 'schedule_settings', settingsId),
       docSnap => {
         if (docSnap.exists()) {
-          setWeekSettings(docSnap.data() as ScheduleSettings);
+          const data = docSnap.data() as ScheduleSettings;
+          setWeekSettings(
+            data.unitId ? data : { ...data, unitId, id: settingsId }
+          );
         } else {
           setWeekSettings(
             createDefaultSettings(unitId, weekStartDateStr)
@@ -1989,13 +2015,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const map = new Map<string, Map<string, Shift[]>>();
     orderedUsers.forEach(user => map.set(user.id, new Map()));
     activeShifts.forEach(shift => {
+      const userShifts = map.get(shift.userId);
+      let dayKey: string | undefined;
       if (shift.start) {
-        const userShifts = map.get(shift.userId);
-        if (userShifts) {
-          const dayKey = toDateString(shift.start.toDate());
-          if (!userShifts.has(dayKey)) userShifts.set(dayKey, []);
-          userShifts.get(dayKey)!.push(shift);
-        }
+        dayKey = toDateString(shift.start.toDate());
+      } else if (shift.dayKey) {
+        dayKey = shift.dayKey;
+      }
+
+      if (userShifts && dayKey) {
+        if (!userShifts.has(dayKey)) userShifts.set(dayKey, []);
+        userShifts.get(dayKey)!.push(shift);
       }
     });
     return map;
@@ -2309,6 +2339,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const isHighlightOnlyShift = useCallback(
+    (shift: Shift): boolean =>
+      !shift.start &&
+      !shift.end &&
+      !shift.isDayOff &&
+      (shift.note ?? '') === '' &&
+      !!shift.dayKey,
+    []
+  );
+
   const handleBulkSetTime = useCallback(
     async (type: 'start' | 'end', value: string) => {
       if (!value) {
@@ -2396,6 +2436,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               end: null,
               isDayOff: false,
               note: '',
+              isHighlighted: false,
             });
           } else {
             skippedEndWithoutStart += 1;
@@ -2427,11 +2468,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       activeUnitIds,
       canManage,
       currentUser.id,
-      parseDayKeyToDate,
       parseSelectionKey,
       selectedCellKeys,
       shiftsByUserDay,
       userById,
+      isHighlightOnlyShift,
       viewMode,
     ]
   );
@@ -2486,6 +2527,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           end: null,
           isDayOff: true,
           note: '',
+          isHighlighted: false,
         });
       }
     });
@@ -2591,7 +2633,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     if (skippedLegacyOrOtherUnit > 0) {
-      console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+    console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
   }, [
     activeUnitIds,
@@ -2601,6 +2643,126 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     selectedCellKeys,
     shiftsByUserDay,
   ]);
+  const applyHighlightToSelection = useCallback(
+    async (forceValue?: boolean) => {
+      if (activeUnitIds.length !== 1) return;
+
+      const unitId = activeUnitIds[0];
+      if (!unitId) return;
+
+      const targetShifts: Shift[] = [];
+      const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
+        = [];
+      let skippedLegacyOrOtherUnit = 0;
+
+      selectedCellKeys.forEach(cellKey => {
+        const { dayKey, userId } = parseSelectionKey(cellKey);
+        if (!dayKey || !userId) return;
+        if (!(canManage || currentUser.id === userId)) return;
+
+        const user = userById.get(userId) || null;
+        if (!user) return;
+
+        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+        const existingShift =
+          userDayShifts.find(s => s.unitId === unitId) || null;
+
+        if (!existingShift) {
+          if (userDayShifts.length > 0) {
+            skippedLegacyOrOtherUnit += 1;
+            return;
+          }
+        }
+
+        if (existingShift) {
+          targetShifts.push(existingShift);
+        }
+        targetCells.push({ dayKey, userId, user, shift: existingShift });
+      });
+
+      const shouldHighlight =
+        forceValue !== undefined
+          ? forceValue
+          : targetShifts.length === 0
+            ? true
+            : !targetShifts.every(shift => shift.isHighlighted === true);
+
+      let batch = writeBatch(db);
+      let writeCount = 0;
+
+      for (const shift of targetShifts) {
+        const shiftRef = doc(db, 'shifts', shift.id);
+        if (shouldHighlight) {
+          batch.update(shiftRef, {
+            isHighlighted: true,
+          });
+        } else if (isHighlightOnlyShift(shift)) {
+          batch.delete(shiftRef);
+        } else {
+          batch.update(shiftRef, {
+            isHighlighted: false,
+          });
+        }
+        writeCount += 1;
+        if (writeCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(db);
+          writeCount = 0;
+        }
+      }
+
+      for (const cell of targetCells) {
+        if (cell.shift || !shouldHighlight || !cell.user) continue;
+
+        const newRef = doc(
+          db,
+          'shifts',
+          `hl_${unitId}_${viewMode}_${cell.user.id}_${cell.dayKey}`
+        );
+        batch.set(
+          newRef,
+          {
+            userId: cell.user.id,
+            userName: cell.user.fullName,
+            position: cell.user.position || 'N/A',
+            unitId,
+            status: viewMode,
+            isDayOff: false,
+            start: null,
+            end: null,
+            note: '',
+            isHighlighted: true,
+            dayKey: cell.dayKey,
+          },
+          { merge: true }
+        );
+        writeCount += 1;
+        if (writeCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(db);
+          writeCount = 0;
+        }
+      }
+
+      if (writeCount > 0) {
+        await batch.commit();
+      }
+
+      if (skippedLegacyOrOtherUnit > 0) {
+        console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+      }
+    },
+    [
+      activeUnitIds,
+      canManage,
+      currentUser.id,
+      parseSelectionKey,
+      selectedCellKeys,
+      shiftsByUserDay,
+      userById,
+      viewMode,
+    ]
+  );
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -2609,13 +2771,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       ...shiftData,
       unitId: activeUnitIds[0]
     };
+
     if (shiftToSave.id) {
       const docId = shiftToSave.id;
-      const { id, ...dataToUpdate } = shiftToSave;
-      await updateDoc(doc(db, 'shifts', docId), dataToUpdate);
+      const { id, isHighlighted, ...dataToUpdate } = shiftToSave;
+      const updatePayload =
+        isHighlighted !== undefined
+          ? { ...dataToUpdate, isHighlighted }
+          : dataToUpdate;
+      await updateDoc(doc(db, 'shifts', docId), updatePayload);
     } else {
       const { id, ...dataToAdd } = shiftToSave;
-      await addDoc(collection(db, 'shifts'), dataToAdd);
+      const isHighlighted = dataToAdd.isHighlighted ?? false;
+      const payload = { ...dataToAdd, isHighlighted };
+      await addDoc(collection(db, 'shifts'), payload);
     }
     setIsShiftModalOpen(false);
   };
@@ -2642,14 +2811,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           );
 
         const updated = updater(baseSettings);
+        const updatedWithUnitId = {
+          ...updated,
+          unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
+        };
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updated.id), updated).catch(
-            error => {
+          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
+            .catch(error => {
               console.error('Failed to save settings:', error);
-            }
-          );
+            });
         }
-        return updated;
+        return updatedWithUnitId;
       });
     },
     [canManage, activeUnitIds, weekStartDateStr]
@@ -2657,177 +2829,183 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
   const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (!tableRef.current) {
-      reject(new Error('Table ref not found'));
-      return;
-    }
+    return new Promise((resolve, reject) => {
+      setIsPngExportRenderMode(true);
+      setPngHideEmptyUsers(hideEmptyUsers);
+      setIsPngExporting(true);
 
-    setIsPngExporting(true);
-
-    // Offscreen konténer – csak háttér + padding
-    const exportContainer = document.createElement('div');
-    Object.assign(exportContainer.style, {
-      position: 'absolute',
-      left: '-9999px',
-      top: '0',
-      backgroundColor: '#ffffff',
-      padding: '20px',
-      display: 'inline-block',
-      overflow: 'hidden'
-    } as CSSStyleDeclaration);
-
-    // Teljes tábla klónozása – minden Tailwind osztály megmarad
-    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
-    exportContainer.appendChild(tableClone);
-    document.body.appendChild(exportContainer);
-
-    // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
-    tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
-
-    tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
-      el.style.whiteSpace = 'pre-wrap';
-      el.style.maxWidth = 'none';
-      el.style.overflow = 'visible';
-      el.style.textOverflow = 'unset';
-    });
-
-    const dayHeaderTextColor = getContrastingTextColor(
-      exportSettings.dayHeaderBgColor
-    );
-    const nameHeaderTextColor = getContrastingTextColor(
-      exportSettings.nameColumnColor
-    );
-
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('thead th')
-      .forEach((th, idx) => {
-        const isNameHeader = idx === 0;
-        const bg = isNameHeader
-          ? exportSettings.nameColumnColor
-          : exportSettings.dayHeaderBgColor;
-        th.style.background = bg;
-        th.style.color = isNameHeader
-          ? nameHeaderTextColor
-          : dayHeaderTextColor;
-      });
-
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
-      .forEach(td => {
-        td.style.background = exportSettings.categoryHeaderBgColor;
-        td.style.color = exportSettings.categoryHeaderTextColor;
-      });
-
-    // 2) Üres dolgozók kiszedése exportból (ha be van pipálva)
-    if (hideEmptyUsers) {
-      tableClone.querySelectorAll('tbody tr').forEach(row => {
-        const isCategoryRow = row.querySelector('td[colSpan]');
-        const isSummaryRow = row.classList.contains('summary-row');
-        if (isCategoryRow || isSummaryRow) return;
-        if (row.classList.contains('no-shifts-week')) {
-          row.remove();
+      const runExport = () => {
+        if (!tableRef.current) {
+          setIsPngExportRenderMode(false);
+          setPngHideEmptyUsers(false);
+          setIsPngExporting(false);
+          reject(new Error('Table ref not found'));
+          return;
         }
-      });
-    }
 
-    // 3) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
-    tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-      el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
-      el.style.position = '';
-      el.style.left = '';
-      el.style.zIndex = '';
-    });
+        // Offscreen konténer – csak háttér + padding
+        const exportContainer = document.createElement('div');
+        Object.assign(exportContainer.style, {
+          position: 'absolute',
+          left: '-9999px',
+          top: '0',
+          backgroundColor: '#ffffff',
+          padding: '20px',
+          display: 'inline-block',
+          overflow: 'hidden'
+        } as CSSStyleDeclaration);
 
-    // 4) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
-    tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
-      const txt = (td.textContent || '').trim().toUpperCase();
-      if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
-        td.textContent = '';
-      }
-    });
+        // Teljes tábla klónozása – minden Tailwind osztály megmarad
+        const tableClone =
+          tableRef.current.cloneNode(true) as HTMLTableElement;
+        exportContainer.appendChild(tableClone);
+        document.body.appendChild(exportContainer);
 
-    // 5) Összesítő sor (Napi összes) kiszedése
-    tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+        // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
+        tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
-    // 6) Zebra csíkozás alkalmazása az exportált táblára
-    const zebraBase = exportSettings.zebraColor;
-    const zebraDelta = exportSettings.zebraStrength / 5;
-    const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-    const nameBase = exportSettings.nameColumnColor;
-    const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+        tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+          el.style.whiteSpace = 'pre-wrap';
+          el.style.maxWidth = 'none';
+          el.style.overflow = 'visible';
+          el.style.textOverflow = 'unset';
+        });
 
-    tableClone
-      .querySelectorAll<HTMLTableCellElement>('th, td')
-      .forEach(cell => {
-        cell.style.borderWidth = '0.5px';
-      });
+        const dayHeaderTextColor = getContrastingTextColor(
+          exportSettings.dayHeaderBgColor
+        );
+        const nameHeaderTextColor = getContrastingTextColor(
+          exportSettings.nameColumnColor
+        );
 
-    let dataRowIndex = 0;
-    tableClone.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
-      const isCategoryRow = row.querySelector('td[colSpan]');
-      const isSummaryRow = row.classList.contains('summary-row');
-      if (isCategoryRow || isSummaryRow) return;
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('thead th')
+          .forEach((th, idx) => {
+            const isNameHeader = idx === 0;
+            const bg = isNameHeader
+              ? exportSettings.nameColumnColor
+              : exportSettings.dayHeaderBgColor;
+            th.style.background = bg;
+            th.style.color = isNameHeader
+              ? nameHeaderTextColor
+              : dayHeaderTextColor;
+          });
 
-      const isAltRow = dataRowIndex % 2 === 1;
-      const rowBg = isAltRow ? zebraAlt : zebraBase;
-      const rowText = getContrastingTextColor(rowBg);
-      row.style.background = rowBg;
-      row.style.color = rowText;
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
+          .forEach(td => {
+            td.style.background = exportSettings.categoryHeaderBgColor;
+            td.style.color = exportSettings.categoryHeaderTextColor;
+          });
 
-      const nameCell = row.querySelector('td');
-      if (nameCell) {
-        const nameBg = isAltRow ? nameAlt : nameBase;
-        nameCell.style.background = nameBg;
-        nameCell.style.color = getContrastingTextColor(nameBg);
-      }
+        // 2) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
+        tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
+          el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
+          el.style.position = '';
+          el.style.left = '';
+          el.style.zIndex = '';
+        });
 
-      row.querySelectorAll<HTMLTableCellElement>('td:not(:first-child)').forEach(td => {
-        if (
-          !td.classList.contains('day-off-cell') &&
-          !td.classList.contains('leave-cell')
-        ) {
-          td.style.background = rowBg;
-          td.style.color = rowText;
-        }
-      });
+        // 3) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
+        tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
+          const txt = (td.textContent || '').trim().toUpperCase();
+          if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
+            td.textContent = '';
+          }
+        });
 
-      dataRowIndex += 1;
-    });
+        // 4) Összesítő sor (Napi összes) kiszedése
+        tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
-    // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
+        // 5) Zebra csíkozás alkalmazása az exportált táblára
+        const zebraBase = exportSettings.zebraColor;
+        const zebraDelta = exportSettings.zebraStrength / 5;
+        const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
+        const nameBase = exportSettings.nameColumnColor;
+        const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
 
-    html2canvas(exportContainer, {
-      useCORS: true,
-      scale: 2,
-      backgroundColor: '#ffffff'
-    })
-      .then(canvas => {
-        const link = document.createElement('a');
-        const weekStart = weekDays[0]
-          .toLocaleDateString('hu-HU', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
+        tableClone
+          .querySelectorAll<HTMLTableCellElement>('th, td')
+          .forEach(cell => {
+            cell.style.borderWidth = '0.5px';
+          });
+
+        let dataRowIndex = 0;
+        tableClone
+          .querySelectorAll<HTMLTableRowElement>('tbody tr')
+          .forEach(row => {
+            const isCategoryRow = row.querySelector('td[colSpan]');
+            const isSummaryRow = row.classList.contains('summary-row');
+            if (isCategoryRow || isSummaryRow) return;
+
+            const isAltRow = dataRowIndex % 2 === 1;
+            const rowBg = isAltRow ? zebraAlt : zebraBase;
+            const rowText = getContrastingTextColor(rowBg);
+            row.style.background = rowBg;
+            row.style.color = rowText;
+
+            const nameCell = row.querySelector('td');
+            if (nameCell) {
+              const nameBg = isAltRow ? nameAlt : nameBase;
+              nameCell.style.background = nameBg;
+              nameCell.style.color = getContrastingTextColor(nameBg);
+            }
+
+            row
+              .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
+              .forEach(td => {
+                if (
+                  !td.classList.contains('day-off-cell') &&
+                  !td.classList.contains('leave-cell')
+                ) {
+                  td.style.background = rowBg;
+                  td.style.color = rowText;
+                }
+              });
+
+            dataRowIndex += 1;
+          });
+
+        // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
+
+        html2canvas(exportContainer, {
+          useCORS: true,
+          scale: 2,
+          backgroundColor: '#ffffff'
+        })
+          .then(canvas => {
+            const link = document.createElement('a');
+            const weekStart = weekDays[0]
+              .toLocaleDateString('hu-HU', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+              })
+              .replace(/\.\s/g, '-')
+              .replace('.', '');
+            link.download = `beosztas_${weekStart}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            resolve();
           })
-          .replace(/\.\s/g, '-')
-          .replace('.', '');
-        link.download = `beosztas_${weekStart}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        resolve();
-      })
-      .catch(err => {
-        console.error('PNG export failed:', err);
-        alert('Hiba történt a PNG exportálás során.');
-        reject(err);
-      })
-      .finally(() => {
-        document.body.removeChild(exportContainer);
-        setIsPngExporting(false);
-      });
-  });
-};
+          .catch(err => {
+            console.error('PNG export failed:', err);
+            alert('Hiba történt a PNG exportálás során.');
+            reject(err);
+          })
+          .finally(() => {
+            document.body.removeChild(exportContainer);
+            setIsPngExporting(false);
+            setIsPngExportRenderMode(false);
+            setPngHideEmptyUsers(false);
+          });
+      };
+
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => setTimeout(runExport, 0))
+      );
+    });
+  };
 
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
@@ -3393,33 +3571,63 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       )}
 
       {isSelectionMode && selectedCellKeys.size > 0 && (
-        <div className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg">
+        <div
+          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
+          style={{
+            maxWidth: 'calc(100vw - 16px)',
+            maxHeight: 'calc(100vh - 16px)'
+          }}
+        >
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
           >
             Kezdő idő
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
           >
             Vég idő
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={handleBulkDayOff}
           >
             Szabadnap
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={activeUnitIds.length !== 1}
+            title={
+              activeUnitIds.length !== 1
+                ? 'Csak egy egység esetén érhető el'
+                : undefined
+            }
+            onClick={() => applyHighlightToSelection()}
+          >
+            Kiemelés
+          </button>
+          <button
+            className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={activeUnitIds.length !== 1}
+            title={
+              activeUnitIds.length !== 1
+                ? 'Csak egy egység esetén érhető el'
+                : undefined
+            }
+            onClick={() => applyHighlightToSelection(false)}
+          >
+            Kiemelés törlése
+          </button>
+          <button
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={handleBulkClearCells}
           >
             Törlés
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setSelectedCellKeys(new Set())}
           >
             Kijelölés megszüntetése
@@ -3574,7 +3782,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       ? unitMap.get(userUnitId)
                       : undefined;
                     const weeklyHours = workHours.userTotals[user.id] || 0;
-                    const isEmptyWeek = weeklyHours === 0;
+                    if (
+                      isPngExportRenderMode &&
+                      pngHideEmptyUsers &&
+                      weeklyHours <= 0.01
+                    ) {
+                      return null;
+                    }
+                    const isEmptyWeek = weeklyHours <= 0.01;
 
                     const isAltRow = zebraRowIndex % 2 === 1;
                     const rowBg = isAltRow
@@ -3591,6 +3806,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                     return (
                       <tr
                         key={user.id}
+                        data-user-id={user.id}
                         className={isEmptyWeek ? 'no-shifts-week' : ''}
                         style={{ background: rowBg }}
                       >
@@ -3721,6 +3937,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const canEditCell = canManage || user.id === currentUser.id;
                           const hasContent = displayParts.length > 0;
                           const hasNote = !!shiftNote;
+                          const highlightedShift =
+                            activeUnitIds.length === 1
+                              ? userDayShifts.find(
+                                  s =>
+                                    s.unitId === activeUnitIds[0] &&
+                                    s.isHighlighted
+                                )
+                              : userDayShifts.find(
+                                  s =>
+                                    s.unitId &&
+                                    activeUnitIds.includes(s.unitId) &&
+                                    s.isHighlighted
+                                );
+                          const isHighlightedCell = !!highlightedShift?.isHighlighted;
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -3739,6 +3969,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const cellDataKey = `${user.id}-${dayKey}`;
                           const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
 
+                          const baseCellStyle: CSSProperties = {};
+                          if (!isDayOff && !isLeave) {
+                            baseCellStyle.background = rowBg;
+                            baseCellStyle.color = rowTextColor;
+                          }
+
+                          if (isHighlightedCell) {
+                            if (isDayOff || isLeave) {
+                              baseCellStyle.boxShadow =
+                                '0 0 0 2px rgba(249, 115, 22, 0.65) inset';
+                            } else {
+                              baseCellStyle.background = '#ffedd5';
+                              baseCellStyle.color = '#7c2d12';
+                              baseCellStyle.boxShadow =
+                                '0 0 0 2px rgba(249, 115, 22, 0.4) inset';
+                            }
+                          }
+
+                          const cellStyle =
+                            Object.keys(baseCellStyle).length > 0
+                              ? baseCellStyle
+                              : undefined;
+
                           return (
                             <td
                               key={dayIndex}
@@ -3755,11 +4008,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 }
                               }}
                               className={cellClasses}
-                              style={
-                                !isDayOff && !isLeave
-                                  ? { background: rowBg, color: rowTextColor }
-                                  : undefined
-                              }
+                              style={cellStyle}
                               onClick={() =>
                                 handleCellInteraction(
                                   cellUiKey,
