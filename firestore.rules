@@ -549,6 +549,27 @@ service cloud.firestore {
       allow read, write: if isSelf(userId) || isAdmin();
     }
 
+    // --- temporary_users ---
+    match /temporary_users/{tempId} {
+      allow create: if (isAdmin() || isUnitAdmin() || isUnitLeader())
+        && request.resource.data.unitId != null
+        && (hasUnit(request.resource.data.unitId)
+          || canManageUnit(request.resource.data.unitId))
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.position is string
+        && request.resource.data.position.size() > 0
+        && request.resource.data.unitId is string
+        && request.resource.data.active == true
+        && request.resource.data.isTemporary == true;
+
+      allow read: if isSignedIn()
+        && canViewUnit(resource.data.unitId);
+
+      allow update, delete: if (canManageUnit(resource.data.unitId)
+        || (isUnitLeader() && hasUnit(resource.data.unitId)));
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if false;
