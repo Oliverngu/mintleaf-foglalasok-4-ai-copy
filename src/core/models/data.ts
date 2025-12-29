@@ -159,11 +159,13 @@ export interface Shift {
   userName: string;
   unitId?: string;
   position: string;
-  start: Timestamp;
+  start?: Timestamp | null;
   end?: Timestamp | null;
   note?: string;
   status: 'draft' | 'published';
   isDayOff?: boolean;
+  isHighlighted?: boolean;
+  dayKey?: string;
 }
 
 export interface TimeEntry {
