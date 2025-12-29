@@ -1672,6 +1672,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [selectedCellKeys, scheduleOverlayRecalc, isSelectionMode]);
 
   useEffect(() => {
+    if (!isSelectionMode) return;
+    setSelectedCellKeys(new Set());
+    setSelectionOverlays([]);
+    setBulkTimeModal(null);
+  }, [currentDate, activeUnitIds, visiblePositionOrder, isSelectionMode]);
+
+  useEffect(() => {
     const wrapper = tableWrapperRef.current;
     if (!wrapper) return undefined;
 
@@ -2292,6 +2299,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return new Date(year, (month || 1) - 1, day || 1, 0, 0, 0, 0);
   }, []);
 
+  const parseSelectionKey = useCallback(
+    (selectionKey: string) => {
+      const [dataKey] = selectionKey.split('#');
+      const dayKey = dataKey.slice(-10);
+      const userId = dataKey.slice(0, dataKey.length - 11);
+      return { dataKey, dayKey, userId };
+    },
+    []
+  );
+
   const handleBulkSetTime = useCallback(
     async (type: 'start' | 'end', value: string) => {
       if (!value) {
@@ -2318,8 +2335,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       let skippedEndWithoutStart = 0;
 
       selectedCellKeys.forEach(cellKey => {
-        const dayKey = cellKey.slice(-10);
-        const userId = cellKey.slice(0, cellKey.length - 11);
+        const { dayKey, userId } = parseSelectionKey(cellKey);
 
         if (!dayKey || !userId) return;
         if (!(canManage || currentUser.id === userId)) return;
@@ -2412,6 +2428,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       canManage,
       currentUser.id,
       parseDayKeyToDate,
+      parseSelectionKey,
       selectedCellKeys,
       shiftsByUserDay,
       userById,
@@ -2429,8 +2446,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     let skippedLegacyOrOtherUnit = 0;
 
     selectedCellKeys.forEach(cellKey => {
-      const dayKey = cellKey.slice(-10);
-      const userId = cellKey.slice(0, cellKey.length - 11);
+      const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
       if (!(canManage || currentUser.id === userId)) return;
 
@@ -2492,6 +2508,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     canManage,
     currentUser.id,
     parseDayKeyToDate,
+    parseSelectionKey,
     selectedCellKeys,
     shiftsByUserDay,
     userById,
@@ -2504,8 +2521,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     let skippedLegacyOrOtherUnit = 0;
 
     selectedCellKeys.forEach(cellKey => {
-      const dayKey = cellKey.slice(-10);
-      const userId = cellKey.slice(0, cellKey.length - 11);
+      const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
       if (!(canManage || currentUser.id === userId)) return;
 
@@ -2537,6 +2553,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     activeUnitIds,
     canManage,
     currentUser.id,
+    parseSelectionKey,
     selectedCellKeys,
     shiftsByUserDay,
     viewMode,
@@ -2551,8 +2568,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     let skippedLegacyOrOtherUnit = 0;
 
     selectedCellKeys.forEach(cellKey => {
-      const dayKey = cellKey.slice(-10);
-      const userId = cellKey.slice(0, cellKey.length - 11);
+      const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
       if (!(canManage || currentUser.id === userId)) return;
 
@@ -2581,6 +2597,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     activeUnitIds,
     canManage,
     currentUser.id,
+    parseSelectionKey,
     selectedCellKeys,
     shiftsByUserDay,
   ]);
@@ -3719,21 +3736,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             cellClasses += ' text-slate-400';
                           }
 
-                          const cellKey = `${user.id}-${dayKey}`;
+                          const cellDataKey = `${user.id}-${dayKey}`;
+                          const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
 
                           return (
                             <td
                               key={dayIndex}
                               ref={node => {
                                 if (node) {
-                                  cellRefs.current.set(cellKey, node);
-                                  cellMetaRef.current.set(cellKey, {
+                                  cellRefs.current.set(cellUiKey, node);
+                                  cellMetaRef.current.set(cellUiKey, {
                                     row: currentRowIndex,
                                     col: dayIndex,
                                   });
                                 } else {
-                                  cellRefs.current.delete(cellKey);
-                                  cellMetaRef.current.delete(cellKey);
+                                  cellRefs.current.delete(cellUiKey);
+                                  cellMetaRef.current.delete(cellUiKey);
                                 }
                               }}
                               className={cellClasses}
@@ -3744,7 +3762,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               }
                               onClick={() =>
                                 handleCellInteraction(
-                                  cellKey,
+                                  cellUiKey,
                                   canEditCell,
                                   userDayShifts,
                                   user.id,
