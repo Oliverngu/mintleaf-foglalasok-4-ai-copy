@@ -59,8 +59,9 @@ const calculateShiftDuration = (
 ): number => {
   if (shift.isDayOff || !shift.start) return 0;
 
+  const startDate = shift.start.toDate();
   let end = shift.end?.toDate();
-  const referenceDate = options?.referenceDate || shift.start.toDate();
+  const referenceDate = options?.referenceDate || startDate;
 
   if (!end && referenceDate) {
     const closingTime = options?.closingTime;
@@ -75,7 +76,6 @@ const calculateShiftDuration = (
       0
     );
 
-    const startDate = shift.start.toDate();
     if (end < startDate) {
       end.setDate(end.getDate() + 1);
     }
@@ -83,7 +83,7 @@ const calculateShiftDuration = (
 
   if (!end) return 0;
 
-  const durationMs = end.getTime() - shift.start.toDate().getTime();
+  const durationMs = end.getTime() - startDate.getTime();
   return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
 };
 
@@ -1802,7 +1802,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               doc(db, 'schedule_settings', settingsId)
             );
             if (snap.exists()) {
-              return snap.data() as ScheduleSettings;
+              const data = snap.data() as ScheduleSettings;
+              return data.unitId ? data : { ...data, unitId };
             }
             return createDefaultSettings(unitId, weekStartDateStr);
           } catch (error) {
@@ -1969,7 +1970,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       doc(db, 'schedule_settings', settingsId),
       docSnap => {
         if (docSnap.exists()) {
-          setWeekSettings(docSnap.data() as ScheduleSettings);
+          const data = docSnap.data() as ScheduleSettings;
+          setWeekSettings(
+            data.unitId ? data : { ...data, unitId, id: settingsId }
+          );
         } else {
           setWeekSettings(
             createDefaultSettings(unitId, weekStartDateStr)
@@ -2011,13 +2015,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const map = new Map<string, Map<string, Shift[]>>();
     orderedUsers.forEach(user => map.set(user.id, new Map()));
     activeShifts.forEach(shift => {
-      if (shift.start) {
-        const userShifts = map.get(shift.userId);
-        if (userShifts) {
-          const dayKey = toDateString(shift.start.toDate());
-          if (!userShifts.has(dayKey)) userShifts.set(dayKey, []);
-          userShifts.get(dayKey)!.push(shift);
-        }
+      const userShifts = map.get(shift.userId);
+      const dayKey = shift.start
+        ? toDateString(shift.start.toDate())
+        : shift.dayKey;
+      if (userShifts && dayKey) {
+        if (!userShifts.has(dayKey)) userShifts.set(dayKey, []);
+        userShifts.get(dayKey)!.push(shift);
       }
     });
     return map;
@@ -2634,12 +2638,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!unitId) return;
 
       const targetShifts: Shift[] = [];
+      const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
+        = [];
       let skippedLegacyOrOtherUnit = 0;
 
       selectedCellKeys.forEach(cellKey => {
         const { dayKey, userId } = parseSelectionKey(cellKey);
         if (!dayKey || !userId) return;
         if (!(canManage || currentUser.id === userId)) return;
+
+        const user = userById.get(userId) || null;
+        if (!user) return;
 
         const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
         const existingShift =
@@ -2648,19 +2657,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (!existingShift) {
           if (userDayShifts.length > 0) {
             skippedLegacyOrOtherUnit += 1;
+            return;
           }
-          return;
         }
 
-        targetShifts.push(existingShift);
+        if (existingShift) {
+          targetShifts.push(existingShift);
+        }
+        targetCells.push({ dayKey, userId, user, shift: existingShift });
       });
-
-      if (targetShifts.length === 0) return;
 
       const shouldHighlight =
         forceValue !== undefined
           ? forceValue
-          : !targetShifts.every(shift => shift.isHighlighted === true);
+          : targetShifts.length === 0
+            ? true
+            : !targetShifts.every(shift => shift.isHighlighted === true);
 
       let batch = writeBatch(db);
       let writeCount = 0;
@@ -2669,6 +2681,32 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         batch.update(doc(db, 'shifts', shift.id), {
           isHighlighted: shouldHighlight,
           status: viewMode,
+        });
+        writeCount += 1;
+        if (writeCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(db);
+          writeCount = 0;
+        }
+      }
+
+      for (const cell of targetCells) {
+        if (cell.shift || !shouldHighlight || !cell.user) continue;
+
+        const newRef = doc(collection(db, 'shifts'));
+        const dayStart = parseDayKeyToDate(cell.dayKey);
+        batch.set(newRef, {
+          userId: cell.user.id,
+          userName: cell.user.fullName,
+          position: cell.user.position || 'N/A',
+          unitId,
+          status: viewMode,
+          start: null,
+          end: null,
+          isDayOff: false,
+          note: '',
+          isHighlighted: true,
+          dayKey: toDateString(dayStart)
         });
         writeCount += 1;
         if (writeCount >= 450) {
@@ -2690,9 +2728,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       activeUnitIds,
       canManage,
       currentUser.id,
+      parseDayKeyToDate,
       parseSelectionKey,
       selectedCellKeys,
       shiftsByUserDay,
+      userById,
       viewMode,
     ]
   );
@@ -3501,45 +3541,60 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       )}
 
       {isSelectionMode && selectedCellKeys.size > 0 && (
-        <div className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg">
+        <div
+          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg"
+          style={{ maxWidth: 'calc(100vw - 16px)' }}
+        >
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
           >
             Kezdő idő
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
           >
             Vég idő
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={handleBulkDayOff}
           >
             Szabadnap
           </button>
           <button
-            className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200"
+            className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={activeUnitIds.length !== 1}
+            title={
+              activeUnitIds.length !== 1
+                ? 'Csak egy egység esetén érhető el'
+                : undefined
+            }
             onClick={() => applyHighlightToSelection()}
           >
             Kiemelés
           </button>
           <button
-            className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100"
+            className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={activeUnitIds.length !== 1}
+            title={
+              activeUnitIds.length !== 1
+                ? 'Csak egy egység esetén érhető el'
+                : undefined
+            }
             onClick={() => applyHighlightToSelection(false)}
           >
             Kiemelés törlése
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={handleBulkClearCells}
           >
             Törlés
           </button>
           <button
-            className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
+            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
             onClick={() => setSelectedCellKeys(new Set())}
           >
             Kijelölés megszüntetése

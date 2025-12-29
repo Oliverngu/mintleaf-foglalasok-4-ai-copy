@@ -516,8 +516,11 @@ service cloud.firestore {
     }
 
     match /schedule_settings/{settingsId} {
-      allow read: if resource.data.unitId != null
-        && canViewUnit(resource.data.unitId);
+      allow read: if isSignedIn()
+        && (
+          (resource.data.unitId != null && canViewUnit(resource.data.unitId))
+          || resource.data.unitId == null
+        );
 
       allow create: if request.resource.data.unitId != null
         && (
