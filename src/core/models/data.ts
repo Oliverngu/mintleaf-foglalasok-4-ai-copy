@@ -51,6 +51,11 @@ export interface User {
     newSchedule?: boolean;
   };
   registrationEmailSent?: boolean;
+  isTemporary?: boolean;
+  createdAt?: Timestamp;
+  createdBy?: string;
+  active?: boolean;
+  sourceId?: string;
 }
 
 export interface Request {
