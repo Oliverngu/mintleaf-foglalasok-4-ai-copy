@@ -29,7 +29,8 @@ import {
   deleteDoc,
   setDoc,
   query,
-  getDoc
+  getDoc,
+  where
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PencilIcon from '../../../../components/icons/PencilIcon';
@@ -1379,7 +1380,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
+  const [baseUsers, setBaseUsers] = useState<User[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [temporaryUsers, setTemporaryUsers] = useState<User[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
@@ -1421,6 +1424,25 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   >(null);
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isTemporaryEmployeeModalOpen, setIsTemporaryEmployeeModalOpen] =
+    useState(false);
+  const [temporaryEmployeeForm, setTemporaryEmployeeForm] = useState({
+    fullName: '',
+    position: '',
+    unitId: ''
+  });
+  const [temporaryEmployeeErrors, setTemporaryEmployeeErrors] = useState<{
+    fullName?: string;
+    position?: string;
+    unitId?: string;
+  }>({});
+  const [isSavingTemporaryEmployee, setIsSavingTemporaryEmployee] =
+    useState(false);
+  const activeUnitIdsRef = useRef(activeUnitIds);
+
+  useEffect(() => {
+    activeUnitIdsRef.current = activeUnitIds;
+  }, [activeUnitIds]);
 
   const userById = useMemo(() => {
     const map = new Map<string, User>();
@@ -1694,6 +1716,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [selectedCellKeys, scheduleOverlayRecalc, isSelectionMode]);
 
   useEffect(() => {
+    if (!isTemporaryEmployeeModalOpen) return;
+
+    if (activeUnitIds.length === 1) {
+      setTemporaryEmployeeForm(prev => ({
+        ...prev,
+        unitId: activeUnitIds[0]
+      }));
+    }
+  }, [activeUnitIds, isTemporaryEmployeeModalOpen]);
+
+  useEffect(() => {
     const wrapper = tableWrapperRef.current;
     if (!wrapper) return undefined;
 
@@ -1724,7 +1757,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
-      setAllAppUsers(
+      setBaseUsers(
         snapshot.docs.map(docSnap => {
           const data = docSnap.data() as any;
           const lastName = data.lastName || '';
@@ -1758,6 +1791,115 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       unsubPositions();
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeUnitIds || activeUnitIds.length === 0) {
+      setTemporaryUsers([]);
+      return;
+    }
+
+    const unitIds = [...activeUnitIds];
+    const unsubscribers: (() => void)[] = [];
+    const unitDocMap = new Map<string, Set<string>>();
+    const tempUserMap = new Map<string, User>();
+
+    setTemporaryUsers([]);
+
+    const updateState = () => {
+      setTemporaryUsers(Array.from(tempUserMap.values()));
+    };
+
+    if (unitIds.length <= 10) {
+      const tempUsersQuery = query(
+        collection(db, 'temporary_users'),
+        where('active', '==', true),
+        where('unitId', 'in', unitIds)
+      );
+
+      const unsub = onSnapshot(tempUsersQuery, snapshot => {
+        setTemporaryUsers(
+          snapshot.docs.map(docSnap => {
+            const data = docSnap.data() as any;
+            const unitId = data.unitId as string | undefined;
+            return {
+              id: `tmp_${docSnap.id}`,
+              sourceId: docSnap.id,
+              fullName: data.fullName || '',
+              position: data.position || '',
+              unitIds: unitId ? [unitId] : [],
+              isTemporary: true,
+              active: true
+            } as User;
+          })
+        );
+      });
+
+      unsubscribers.push(unsub);
+    } else {
+      console.warn(
+        'More than 10 active units, using multiple listeners for temporary users'
+      );
+
+      unitIds.forEach(unitId => {
+        const tempUsersQuery = query(
+          collection(db, 'temporary_users'),
+          where('active', '==', true),
+          where('unitId', '==', unitId)
+        );
+
+        const unsub = onSnapshot(tempUsersQuery, snapshot => {
+          const currentIds = new Set<string>();
+
+          snapshot.docs.forEach(docSnap => {
+            const data = docSnap.data() as any;
+            const mapped: User = {
+              id: `tmp_${docSnap.id}`,
+              sourceId: docSnap.id,
+              fullName: data.fullName || '',
+              position: data.position || '',
+              unitIds: data.unitId ? [data.unitId] : [],
+              isTemporary: true,
+              active: true
+            };
+            const mappedId = `tmp_${docSnap.id}`;
+            currentIds.add(mappedId);
+            tempUserMap.set(mappedId, mapped);
+          });
+
+          const previousIds = unitDocMap.get(unitId);
+          if (previousIds) {
+            previousIds.forEach(id => {
+              if (!currentIds.has(id)) {
+                tempUserMap.delete(id);
+              }
+            });
+          }
+
+          unitDocMap.set(unitId, currentIds);
+          updateState();
+        });
+
+        unsubscribers.push(unsub);
+      });
+    }
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [activeUnitIds]);
+
+  useEffect(() => {
+    const merged = new Map<string, User>();
+    baseUsers.forEach(user => {
+      merged.set(user.id, user);
+    });
+
+    temporaryUsers.forEach(user => {
+      merged.set(user.id, user);
+    });
+
+    setAllAppUsers(Array.from(merged.values()));
+  }, [baseUsers, temporaryUsers]);
 
   useEffect(() => {
     if (weekSettings) {
@@ -2323,6 +2465,88 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return next;
     });
   }, []);
+
+  const openTemporaryEmployeeModal = useCallback(() => {
+    setTemporaryEmployeeErrors({});
+    setTemporaryEmployeeForm({
+      fullName: '',
+      position: '',
+      unitId:
+        activeUnitIdsRef.current.length === 1
+          ? activeUnitIdsRef.current[0]
+          : ''
+    });
+    setIsTemporaryEmployeeModalOpen(true);
+  }, []);
+
+  const closeTemporaryEmployeeModal = useCallback(() => {
+    if (!isSavingTemporaryEmployee) {
+      setIsTemporaryEmployeeModalOpen(false);
+    }
+  }, [isSavingTemporaryEmployee]);
+
+  const handleTemporaryEmployeeChange = useCallback(
+    (field: 'fullName' | 'position' | 'unitId', value: string) => {
+      setTemporaryEmployeeForm(prev => ({ ...prev, [field]: value }));
+      setTemporaryEmployeeErrors(prev => ({ ...prev, [field]: undefined }));
+    },
+    []
+  );
+
+  const handleSaveTemporaryEmployee = useCallback(async () => {
+    const trimmedName = temporaryEmployeeForm.fullName.trim();
+    const targetUnitId =
+      activeUnitIds.length === 1
+        ? activeUnitIds[0]
+        : temporaryEmployeeForm.unitId;
+
+    const errors: {
+      fullName?: string;
+      position?: string;
+      unitId?: string;
+    } = {};
+
+    if (!trimmedName) errors.fullName = 'Kötelező mező';
+    if (!temporaryEmployeeForm.position) errors.position = 'Kötelező mező';
+    if (activeUnitIds.length > 1 && !temporaryEmployeeForm.unitId) {
+      errors.unitId = 'Kötelező mező';
+    }
+    if (targetUnitId && !activeUnitIds.includes(targetUnitId)) {
+      errors.unitId = 'Érvénytelen egység';
+    }
+
+    setTemporaryEmployeeErrors(errors);
+
+    if (Object.keys(errors).length > 0 || !targetUnitId) {
+      return;
+    }
+
+    setIsSavingTemporaryEmployee(true);
+
+    try {
+      await addDoc(collection(db, 'temporary_users'), {
+        fullName: trimmedName,
+        position: temporaryEmployeeForm.position,
+        unitId: targetUnitId,
+        isTemporary: true,
+        active: true,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.id
+      });
+      setIsTemporaryEmployeeModalOpen(false);
+      setTemporaryEmployeeForm({ fullName: '', position: '', unitId: '' });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsSavingTemporaryEmployee(false);
+    }
+  }, [
+    activeUnitIds,
+    currentUser.id,
+    temporaryEmployeeForm.fullName,
+    temporaryEmployeeForm.position,
+    temporaryEmployeeForm.unitId
+  ]);
 
   const parseDayKeyToDate = useCallback((dayKey: string) => {
     const [year, month, day] = dayKey.split('-').map(Number);
@@ -3162,6 +3386,127 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         canManage={canManage}
       />
 
+      {isTemporaryEmployeeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={closeTemporaryEmployeeModal}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Ideiglenes alkalmazott hozzáadása
+              </h3>
+              <button
+                onClick={closeTemporaryEmployeeModal}
+                disabled={isSavingTemporaryEmployee}
+                className="text-gray-500 transition-colors hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Bezárás"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Teljes név
+                </label>
+                <input
+                  type="text"
+                  value={temporaryEmployeeForm.fullName}
+                  onChange={e =>
+                    handleTemporaryEmployeeChange('fullName', e.target.value)
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  placeholder="Add meg a teljes nevet"
+                />
+                {temporaryEmployeeErrors.fullName && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {temporaryEmployeeErrors.fullName}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Pozíció
+                </label>
+                <select
+                  value={temporaryEmployeeForm.position}
+                  onChange={e =>
+                    handleTemporaryEmployeeChange('position', e.target.value)
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">Válassz pozíciót</option>
+                  {positions.map(pos => (
+                    <option key={pos.id} value={pos.name}>
+                      {pos.name}
+                    </option>
+                  ))}
+                </select>
+                {temporaryEmployeeErrors.position && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {temporaryEmployeeErrors.position}
+                  </p>
+                )}
+              </div>
+
+              {activeUnitIds.length > 1 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Egység
+                  </label>
+                  <select
+                    value={temporaryEmployeeForm.unitId}
+                    onChange={e =>
+                      handleTemporaryEmployeeChange('unitId', e.target.value)
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Válassz egységet</option>
+                    {activeUnitIds.map(unitId => {
+                      const unit = unitMap.get(unitId);
+                      return (
+                        <option key={unitId} value={unitId}>
+                          {unit?.name || 'Ismeretlen egység'}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {temporaryEmployeeErrors.unitId && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {temporaryEmployeeErrors.unitId}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2 text-sm">
+              <button
+                onClick={closeTemporaryEmployeeModal}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-gray-700 transition-colors hover:bg-gray-100"
+                disabled={isSavingTemporaryEmployee}
+              >
+                Mégse
+              </button>
+              <button
+                onClick={handleSaveTemporaryEmployee}
+                disabled={isSavingTemporaryEmployee || !canManage}
+                className="rounded-lg px-3 py-1.5 text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
+                style={{ backgroundColor: 'var(--color-primary)' }}
+              >
+                {isSavingTemporaryEmployee ? 'Hozzáadás...' : 'Hozzáadás'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPublishModalOpen && (
         <PublishWeekModal
           units={unitsWithDrafts}
@@ -3566,6 +3911,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             >
               Cella kijelölése
             </button>
+            {isEditMode && (
+              <button
+                onClick={openTemporaryEmployeeModal}
+                disabled={!canManage}
+                className="flex items-center gap-2 text-sm px-3 py-1 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  backgroundColor: isTemporaryEmployeeModalOpen
+                    ? 'var(--color-primary)'
+                    : 'var(--color-surface-static)',
+                  color: isTemporaryEmployeeModalOpen
+                    ? '#fff'
+                    : 'var(--color-text-main)',
+                  borderColor: isTemporaryEmployeeModalOpen
+                    ? 'var(--color-primary)'
+                    : 'var(--color-border)'
+                }}
+              >
+                <PlusIcon className="h-4 w-4" />
+                Ideiglenes alkalmazott hozzáadása
+              </button>
+            )}
           </div>
         </div>
       )}
