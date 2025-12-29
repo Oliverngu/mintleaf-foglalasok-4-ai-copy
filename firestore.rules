@@ -551,10 +551,13 @@ service cloud.firestore {
 
     // --- temporary_users ---
     match /temporary_users/{tempId} {
-      allow create: if (isAdmin() || isUnitAdmin() || isUnitLeader())
-        && request.resource.data.unitId != null
-        && (hasUnit(request.resource.data.unitId)
-          || canManageUnit(request.resource.data.unitId))
+      allow create: if request.resource.data.unitId != null
+        && (
+          let unitId = request.resource.data.unitId;
+          isAdmin()
+            || (isUnitAdmin() && hasUnit(unitId))
+            || (isUnitLeader() && hasUnit(unitId))
+        )
         && request.resource.data.fullName is string
         && request.resource.data.fullName.size() > 0
         && request.resource.data.position is string
@@ -564,10 +567,12 @@ service cloud.firestore {
         && request.resource.data.isTemporary == true;
 
       allow read: if isSignedIn()
+        && resource.data.unitId != null
         && canViewUnit(resource.data.unitId);
 
-      allow update, delete: if (canManageUnit(resource.data.unitId)
-        || (isUnitLeader() && hasUnit(resource.data.unitId)));
+      allow update, delete: if resource.data.unitId != null
+        && (canManageUnit(resource.data.unitId)
+          || (isUnitLeader() && hasUnit(resource.data.unitId)));
     }
 
     // Catch-all
