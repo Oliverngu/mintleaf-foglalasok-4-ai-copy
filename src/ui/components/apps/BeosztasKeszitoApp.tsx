@@ -1672,13 +1672,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [selectedCellKeys, scheduleOverlayRecalc, isSelectionMode]);
 
   useEffect(() => {
-    if (!isSelectionMode) return;
-    setSelectedCellKeys(new Set());
-    setSelectionOverlays([]);
-    setBulkTimeModal(null);
-  }, [currentDate, activeUnitIds, visiblePositionOrder, isSelectionMode]);
-
-  useEffect(() => {
     const wrapper = tableWrapperRef.current;
     if (!wrapper) return undefined;
 
@@ -2094,6 +2087,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         visibleUsersByPosition[pos].length > 0
     );
   }, [orderedUsers, visibleUsersByPosition]);
+
+  useEffect(() => {
+    if (!isSelectionMode) return;
+    setSelectedCellKeys(new Set());
+    setSelectionOverlays([]);
+    setBulkTimeModal(null);
+  }, [currentDate, activeUnitIds, visiblePositionOrder, isSelectionMode]);
 
   const hiddenUsers = useMemo(
     () =>
