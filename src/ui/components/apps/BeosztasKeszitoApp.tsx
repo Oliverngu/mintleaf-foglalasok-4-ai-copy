@@ -2016,9 +2016,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     orderedUsers.forEach(user => map.set(user.id, new Map()));
     activeShifts.forEach(shift => {
       const userShifts = map.get(shift.userId);
-      const dayKey = shift.start
-        ? toDateString(shift.start.toDate())
-        : shift.dayKey;
+      let dayKey: string | undefined;
+      if (shift.start) {
+        dayKey = toDateString(shift.start.toDate());
+      } else if (shift.dayKey) {
+        dayKey = shift.dayKey;
+      }
+
       if (userShifts && dayKey) {
         if (!userShifts.has(dayKey)) userShifts.set(dayKey, []);
         userShifts.get(dayKey)!.push(shift);
@@ -2454,7 +2458,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       activeUnitIds,
       canManage,
       currentUser.id,
-      parseDayKeyToDate,
       parseSelectionKey,
       selectedCellKeys,
       shiftsByUserDay,
@@ -2619,7 +2622,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     if (skippedLegacyOrOtherUnit > 0) {
-      console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+    console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
   }, [
     activeUnitIds,
@@ -2629,6 +2632,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     selectedCellKeys,
     shiftsByUserDay,
   ]);
+
+  const isHighlightOnlyShift = (shift: Shift): boolean =>
+    !shift.start &&
+    !shift.end &&
+    !shift.isDayOff &&
+    (shift.note ?? '') === '' &&
+    !!shift.dayKey;
 
   const applyHighlightToSelection = useCallback(
     async (forceValue?: boolean) => {
@@ -2678,10 +2688,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       let writeCount = 0;
 
       for (const shift of targetShifts) {
-        batch.update(doc(db, 'shifts', shift.id), {
-          isHighlighted: shouldHighlight,
-          status: viewMode,
-        });
+        const shiftRef = doc(db, 'shifts', shift.id);
+        if (shouldHighlight) {
+          batch.update(shiftRef, {
+            isHighlighted: true,
+            status: viewMode,
+          });
+        } else if (isHighlightOnlyShift(shift)) {
+          batch.delete(shiftRef);
+        } else {
+          batch.update(shiftRef, {
+            isHighlighted: false,
+            status: viewMode,
+          });
+        }
         writeCount += 1;
         if (writeCount >= 450) {
           await batch.commit();
@@ -2694,19 +2714,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (cell.shift || !shouldHighlight || !cell.user) continue;
 
         const newRef = doc(collection(db, 'shifts'));
-        const dayStart = parseDayKeyToDate(cell.dayKey);
         batch.set(newRef, {
           userId: cell.user.id,
           userName: cell.user.fullName,
           position: cell.user.position || 'N/A',
           unitId,
           status: viewMode,
-          start: null,
-          end: null,
           isDayOff: false,
           note: '',
           isHighlighted: true,
-          dayKey: toDateString(dayStart)
+          dayKey: cell.dayKey,
         });
         writeCount += 1;
         if (writeCount >= 450) {
@@ -2728,7 +2745,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       activeUnitIds,
       canManage,
       currentUser.id,
-      parseDayKeyToDate,
       parseSelectionKey,
       selectedCellKeys,
       shiftsByUserDay,
@@ -2784,14 +2800,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           );
 
         const updated = updater(baseSettings);
+        const updatedWithUnitId = {
+          ...updated,
+          unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
+        };
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updated.id), updated).catch(
-            error => {
+          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
+            .catch(error => {
               console.error('Failed to save settings:', error);
-            }
-          );
+            });
         }
-        return updated;
+        return updatedWithUnitId;
       });
     },
     [canManage, activeUnitIds, weekStartDateStr]
@@ -3542,8 +3561,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {isSelectionMode && selectedCellKeys.size > 0 && (
         <div
-          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg"
-          style={{ maxWidth: 'calc(100vw - 16px)' }}
+          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
+          style={{
+            maxWidth: 'calc(100vw - 16px)',
+            maxHeight: 'calc(100vh - 16px)'
+          }}
         >
           <button
             className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"

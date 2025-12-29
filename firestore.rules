@@ -517,10 +517,12 @@ service cloud.firestore {
 
     match /schedule_settings/{settingsId} {
       allow read: if isSignedIn()
-        && (
-          (resource.data.unitId != null && canViewUnit(resource.data.unitId))
-          || resource.data.unitId == null
-        );
+        && ((resource.data != null && resource.data.unitId != null
+          && (canViewUnit(resource.data.unitId)
+            || (isUnitLeader() && hasUnit(resource.data.unitId))
+            || isAdmin()))
+          || resource.data == null
+          || (resource.data != null && resource.data.unitId == null));
 
       allow create: if request.resource.data.unitId != null
         && (
@@ -528,7 +530,13 @@ service cloud.firestore {
           || (isUnitLeader() && hasUnit(request.resource.data.unitId))
         );
 
-      allow update, delete: if resource.data.unitId != null
+      allow update: if request.resource.data.unitId != null
+        && (
+          canManageUnit(request.resource.data.unitId)
+          || (isUnitLeader() && hasUnit(request.resource.data.unitId))
+        );
+
+      allow delete: if resource.data.unitId != null
         && (
           canManageUnit(resource.data.unitId)
           || (isUnitLeader() && hasUnit(resource.data.unitId))
