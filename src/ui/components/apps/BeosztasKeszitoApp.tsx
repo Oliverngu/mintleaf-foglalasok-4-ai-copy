@@ -95,71 +95,11 @@ type SelectionRect = {
 
 type SelectionOverlay = SelectionRect & { id: string };
 
-const mergeTouchingRectangles = (rects: SelectionRect[]) => {
-  const epsilon = 0.5;
-
-  const shouldMerge = (a: SelectionRect, b: SelectionRect) => {
-    const aRight = a.left + a.width;
-    const aBottom = a.top + a.height;
-    const bRight = b.left + b.width;
-    const bBottom = b.top + b.height;
-
-    const overlapLenX = Math.min(aRight, bRight) - Math.max(a.left, b.left);
-    const overlapLenY = Math.min(aBottom, bBottom) - Math.max(a.top, b.top);
-
-    const overlapsX = overlapLenX > epsilon;
-    const overlapsY = overlapLenY > epsilon;
-
-    const touchesX =
-      Math.abs(aRight - b.left) <= epsilon || Math.abs(bRight - a.left) <= epsilon;
-    const touchesY =
-      Math.abs(aBottom - b.top) <= epsilon || Math.abs(bBottom - a.top) <= epsilon;
-
-    return (
-      (overlapsX && overlapsY) ||
-      (overlapsX && touchesY) ||
-      (overlapsY && touchesX)
-    );
-  };
-
-  const mergeTwo = (a: SelectionRect, b: SelectionRect): SelectionRect => {
-    const left = Math.min(a.left, b.left);
-    const top = Math.min(a.top, b.top);
-    const right = Math.max(a.left + a.width, b.left + b.width);
-    const bottom = Math.max(a.top + a.height, b.top + b.height);
-
-    return {
-      left,
-      top,
-      width: right - left,
-      height: bottom - top,
-    };
-  };
-
-  const remaining = [...rects];
-  const merged: SelectionRect[] = [];
-
-  while (remaining.length > 0) {
-    let current = remaining.shift()!;
-    let mergedAny = false;
-
-    for (let i = 0; i < remaining.length; i += 1) {
-      if (shouldMerge(current, remaining[i])) {
-        current = mergeTwo(current, remaining[i]);
-        remaining.splice(i, 1);
-        mergedAny = true;
-        i -= 1;
-      }
-    }
-
-    merged.push(current);
-
-    if (mergedAny) {
-      continue;
-    }
-  }
-
-  return merged;
+type SelectionCell = {
+  key: string;
+  row: number;
+  col: number;
+  rect: SelectionRect;
 };
 
 interface ShiftModalProps {
@@ -1455,6 +1395,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(new Set());
   const [selectionOverlays, setSelectionOverlays] = useState<SelectionOverlay[]>([]);
   const cellRefs = useRef<Map<string, HTMLTableCellElement | null>>(new Map());
+  const cellMetaRef = useRef<Map<string, { row: number; col: number }>>(new Map());
   const selectionRafId = useRef<number | null>(null);
   const [bulkTimeModal, setBulkTimeModal] = useState<
     { type: 'start' | 'end'; value: string } | null
@@ -1467,6 +1408,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     allAppUsers.forEach(user => map.set(user.id, user));
     return map;
   }, [allAppUsers]);
+
+  const userRowIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    orderedUsers.forEach((user, index) => {
+      map.set(user.id, index);
+    });
+    return map;
+  }, [orderedUsers]);
 
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
     []
@@ -1568,34 +1517,136 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     const wrapperRect = wrapper.getBoundingClientRect();
-    const rects: SelectionRect[] = [];
+    const selectedCells: SelectionCell[] = [];
 
     selectedCellKeys.forEach(key => {
       const cell = cellRefs.current.get(key);
-      if (!cell) return;
+      const meta = cellMetaRef.current.get(key);
+      if (!cell || !meta) return;
 
       const { top, left, width, height } = cell.getBoundingClientRect();
-      rects.push({
-        top: top - wrapperRect.top + wrapper.scrollTop,
-        left: left - wrapperRect.left + wrapper.scrollLeft,
-        width,
-        height,
+      selectedCells.push({
+        key,
+        row: meta.row,
+        col: meta.col,
+        rect: {
+          top: top - wrapperRect.top + wrapper.scrollTop,
+          left: left - wrapperRect.left + wrapper.scrollLeft,
+          width,
+          height,
+        },
       });
     });
 
-    if (rects.length === 0) {
+    if (selectedCells.length === 0) {
       setSelectionOverlays([]);
       return;
     }
 
-    const merged = mergeTouchingRectangles(rects);
-    setSelectionOverlays(
-      merged.map((rect, idx) => ({
-        id: `${rect.left}-${rect.top}-${rect.width}-${rect.height}-${idx}`,
-        ...rect,
-      }))
-    );
+    const positionMap = new Map<string, SelectionCell>();
+    selectedCells.forEach(cell => {
+      positionMap.set(`${cell.row}:${cell.col}`, cell);
+    });
+
+    const visited = new Set<string>();
+    const components: SelectionCell[][] = [];
+
+    selectedCells.forEach(cell => {
+      const posKey = `${cell.row}:${cell.col}`;
+      if (visited.has(posKey)) return;
+
+      const queue: SelectionCell[] = [cell];
+      visited.add(posKey);
+      const component: SelectionCell[] = [];
+
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        component.push(current);
+
+        const neighbors: Array<[number, number]> = [
+          [current.row - 1, current.col],
+          [current.row + 1, current.col],
+          [current.row, current.col - 1],
+          [current.row, current.col + 1],
+        ];
+
+        neighbors.forEach(([row, col]) => {
+          const neighborKey = `${row}:${col}`;
+          if (visited.has(neighborKey)) return;
+          const neighbor = positionMap.get(neighborKey);
+          if (neighbor) {
+            visited.add(neighborKey);
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      components.push(component);
+    });
+
+    const overlays: SelectionOverlay[] = [];
+
+    components.forEach((component, compIdx) => {
+      const rows = new Map<number, SelectionCell[]>();
+
+      component.forEach(cell => {
+        const list = rows.get(cell.row) || [];
+        list.push(cell);
+        rows.set(cell.row, list);
+      });
+
+      rows.forEach((cells, rowIndex) => {
+        cells.sort((a, b) => a.col - b.col);
+
+        let segment: SelectionCell[] = [];
+
+        const flushSegment = () => {
+          if (segment.length === 0) return;
+
+          const minLeft = Math.min(...segment.map(c => c.rect.left));
+          const minTop = Math.min(...segment.map(c => c.rect.top));
+          const maxRight = Math.max(
+            ...segment.map(c => c.rect.left + c.rect.width)
+          );
+          const maxBottom = Math.max(
+            ...segment.map(c => c.rect.top + c.rect.height)
+          );
+
+          overlays.push({
+            id: `${compIdx}-${rowIndex}-${minLeft}-${minTop}-${maxRight}-${maxBottom}`,
+            left: minLeft,
+            top: minTop,
+            width: maxRight - minLeft,
+            height: maxBottom - minTop,
+          });
+
+          segment = [];
+        };
+
+        cells.forEach(cell => {
+          if (segment.length === 0) {
+            segment.push(cell);
+            return;
+          }
+
+          const prev = segment[segment.length - 1];
+          if (cell.col === prev.col + 1) {
+            segment.push(cell);
+          } else {
+            flushSegment();
+            segment.push(cell);
+          }
+        });
+
+        flushSegment();
+      });
+    });
+
+    setSelectionOverlays(overlays);
   }, [isSelectionMode, selectedCellKeys]);
+
+  // Összefoglaló: a korábbi bounding box merge "áthidalta" a kijelöletlen cellákat.
+  // Grid-alapú komponens szétválasztással és soronkénti szegmens overlay-ekkel csak a ténylegesen kijelölt cellák fölé rajzolunk.
 
   const scheduleOverlayRecalc = useCallback(() => {
     if (selectionRafId.current !== null) {
@@ -3656,6 +3707,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const hasContent = displayParts.length > 0;
                           const hasNote = !!shiftNote;
 
+                          const rowIndex = userRowIndexMap.get(user.id) ?? 0;
+
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
                           if (isDayOff) {
@@ -3678,8 +3731,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               ref={node => {
                                 if (node) {
                                   cellRefs.current.set(cellKey, node);
+                                  cellMetaRef.current.set(cellKey, {
+                                    row: rowIndex,
+                                    col: dayIndex,
+                                  });
                                 } else {
                                   cellRefs.current.delete(cellKey);
+                                  cellMetaRef.current.delete(cellKey);
                                 }
                               }}
                               className={cellClasses}
