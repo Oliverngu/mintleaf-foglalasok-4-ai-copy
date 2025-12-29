@@ -104,8 +104,11 @@ const mergeTouchingRectangles = (rects: SelectionRect[]) => {
     const bRight = b.left + b.width;
     const bBottom = b.top + b.height;
 
-    const overlapsX = a.left <= bRight && aRight >= b.left;
-    const overlapsY = a.top <= bBottom && aBottom >= b.top;
+    const overlapLenX = Math.min(aRight, bRight) - Math.max(a.left, b.left);
+    const overlapLenY = Math.min(aBottom, bBottom) - Math.max(a.top, b.top);
+
+    const overlapsX = overlapLenX > epsilon;
+    const overlapsY = overlapLenY > epsilon;
 
     const touchesX =
       Math.abs(aRight - b.left) <= epsilon || Math.abs(bRight - a.left) <= epsilon;
@@ -2491,6 +2494,49 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     viewMode,
   ]);
 
+  const handleBulkClearCells = useCallback(async () => {
+    const unitId = activeUnitIds[0];
+    if (!unitId) return;
+
+    const batch = writeBatch(db);
+    let hasBatchWrites = false;
+    let skippedLegacyOrOtherUnit = 0;
+
+    selectedCellKeys.forEach(cellKey => {
+      const dayKey = cellKey.slice(-10);
+      const userId = cellKey.slice(0, cellKey.length - 11);
+      if (!dayKey || !userId) return;
+      if (!(canManage || currentUser.id === userId)) return;
+
+      const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+      const existingShift = userDayShifts.find(s => s.unitId === unitId) || null;
+
+      if (!existingShift) {
+        if (userDayShifts.length > 0) {
+          skippedLegacyOrOtherUnit += 1;
+        }
+        return;
+      }
+
+      batch.delete(doc(db, 'shifts', existingShift.id));
+      hasBatchWrites = true;
+    });
+
+    if (hasBatchWrites) {
+      await batch.commit();
+    }
+
+    if (skippedLegacyOrOtherUnit > 0) {
+      console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+    }
+  }, [
+    activeUnitIds,
+    canManage,
+    currentUser.id,
+    selectedCellKeys,
+    shiftsByUserDay,
+  ]);
+
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
   ) => {
@@ -3303,7 +3349,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           </button>
           <button
             className="rounded-full border bg-slate-100 px-3 py-1 transition-colors hover:bg-slate-200"
-            onClick={handleBulkDeleteNote}
+            onClick={handleBulkClearCells}
           >
             Törlés
           </button>
