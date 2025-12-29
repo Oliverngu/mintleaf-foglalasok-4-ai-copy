@@ -2764,6 +2764,126 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     ]
   );
 
+  const isHighlightOnlyShift = (shift: Shift): boolean =>
+    !shift.start &&
+    !shift.end &&
+    !shift.isDayOff &&
+    (shift.note ?? '') === '' &&
+    !!shift.dayKey;
+
+  const applyHighlightToSelection = useCallback(
+    async (forceValue?: boolean) => {
+      if (activeUnitIds.length !== 1) return;
+
+      const unitId = activeUnitIds[0];
+      if (!unitId) return;
+
+      const targetShifts: Shift[] = [];
+      const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
+        = [];
+      let skippedLegacyOrOtherUnit = 0;
+
+      selectedCellKeys.forEach(cellKey => {
+        const { dayKey, userId } = parseSelectionKey(cellKey);
+        if (!dayKey || !userId) return;
+        if (!(canManage || currentUser.id === userId)) return;
+
+        const user = userById.get(userId) || null;
+        if (!user) return;
+
+        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+        const existingShift =
+          userDayShifts.find(s => s.unitId === unitId) || null;
+
+        if (!existingShift) {
+          if (userDayShifts.length > 0) {
+            skippedLegacyOrOtherUnit += 1;
+            return;
+          }
+        }
+
+        if (existingShift) {
+          targetShifts.push(existingShift);
+        }
+        targetCells.push({ dayKey, userId, user, shift: existingShift });
+      });
+
+      const shouldHighlight =
+        forceValue !== undefined
+          ? forceValue
+          : targetShifts.length === 0
+            ? true
+            : !targetShifts.every(shift => shift.isHighlighted === true);
+
+      let batch = writeBatch(db);
+      let writeCount = 0;
+
+      for (const shift of targetShifts) {
+        const shiftRef = doc(db, 'shifts', shift.id);
+        if (shouldHighlight) {
+          batch.update(shiftRef, {
+            isHighlighted: true,
+            status: viewMode,
+          });
+        } else if (isHighlightOnlyShift(shift)) {
+          batch.delete(shiftRef);
+        } else {
+          batch.update(shiftRef, {
+            isHighlighted: false,
+            status: viewMode,
+          });
+        }
+        writeCount += 1;
+        if (writeCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(db);
+          writeCount = 0;
+        }
+      }
+
+      for (const cell of targetCells) {
+        if (cell.shift || !shouldHighlight || !cell.user) continue;
+
+        const newRef = doc(collection(db, 'shifts'));
+        batch.set(newRef, {
+          userId: cell.user.id,
+          userName: cell.user.fullName,
+          position: cell.user.position || 'N/A',
+          unitId,
+          status: viewMode,
+          isDayOff: false,
+          note: '',
+          isHighlighted: true,
+          dayKey: cell.dayKey,
+        });
+        writeCount += 1;
+        if (writeCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(db);
+          writeCount = 0;
+        }
+      }
+
+      if (writeCount > 0) {
+        await batch.commit();
+      }
+
+      if (skippedLegacyOrOtherUnit > 0) {
+        console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+      }
+    },
+    [
+      activeUnitIds,
+      canManage,
+      currentUser.id,
+      parseSelectionKey,
+      selectedCellKeys,
+      shiftsByUserDay,
+      userById,
+      viewMode,
+    ]
+  );
+
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
   ) => {
