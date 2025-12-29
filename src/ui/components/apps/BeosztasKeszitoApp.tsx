@@ -1409,14 +1409,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return map;
   }, [allAppUsers]);
 
-  const userRowIndexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    orderedUsers.forEach((user, index) => {
-      map.set(user.id, index);
-    });
-    return map;
-  }, [orderedUsers]);
-
   const [savedOrderedUserIds, setSavedOrderedUserIds] = useState<string[]>(
     []
   );
@@ -1595,51 +1587,55 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         rows.set(cell.row, list);
       });
 
-      rows.forEach((cells, rowIndex) => {
-        cells.sort((a, b) => a.col - b.col);
+      Array.from(rows.entries())
+        .sort(([a], [b]) => a - b)
+        .forEach(([rowIndex, cells]) => {
+          cells.sort((a, b) => a.col - b.col);
 
-        let segment: SelectionCell[] = [];
+          let segment: SelectionCell[] = [];
+          let segmentIndex = 0;
 
-        const flushSegment = () => {
-          if (segment.length === 0) return;
+          const flushSegment = () => {
+            if (segment.length === 0) return;
 
-          const minLeft = Math.min(...segment.map(c => c.rect.left));
-          const minTop = Math.min(...segment.map(c => c.rect.top));
-          const maxRight = Math.max(
-            ...segment.map(c => c.rect.left + c.rect.width)
-          );
-          const maxBottom = Math.max(
-            ...segment.map(c => c.rect.top + c.rect.height)
-          );
+            const minLeft = Math.min(...segment.map(c => c.rect.left));
+            const minTop = Math.min(...segment.map(c => c.rect.top));
+            const maxRight = Math.max(
+              ...segment.map(c => c.rect.left + c.rect.width)
+            );
+            const maxBottom = Math.max(
+              ...segment.map(c => c.rect.top + c.rect.height)
+            );
 
-          overlays.push({
-            id: `${compIdx}-${rowIndex}-${minLeft}-${minTop}-${maxRight}-${maxBottom}`,
-            left: minLeft,
-            top: minTop,
-            width: maxRight - minLeft,
-            height: maxBottom - minTop,
+            overlays.push({
+              id: `${compIdx}-${rowIndex}-${segmentIndex}`,
+              left: minLeft,
+              top: minTop,
+              width: maxRight - minLeft,
+              height: maxBottom - minTop,
+            });
+
+            segmentIndex += 1;
+            segment = [];
+          };
+
+          cells.forEach(cell => {
+            if (segment.length === 0) {
+              segment.push(cell);
+              return;
+            }
+
+            const prev = segment[segment.length - 1];
+            if (cell.col === prev.col + 1) {
+              segment.push(cell);
+            } else {
+              flushSegment();
+              segment.push(cell);
+            }
           });
 
-          segment = [];
-        };
-
-        cells.forEach(cell => {
-          if (segment.length === 0) {
-            segment.push(cell);
-            return;
-          }
-
-          const prev = segment[segment.length - 1];
-          if (cell.col === prev.col + 1) {
-            segment.push(cell);
-          } else {
-            flushSegment();
-            segment.push(cell);
-          }
+          flushSegment();
         });
-
-        flushSegment();
-      });
     });
 
     setSelectionOverlays(overlays);
@@ -2099,6 +2095,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   let zebraRowIndex = 0;
+  let renderRowIndex = 0;
 
   const handlePrevWeek = () =>
     setCurrentDate(d => {
@@ -3572,6 +3569,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                     const nameTextColor = getContrastingTextColor(nameBg);
                     const rowTextColor = getContrastingTextColor(rowBg);
                     zebraRowIndex += 1;
+                    const currentRowIndex = renderRowIndex++;
 
                     return (
                       <tr
@@ -3707,8 +3705,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const hasContent = displayParts.length > 0;
                           const hasNote = !!shiftNote;
 
-                          const rowIndex = userRowIndexMap.get(user.id) ?? 0;
-
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
                           if (isDayOff) {
@@ -3732,7 +3728,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 if (node) {
                                   cellRefs.current.set(cellKey, node);
                                   cellMetaRef.current.set(cellKey, {
-                                    row: rowIndex,
+                                    row: currentRowIndex,
                                     col: dayIndex,
                                   });
                                 } else {
