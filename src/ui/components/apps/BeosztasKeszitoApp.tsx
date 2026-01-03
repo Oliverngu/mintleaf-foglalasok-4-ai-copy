@@ -48,6 +48,9 @@ import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 
+const DEFAULT_CLOSING_TIME = '22:00';
+const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
+
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
@@ -64,17 +67,13 @@ const calculateShiftDuration = (
   const referenceDate = options?.referenceDate || startDate;
 
   if (!end && referenceDate) {
-    const closingTime = options?.closingTime;
-    if (!closingTime) return 0;
+    const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
+    const closingOffsetMinutes =
+      options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
 
     const [hours, minutes] = closingTime.split(':').map(Number);
     end = new Date(referenceDate);
-    end.setHours(
-      hours,
-      minutes + (options?.closingOffsetMinutes || 0),
-      0,
-      0
-    );
+    end.setHours(hours, minutes + closingOffsetMinutes, 0, 0);
 
     if (end < startDate) {
       end.setDate(end.getDate() + 1);
@@ -675,8 +674,8 @@ const createDefaultSettings = (
   dailySettings: Array.from({ length: 7 }, () => ({
     isOpen: true,
     openingTime: '08:00',
-    closingTime: '22:00',
-    closingOffsetMinutes: 0,
+    closingTime: DEFAULT_CLOSING_TIME,
+    closingOffsetMinutes: DEFAULT_CLOSING_OFFSET_MINUTES,
     quotas: {}
   })).reduce(
     (acc, curr, i) => ({
@@ -1864,7 +1863,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               const data = snap.data() as ScheduleSettings;
               return data.unitId ? data : { ...data, unitId };
             }
-            return createDefaultSettings(unitId, weekStartDateStr);
+            const defaults = createDefaultSettings(
+              unitId,
+              weekStartDateStr
+            );
+            if (canManage) {
+              await setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+                error => {
+                  console.error('Failed to persist default settings:', error);
+                }
+              );
+            }
+            return defaults;
           } catch (error) {
             console.error(
               'Failed to load schedule settings for unit',
@@ -1892,7 +1902,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeUnitIds, weekDays, weekStartDateStr]);
+  }, [activeUnitIds, canManage, weekDays, weekStartDateStr]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -2034,8 +2044,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             data.unitId ? data : { ...data, unitId, id: settingsId }
           );
         } else {
-          setWeekSettings(
-            createDefaultSettings(unitId, weekStartDateStr)
+          const defaults = createDefaultSettings(
+            unitId,
+            weekStartDateStr
+          );
+          setWeekSettings(defaults);
+          setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+            error => {
+              console.error('Failed to persist default settings:', error);
+            }
           );
         }
       }
@@ -2128,18 +2145,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           const dayShifts =
             shiftsByUserDay.get(user.id)?.get(dayKey) || [];
 
-          const dayHours = dayShifts.reduce(
-            (sum, shift) =>
+          const dayHours = dayShifts.reduce((sum, shiftForDay) => {
+            if (!shiftForDay) return sum;
+
+            const daySetting = getUnitDaySetting(shiftForDay, dayIndex);
+            const closingTime = daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
+            const closingOffsetMinutes =
+              daySetting?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
+
+            return (
               sum +
-              calculateShiftDuration(shift, {
-                closingTime:
-                  getUnitDaySetting(shift, dayIndex)?.closingTime || null,
-                closingOffsetMinutes:
-                  getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
+              calculateShiftDuration(shiftForDay, {
+                closingTime,
+                closingOffsetMinutes,
                 referenceDate: week[dayIndex]
-              }),
-            0
-          );
+              })
+            );
+          }, 0);
           userTotals[user.id] += dayHours;
           if (!hiddenUserIds.has(user.id)) {
             dayTotals[dayIndex] += dayHours;
@@ -2265,41 +2287,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
-  const usersWithShiftsInRenderedPeriod = useMemo(() => {
+  const usersWithAnyShiftInRenderedPeriod = useMemo(() => {
     const ids = new Set<string>();
+    const renderedDayKeys = finalWeekBlocksDays.flatMap(week =>
+      week.map(toDateString)
+    );
 
-    finalWeekBlocksDays.forEach(week => {
-      week.forEach((day, dayIndex) => {
-        const dayKey = toDateString(day);
-
-        shiftsByUserDay.forEach((dayMap, userId) => {
-          const userDayShifts = dayMap.get(dayKey) || [];
-          const dayHours = userDayShifts.reduce((sum, shift) => {
-            const duration = calculateShiftDuration(shift, {
-              closingTime: getUnitDaySetting(shift, dayIndex)?.closingTime || null,
-              closingOffsetMinutes:
-                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
-              referenceDate: day
-            });
-
-            return sum + duration;
-          }, 0);
-
-          if (dayHours > 0.01) {
-            ids.add(userId);
-          }
-        });
-      });
+    shiftsByUserDay.forEach((dayMap, userId) => {
+      for (const dayKey of renderedDayKeys) {
+        const shifts = dayMap.get(dayKey) || [];
+        if (shifts.length > 0) {
+          ids.add(userId);
+          break;
+        }
+      }
     });
 
     return ids;
-  }, [finalWeekBlocksDays, getUnitDaySetting, shiftsByUserDay]);
+  }, [finalWeekBlocksDays, shiftsByUserDay]);
 
   const renderWeekTable = (
     weekDaysForBlock: Date[],
     blockIndex: number
   ) => {
     const weekDays = weekDaysForBlock;
+    const dayKeysForBlock = weekDays.map(toDateString);
     const defaultUserTotals: Record<string, number> = {};
     orderedUsers.forEach(user => {
       defaultUserTotals[user.id] = 0;
@@ -2314,6 +2326,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const blockClasses = `${
       blockZebra ? 'bg-slate-50/60' : 'bg-white'
     } rounded-xl border border-black/5 shadow-sm`;
+
+    const usersWithAnyShiftInBlockWeek = new Set<string>();
+    shiftsByUserDay.forEach((dayMap, userId) => {
+      for (const dayKey of dayKeysForBlock) {
+        const shifts = dayMap.get(dayKey) || [];
+        if (shifts.length > 0) {
+          usersWithAnyShiftInBlockWeek.add(userId);
+          break;
+        }
+      }
+    });
 
     return (
       <div key={toDateString(weekDays[0])} className={blockClasses}>
@@ -2436,18 +2459,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       ? unitMap.get(userUnitId)
                       : undefined;
                     const weeklyHours = workHours.userTotals[user.id] || 0;
-                    const hasRenderedPeriodHours =
-                      usersWithShiftsInRenderedPeriod.has(user.id);
+                    const hasRenderedPeriodShift =
+                      usersWithAnyShiftInRenderedPeriod.has(user.id);
+                    const hasShiftInBlockWeek =
+                      usersWithAnyShiftInBlockWeek.has(user.id);
 
                     if (
                       isPngExportRenderMode &&
                       pngHideEmptyUsers &&
-                      !hasRenderedPeriodHours
+                      !hasRenderedPeriodShift
                     ) {
                       return null;
                     }
                     const isEmptyWeek =
-                      weeklyHours <= 0.01 && !hasRenderedPeriodHours;
+                      weeklyHours <= 0.01 && !hasShiftInBlockWeek;
 
                     const isAltRow = zebraRowIndex % 2 === 1;
                     const rowBg = isAltRow
