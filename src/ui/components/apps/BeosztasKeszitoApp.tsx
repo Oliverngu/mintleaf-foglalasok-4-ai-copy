@@ -1338,7 +1338,7 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   />
                   <span>
                     Csak azok a munkatársak jelenjenek meg, akiknek van
-                    beosztott órájuk ezen a héten.
+                    beosztásuk a megjelenített időszakban.
                   </span>
                 </label>
               </div>
@@ -2248,6 +2248,53 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     { label: 'Egy havi', value: 'month' }
   ];
 
+  const weekBlockGridColumns =
+    finalWeekBlocksDays.length === 1
+      ? 'grid-cols-1'
+      : isPngExportRenderMode
+        ? 'grid-cols-1 md:grid-cols-2'
+        : 'grid-cols-1 lg:grid-cols-2';
+
+  const toolbarButtonClass = useCallback(
+    (active: boolean) =>
+      `text-sm px-3 py-1 rounded-full border transition-colors ${
+        active
+          ? 'bg-slate-800 text-white border-slate-800'
+          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+      }`,
+    []
+  );
+
+  const usersWithShiftsInRenderedPeriod = useMemo(() => {
+    const ids = new Set<string>();
+
+    finalWeekBlocksDays.forEach(week => {
+      week.forEach((day, dayIndex) => {
+        const dayKey = toDateString(day);
+
+        shiftsByUserDay.forEach((dayMap, userId) => {
+          const userDayShifts = dayMap.get(dayKey) || [];
+          const dayHours = userDayShifts.reduce((sum, shift) => {
+            const duration = calculateShiftDuration(shift, {
+              closingTime: getUnitDaySetting(shift, dayIndex)?.closingTime || null,
+              closingOffsetMinutes:
+                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
+              referenceDate: day
+            });
+
+            return sum + duration;
+          }, 0);
+
+          if (dayHours > 0.01) {
+            ids.add(userId);
+          }
+        });
+      });
+    });
+
+    return ids;
+  }, [finalWeekBlocksDays, getUnitDaySetting, shiftsByUserDay]);
+
   const renderWeekTable = (
     weekDaysForBlock: Date[],
     blockIndex: number
@@ -2389,14 +2436,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       ? unitMap.get(userUnitId)
                       : undefined;
                     const weeklyHours = workHours.userTotals[user.id] || 0;
+                    const hasRenderedPeriodHours =
+                      usersWithShiftsInRenderedPeriod.has(user.id);
+
                     if (
                       isPngExportRenderMode &&
                       pngHideEmptyUsers &&
-                      weeklyHours <= 0.01
+                      !hasRenderedPeriodHours
                     ) {
                       return null;
                     }
-                    const isEmptyWeek = weeklyHours <= 0.01;
+                    const isEmptyWeek =
+                      weeklyHours <= 0.01 && !hasRenderedPeriodHours;
 
                     const isAltRow = zebraRowIndex % 2 === 1;
                     const rowBg = isAltRow
@@ -3696,6 +3747,44 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         </div>
       )}
 
+      <div className="export-hide sticky top-2 z-30 mb-4">
+        <div className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-2 shadow-md backdrop-blur">
+          <div className="flex flex-wrap items-center gap-2">
+            {viewOptions.map(option => {
+              const isActive = viewSpan === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setViewSpan(option.value)}
+                  className={toolbarButtonClass(isActive)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {canManage && (
+            <>
+              <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleToggleEditMode}
+                  className={toolbarButtonClass(isEditMode)}
+                >
+                  Névsor szerkesztése
+                </button>
+                <button
+                  onClick={handleToggleSelectionMode}
+                  className={toolbarButtonClass(isSelectionMode)}
+                >
+                  Cella kijelölése
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -3724,27 +3813,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           </button>
         </div>
         <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-semibold text-slate-600">Nézet:</span>
-            <div className="flex flex-wrap gap-2">
-              {viewOptions.map(option => {
-                const isActive = viewSpan === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setViewSpan(option.value)}
-                    className={`rounded-full border px-3 py-1 transition-colors ${
-                      isActive
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
           {hiddenUsers.length > 0 && (
             <div className="relative">
               <button
@@ -4072,45 +4140,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         </div>
       )}
 
-      {canManage && (
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleToggleEditMode}
-              className="text-sm px-3 py-1 rounded-full border transition-colors"
-              style={{
-                backgroundColor: isEditMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-surface-static)',
-                color: isEditMode ? '#fff' : 'var(--color-text-main)',
-                borderColor: isEditMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-border)',
-              }}
-            >
-              Névsor szerkesztése
-            </button>
-            <button
-              onClick={handleToggleSelectionMode}
-              className="text-sm px-3 py-1 rounded-full border transition-colors"
-              style={{
-                backgroundColor: isSelectionMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-surface-static)',
-                color: isSelectionMode
-                  ? '#fff'
-                  : 'var(--color-text-main)',
-                borderColor: isSelectionMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-border)',
-              }}
-            >
-              Cella kijelölése
-            </button>
-          </div>
-        </div>
-      )}
-
       {isSelectionMode && selectedCellKeys.size > 0 && (
         <div
           className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
@@ -4206,13 +4235,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ))}
           </div>
         )}
-        <div
-          className={`p-4 grid ${
-            finalWeekBlocksDays.length === 1
-              ? 'grid-cols-1'
-              : 'grid-cols-1 md:grid-cols-2'
-          } gap-4`}
-        >
+        <div className={`p-4 grid ${weekBlockGridColumns} gap-4`}>
           {finalWeekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
         </div>
       </div>
