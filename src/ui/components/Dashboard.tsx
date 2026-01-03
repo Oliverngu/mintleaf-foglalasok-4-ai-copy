@@ -409,6 +409,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             canManage={hasPermission('canManageSchedules')}
             allUnits={allUnits}
             activeUnitIds={activeUnitIds}
+            isSidebarOpen={isSidebarOpen}
           />
         );
       case 'settings':
