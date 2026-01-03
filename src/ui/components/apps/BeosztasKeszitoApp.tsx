@@ -50,6 +50,7 @@ import GlassOverlay from '../common/GlassOverlay';
 
 const DEFAULT_CLOSING_TIME = '22:00';
 const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
+const SUCCESS_TOAST_DURATION_MS = 3600;
 
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
@@ -1478,6 +1479,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     type: 'PNG' | 'Excel';
   } | null>(null);
   const [successToast, setSuccessToast] = useState('');
+  const successToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
   const [isPngExportRenderMode, setIsPngExportRenderMode] =
@@ -1486,6 +1490,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
+
+  useEffect(() => {
+    if (!successToast) {
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current);
+        successToastTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    if (successToastTimeoutRef.current) {
+      clearTimeout(successToastTimeoutRef.current);
+    }
+
+    successToastTimeoutRef.current = setTimeout(() => {
+      setSuccessToast('');
+    }, SUCCESS_TOAST_DURATION_MS);
+
+    return () => {
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current);
+        successToastTimeoutRef.current = null;
+      }
+    };
+  }, [successToast]);
 
   // Subtle zebra palette for the UI table, mirroring export defaults
   const tableZebraDelta = useMemo(
@@ -2509,10 +2538,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                 <UnitLogoBadge unit={userUnit} size={18} />
                               )}
                             </div>
-                            <span className="export-hide flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                              {weeklyHours.toFixed(1)} óra
-                              {isEmptyWeek && '· üres hét'}
-                            </span>
+                            <div className="export-hide flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                              <span className="flex items-center gap-1">
+                                {weeklyHours.toFixed(1)} óra
+                                {isEmptyWeek && '· üres hét'}
+                              </span>
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleHideUser(user.id)}
+                                  className="rounded-full p-1 text-slate-600 transition hover:bg-slate-200"
+                                  title="Alkalmazott elrejtése"
+                                >
+                                  <EyeSlashIcon className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {hasTags && (
@@ -3740,7 +3781,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           line-height: 1.1;
           letter-spacing: -0.5px;
           font-size: 0.9em;
-        }`}
+        }
+        @keyframes toast-slide-up {
+          from { transform: translateY(18px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .toast-slide-up { animation: toast-slide-up 240ms ease-out forwards; }
+        `}
       </style>
 
       <ShiftModal
@@ -3766,14 +3813,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
-      {successToast && (
-        <div className="mb-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg text-sm">
-          {successToast}
-        </div>
-      )}
-
-      <div className="export-hide sticky top-2 z-30 mb-4">
-        <div className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-2 shadow-md backdrop-blur">
+      <div className="export-hide sticky top-2 z-20 mb-4">
+        <GlassOverlay className="w-full" elevation="high" radius={9999} style={{ padding: 10 }}>
           <div className="flex flex-wrap items-center gap-2">
             {viewOptions.map(option => {
               const isActive = viewSpan === option.value;
@@ -3787,27 +3828,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </button>
               );
             })}
+            {canManage && (
+              <>
+                <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleToggleEditMode}
+                    className={toolbarButtonClass(isEditMode)}
+                  >
+                    Névsor szerkesztése
+                  </button>
+                  <button
+                    onClick={handleToggleSelectionMode}
+                    className={toolbarButtonClass(isSelectionMode)}
+                  >
+                    Cella kijelölése
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-          {canManage && (
-            <>
-              <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={handleToggleEditMode}
-                  className={toolbarButtonClass(isEditMode)}
-                >
-                  Névsor szerkesztése
-                </button>
-                <button
-                  onClick={handleToggleSelectionMode}
-                  className={toolbarButtonClass(isSelectionMode)}
-                >
-                  Cella kijelölése
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        </GlassOverlay>
       </div>
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -4318,8 +4359,33 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {successToast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg">
-          {successToast}
+        <div className="export-hide fixed bottom-4 right-4 z-40 toast-slide-up">
+          <GlassOverlay
+            interactive
+            elevation="high"
+            className="max-w-xs"
+            style={{ padding: 12 }}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-sm font-semibold text-slate-900">
+                {successToast}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (successToastTimeoutRef.current) {
+                    clearTimeout(successToastTimeoutRef.current);
+                    successToastTimeoutRef.current = null;
+                  }
+                  setSuccessToast('');
+                }}
+                className="ml-auto rounded-full p-1 text-slate-600 transition hover:bg-slate-200"
+                aria-label="Értesítés bezárása"
+              >
+                ×
+              </button>
+            </div>
+          </GlassOverlay>
         </div>
       )}
     </div>
