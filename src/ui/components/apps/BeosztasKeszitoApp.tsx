@@ -2397,6 +2397,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                     zebraRowIndex += 1;
                     const currentRowIndex = renderRowIndex++;
 
+                    const hasTags = !!(user.tags && user.tags.length);
+
                     return (
                       <tr
                         key={user.id}
@@ -2424,20 +2426,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             </span>
                           </div>
 
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-0.5 font-semibold text-slate-600">
-                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: activeBrandColors[0] || '#0F172A' }} />
-                              {user.position || 'Nincs pozíció'}
-                            </span>
-                            {user.tags?.map(tag => (
-                              <span
-                                key={tag}
-                                className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
+                          {hasTags && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              {user.tags?.map(tag => (
+                                <span
+                                  key={tag}
+                                  className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
 
                         {/* Hét napjai */}
@@ -4193,7 +4193,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ))}
           </div>
         )}
-        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div
+          className={`p-4 grid ${
+            weekBlocksDays.length === 1
+              ? 'grid-cols-1'
+              : 'grid-cols-1 md:grid-cols-2'
+          } gap-4`}
+        >
           {weekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
         </div>
       </div>
