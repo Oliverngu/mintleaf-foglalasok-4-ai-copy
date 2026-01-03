@@ -48,6 +48,10 @@ import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 
+const DEFAULT_CLOSING_TIME = '22:00';
+const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
+const SUCCESS_TOAST_DURATION_MS = 3600;
+
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
@@ -64,17 +68,13 @@ const calculateShiftDuration = (
   const referenceDate = options?.referenceDate || startDate;
 
   if (!end && referenceDate) {
-    const closingTime = options?.closingTime;
-    if (!closingTime) return 0;
+    const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
+    const closingOffsetMinutes =
+      options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
 
     const [hours, minutes] = closingTime.split(':').map(Number);
     end = new Date(referenceDate);
-    end.setHours(
-      hours,
-      minutes + (options?.closingOffsetMinutes || 0),
-      0,
-      0
-    );
+    end.setHours(hours, minutes + closingOffsetMinutes, 0, 0);
 
     if (end < startDate) {
       end.setDate(end.getDate() + 1);
@@ -619,18 +619,41 @@ interface BeosztasAppProps {
   activeUnitIds: string[];
 }
 
-const getWeekDays = (date: Date): Date[] => {
-  const startOfWeek = new Date(date);
-  const day = startOfWeek.getDay();
-  const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-  startOfWeek.setDate(diff);
-  startOfWeek.setHours(0, 0, 0, 0);
+const startOfWeekMonday = (date: Date): Date => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+  start.setDate(diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
 
-  return Array.from({ length: 7 }, (_, i) => {
-    const newDay = new Date(startOfWeek);
-    newDay.setDate(startOfWeek.getDate() + i);
+const getWeekDaysFrom = (start: Date): Date[] =>
+  Array.from({ length: 7 }, (_, i) => {
+    const newDay = new Date(start);
+    newDay.setDate(start.getDate() + i);
     return newDay;
   });
+
+const getMonthWeekBlocks = (date: Date): Date[] => {
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  const firstMonday = startOfWeekMonday(monthStart);
+  const lastMonday = startOfWeekMonday(monthEnd);
+
+  const blocks: Date[] = [];
+  let cursor = new Date(firstMonday);
+  while (cursor <= lastMonday) {
+    blocks.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+
+  return blocks;
+};
+
+const getWeekDays = (date: Date): Date[] => {
+  const startOfWeek = startOfWeekMonday(date);
+  return getWeekDaysFrom(startOfWeek);
 };
 
 const toDateString = (date: Date): string => {
@@ -652,8 +675,8 @@ const createDefaultSettings = (
   dailySettings: Array.from({ length: 7 }, () => ({
     isOpen: true,
     openingTime: '08:00',
-    closingTime: '22:00',
-    closingOffsetMinutes: 0,
+    closingTime: DEFAULT_CLOSING_TIME,
+    closingOffsetMinutes: DEFAULT_CLOSING_OFFSET_MINUTES,
     quotas: {}
   })).reduce(
     (acc, curr, i) => ({
@@ -1315,7 +1338,7 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
                   />
                   <span>
                     Csak azok a munkatársak jelenjenek meg, akiknek van
-                    beosztott órájuk ezen a héten.
+                    beosztásuk a megjelenített időszakban.
                   </span>
                 </label>
               </div>
@@ -1407,7 +1430,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     new Set()
   );
   const [isHiddenMenuOpen, setIsHiddenMenuOpen] = useState(false);
-  const tableRef = useRef<HTMLTableElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -1421,6 +1444,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   >(null);
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [viewSpan, setViewSpan] = useState<1 | 2 | 3 | 4 | 'month'>(1);
 
   const userById = useMemo(() => {
     const map = new Map<string, User>();
@@ -1455,6 +1479,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     type: 'PNG' | 'Excel';
   } | null>(null);
   const [successToast, setSuccessToast] = useState('');
+  const successToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
   const [isPngExportRenderMode, setIsPngExportRenderMode] =
@@ -1463,6 +1490,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
+
+  useEffect(() => {
+    if (!successToast) {
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current);
+        successToastTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    if (successToastTimeoutRef.current) {
+      clearTimeout(successToastTimeoutRef.current);
+    }
+
+    successToastTimeoutRef.current = setTimeout(() => {
+      setSuccessToast('');
+    }, SUCCESS_TOAST_DURATION_MS);
+
+    return () => {
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current);
+        successToastTimeoutRef.current = null;
+      }
+    };
+  }, [successToast]);
 
   // Subtle zebra palette for the UI table, mirroring export defaults
   const tableZebraDelta = useMemo(
@@ -1768,9 +1820,44 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
   }, [weekSettings]);
 
+  const weekBlocks = useMemo(() => {
+    if (viewSpan === 'month') {
+      return getMonthWeekBlocks(currentDate);
+    }
+
+    const start = startOfWeekMonday(currentDate);
+    return Array.from({ length: viewSpan }, (_, i) => {
+      const weekStart = new Date(start);
+      weekStart.setDate(start.getDate() + i * 7);
+      return weekStart;
+    });
+  }, [currentDate, viewSpan]);
+
+  const weekBlocksDays = useMemo(
+    () => weekBlocks.map(start => getWeekDaysFrom(start)),
+    [weekBlocks]
+  );
+
+  const visibleWeekBlocksDays = useMemo(
+    () => weekBlocksDays.filter(week => week && week.length > 0),
+    [weekBlocksDays]
+  );
+
+  const finalWeekBlocksDays = useMemo(
+    () =>
+      viewSpan === 1
+        ? visibleWeekBlocksDays.slice(0, 1)
+        : visibleWeekBlocksDays,
+    [visibleWeekBlocksDays, viewSpan]
+  );
+
   const weekDays = useMemo(
-    () => getWeekDays(currentDate),
-    [currentDate]
+    () =>
+      finalWeekBlocksDays[0] ||
+      getWeekDaysFrom(
+        startOfWeekMonday(currentDate)
+      ),
+    [currentDate, finalWeekBlocksDays]
   );
 
   const weekStartDateStr = useMemo(
@@ -1805,7 +1892,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               const data = snap.data() as ScheduleSettings;
               return data.unitId ? data : { ...data, unitId };
             }
-            return createDefaultSettings(unitId, weekStartDateStr);
+            const defaults = createDefaultSettings(
+              unitId,
+              weekStartDateStr
+            );
+            if (canManage) {
+              await setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+                error => {
+                  console.error('Failed to persist default settings:', error);
+                }
+              );
+            }
+            return defaults;
           } catch (error) {
             console.error(
               'Failed to load schedule settings for unit',
@@ -1833,7 +1931,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeUnitIds, weekDays, weekStartDateStr]);
+  }, [activeUnitIds, canManage, weekDays, weekStartDateStr]);
 
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
@@ -1975,8 +2073,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             data.unitId ? data : { ...data, unitId, id: settingsId }
           );
         } else {
-          setWeekSettings(
-            createDefaultSettings(unitId, weekStartDateStr)
+          const defaults = createDefaultSettings(
+            unitId,
+            weekStartDateStr
+          );
+          setWeekSettings(defaults);
+          setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+            error => {
+              console.error('Failed to persist default settings:', error);
+            }
           );
         }
       }
@@ -2052,42 +2157,60 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return map;
   }, [requests]);
 
-  const workHours = useMemo(() => {
-    const userTotals: Record<string, number> = {};
-    const dayTotals: number[] = Array(7).fill(0);
+  const workHoursByWeek = useMemo(() => {
+    const map = new Map<
+      string,
+      { userTotals: Record<string, number>; dayTotals: number[]; grandTotal: number }
+    >();
 
-    orderedUsers.forEach(user => {
-      userTotals[user.id] = 0;
-      weekDays.forEach((day, dayIndex) => {
-        const dayKey = toDateString(day);
-        const dayShifts =
-          shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+    finalWeekBlocksDays.forEach(week => {
+      const userTotals: Record<string, number> = {};
+      const dayTotals: number[] = Array(7).fill(0);
 
-        const dayHours = dayShifts.reduce(
-          (sum, shift) =>
-            sum +
-            calculateShiftDuration(shift, {
-              closingTime:
-                getUnitDaySetting(shift, dayIndex)?.closingTime || null,
-              closingOffsetMinutes:
-                getUnitDaySetting(shift, dayIndex)?.closingOffsetMinutes || 0,
-              referenceDate: weekDays[dayIndex]
-            }),
-          0
-        );
-        userTotals[user.id] += dayHours;
-        if (!hiddenUserIds.has(user.id)) {
-          dayTotals[dayIndex] += dayHours;
-        }
+      orderedUsers.forEach(user => {
+        userTotals[user.id] = 0;
+        week.forEach((day, dayIndex) => {
+          const dayKey = toDateString(day);
+          const dayShifts =
+            shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+
+          const dayHours = dayShifts.reduce((sum, shiftForDay) => {
+            if (!shiftForDay) return sum;
+
+            const daySetting = getUnitDaySetting(shiftForDay, dayIndex);
+            const closingTime = daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
+            const closingOffsetMinutes =
+              daySetting?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
+
+            return (
+              sum +
+              calculateShiftDuration(shiftForDay, {
+                closingTime,
+                closingOffsetMinutes,
+                referenceDate: week[dayIndex]
+              })
+            );
+          }, 0);
+          userTotals[user.id] += dayHours;
+          if (!hiddenUserIds.has(user.id)) {
+            dayTotals[dayIndex] += dayHours;
+          }
+        });
+      });
+
+      map.set(toDateString(week[0]), {
+        userTotals,
+        dayTotals,
+        grandTotal: dayTotals.reduce((a, b) => a + b, 0)
       });
     });
-    const grandTotal = dayTotals.reduce((a, b) => a + b, 0);
-    return { userTotals, dayTotals, grandTotal };
+
+    return map;
   }, [
     orderedUsers,
     hiddenUserIds,
-    weekDays,
     shiftsByUserDay,
+    finalWeekBlocksDays,
     weekSettings,
     getUnitDaySetting
   ]);
@@ -2123,7 +2246,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setSelectedCellKeys(new Set());
     setSelectionOverlays([]);
     setBulkTimeModal(null);
-  }, [currentDate, activeUnitIds, visiblePositionOrder, isSelectionMode]);
+  }, [
+    currentDate,
+    activeUnitIds,
+    visiblePositionOrder,
+    isSelectionMode,
+    viewSpan,
+    finalWeekBlocksDays
+  ]);
 
   const hiddenUsers = useMemo(
     () =>
@@ -2137,16 +2267,523 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const handlePrevWeek = () =>
     setCurrentDate(d => {
       const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() - 7);
+      if (viewSpan === 'month') {
+        newDate.setMonth(newDate.getMonth() - 1);
+      } else {
+        newDate.setDate(newDate.getDate() - 7 * viewSpan);
+      }
       return newDate;
     });
 
   const handleNextWeek = () =>
     setCurrentDate(d => {
       const newDate = new Date(d);
-      newDate.setDate(newDate.getDate() + 7);
+      if (viewSpan === 'month') {
+        newDate.setMonth(newDate.getMonth() + 1);
+      } else {
+        newDate.setDate(newDate.getDate() + 7 * viewSpan);
+      }
       return newDate;
     });
+
+  const hasMultipleBlocks = finalWeekBlocksDays.length > 1;
+  const headerStart = finalWeekBlocksDays[0]?.[0] || weekDays[0];
+  const headerEnd =
+    finalWeekBlocksDays[finalWeekBlocksDays.length - 1]?.[6] || weekDays[6];
+
+  const viewOptions: Array<{ label: string; value: 1 | 2 | 3 | 4 | 'month' }> = [
+    { label: 'Heti', value: 1 },
+    { label: '2 heti', value: 2 },
+    { label: '3 heti', value: 3 },
+    { label: '4 heti', value: 4 },
+    { label: 'Egy havi', value: 'month' }
+  ];
+
+  const weekBlockGridColumns =
+    finalWeekBlocksDays.length === 1
+      ? 'grid-cols-1'
+      : isPngExportRenderMode
+        ? 'grid-cols-1 md:grid-cols-2'
+        : 'grid-cols-1 lg:grid-cols-2';
+
+  const toolbarButtonClass = useCallback(
+    (active: boolean) =>
+      `text-sm px-3 py-1 rounded-full border transition-colors ${
+        active
+          ? 'bg-slate-800 text-white border-slate-800'
+          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+      }`,
+    []
+  );
+
+  const usersWithAnyShiftInRenderedPeriod = useMemo(() => {
+    const ids = new Set<string>();
+    const renderedDayKeys = finalWeekBlocksDays.flatMap(week =>
+      week.map(toDateString)
+    );
+
+    shiftsByUserDay.forEach((dayMap, userId) => {
+      for (const dayKey of renderedDayKeys) {
+        const shifts = dayMap.get(dayKey) || [];
+        if (shifts.length > 0) {
+          ids.add(userId);
+          break;
+        }
+      }
+    });
+
+    return ids;
+  }, [finalWeekBlocksDays, shiftsByUserDay]);
+
+  const renderWeekTable = (
+    weekDaysForBlock: Date[],
+    blockIndex: number
+  ) => {
+    const weekDays = weekDaysForBlock;
+    const dayKeysForBlock = weekDays.map(toDateString);
+    const defaultUserTotals: Record<string, number> = {};
+    orderedUsers.forEach(user => {
+      defaultUserTotals[user.id] = 0;
+    });
+    const workHours =
+      workHoursByWeek.get(toDateString(weekDays[0])) || {
+        userTotals: defaultUserTotals,
+        dayTotals: Array(7).fill(0),
+        grandTotal: 0
+      };
+    const blockZebra = hasMultipleBlocks && blockIndex % 2 === 0;
+    const blockClasses = `${
+      blockZebra ? 'bg-slate-50/60' : 'bg-white'
+    } rounded-xl border border-black/5 shadow-sm`;
+
+    const usersWithAnyShiftInBlockWeek = new Set<string>();
+    shiftsByUserDay.forEach((dayMap, userId) => {
+      for (const dayKey of dayKeysForBlock) {
+        const shifts = dayMap.get(dayKey) || [];
+        if (shifts.length > 0) {
+          usersWithAnyShiftInBlockWeek.add(userId);
+          break;
+        }
+      }
+    });
+
+    return (
+      <div key={toDateString(weekDays[0])} className={blockClasses}>
+        <table
+          className="min-w-full text-sm"
+          style={{
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
+          }}
+        >
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
+                Munkatárs
+              </th>
+              {weekDays.map((day, idx) => (
+                <th
+                  key={idx}
+                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
+                >
+                  {day.toLocaleDateString('hu-HU', {
+                    weekday: 'short'
+                  })}
+                  <br />
+                  {day.toLocaleDateString('hu-HU', {
+                    month: '2-digit',
+                    day: '2-digit'
+                  })}
+                </th>
+              ))}
+            </tr>
+
+            {weekSettings &&
+              (weekSettings.showOpeningTime ||
+                weekSettings.showClosingTime) && (
+                <>
+                  {weekSettings.showOpeningTime && (
+                    <tr>
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                        Nyitás
+                      </td>
+                      {weekDays.map((_, i) => (
+                        <td
+                          key={i}
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
+                        >
+                          {weekSettings.dailySettings[i]?.openingTime || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                  {weekSettings.showClosingTime && (
+                    <tr>
+                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                        Zárás
+                      </td>
+                      {weekDays.map((_, i) => (
+                        <td
+                          key={i}
+                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
+                        >
+                          {weekSettings.dailySettings[i]?.closingTime || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                </>
+              )}
+          </thead>
+
+          <tbody>
+            {visiblePositionOrder.map(positionName => {
+              const usersInPos = visibleUsersByPosition[positionName] || [];
+              if (usersInPos.length === 0) return null;
+
+              return (
+                <React.Fragment key={positionName}>
+                  {/* Pozíció fejléce */}
+                  <tr>
+                    <td
+                      colSpan={1 + weekDays.length}
+                      className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{positionName}</span>
+                        {isEditMode && (
+                          <span className="flex items-center gap-1 export-hide">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMoveGroup(positionName, 'up')
+                              }
+                              className="rounded-full p-1 hover:bg-slate-300"
+                              title="Pozíció blokk feljebb"
+                            >
+                              <ArrowUpIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMoveGroup(positionName, 'down')
+                              }
+                              className="rounded-full p-1 hover:bg-slate-300"
+                              title="Pozíció blokk lejjebb"
+                            >
+                              <ArrowDownIcon className="h-4 w-4" />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Dolgozók */}
+                  {usersInPos.map(user => {
+                    const userUnitId =
+                      user.unitIds?.find(uid => activeUnitIds.includes(uid)) ||
+                      user.unitIds?.[0];
+                    const userUnit = userUnitId
+                      ? unitMap.get(userUnitId)
+                      : undefined;
+                    const weeklyHours = workHours.userTotals[user.id] || 0;
+                    const hasRenderedPeriodShift =
+                      usersWithAnyShiftInRenderedPeriod.has(user.id);
+                    const hasShiftInBlockWeek =
+                      usersWithAnyShiftInBlockWeek.has(user.id);
+
+                    if (
+                      isPngExportRenderMode &&
+                      pngHideEmptyUsers &&
+                      !hasRenderedPeriodShift
+                    ) {
+                      return null;
+                    }
+                    const isEmptyWeek =
+                      weeklyHours <= 0.01 && !hasShiftInBlockWeek;
+
+                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const rowBg = isAltRow
+                      ? tableAltZebraColor
+                      : tableBaseZebraColor;
+                    const nameBg = isAltRow
+                      ? tableAltNameColor
+                      : tableBaseNameColor;
+                    const nameTextColor = getContrastingTextColor(nameBg);
+                    const rowTextColor = getContrastingTextColor(rowBg);
+                    zebraRowIndex += 1;
+                    const currentRowIndex = renderRowIndex++;
+
+                    const hasTags = !!(user.tags && user.tags.length);
+
+                    return (
+                      <tr
+                        key={user.id}
+                        data-user-id={user.id}
+                        className={isEmptyWeek ? 'no-shifts-week' : ''}
+                        style={{ background: rowBg }}
+                      >
+                        {/* Név oszlop */}
+                        <td
+                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          style={{ background: nameBg, color: nameTextColor }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-slate-800 leading-tight">
+                                {user.fullName}
+                              </span>
+                              {isMultiUnitView && userUnit && (
+                                <UnitLogoBadge unit={userUnit} size={18} />
+                              )}
+                            </div>
+                            <div className="export-hide flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                              <span className="flex items-center gap-1">
+                                {weeklyHours.toFixed(1)} óra
+                                {isEmptyWeek && '· üres hét'}
+                              </span>
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleHideUser(user.id)}
+                                  className="rounded-full p-1 text-slate-600 transition hover:bg-slate-200"
+                                  title="Alkalmazott elrejtése"
+                                >
+                                  <EyeSlashIcon className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {hasTags && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              {user.tags?.map(tag => (
+                                <span
+                                  key={tag}
+                                  className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Hét napjai */}
+                        {weekDays.map((day, dayIndex) => {
+                          const dayKey = toDateString(day);
+                          const userDayShifts =
+                            shiftsByUserDay.get(user.id)?.get(dayKey) || [];
+                          const userDayRequests =
+                            requestsByUserDay.get(user.id)?.get(dayKey) || [];
+                          const leaveRequest = userDayRequests.find(
+                            req => req.type === 'leave'
+                          );
+                          const availabilityRequests = userDayRequests.filter(
+                            req => req.type === 'availability'
+                          );
+
+                          const canEditCell =
+                            canManage || currentUser.id === user.id;
+
+                          const displayParts: string[] = [];
+                          let isDayOff = false;
+                          const isLeave =
+                            !!leaveRequest && userDayShifts.length === 0;
+                          const shiftNote =
+                            userDayShifts.find(
+                              s => s.note && !s.isDayOff
+                            )?.note || '';
+
+                          if (userDayShifts.length > 0) {
+                            const dayOffShift = userDayShifts.find(
+                              s => s.isDayOff
+                            );
+                            if (dayOffShift) {
+                              displayParts.push('X');
+                              isDayOff = true;
+                            } else {
+                              displayParts.push(
+                                ...userDayShifts
+                                  .map(s => {
+                                    if (!s.start) return '';
+                                    const startStr =
+                                      s.start
+                                        .toDate()
+                                        .toTimeString()
+                                        .substring(0, 5) || '';
+                                    if (!s.end) return startStr;
+                                    const endStr =
+                                      s.end
+                                        .toDate()
+                                        .toTimeString()
+                                        .substring(0, 5) || '';
+                                    return `${startStr}-${endStr}`;
+                                  })
+                                  .filter(Boolean)
+                              );
+                            }
+                          }
+
+                          const shouldShowAvailability =
+                            availabilityRequests.length > 0 && !isDayOff && !isLeave;
+
+                          if (shouldShowAvailability) {
+                            availabilityRequests.forEach(req => {
+                              if (req.startDate && req.endDate) {
+                                const start = req.startDate.toDate();
+                                const end = req.endDate.toDate();
+                                const startStr =
+                                  start.toTimeString().substring(0, 5) || '';
+                                const endStr =
+                                  end.toTimeString().substring(0, 5) || '';
+                                displayParts.push(`${startStr}-${endStr}`);
+                              }
+                              if (req.note) {
+                                displayParts.push(`(Megjegyzés: ${req.note})`);
+                              }
+                            });
+                          }
+
+                          if (isLeave) {
+                            displayParts.push('Szabi');
+                            if (leaveRequest?.note) {
+                              displayParts.push(`Megjegyzés: ${leaveRequest.note}`);
+                            }
+                          }
+
+                          const hasContent = displayParts.length > 0;
+                          const hasNote = shiftNote !== '';
+
+                          const highlightedShift =
+                            activeUnitIds.length === 1
+                              ? userDayShifts.find(
+                                  s =>
+                                    s.unitId === activeUnitIds[0] &&
+                                    s.isHighlighted
+                                )
+                              : userDayShifts.find(
+                                  s =>
+                                    s.unitId &&
+                                    activeUnitIds.includes(s.unitId) &&
+                                    s.isHighlighted
+                                );
+                          const isHighlightedCell = !!highlightedShift?.isHighlighted;
+
+                          let cellClasses =
+                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
+                          if (isDayOff) {
+                            cellClasses +=
+                              ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
+                          } else if (isLeave) {
+                            cellClasses +=
+                              ' bg-amber-50 text-amber-600 font-semibold leave-cell';
+                          } else if (hasContent) {
+                            cellClasses += ' text-slate-800';
+                          } else {
+                            cellClasses += ' text-slate-400';
+                          }
+
+                          const cellDataKey = `${user.id}-${dayKey}`;
+                          const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
+
+                          const baseCellStyle: CSSProperties = {};
+                          if (!isDayOff && !isLeave) {
+                            baseCellStyle.background = rowBg;
+                            baseCellStyle.color = rowTextColor;
+                          }
+
+                          if (isHighlightedCell) {
+                            if (isDayOff || isLeave) {
+                              baseCellStyle.boxShadow =
+                                '0 0 0 2px rgba(249, 115, 22, 0.65) inset';
+                            } else {
+                              baseCellStyle.background = '#ffedd5';
+                              baseCellStyle.color = '#7c2d12';
+                              baseCellStyle.boxShadow =
+                                '0 0 0 2px rgba(249, 115, 22, 0.4) inset';
+                            }
+                          }
+
+                          const cellStyle =
+                            Object.keys(baseCellStyle).length > 0
+                              ? baseCellStyle
+                              : undefined;
+
+                          return (
+                            <td
+                              key={dayIndex}
+                              ref={node => {
+                                if (node) {
+                                  cellRefs.current.set(cellUiKey, node);
+                                  cellMetaRef.current.set(cellUiKey, {
+                                    row: currentRowIndex,
+                                    col: dayIndex
+                                  });
+                                } else {
+                                  cellRefs.current.delete(cellUiKey);
+                                  cellMetaRef.current.delete(cellUiKey);
+                                }
+                              }}
+                              className={cellClasses}
+                              style={cellStyle}
+                              onClick={() =>
+                                handleCellInteraction(
+                                  cellUiKey,
+                                  canEditCell,
+                                  userDayShifts,
+                                  user.id,
+                                  day
+                                )
+                              }
+                            >
+                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
+                                {hasContent && (
+                                  <span className="whitespace-pre-wrap leading-tight">
+                                    {displayParts.join('\n')}
+                                  </span>
+                                )}
+                                {hasNote && (
+                                  <span className="handwritten-note tracking-tighter">
+                                    {`"${shiftNote}"`}
+                                  </span>
+                                )}
+                                {!hasContent && canEditCell && (
+                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
+                                    +
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+
+            {/* Összesített sor (napi órák) */}
+            <tr className="summary-row bg-slate-50 border-t border-slate-300">
+              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
+                Napi összes (óra)
+              </td>
+              {weekDays.map((_, i) => (
+                <td
+                  key={i}
+                  className="px-3 py-2 text-center text-xs font-semibold text-slate-700"
+                >
+                  {workHours.dayTotals[i].toFixed(1)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const handlePublishWeek = () => {
     const weekStart = weekDays[0];
@@ -2835,11 +3472,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       setIsPngExporting(true);
 
       const runExport = () => {
-        if (!tableRef.current) {
+        if (!exportRef.current) {
           setIsPngExportRenderMode(false);
           setPngHideEmptyUsers(false);
           setIsPngExporting(false);
-          reject(new Error('Table ref not found'));
+          reject(new Error('Export container ref not found'));
           return;
         }
 
@@ -2857,7 +3494,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         // Teljes tábla klónozása – minden Tailwind osztály megmarad
         const tableClone =
-          tableRef.current.cloneNode(true) as HTMLTableElement;
+          exportRef.current.cloneNode(true) as HTMLDivElement;
         exportContainer.appendChild(tableClone);
         document.body.appendChild(exportContainer);
 
@@ -3144,7 +3781,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           line-height: 1.1;
           letter-spacing: -0.5px;
           font-size: 0.9em;
-        }`}
+        }
+        @keyframes toast-slide-up {
+          from { transform: translateY(18px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .toast-slide-up { animation: toast-slide-up 240ms ease-out forwards; }
+        `}
       </style>
 
       <ShiftModal
@@ -3170,11 +3813,43 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
-      {successToast && (
-        <div className="mb-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg text-sm">
-          {successToast}
-        </div>
-      )}
+      <div className="export-hide sticky top-2 z-20 mb-4">
+        <GlassOverlay className="w-full" elevation="high" radius={9999} style={{ padding: 10 }}>
+          <div className="flex flex-wrap items-center gap-2">
+            {viewOptions.map(option => {
+              const isActive = viewSpan === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setViewSpan(option.value)}
+                  className={toolbarButtonClass(isActive)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+            {canManage && (
+              <>
+                <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleToggleEditMode}
+                    className={toolbarButtonClass(isEditMode)}
+                  >
+                    Névsor szerkesztése
+                  </button>
+                  <button
+                    onClick={handleToggleSelectionMode}
+                    className={toolbarButtonClass(isSelectionMode)}
+                  >
+                    Cella kijelölése
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </GlassOverlay>
+      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="flex items-center gap-4">
@@ -3185,12 +3860,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             &lt;
           </button>
           <h2 className="text-xl font-bold text-center">
-            {weekDays[0].toLocaleDateString('hu-HU', {
+            {headerStart?.toLocaleDateString('hu-HU', {
               month: 'long',
               day: 'numeric'
             })}{' '}
             -{' '}
-            {weekDays[6].toLocaleDateString('hu-HU', {
+            {headerEnd?.toLocaleDateString('hu-HU', {
               year: 'numeric',
               month: 'long',
               day: 'numeric'
@@ -3203,7 +3878,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             &gt;
           </button>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
           {hiddenUsers.length > 0 && (
             <div className="relative">
               <button
@@ -3531,45 +4206,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         </div>
       )}
 
-      {canManage && (
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleToggleEditMode}
-              className="text-sm px-3 py-1 rounded-full border transition-colors"
-              style={{
-                backgroundColor: isEditMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-surface-static)',
-                color: isEditMode ? '#fff' : 'var(--color-text-main)',
-                borderColor: isEditMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-border)',
-              }}
-            >
-              Névsor szerkesztése
-            </button>
-            <button
-              onClick={handleToggleSelectionMode}
-              className="text-sm px-3 py-1 rounded-full border transition-colors"
-              style={{
-                backgroundColor: isSelectionMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-surface-static)',
-                color: isSelectionMode
-                  ? '#fff'
-                  : 'var(--color-text-main)',
-                borderColor: isSelectionMode
-                  ? 'var(--color-primary)'
-                  : 'var(--color-border)',
-              }}
-            >
-              Cella kijelölése
-            </button>
-          </div>
-        </div>
-      )}
-
       {isSelectionMode && selectedCellKeys.size > 0 && (
         <div
           className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
@@ -3636,7 +4272,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       )}
 
       <div
-        ref={tableWrapperRef}
+        ref={node => {
+          tableWrapperRef.current = node;
+          exportRef.current = node;
+        }}
         className="relative overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
         style={{
           backgroundColor: 'var(--color-surface-static)',
@@ -3662,406 +4301,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ))}
           </div>
         )}
-        <table
-          ref={tableRef}
-          className="min-w-full text-sm"
-          style={{
-            fontFamily:
-              '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'
-          }}
-        >
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
-                Munkatárs
-              </th>
-              {weekDays.map((day, idx) => (
-                <th
-                  key={idx}
-                  className="px-3 py-3 text-center text-xs font-semibold text-slate-600"
-                >
-                  {day.toLocaleDateString('hu-HU', {
-                    weekday: 'short'
-                  })}
-                  <br />
-                  {day.toLocaleDateString('hu-HU', {
-                    month: '2-digit',
-                    day: '2-digit'
-                  })}
-                </th>
-              ))}
-            </tr>
-
-            {weekSettings &&
-              (weekSettings.showOpeningTime ||
-                weekSettings.showClosingTime) && (
-                <>
-                  {weekSettings.showOpeningTime && (
-                    <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
-                        Nyitás
-                      </td>
-                      {weekDays.map((_, i) => (
-                        <td
-                          key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
-                        >
-                          {weekSettings.dailySettings[i]?.openingTime || '-'}
-                        </td>
-                      ))}
-                    </tr>
-                  )}
-                  {weekSettings.showClosingTime && (
-                    <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
-                        Zárás
-                      </td>
-                      {weekDays.map((_, i) => (
-                        <td
-                          key={i}
-                          className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
-                        >
-                          {weekSettings.dailySettings[i]?.closingTime || '-'}
-                        </td>
-                      ))}
-                    </tr>
-                  )}
-                </>
-              )}
-          </thead>
-
-          <tbody>
-            {visiblePositionOrder.map(positionName => {
-              const usersInPos = visibleUsersByPosition[positionName] || [];
-              if (usersInPos.length === 0) return null;
-
-              return (
-                <React.Fragment key={positionName}>
-                  {/* Pozíció fejléce */}
-                  <tr>
-                    <td
-                      colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>{positionName}</span>
-                        {isEditMode && (
-                          <span className="flex items-center gap-1 export-hide">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleMoveGroup(positionName, 'up')
-                              }
-                              className="rounded-full p-1 hover:bg-slate-300"
-                              title="Pozíció blokk feljebb"
-                            >
-                              <ArrowUpIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleMoveGroup(positionName, 'down')
-                              }
-                              className="rounded-full p-1 hover:bg-slate-300"
-                              title="Pozíció blokk lejjebb"
-                            >
-                              <ArrowDownIcon className="h-4 w-4" />
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* Dolgozók */}
-                  {usersInPos.map(user => {
-                    const userUnitId =
-                      user.unitIds?.find(uid => activeUnitIds.includes(uid)) ||
-                      user.unitIds?.[0];
-                    const userUnit = userUnitId
-                      ? unitMap.get(userUnitId)
-                      : undefined;
-                    const weeklyHours = workHours.userTotals[user.id] || 0;
-                    if (
-                      isPngExportRenderMode &&
-                      pngHideEmptyUsers &&
-                      weeklyHours <= 0.01
-                    ) {
-                      return null;
-                    }
-                    const isEmptyWeek = weeklyHours <= 0.01;
-
-                    const isAltRow = zebraRowIndex % 2 === 1;
-                    const rowBg = isAltRow
-                      ? tableAltZebraColor
-                      : tableBaseZebraColor;
-                    const nameBg = isAltRow
-                      ? tableAltNameColor
-                      : tableBaseNameColor;
-                    const nameTextColor = getContrastingTextColor(nameBg);
-                    const rowTextColor = getContrastingTextColor(rowBg);
-                    zebraRowIndex += 1;
-                    const currentRowIndex = renderRowIndex++;
-
-                    return (
-                      <tr
-                        key={user.id}
-                        data-user-id={user.id}
-                        className={isEmptyWeek ? 'no-shifts-week' : ''}
-                        style={{ background: rowBg }}
-                      >
-                        {/* Név oszlop */}
-                        <td
-                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
-                          style={{ background: nameBg, color: nameTextColor }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-800 leading-tight">
-                                  {user.fullName}
-                                </span>
-                                {isMultiUnitView && userUnit && (
-                                  <UnitLogoBadge unit={userUnit} size={18} />
-                                )}
-                              </div>
-                              <span className="export-hide text-[11px] text-slate-400">
-                                {weeklyHours.toFixed(1)} óra / hét
-                              </span>
-                            </div>
-                            {isEditMode && (
-                              <div className="flex items-center gap-1 export-hide">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleMoveUser(user.id, 'up')
-                                  }
-                                  className="rounded-full p-1 hover:bg-slate-100"
-                                  title="Feljebb"
-                                >
-                                  <ArrowUpIcon className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleMoveUser(user.id, 'down')
-                                  }
-                                  className="rounded-full p-1 hover:bg-slate-100"
-                                  title="Lejjebb"
-                                >
-                                  <ArrowDownIcon className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleHideUser(user.id)}
-                                  className="rounded-full p-1 hover:bg-slate-100"
-                                  title="Elrejtés"
-                                >
-                                  <EyeSlashIcon className="h-4 w-4" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Napok */}
-                        {weekDays.map((day, dayIndex) => {
-                          const dayKey = toDateString(day);
-                          const userDayShifts =
-                            shiftsByUserDay.get(user.id)?.get(dayKey) || [];
-                          const userDayRequests =
-                            requestsByUserDay.get(user.id)?.get(dayKey) || [];
-                          const leaveRequest = userDayRequests.find(
-                            req => req.type === 'leave'
-                          );
-                          const availabilityRequests = userDayRequests.filter(
-                            req => req.type === 'availability'
-                          );
-
-                          const displayParts: string[] = [];
-                          let isDayOff = false;
-                          const isLeave = !!leaveRequest && userDayShifts.length === 0;
-                          const shiftNote =
-                            userDayShifts.find(
-                              s => s.note && !s.isDayOff
-                            )?.note || '';
-
-                          if (userDayShifts.length > 0) {
-                            const dayOffShift = userDayShifts.find(
-                              s => s.isDayOff
-                            );
-                            if (dayOffShift) {
-                              displayParts.push('X');
-                              isDayOff = true;
-                            } else {
-                              displayParts.push(
-                                ...userDayShifts
-                                  .map(s => {
-                                    if (!s.start) return '';
-                                    const startStr =
-                                      s.start
-                                        .toDate()
-                                        .toTimeString()
-                                        .substring(0, 5) || '';
-                                    if (!s.end) return startStr;
-                                    const endStr =
-                                      s.end
-                                        .toDate()
-                                        .toTimeString()
-                                        .substring(0, 5) || '';
-                                    return `${startStr}-${endStr}`;
-                                  })
-                                  .filter(Boolean)
-                              );
-                            }
-                          }
-
-                          const shouldShowAvailability =
-                            availabilityRequests.length > 0 && !isDayOff && !isLeave;
-
-                          if (shouldShowAvailability) {
-                            displayParts.push(
-                              ...availabilityRequests.map(req => {
-                                const range = req.timeRange
-                                  ? `${req.timeRange.from}-${req.timeRange.to}`
-                                  : 'Időpont kérés';
-                                return `⏳ ${range}`;
-                              })
-                            );
-                          }
-
-                          if (!userDayShifts.length && leaveRequest) {
-                            displayParts.push('SZ');
-                          }
-
-                          const canEditCell = canManage || user.id === currentUser.id;
-                          const hasContent = displayParts.length > 0;
-                          const hasNote = !!shiftNote;
-                          const highlightedShift =
-                            activeUnitIds.length === 1
-                              ? userDayShifts.find(
-                                  s =>
-                                    s.unitId === activeUnitIds[0] &&
-                                    s.isHighlighted
-                                )
-                              : userDayShifts.find(
-                                  s =>
-                                    s.unitId &&
-                                    activeUnitIds.includes(s.unitId) &&
-                                    s.isHighlighted
-                                );
-                          const isHighlightedCell = !!highlightedShift?.isHighlighted;
-
-                          let cellClasses =
-                            'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
-                          if (isDayOff) {
-                            cellClasses +=
-                              ' bg-rose-50 text-rose-500 font-semibold day-off-cell';
-                          } else if (isLeave) {
-                            cellClasses +=
-                              ' bg-amber-50 text-amber-600 font-semibold leave-cell';
-                          } else if (hasContent) {
-                            cellClasses += ' text-slate-800';
-                          } else {
-                            cellClasses += ' text-slate-400';
-                          }
-
-                          const cellDataKey = `${user.id}-${dayKey}`;
-                          const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
-
-                          const baseCellStyle: CSSProperties = {};
-                          if (!isDayOff && !isLeave) {
-                            baseCellStyle.background = rowBg;
-                            baseCellStyle.color = rowTextColor;
-                          }
-
-                          if (isHighlightedCell) {
-                            if (isDayOff || isLeave) {
-                              baseCellStyle.boxShadow =
-                                '0 0 0 2px rgba(249, 115, 22, 0.65) inset';
-                            } else {
-                              baseCellStyle.background = '#ffedd5';
-                              baseCellStyle.color = '#7c2d12';
-                              baseCellStyle.boxShadow =
-                                '0 0 0 2px rgba(249, 115, 22, 0.4) inset';
-                            }
-                          }
-
-                          const cellStyle =
-                            Object.keys(baseCellStyle).length > 0
-                              ? baseCellStyle
-                              : undefined;
-
-                          return (
-                            <td
-                              key={dayIndex}
-                              ref={node => {
-                                if (node) {
-                                  cellRefs.current.set(cellUiKey, node);
-                                  cellMetaRef.current.set(cellUiKey, {
-                                    row: currentRowIndex,
-                                    col: dayIndex,
-                                  });
-                                } else {
-                                  cellRefs.current.delete(cellUiKey);
-                                  cellMetaRef.current.delete(cellUiKey);
-                                }
-                              }}
-                              className={cellClasses}
-                              style={cellStyle}
-                              onClick={() =>
-                                handleCellInteraction(
-                                  cellUiKey,
-                                  canEditCell,
-                                  userDayShifts,
-                                  user.id,
-                                  day
-                                )
-                              }
-                            >
-                              <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
-                                {hasContent && (
-                                  <span className="whitespace-pre-wrap leading-tight">
-                                    {displayParts.join('\n')}
-                                  </span>
-                                )}
-                                {hasNote && (
-                                  <span className="handwritten-note tracking-tighter">
-                                    {`"${shiftNote}"`}
-                                  </span>
-                                )}
-                                {!hasContent && canEditCell && (
-                                  <span className="export-hide pointer-events-none select-none text-slate-200 text-lg font-light">
-                                    +
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-
-            {/* Összesített sor (napi órák) */}
-            <tr className="summary-row bg-slate-50 border-t border-slate-300">
-              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
-                Napi összes (óra)
-              </td>
-              {weekDays.map((_, i) => (
-                <td
-                  key={i}
-                  className="px-3 py-2 text-center text-xs font-semibold text-slate-700"
-                >
-                  {workHours.dayTotals[i].toFixed(1)}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+        <div className={`p-4 grid ${weekBlockGridColumns} gap-4`}>
+          {finalWeekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
+        </div>
       </div>
 
       <BulkTimeModal
@@ -4117,8 +4359,33 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {successToast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-medium text-white shadow-lg">
-          {successToast}
+        <div className="export-hide fixed bottom-4 right-4 z-40 toast-slide-up">
+          <GlassOverlay
+            interactive
+            elevation="high"
+            className="max-w-xs"
+            style={{ padding: 12 }}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-sm font-semibold text-slate-900">
+                {successToast}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (successToastTimeoutRef.current) {
+                    clearTimeout(successToastTimeoutRef.current);
+                    successToastTimeoutRef.current = null;
+                  }
+                  setSuccessToast('');
+                }}
+                className="ml-auto rounded-full p-1 text-slate-600 transition hover:bg-slate-200"
+                aria-label="Értesítés bezárása"
+              >
+                ×
+              </button>
+            </div>
+          </GlassOverlay>
         </div>
       )}
     </div>
