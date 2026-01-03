@@ -1810,13 +1810,26 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [weekBlocks]
   );
 
+  const visibleWeekBlocksDays = useMemo(
+    () => weekBlocksDays.filter(week => week && week.length > 0),
+    [weekBlocksDays]
+  );
+
+  const finalWeekBlocksDays = useMemo(
+    () =>
+      viewSpan === 1
+        ? visibleWeekBlocksDays.slice(0, 1)
+        : visibleWeekBlocksDays,
+    [visibleWeekBlocksDays, viewSpan]
+  );
+
   const weekDays = useMemo(
     () =>
-      weekBlocksDays[0] ||
+      finalWeekBlocksDays[0] ||
       getWeekDaysFrom(
         startOfWeekMonday(currentDate)
       ),
-    [currentDate, weekBlocksDays]
+    [currentDate, finalWeekBlocksDays]
   );
 
   const weekStartDateStr = useMemo(
@@ -2104,7 +2117,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       { userTotals: Record<string, number>; dayTotals: number[]; grandTotal: number }
     >();
 
-    weekBlocksDays.forEach(week => {
+    finalWeekBlocksDays.forEach(week => {
       const userTotals: Record<string, number> = {};
       const dayTotals: number[] = Array(7).fill(0);
 
@@ -2146,7 +2159,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     orderedUsers,
     hiddenUserIds,
     shiftsByUserDay,
-    weekBlocksDays,
+    finalWeekBlocksDays,
     weekSettings,
     getUnitDaySetting
   ]);
@@ -2188,7 +2201,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     visiblePositionOrder,
     isSelectionMode,
     viewSpan,
-    weekBlocksDays
+    finalWeekBlocksDays
   ]);
 
   const hiddenUsers = useMemo(
@@ -2222,10 +2235,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return newDate;
     });
 
-  const hasMultipleBlocks = weekBlocksDays.length > 1;
-  const headerStart = weekBlocksDays[0]?.[0] || weekDays[0];
+  const hasMultipleBlocks = finalWeekBlocksDays.length > 1;
+  const headerStart = finalWeekBlocksDays[0]?.[0] || weekDays[0];
   const headerEnd =
-    weekBlocksDays[weekBlocksDays.length - 1]?.[6] || weekDays[6];
+    finalWeekBlocksDays[finalWeekBlocksDays.length - 1]?.[6] || weekDays[6];
 
   const viewOptions: Array<{ label: string; value: 1 | 2 | 3 | 4 | 'month' }> = [
     { label: 'Heti', value: 1 },
@@ -4195,12 +4208,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         )}
         <div
           className={`p-4 grid ${
-            weekBlocksDays.length === 1
+            finalWeekBlocksDays.length === 1
               ? 'grid-cols-1'
               : 'grid-cols-1 md:grid-cols-2'
           } gap-4`}
         >
-          {weekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
+          {finalWeekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
         </div>
       </div>
 
