@@ -252,12 +252,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const glassPlateStyle: React.CSSProperties = {
   padding: 6,
-  background: 'rgba(0,0,0,0.22)',
-  border: 'none',
-  outline: 'none',
-  boxShadow: 'none',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
+  background: 'rgba(0,0,0,0.26)',
+  border: '1px solid rgba(255,255,255,0.22)',
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
 };
 
   // 0 unit fallback
@@ -281,12 +279,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   if (userUnits.length === 1) {
     return (
       <GlassOverlay
-        elevation="high"
-        radius={999}
-        className="glass-no-frame max-w-full"
-        style={glassPlateStyle}
-        interactive={false}
-      >
+  elevation="high"
+  radius={999}
+  className="inline-flex w-fit max-w-full"
+  style={glassPlateStyle}
+  interactive={false}
+>
         <div
   className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate"
   style={{ maxWidth: 'min(70vw, 520px)' }}
@@ -299,18 +297,22 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // multi unit
   return (
+  return (
   <GlassOverlay
     elevation="high"
     radius={999}
-    className="glass-no-frame max-w-full"
-    style={{ ...glassPlateStyle, padding: 6 }}
+    className="inline-flex w-fit max-w-full"
+    style={glassPlateStyle}
     interactive
   >
     <div
-      className="flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide"
+      className="flex items-center gap-2 overflow-x-auto overflow-y-hidden"
       style={{
         WebkitOverflowScrolling: 'touch',
-        maxWidth: 'min(70vw, 520px)',   // itt tudsz finomhangolni
+        // a header által adott maxWidth fogja korlátozni,
+        // itt csak azt biztosítjuk, hogy a sor szélessége a tartalom legyen
+        width: 'max-content',
+        maxWidth: '100%',
       }}
     >
       {userUnits.map(unit => {
@@ -349,8 +351,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     <GlassOverlay
       elevation="high"
       radius={999}
-      interactive={false}
-      className="shrink-0"
+      interactive
+  className="shrink-0 pointer-events-auto"
       style={{
         padding: 6,
         background: 'rgba(0,0,0,0.26)',
@@ -373,7 +375,10 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <button
-          onClick={onLogout}
+          onClick={(e) => {
+  e.stopPropagation();
+  onLogout();
+}}
           title="Kijelentkezés"
           className="p-2 rounded-full hover:bg-white/20 shrink-0"
           type="button"
