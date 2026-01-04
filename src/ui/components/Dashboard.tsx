@@ -711,41 +711,44 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Main Content */}
       <div className="flex flex-col h-full w-full">
-        <header
-          className="h-16 shadow-md flex items-center justify-between px-6 z-10 flex-shrink-0"
-          style={{
-            backgroundColor: 'var(--color-primary)',
-            color: 'var(--color-text-on-primary)',
-            backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'var(--ui-header-blend-mode)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-          <div className="flex items-center gap-4 ml-auto">
-  {/* User info – kisebb */}
-  <div
-    className="text-right leading-tight"
-    style={{ color: 'var(--color-text-on-primary)' }}
-  >
-    <div className="text-sm font-medium">
-      {currentUser.fullName}
-    </div>
-    <div className="text-xs opacity-75">
-      {currentUser.role}
+       <header
+  className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
+  style={{
+    backgroundColor: 'var(--color-primary)',
+    color: 'var(--color-text-on-primary)',
+    backgroundImage: 'var(--ui-header-image)',
+    backgroundBlendMode: 'var(--ui-header-blend-mode)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  }}
+>
+  {/* Left: menu + unit selector (kapjon helyet) */}
+  <div className="flex items-center gap-3 min-w-0 flex-1">
+    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2 shrink-0">
+      <MenuIcon />
+    </button>
+
+    <div className="min-w-0 flex-1">
+      <UnitSelector />
     </div>
   </div>
 
-  {/* Logout – még jobbra, “sarokba” */}
-  <button
-    onClick={onLogout}
-    title="Kijelentkezés"
-    className="p-2 rounded-full hover:bg-white/20 mr-1 md:mr-0"
-  >
-    <LogoutIcon className="h-6 w-6" />
-  </button>
-</div>
-        </header>
+  {/* Right: user + logout */}
+  <div className="flex items-center gap-3 shrink-0 ml-4">
+    <div className="text-right leading-tight" style={{ color: 'var(--color-text-on-primary)' }}>
+      <div className="text-sm font-medium">{currentUser.fullName}</div>
+      <div className="text-xs opacity-75">{currentUser.role}</div>
+    </div>
+
+    <button
+      onClick={onLogout}
+      title="Kijelentkezés"
+      className="p-2 rounded-full hover:bg-white/20"
+    >
+      <LogoutIcon className="h-6 w-6" />
+    </button>
+  </div>
+</header>
 
         <main
           className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass}`}
