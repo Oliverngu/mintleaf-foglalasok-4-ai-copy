@@ -251,12 +251,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const glassPlateStyle: React.CSSProperties = {
-    padding: 6,
-    background: 'rgba(0,0,0,0.22)',
-    border: '1px solid rgba(255,255,255,0.22)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
-  };
+  padding: 6,
+  background: 'rgba(0,0,0,0.22)',
+  border: 'none',
+  outline: 'none',
+  boxShadow: 'none',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
+};
 
   // 0 unit fallback
   if (!userUnits || userUnits.length === 0) {
@@ -281,7 +283,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       <GlassOverlay
         elevation="high"
         radius={999}
-        className="inline-flex w-fit max-w-[90vw]"
+        className="inline-flex w-fit max-w-full glass-no-frame"
         style={glassPlateStyle}
         interactive={false}
       >
@@ -295,13 +297,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   // multi unit
   return (
     <GlassOverlay
-      elevation="high"
-      radius={999}
-      className="inline-flex w-fit max-w-full"
-      style={glassPlateStyle}
-      interactive
-    >
-      <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
+  elevation="high"
+  radius={999}
+  className="inline-flex w-fit max-w-full glass-no-frame"
+  style={glassPlateStyle}
+  interactive
+>
+      <div className="inline-flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide"
+     style={{ WebkitOverflowScrolling: 'touch' }}>
         {userUnits.map(unit => {
           const isSelected = selectedUnits.includes(unit.id);
           return (
@@ -807,14 +810,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     {/* Unit selector: ne mehessen rá a user badge-re */}
     <div
-      className="min-w-0 overflow-hidden"
-      style={{
-        // 180px kb. a UserBadge + gap helye, így nem ütköznek
-        maxWidth: 'calc(100vw - 180px)',
-      }}
-    >
-      <UnitSelector />
-    </div>
+  className="min-w-0 overflow-x-auto overflow-y-hidden"
+  style={{
+    maxWidth: 'calc(100vw - 180px)',
+    WebkitOverflowScrolling: 'touch',
+  }}
+>
+  <UnitSelector />
+</div>
   </div>
 
   {/* Right: fix User badge */}
