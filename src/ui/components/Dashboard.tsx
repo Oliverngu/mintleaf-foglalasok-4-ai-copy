@@ -722,38 +722,40 @@ const Dashboard: React.FC<DashboardProps> = ({
     backgroundPosition: 'center',
   }}
 >
-  {/* Left: menu + unit selector (kapjon helyet) */}
+  {/* Left: menu + unit selector */}
   <div className="flex items-center gap-3 min-w-0 flex-1">
-    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2 shrink-0">
+    <button
+      onClick={() => setSidebarOpen(!isSidebarOpen)}
+      className="p-2 -ml-2 shrink-0"
+      type="button"
+    >
       <MenuIcon />
     </button>
 
     <div className="min-w-0 flex-1">
-  <div className="unit-selector-scroll overflow-x-auto whitespace-nowrap">
-    <UnitSelector />
-  </div>
-</div>
+      <UnitSelector />
+    </div>
   </div>
 
   {/* Right: user + logout */}
   <div className="flex items-center gap-2 shrink-0 ml-3">
-  <div
-    className="text-right leading-tight max-w-[110px] sm:max-w-none"
-    style={{ color: 'var(--color-text-on-primary)' }}
-  >
-    <div className="text-xs sm:text-sm font-medium truncate">
-      {currentUser.fullName}
+    <div
+      className="text-right leading-tight max-w-[96px] sm:max-w-none"
+      style={{ color: 'var(--color-text-on-primary)' }}
+    >
+      <div className="text-xs sm:text-sm font-medium truncate">
+        {currentUser.fullName}
+      </div>
+      <div className="text-[10px] sm:text-xs opacity-75 truncate">
+        {currentUser.role}
+      </div>
     </div>
-    <div className="text-[10px] sm:text-xs opacity-75 truncate">
-      {currentUser.role}
-    </div>
-  </div>
-</div>
 
     <button
       onClick={onLogout}
       title="Kijelentkezés"
       className="p-2 rounded-full hover:bg-white/20"
+      type="button"
     >
       <LogoutIcon className="h-6 w-6" />
     </button>
