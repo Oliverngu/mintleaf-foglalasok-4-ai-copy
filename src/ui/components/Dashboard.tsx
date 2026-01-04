@@ -722,25 +722,29 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundPosition: 'center',
           }}
         >
-          <div className="flex items-center gap-4 min-w-0">
-            <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2">
-              <MenuIcon />
-            </button>
-            <UnitSelector />
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right" style={{ color: 'var(--color-text-on-primary)' }}>
-              <div className="font-semibold">{currentUser.fullName}</div>
-              <div className="text-sm opacity-80">{currentUser.role}</div>
-            </div>
-            <button
-              onClick={onLogout}
-              title="Kijelentkezés"
-              className="p-2 rounded-full hover:bg-white/20"
-            >
-              <LogoutIcon className="h-6 w-6" />
-            </button>
-          </div>
+          <div className="flex items-center gap-4 ml-auto">
+  {/* User info – kisebb */}
+  <div
+    className="text-right leading-tight"
+    style={{ color: 'var(--color-text-on-primary)' }}
+  >
+    <div className="text-sm font-medium">
+      {currentUser.fullName}
+    </div>
+    <div className="text-xs opacity-75">
+      {currentUser.role}
+    </div>
+  </div>
+
+  {/* Logout – még jobbra, “sarokba” */}
+  <button
+    onClick={onLogout}
+    title="Kijelentkezés"
+    className="p-2 rounded-full hover:bg-white/20 mr-1 md:mr-0"
+  >
+    <LogoutIcon className="h-6 w-6" />
+  </button>
+</div>
         </header>
 
         <main
