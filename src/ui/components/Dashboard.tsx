@@ -300,18 +300,19 @@ const Dashboard: React.FC<DashboardProps> = ({
   <GlassOverlay
     elevation="high"
     radius={999}
-    className="inline-flex w-fit max-w-full"
-    style={glassPlateStyle}
     interactive
+    className="inline-flex w-fit"
+    style={{
+      ...glassPlateStyle,
+      padding: 6,
+      maxWidth: 'min(70vw, 520px)', // ez a plafon: eddig nőhet a glass
+    }}
   >
     <div
-      className="flex items-center gap-2 overflow-x-auto overflow-y-hidden"
+      className="inline-flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide min-w-0"
       style={{
         WebkitOverflowScrolling: 'touch',
-        // a header által adott maxWidth fogja korlátozni,
-        // itt csak azt biztosítjuk, hogy a sor szélessége a tartalom legyen
-        width: 'max-content',
-        maxWidth: '100%',
+        maxWidth: '100%', // a scroll a glass szélességén belül történik
       }}
     >
       {userUnits.map(unit => {
