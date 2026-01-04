@@ -277,70 +277,83 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
   if (userUnits.length === 1) {
-    return (
-      <GlassOverlay
-  elevation="high"
-  radius={999}
-  className="inline-flex w-fit max-w-full"
-  style={glassPlateStyle}
-  interactive={false}
->
-        <div
-  className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate"
-  style={{ maxWidth: 'min(70vw, 520px)' }}
->
-  {userUnits[0].name}
-</div>
-      </GlassOverlay>
-    );
-  }
+  return (
+    <GlassOverlay
+      elevation="high"
+      radius={999}
+      interactive={false}
+      className="inline-flex"
+      style={{
+        ...glassPlateStyle,
+        padding: 6,
+        maxWidth: '100%',
+        background: 'rgba(0,0,0,0.26)',
+        border: '1px solid rgba(255,255,255,0.22)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+      }}
+    >
+      <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate max-w-full">
+        {userUnits[0].name}
+      </div>
+    </GlassOverlay>
+  );
+}
 
   // multi unit
-  return (
+return (
   <GlassOverlay
     elevation="high"
     radius={999}
     interactive
-    className="inline-flex w-fit"
+    className="inline-flex"
     style={{
       ...glassPlateStyle,
       padding: 6,
-      maxWidth: 'min(70vw, 520px)', // ez a plafon: eddig nőhet a glass
+      maxWidth: '100%',                 // a header középső cellájához igazodik
+      background: 'rgba(0,0,0,0.26)',   // egyezzen a UserBadge-hez
+      border: '1px solid rgba(255,255,255,0.22)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
     }}
   >
+    {/* Scroll viewport */}
     <div
-      className="inline-flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide min-w-0"
+      className="overflow-x-auto overflow-y-hidden scrollbar-hide"
       style={{
         WebkitOverflowScrolling: 'touch',
-        maxWidth: '100%', // a scroll a glass szélességén belül történik
+        maxWidth: '100%',
       }}
     >
-      {userUnits.map(unit => {
-        const isSelected = selectedUnits.includes(unit.id);
-        return (
-          <button
-            key={unit.id}
-            onClick={() => handleSelection(unit.id)}
-            type="button"
-            className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-            style={
-              isSelected
-                ? {
-                    background: 'rgba(255,255,255,0.92)',
-                    color: '#0f172a',
-                    border: '1px solid rgba(255,255,255,0.30)',
-                  }
-                : {
-                    background: 'rgba(255,255,255,0.18)',
-                    color: 'rgba(255,255,255,0.95)',
-                    border: '1px solid rgba(255,255,255,0.28)',
-                  }
-            }
-          >
-            {unit.name}
-          </button>
-        );
-      })}
+      {/* Content row must be wider than viewport to trigger scroll */}
+      <div className="inline-flex items-center gap-2 w-max">
+        {userUnits.map(unit => {
+          const isSelected = selectedUnits.includes(unit.id);
+          return (
+            <button
+              key={unit.id}
+              onClick={() => handleSelection(unit.id)}
+              type="button"
+              className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+              style={
+                isSelected
+                  ? {
+                      background: 'rgba(255,255,255,0.92)',
+                      color: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.30)',
+                    }
+                  : {
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'rgba(255,255,255,0.95)',
+                      border: '1px solid rgba(255,255,255,0.28)',
+                    }
+              }
+            >
+              {unit.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   </GlassOverlay>
 );
@@ -799,44 +812,40 @@ const Dashboard: React.FC<DashboardProps> = ({
         </aside>
 
       {/* Main Content */}
-      <div className="flex flex-col h-full w-full">
-       <header
-  className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
-  style={{
-    backgroundColor: 'var(--color-primary)',
-    color: 'var(--color-text-on-primary)',
-    backgroundImage: 'var(--ui-header-image)',
-    backgroundBlendMode: 'var(--ui-header-blend-mode)',
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-  }}
->
-  {/* Left: menu + unit selector */}
-  <div className="flex items-center gap-3 min-w-0 flex-1 relative z-10">
-    <button
-      onClick={() => setSidebarOpen(!isSidebarOpen)}
-      className="p-2 -ml-2 shrink-0"
-      type="button"
-    >
-      <MenuIcon />
-    </button>
+<div className="flex flex-col h-full w-full">
+  <header
+    className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
+    style={{
+      backgroundColor: 'var(--color-primary)',
+      color: 'var(--color-text-on-primary)',
+      backgroundImage: 'var(--ui-header-image)',
+      backgroundBlendMode: 'var(--ui-header-blend-mode)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+    }}
+  >
+    {/* Header content */}
+    <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 w-full min-w-0">
+      {/* Left: menu */}
+      <button
+        onClick={() => setSidebarOpen(!isSidebarOpen)}
+        className="p-2 -ml-2 shrink-0"
+        type="button"
+      >
+        <MenuIcon />
+      </button>
 
-    {/* Unit selector: nem vág, a belső GlassOverlay scrollol */}
-<div
-  className="min-w-0 flex-1"
-  style={{
-    maxWidth: 'calc(100vw - 190px)', // kis puffer a UserBadge miatt
-  }}
->
-  <UnitSelector />
-</div>
-  </div>
+      {/* Middle: unit selector (constrained cell) */}
+      <div className="min-w-0 overflow-hidden">
+        <UnitSelector />
+      </div>
 
-  {/* Right: fix User badge (mindig clickable) */}
-<div className="shrink-0 ml-2 relative z-20 pointer-events-auto">
-  <UserBadge />
-</div>
-</header>
+      {/* Right: user badge */}
+      <div className="shrink-0 pointer-events-auto">
+        <UserBadge />
+      </div>
+    </div>
+  </header>
 
         <main
           className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass}`}
