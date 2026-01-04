@@ -297,7 +297,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     <GlassOverlay
       elevation="high"
       radius={999}
-      className="inline-flex w-fit max-w-[90vw]"
+      className="inline-flex w-fit max-w-full"
       style={glassPlateStyle}
       interactive
     >
@@ -328,6 +328,47 @@ const Dashboard: React.FC<DashboardProps> = ({
             </button>
           );
         })}
+      </div>
+    </GlassOverlay>
+  );
+};
+
+  const UserBadge: React.FC = () => {
+  return (
+    <GlassOverlay
+      elevation="high"
+      radius={999}
+      interactive={false}
+      className="shrink-0"
+      style={{
+        padding: 6,
+        background: 'rgba(0,0,0,0.26)',
+        border: '1px solid rgba(255,255,255,0.22)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className="text-right leading-tight max-w-[120px] sm:max-w-none"
+          style={{ color: 'var(--color-text-on-primary)' }}
+        >
+          <div className="text-xs sm:text-sm font-medium truncate">
+            {currentUser.fullName}
+          </div>
+          <div className="text-[10px] sm:text-xs opacity-75 truncate">
+            {currentUser.role}
+          </div>
+        </div>
+
+        <button
+          onClick={onLogout}
+          title="Kijelentkezés"
+          className="p-2 rounded-full hover:bg-white/20 shrink-0"
+          type="button"
+        >
+          <LogoutIcon className="h-6 w-6" />
+        </button>
       </div>
     </GlassOverlay>
   );
@@ -764,33 +805,21 @@ const Dashboard: React.FC<DashboardProps> = ({
       <MenuIcon />
     </button>
 
-    <div className="min-w-0">
-  <UnitSelector />
-</div>
+    {/* Unit selector: ne mehessen rá a user badge-re */}
+    <div
+      className="min-w-0 overflow-hidden"
+      style={{
+        // 180px kb. a UserBadge + gap helye, így nem ütköznek
+        maxWidth: 'calc(100vw - 180px)',
+      }}
+    >
+      <UnitSelector />
+    </div>
   </div>
 
-  {/* Right: user + logout */}
-  <div className="flex items-center gap-2 shrink-0 ml-3">
-    <div
-      className="text-right leading-tight max-w-[96px] sm:max-w-none"
-      style={{ color: 'var(--color-text-on-primary)' }}
-    >
-      <div className="text-xs sm:text-sm font-medium truncate">
-        {currentUser.fullName}
-      </div>
-      <div className="text-[10px] sm:text-xs opacity-75 truncate">
-        {currentUser.role}
-      </div>
-    </div>
-
-    <button
-      onClick={onLogout}
-      title="Kijelentkezés"
-      className="p-2 rounded-full hover:bg-white/20"
-      type="button"
-    >
-      <LogoutIcon className="h-6 w-6" />
-    </button>
+  {/* Right: fix User badge */}
+  <div className="shrink-0 ml-2">
+    <UserBadge />
   </div>
 </header>
 
