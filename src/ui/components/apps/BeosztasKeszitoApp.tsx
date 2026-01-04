@@ -208,7 +208,7 @@ const HiddenUsersModal: FC<HiddenUsersModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
       onClick={onClose}
     >
       <div
@@ -2419,6 +2419,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const tableStickyLayers = {
+    header: 'z-10',
+    section: 'z-[9]',
+    cell: 'z-[8]'
+  } as const;
+
   const weekBlockGridColumns =
     finalWeekBlocksDays.length === 1
       ? 'grid-cols-1'
@@ -2428,16 +2434,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const isToolbarDisabled = isSidebarOpen;
   const toolbarDisabledClass = isToolbarDisabled
-    ? 'opacity-60 saturate-75 pointer-events-none'
+    ? 'opacity-60 saturate-75'
+    : '';
+  const toolbarButtonDisabledClass = isToolbarDisabled
+    ? 'pointer-events-none'
     : '';
 
   const toolbarButtonClass = useCallback(
     (active: boolean) =>
-      `text-sm px-4 py-2 rounded-full border border-white/30 backdrop-blur-md transition-colors shadow-sm ${
+      `text-sm px-4 py-2 rounded-full border border-white/35 backdrop-blur-md transition-colors shadow-sm ${
         active
-          ? 'bg-slate-800/80 text-white shadow-md'
-          : 'bg-white/15 text-slate-900 hover:bg-white/25'
-      } disabled:cursor-not-allowed disabled:opacity-60`,
+          ? 'bg-slate-800/85 text-white shadow-md'
+          : 'bg-white/22 text-slate-900/90 hover:bg-white/30'
+      } disabled:cursor-not-allowed disabled:opacity-60 disabled:pointer-events-none`,
     []
   );
 
@@ -2514,7 +2523,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         >
           <thead className="bg-slate-100">
             <tr>
-              <th className="sticky left-0 z-[8] bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
+              <th
+                className={`sticky left-0 ${tableStickyLayers.header} bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600`}
+              >
                 Munkatárs
               </th>
               {weekDays.map((day, idx) => (
@@ -2540,7 +2551,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 <>
                   {weekSettings.showOpeningTime && (
                     <tr>
-                      <td className="sticky left-0 z-[8] bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                      <td
+                        className={`sticky left-0 ${tableStickyLayers.header} bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200`}
+                      >
                         Nyitás
                       </td>
                       {weekDays.map((_, i) => (
@@ -2555,7 +2568,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   )}
                   {weekSettings.showClosingTime && (
                     <tr>
-                      <td className="sticky left-0 z-[8] bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                      <td
+                        className={`sticky left-0 ${tableStickyLayers.header} bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200`}
+                      >
                         Zárás
                       </td>
                       {weekDays.map((_, i) => (
@@ -2583,7 +2598,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[6] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
+                      className={`sticky left-0 ${tableStickyLayers.section} bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400`}
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
@@ -2662,7 +2677,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       >
                         {/* Név oszlop */}
                         <td
-                          className="sticky left-0 z-[5] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          className={`sticky left-0 ${tableStickyLayers.cell} bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle`}
                           style={{ background: nameBg, color: nameTextColor }}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -2903,7 +2918,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
             {/* Összesített sor (napi órák) */}
             <tr className="summary-row bg-slate-50 border-t border-slate-300">
-              <td className="sticky left-0 z-[4] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
+              <td
+                className={`sticky left-0 ${tableStickyLayers.cell} bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700`}
+              >
                 Napi összes (óra)
               </td>
               {weekDays.map((_, i) => (
@@ -3677,12 +3694,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             'sticky',
             'left-0',
             'z-10',
-            'z-[2]',
-            'z-[3]',
-            'z-[4]',
-            'z-[5]',
-            'z-[6]',
-            'z-[8]'
+            'z-[8]',
+            'z-[9]'
           );
           el.style.position = '';
           el.style.left = '';
@@ -3977,13 +3990,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           elevation="high"
           radius={18}
           style={{ padding: 12 }}
-          interactive={!isToolbarDisabled}
+          interactive
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={cycleViewSpan}
-                className={`${toolbarButtonClass(true)} ${toolbarDisabledClass}`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass}`}
                 disabled={isToolbarDisabled}
               >
                 {currentViewLabel}
@@ -3993,14 +4006,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleToggleEditMode}
-                  className={`${toolbarButtonClass(isEditMode)} ${toolbarDisabledClass}`}
+                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass}`}
                   disabled={isToolbarDisabled}
                 >
                   Névsor szerkesztése
                 </button>
                 <button
                   onClick={handleToggleSelectionMode}
-                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarDisabledClass}`}
+                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass}`}
                   disabled={isToolbarDisabled}
                 >
                   Cella kijelölése
@@ -4010,7 +4023,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarDisabledClass}`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass}`}
                 disabled={hiddenUsers.length === 0 || isToolbarDisabled}
                 title="Elrejtett munkatársak"
               >
@@ -4136,7 +4149,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {canManage && showSettings && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[90] p-4"
           onClick={() => setShowSettings(false)}
         >
           <div
