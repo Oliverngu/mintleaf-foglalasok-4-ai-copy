@@ -55,7 +55,7 @@ import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
-import GlassOverlay from '../common/GlassOverlay';
+import GlassOverlay from './common/GlassOverlay';
 
 interface DashboardProps {
   currentUser: User | null;
