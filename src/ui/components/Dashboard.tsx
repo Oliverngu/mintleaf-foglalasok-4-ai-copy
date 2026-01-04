@@ -55,6 +55,8 @@ import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
+import GlassOverlay from './common/GlassOverlay';
+
 interface DashboardProps {
   currentUser: User | null;
   onLogout: () => void;
@@ -229,49 +231,107 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const UnitSelector: React.FC = () => {
-    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
-    const userUnits = useMemo(
-      () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
-      [allUnits, currentUser]
-    );
-    const isMultiSelect = currentUser.role === 'Admin';
+  const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
 
-    const handleSelection = (unitId: string) => {
-      if (isMultiSelect) {
-        setSelectedUnits(prev =>
-          prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
-        );
-      } else {
-        setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
-      }
-    };
+  const userUnits = useMemo(
+    () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
+    [allUnits, currentUser]
+  );
 
-    if (!userUnits || userUnits.length <= 1) {
-      return (
-        <div className="text-white font-semibold px-3">
-          {userUnits[0]?.name || 'Nincs egység'}
-        </div>
+  const isMultiSelect = currentUser.role === 'Admin';
+
+  const handleSelection = (unitId: string) => {
+    if (isMultiSelect) {
+      setSelectedUnits(prev =>
+        prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
       );
+    } else {
+      setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
     }
-
-    return (
-      <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
-        {userUnits.map(unit => (
-          <button
-            key={unit.id}
-            onClick={() => handleSelection(unit.id)}
-            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap ${
-              selectedUnits.includes(unit.id)
-                ? 'bg-white text-green-800 shadow-md'
-                : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            {unit.name}
-          </button>
-        ))}
-      </div>
-    );
   };
+
+  const glassPlateStyle: React.CSSProperties = {
+    padding: 6,
+    background: 'rgba(0,0,0,0.22)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+  };
+
+  // 0 unit fallback
+  if (!userUnits || userUnits.length === 0) {
+    return (
+      <GlassOverlay
+        elevation="high"
+        radius={999}
+        className="inline-flex w-fit max-w-[90vw]"
+        style={glassPlateStyle}
+        interactive={false}
+      >
+        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+          Nincs egység
+        </div>
+      </GlassOverlay>
+    );
+  }
+
+  // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
+  if (userUnits.length === 1) {
+    return (
+      <GlassOverlay
+        elevation="high"
+        radius={999}
+        className="inline-flex w-fit max-w-[90vw]"
+        style={glassPlateStyle}
+        interactive={false}
+      >
+        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+          {userUnits[0].name}
+        </div>
+      </GlassOverlay>
+    );
+  }
+
+  // multi unit
+  return (
+    <GlassOverlay
+      elevation="high"
+      radius={999}
+      className="inline-flex w-fit max-w-[90vw]"
+      style={glassPlateStyle}
+      interactive
+    >
+      <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
+        {userUnits.map(unit => {
+          const isSelected = selectedUnits.includes(unit.id);
+          return (
+            <button
+              key={unit.id}
+              onClick={() => handleSelection(unit.id)}
+              type="button"
+              className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+              style={
+                isSelected
+                  ? {
+                      background: 'rgba(255,255,255,0.92)',
+                      color: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.30)',
+                    }
+                  : {
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'rgba(255,255,255,0.95)',
+                      border: '1px solid rgba(255,255,255,0.28)',
+                    }
+              }
+            >
+              {unit.name}
+            </button>
+          );
+        })}
+      </div>
+    </GlassOverlay>
+  );
+};
 
   interface NavItemProps {
     app: AppName;
@@ -683,37 +743,56 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Main Content */}
       <div className="flex flex-col h-full w-full">
-        <header
-          className="h-16 shadow-md flex items-center justify-between px-6 z-10 flex-shrink-0"
-          style={{
-            backgroundColor: 'var(--color-primary)',
-            color: 'var(--color-text-on-primary)',
-            backgroundImage: 'var(--ui-header-image)',
-            backgroundBlendMode: 'var(--ui-header-blend-mode)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-          <div className="flex items-center gap-4 min-w-0">
-            <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 -ml-2">
-              <MenuIcon />
-            </button>
-            <UnitSelector />
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right" style={{ color: 'var(--color-text-on-primary)' }}>
-              <div className="font-semibold">{currentUser.fullName}</div>
-              <div className="text-sm opacity-80">{currentUser.role}</div>
-            </div>
-            <button
-              onClick={onLogout}
-              title="Kijelentkezés"
-              className="p-2 rounded-full hover:bg-white/20"
-            >
-              <LogoutIcon className="h-6 w-6" />
-            </button>
-          </div>
-        </header>
+       <header
+  className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
+  style={{
+    backgroundColor: 'var(--color-primary)',
+    color: 'var(--color-text-on-primary)',
+    backgroundImage: 'var(--ui-header-image)',
+    backgroundBlendMode: 'var(--ui-header-blend-mode)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  }}
+>
+  {/* Left: menu + unit selector */}
+  <div className="flex items-center gap-3 min-w-0 flex-1">
+    <button
+      onClick={() => setSidebarOpen(!isSidebarOpen)}
+      className="p-2 -ml-2 shrink-0"
+      type="button"
+    >
+      <MenuIcon />
+    </button>
+
+    <div className="min-w-0">
+  <UnitSelector />
+</div>
+  </div>
+
+  {/* Right: user + logout */}
+  <div className="flex items-center gap-2 shrink-0 ml-3">
+    <div
+      className="text-right leading-tight max-w-[96px] sm:max-w-none"
+      style={{ color: 'var(--color-text-on-primary)' }}
+    >
+      <div className="text-xs sm:text-sm font-medium truncate">
+        {currentUser.fullName}
+      </div>
+      <div className="text-[10px] sm:text-xs opacity-75 truncate">
+        {currentUser.role}
+      </div>
+    </div>
+
+    <button
+      onClick={onLogout}
+      title="Kijelentkezés"
+      className="p-2 rounded-full hover:bg-white/20"
+      type="button"
+    >
+      <LogoutIcon className="h-6 w-6" />
+    </button>
+  </div>
+</header>
 
         <main
           className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass}`}
