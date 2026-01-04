@@ -283,57 +283,65 @@ const Dashboard: React.FC<DashboardProps> = ({
       <GlassOverlay
         elevation="high"
         radius={999}
-        className="inline-flex w-fit max-w-full glass-no-frame"
+        className="glass-no-frame max-w-full"
         style={glassPlateStyle}
         interactive={false}
       >
-        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
-          {userUnits[0].name}
-        </div>
+        <div
+  className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate"
+  style={{ maxWidth: 'min(70vw, 520px)' }}
+>
+  {userUnits[0].name}
+</div>
       </GlassOverlay>
     );
   }
 
   // multi unit
   return (
-    <GlassOverlay
-  elevation="high"
-  radius={999}
-  className="inline-flex w-fit max-w-full glass-no-frame"
-  style={glassPlateStyle}
-  interactive
->
-      <div className="inline-flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide"
-     style={{ WebkitOverflowScrolling: 'touch' }}>
-        {userUnits.map(unit => {
-          const isSelected = selectedUnits.includes(unit.id);
-          return (
-            <button
-              key={unit.id}
-              onClick={() => handleSelection(unit.id)}
-              type="button"
-              className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-              style={
-                isSelected
-                  ? {
-                      background: 'rgba(255,255,255,0.92)',
-                      color: '#0f172a',
-                      border: '1px solid rgba(255,255,255,0.30)',
-                    }
-                  : {
-                      background: 'rgba(255,255,255,0.18)',
-                      color: 'rgba(255,255,255,0.95)',
-                      border: '1px solid rgba(255,255,255,0.28)',
-                    }
-              }
-            >
-              {unit.name}
-            </button>
-          );
-        })}
-      </div>
-    </GlassOverlay>
-  );
+  <GlassOverlay
+    elevation="high"
+    radius={999}
+    className="glass-no-frame max-w-full"
+    style={{ ...glassPlateStyle, padding: 6 }}
+    interactive
+  >
+    <div
+      className="flex items-center gap-2 overflow-x-auto overflow-y-hidden scrollbar-hide"
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        maxWidth: 'min(70vw, 520px)',   // itt tudsz finomhangolni
+      }}
+    >
+      {userUnits.map(unit => {
+        const isSelected = selectedUnits.includes(unit.id);
+        return (
+          <button
+            key={unit.id}
+            onClick={() => handleSelection(unit.id)}
+            type="button"
+            className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+            style={
+              isSelected
+                ? {
+                    background: 'rgba(255,255,255,0.92)',
+                    color: '#0f172a',
+                    border: '1px solid rgba(255,255,255,0.30)',
+                  }
+                : {
+                    background: 'rgba(255,255,255,0.18)',
+                    color: 'rgba(255,255,255,0.95)',
+                    border: '1px solid rgba(255,255,255,0.28)',
+                  }
+            }
+          >
+            {unit.name}
+          </button>
+        );
+      })}
+    </div>
+  </GlassOverlay>
+);
 };
 
   const UserBadge: React.FC = () => {
@@ -799,7 +807,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   }}
 >
   {/* Left: menu + unit selector */}
-  <div className="flex items-center gap-3 min-w-0 flex-1">
+  <div className="flex items-center gap-3 min-w-0 flex-1 relative z-10">
     <button
       onClick={() => setSidebarOpen(!isSidebarOpen)}
       className="p-2 -ml-2 shrink-0"
@@ -808,22 +816,21 @@ const Dashboard: React.FC<DashboardProps> = ({
       <MenuIcon />
     </button>
 
-    {/* Unit selector: ne mehessen rá a user badge-re */}
-    <div
-  className="min-w-0 overflow-x-auto overflow-y-hidden"
+    {/* Unit selector: nem vág, a belső GlassOverlay scrollol */}
+<div
+  className="min-w-0 flex-1"
   style={{
-    maxWidth: 'calc(100vw - 180px)',
-    WebkitOverflowScrolling: 'touch',
+    maxWidth: 'calc(100vw - 190px)', // kis puffer a UserBadge miatt
   }}
 >
   <UnitSelector />
 </div>
   </div>
 
-  {/* Right: fix User badge */}
-  <div className="shrink-0 ml-2">
-    <UserBadge />
-  </div>
+  {/* Right: fix User badge (mindig clickable) */}
+<div className="shrink-0 ml-2 relative z-20 pointer-events-auto">
+  <UserBadge />
+</div>
 </header>
 
         <main
