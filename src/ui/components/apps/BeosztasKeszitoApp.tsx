@@ -49,13 +49,14 @@ import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 
 const LAYERS = {
+  modal: 90,
   sidebar: 80,
+  dim: 75,
+  toast: 70,
   toolbar: 60,
   tableHeader: 30,
   tableSection: 25,
-  tableCell: 20,
-  modal: 90,
-  toast: 70
+  tableCell: 20
 } as const;
 
 const DEFAULT_CLOSING_TIME = '22:00';
@@ -2459,13 +2460,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     ? 'pointer-events-none'
     : '';
   const toolbarWrapperClassName = `export-hide sticky top-2 mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
+  const toolbarPillBase = 'shrink-0 whitespace-nowrap';
 
   const toolbarButtonClass = useCallback(
     (active: boolean) =>
       `text-sm px-4 py-2 rounded-full border border-white/40 backdrop-blur-md transition-colors shadow-sm ${
         active
-          ? 'bg-slate-900/80 text-white shadow-md'
-          : 'bg-white/28 text-slate-950 hover:bg-white/35'
+          ? 'bg-slate-900/85 text-white shadow-md'
+          : 'bg-white/30 text-slate-950 hover:bg-white/40'
       } disabled:cursor-not-allowed disabled:opacity-60 disabled:pointer-events-none`,
     []
   );
@@ -4011,6 +4013,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         layer={LAYERS.modal}
       />
 
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/35 backdrop-blur-[1px] pointer-events-none"
+          style={{ zIndex: LAYERS.dim }}
+          aria-hidden="true"
+        />
+      )}
+
       <div
         className={toolbarWrapperClassName}
         style={{ zIndex: LAYERS.toolbar }}
@@ -4026,7 +4036,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={cycleViewSpan}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} shrink-0`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                 disabled={isToolbarDisabled}
               >
                 {currentViewLabel}
@@ -4036,14 +4046,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               <div className="flex items-center gap-2 flex-nowrap">
                 <button
                   onClick={handleToggleEditMode}
-                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} shrink-0`}
+                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={isToolbarDisabled}
                 >
                   Névsor szerkesztése
                 </button>
                 <button
                   onClick={handleToggleSelectionMode}
-                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} shrink-0`}
+                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={isToolbarDisabled}
                 >
                   Cella kijelölése
@@ -4053,13 +4063,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} shrink-0`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px]`}
                 disabled={hiddenUsers.length === 0 || isToolbarDisabled}
                 title="Elrejtett munkatársak"
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-1">
                   <EyeIcon className="h-5 w-5" />
-                  <span>({hiddenUsers.length})</span>
+                  <span className="leading-none">({hiddenUsers.length})</span>
                 </span>
               </button>
             </div>
