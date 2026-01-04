@@ -48,6 +48,16 @@ import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 
+const LAYERS = {
+  modal: 90,
+  // Dashboard: dim=20, sidebar=30 -> app elemek 20 alatt!
+  toast: 19,
+  toolbar: 18,
+  tableHeader: 17,
+  tableSection: 16,
+  tableCell: 15,
+} as const;
+
 const DEFAULT_CLOSING_TIME = '22:00';
 const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
 const SUCCESS_TOAST_DURATION_MS = 3200;
@@ -142,7 +152,10 @@ const BulkTimeModal: FC<BulkTimeModalProps> = ({ state, onClose, onApply }) => {
   if (!state) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      style={{ zIndex: LAYERS.modal }}
+    >
       <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
         <h3 className="mb-2 text-lg font-semibold text-gray-800">
           {state.type === 'start' ? 'Kezdő idő beállítása' : 'Vég idő beállítása'}
@@ -171,6 +184,93 @@ const BulkTimeModal: FC<BulkTimeModalProps> = ({ state, onClose, onApply }) => {
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
             Alkalmaz
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface HiddenUsersModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  hiddenUsers: User[];
+  onUnhide: (userId: string) => void;
+  layer?: number;
+}
+
+const HiddenUsersModal: FC<HiddenUsersModalProps> = ({
+  isOpen,
+  onClose,
+  hiddenUsers,
+  onUnhide,
+  layer = LAYERS.modal
+}) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      style={{ zIndex: layer }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h3 className="text-lg font-semibold text-slate-800">
+            Elrejtett munkatársak
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+            aria-label="Bezárás"
+          >
+            ×
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-2">
+          {hiddenUsers.length === 0 ? (
+            <p className="text-sm text-slate-600">Nincs elrejtett munkatárs.</p>
+          ) : (
+            hiddenUsers.map(user => (
+              <div
+                key={user.id}
+                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800"
+              >
+                <span>{user.fullName}</span>
+                <button
+                  onClick={() => onUnhide(user.id)}
+                  className="text-xs font-semibold text-blue-600 hover:underline"
+                >
+                  Visszaállítás
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="border-t px-4 py-3 text-right">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+          >
+            Bezár
           </button>
         </div>
       </div>
@@ -341,7 +441,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -543,7 +644,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -1297,7 +1399,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -1422,6 +1525,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
   >('opening');
+  const [isHiddenModalOpen, setIsHiddenModalOpen] = useState(false);
 
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [unitsWithDrafts, setUnitsWithDrafts] = useState<
@@ -1433,7 +1537,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [hiddenUserIds, setHiddenUserIds] = useState<Set<string>>(
     new Set()
   );
-  const [isHiddenMenuOpen, setIsHiddenMenuOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -2324,13 +2427,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const headerEnd =
     finalWeekBlocksDays[finalWeekBlocksDays.length - 1]?.[6] || weekDays[6];
 
-  const viewOptions: Array<{ label: string; value: 1 | 2 | 3 | 4 | 'month' }> = [
-    { label: 'Heti', value: 1 },
-    { label: '2 heti', value: 2 },
-    { label: '3 heti', value: 3 },
-    { label: '4 heti', value: 4 },
-    { label: 'Egy havi', value: 'month' }
-  ];
+  const viewOptions = useMemo<Array<{ label: string; value: 1 | 2 | 3 | 4 | 'month' }>>(
+    () => [
+      { label: 'Heti', value: 1 },
+      { label: '2 heti', value: 2 },
+      { label: '3 heti', value: 3 },
+      { label: '4 heti', value: 4 },
+      { label: 'Egy havi', value: 'month' }
+    ],
+    []
+  );
+
+  const tableStickyLayers = {
+    header: LAYERS.tableHeader,
+    section: LAYERS.tableSection,
+    cell: LAYERS.tableCell
+  } as const;
 
   const weekBlockGridColumns =
     finalWeekBlocksDays.length === 1
@@ -2340,16 +2452,34 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         : 'grid-cols-1 lg:grid-cols-2';
 
   const isToolbarDisabled = isSidebarOpen;
-  const toolbarDisabledClass = isToolbarDisabled ? 'opacity-60 saturate-75' : '';
+  const toolbarDisabledClass = isToolbarDisabled
+    ? 'opacity-60 saturate-75'
+    : '';
+  const toolbarButtonDisabledClass = isToolbarDisabled
+    ? 'pointer-events-none'
+    : '';
+  const toolbarWrapperClassName = `export-hide sticky top-2 mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
+  const toolbarPillBase = 'shrink-0 whitespace-nowrap';
 
   const toolbarButtonClass = useCallback(
     (active: boolean) =>
-      `text-sm px-3 py-1 rounded-full border transition-colors ${
+      `text-sm px-4 py-2 rounded-full border border-white/40 backdrop-blur-md transition-colors shadow-sm ${
         active
-          ? 'bg-slate-800 text-white border-slate-800'
-          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-      }`,
+          ? 'bg-slate-900/85 text-white shadow-md'
+          : 'bg-white/30 text-slate-950 hover:bg-white/40'
+      } disabled:cursor-not-allowed disabled:opacity-60 disabled:pointer-events-none`,
     []
+  );
+
+  const cycleViewSpan = useCallback(() => {
+    const currentIndex = viewOptions.findIndex(option => option.value === viewSpan);
+    const nextIndex = (currentIndex + 1) % viewOptions.length;
+    setViewSpan(viewOptions[nextIndex].value);
+  }, [viewOptions, viewSpan]);
+
+  const currentViewLabel = useMemo(
+    () => viewOptions.find(option => option.value === viewSpan)?.label || 'Heti',
+    [viewOptions, viewSpan]
   );
 
   const usersWithAnyShiftInRenderedPeriod = useMemo(() => {
@@ -2414,7 +2544,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         >
           <thead className="bg-slate-100">
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600">
+              <th
+                className="sticky left-0 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600"
+                style={{ zIndex: tableStickyLayers.header }}
+              >
                 Munkatárs
               </th>
               {weekDays.map((day, idx) => (
@@ -2440,7 +2573,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 <>
                   {weekSettings.showOpeningTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                      <td
+                        className="sticky left-0 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200"
+                        style={{ zIndex: tableStickyLayers.header }}
+                      >
                         Nyitás
                       </td>
                       {weekDays.map((_, i) => (
@@ -2455,7 +2591,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   )}
                   {weekSettings.showClosingTime && (
                     <tr>
-                      <td className="sticky left-0 z-10 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200">
+                      <td
+                        className="sticky left-0 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200"
+                        style={{ zIndex: tableStickyLayers.header }}
+                      >
                         Zárás
                       </td>
                       {weekDays.map((_, i) => (
@@ -2483,7 +2622,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className="sticky left-0 z-[5] bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
+                      className="sticky left-0 bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
+                      style={{ zIndex: tableStickyLayers.section }}
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
@@ -2562,8 +2702,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       >
                         {/* Név oszlop */}
                         <td
-                          className="sticky left-0 z-[3] bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
-                          style={{ background: nameBg, color: nameTextColor }}
+                          className="sticky left-0 bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          style={{
+                            background: nameBg,
+                            color: nameTextColor,
+                            zIndex: tableStickyLayers.cell
+                          }}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
@@ -2803,7 +2947,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
             {/* Összesített sor (napi órák) */}
             <tr className="summary-row bg-slate-50 border-t border-slate-300">
-              <td className="sticky left-0 z-[2] bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700">
+              <td
+                className="sticky left-0 bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700"
+                style={{ zIndex: tableStickyLayers.cell }}
+              >
                 Napi összes (óra)
               </td>
               {weekDays.map((_, i) => (
@@ -3573,10 +3720,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         // 2) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
         tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-          el.classList.remove('sticky', 'left-0', 'z-10', 'z-[2]', 'z-[3]', 'z-[5]');
-          el.style.position = '';
-          el.style.left = '';
-          el.style.zIndex = '';
+          el.classList.remove('sticky', 'left-0');
+          el.style.position = 'static';
+          el.style.left = 'auto';
+          el.style.zIndex = 'auto';
+          el.style.top = 'auto';
         });
 
         // 3) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
@@ -3828,6 +3976,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           to { transform: translateY(18px); opacity: 0; }
         }
         .toast-slide-down { animation: toast-slide-down 240ms ease-in forwards; }
+        .toolbar-scroll { scrollbar-width: none; }
+        .toolbar-scroll::-webkit-scrollbar { display: none; }
         `}
       </style>
 
@@ -3854,49 +4004,64 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         />
       )}
 
-      <div className="export-hide sticky top-2 z-10 mb-4">
+      <HiddenUsersModal
+        isOpen={isHiddenModalOpen}
+        onClose={() => setIsHiddenModalOpen(false)}
+        hiddenUsers={hiddenUsers}
+        onUnhide={handleShowUser}
+        layer={LAYERS.modal}
+      />
+
+      <div
+        className={toolbarWrapperClassName}
+        style={{ zIndex: LAYERS.toolbar }}
+      >
         <GlassOverlay
           className={`w-full ${toolbarDisabledClass}`}
           elevation="high"
-          radius={9999}
-          style={{ padding: 10 }}
-          interactive={!isToolbarDisabled}
+          radius={18}
+          style={{ padding: 12 }}
+          interactive={!isSidebarOpen}
         >
-          <div className="flex flex-wrap items-center gap-2">
-            {viewOptions.map(option => {
-              const isActive = viewSpan === option.value;
-              return (
+          <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
+            <div className="flex items-center gap-2 flex-nowrap">
+              <button
+                onClick={cycleViewSpan}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                disabled={isToolbarDisabled}
+              >
+                {currentViewLabel}
+              </button>
+            </div>
+            {canManage && (
+              <div className="flex items-center gap-2 flex-nowrap">
                 <button
-                  key={option.value}
-                  onClick={() => setViewSpan(option.value)}
-                  className={`${toolbarButtonClass(isActive)} ${toolbarDisabledClass}`}
+                  onClick={handleToggleEditMode}
+                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={isToolbarDisabled}
                 >
-                  {option.label}
+                  Névsor szerkesztése
                 </button>
-              );
-            })}
-            {canManage && (
-              <>
-                <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handleToggleEditMode}
-                    className={`${toolbarButtonClass(isEditMode)} ${toolbarDisabledClass}`}
-                    disabled={isToolbarDisabled}
-                  >
-                    Névsor szerkesztése
-                  </button>
-                  <button
-                    onClick={handleToggleSelectionMode}
-                    className={`${toolbarButtonClass(isSelectionMode)} ${toolbarDisabledClass}`}
-                    disabled={isToolbarDisabled}
-                  >
-                    Cella kijelölése
-                  </button>
-                </div>
-              </>
+                <button
+                  onClick={handleToggleSelectionMode}
+                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  disabled={isToolbarDisabled}
+                >
+                  Cella kijelölése
+                </button>
+              </div>
             )}
+            <div className="flex items-center gap-2 flex-nowrap">
+              <button
+                onClick={() => setIsHiddenModalOpen(true)}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
+>
+  <span className="inline-flex items-center gap-2 leading-none">
+    <EyeIcon className="h-5 w-5" />
+    <span className="leading-none">({hiddenUsers.length})</span>
+  </span>
+</button>
+            </div>
           </div>
         </GlassOverlay>
       </div>
@@ -3929,128 +4094,92 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           </button>
         </div>
         <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
-          {hiddenUsers.length > 0 && (
-            <div className="relative">
+          <div className="flex w-full flex-wrap items-center justify-center gap-3 md:justify-end">
+            {canManage && (
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Heti beállítások"
+              >
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+            )}
+            {canManage && (
+              <div className="flex items-center bg-gray-200 rounded-full p-1">
+                <button
+                  onClick={() => setViewMode('draft')}
+                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
+                    viewMode === 'draft'
+                      ? 'bg-white shadow'
+                      : ''
+                  }`}
+                >
+                  Piszkozat
+                </button>
+                <button
+                  onClick={() => setViewMode('published')}
+                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
+                    viewMode === 'published'
+                      ? 'bg-white shadow'
+                      : ''
+                  }`}
+                >
+                  Publikált
+                </button>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
               <button
                 onClick={() =>
-                  setIsHiddenMenuOpen(p => !p)
+                  setExportConfirmation({ type: 'PNG' })
                 }
-                className="p-2 rounded-full hover:bg-gray-200 flex items-center gap-2 text-sm font-semibold text-gray-700"
-                title="Elrejtett munkatársak"
+                disabled={isPngExporting}
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Exportálás PNG-be"
               >
-                <EyeIcon className="h-6 w-6" />
-                <span>({hiddenUsers.length})</span>
-              </button>
-              {isHiddenMenuOpen && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border z-20 p-2">
-                  <p className="text-sm font-bold p-2">
-                    Elrejtett munkatársak
-                  </p>
-                  <div className="max-h-60 overflow-y-auto">
-                    {hiddenUsers.map(user => (
-                      <div
-                        key={user.id}
-                        className="flex items-center justify_between p-2 hover:bg-gray-100 rounded"
-                      >
-                        <span className="text-sm text-gray-800">
-                          {user.fullName}
-                        </span>
-                        <button
-                          onClick={() =>
-                            handleShowUser(user.id)
-                          }
-                          className="text-xs font-semibold text-blue-600 hover:underline"
-                        >
-                          Visszaállítás
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          {canManage && (
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-2 rounded-full hover:bg-gray-200"
-              title="Heti beállítások"
-            >
-              <SettingsIcon className="h-6 w-6" />
-            </button>
-          )}
-          {canManage && (
-            <div className="flex items-center bg-gray-200 rounded-full p-1">
-              <button
-                onClick={() => setViewMode('draft')}
-                className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                  viewMode === 'draft'
-                    ? 'bg-white shadow'
-                    : ''
-                }`}
-              >
-                Piszkozat
+                {isPngExporting ? (
+                  <svg
+                    className="animate-spin h-6 w-6 text-gray-700"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                ) : (
+                  <ImageIcon className="h-6 w-6" />
+                )}
               </button>
               <button
-                onClick={() => setViewMode('published')}
-                className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                  viewMode === 'published'
-                    ? 'bg-white shadow'
-                    : ''
-                }`}
+                onClick={() =>
+                  setExportConfirmation({ type: 'Excel' })
+                }
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Exportálás Excelbe"
               >
-                Publikált
+                <DownloadIcon className="h-6 w-6" />
               </button>
             </div>
-          )}
-          <button
-            onClick={() =>
-              setExportConfirmation({ type: 'PNG' })
-            }
-            disabled={isPngExporting}
-            className="p-2 rounded-full hover:bg-gray-200"
-            title="Exportálás PNG-be"
-          >
-            {isPngExporting ? (
-              <svg
-                className="animate-spin h-6 w-6 text-gray-700"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                ></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
-            ) : (
-              <ImageIcon className="h-6 w-6" />
-            )}
-          </button>
-          <button
-            onClick={() =>
-              setExportConfirmation({ type: 'Excel' })
-            }
-            className="p-2 rounded-full hover:bg-gray-200"
-            title="Exportálás Excelbe"
-          >
-            <DownloadIcon className="h-6 w-6" />
-          </button>
+          </div>
         </div>
       </div>
 
       {canManage && showSettings && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: LAYERS.modal }}
           onClick={() => setShowSettings(false)}
         >
           <div
@@ -4410,7 +4539,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {isToastVisible && successToast && (
         <div
-          className={`export-hide fixed bottom-4 right-4 z-40 ${isToastExiting ? 'toast-slide-down' : 'toast-slide-up'}`}
+          className={`export-hide fixed bottom-4 right-4 ${isToastExiting ? 'toast-slide-down' : 'toast-slide-up'}`}
+          style={{ zIndex: LAYERS.toast }}
         >
           <GlassOverlay
             interactive
