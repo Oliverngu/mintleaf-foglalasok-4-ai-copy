@@ -261,28 +261,25 @@ if (!userUnits || userUnits.length <= 1) {
 
   return (
     <GlassOverlay
-      elevation="high"
-      radius={999}
-      className="max-w-[60vw]"
-      style={glassPlateStyle}
-      interactive={false}
-    >
-      <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate text-white">
-        {unitName}
-      </div>
-    </GlassOverlay>
+  elevation="high"
+  radius={999}
+  className="inline-flex w-fit max-w-[90vw]"
+  style={glassPlateStyle}
+  interactive
+>
+  <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
   );
 }
 
     return (
   <GlassOverlay
-    elevation="high"
-    radius={999}
-    className="max-w-[60vw]"
-    style={glassPlateStyle}
-    interactive
-  >
-    <div className="flex items-center gap-2 overflow-x-auto toolbar-scroll">
+  elevation="high"
+  radius={999}
+  className="inline-flex w-fit max-w-[90vw]"
+  style={glassPlateStyle}
+  interactive
+>
+  <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
       {userUnits.map(unit => (
         <button
           key={unit.id}
@@ -741,9 +738,9 @@ if (!userUnits || userUnits.length <= 1) {
       <MenuIcon />
     </button>
 
-    <div className="min-w-0 flex-1">
-      <UnitSelector />
-    </div>
+    <div className="min-w-0">
+  <UnitSelector />
+</div>
   </div>
 
   {/* Right: user + logout */}
