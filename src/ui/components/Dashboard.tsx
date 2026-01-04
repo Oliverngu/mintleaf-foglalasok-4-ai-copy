@@ -248,45 +248,54 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
     };
 
-    if (!userUnits || userUnits.length <= 1) {
-      return (
-        <div className="text-white font-semibold px-3">
-          {userUnits[0]?.name || 'Nincs egység'}
-        </div>
-      );
-    }
+    const glassPlateStyle: React.CSSProperties = {
+  padding: 6,
+  background: 'rgba(0,0,0,0.22)',
+  border: '1px solid rgba(255,255,255,0.22)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
+};
+
+if (!userUnits || userUnits.length <= 1) {
+  const unitName = userUnits?.[0]?.name || 'Nincs egység';
+
+  return (
+    <GlassOverlay
+      elevation="high"
+      radius={999}
+      className="max-w-[60vw]"
+      style={glassPlateStyle}
+      interactive={false}
+    >
+      <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate text-white">
+        {unitName}
+      </div>
+    </GlassOverlay>
+  );
+}
 
     return (
   <GlassOverlay
     elevation="high"
-    radius={999} // “pill plate”
-    className="max-w-[72vw] sm:max-w-[60vw]"
-    style={{
-      padding: 6,
-      // ez a rész a lényeg: egy enyhe sötét “scrim”, hogy bármilyen header képen olvasható legyen
-      background: 'rgba(0,0,0,0.22)',
-      border: '1px solid rgba(255,255,255,0.22)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-    }}
+    radius={999}
+    className="max-w-[60vw]"
+    style={glassPlateStyle}
     interactive
   >
-    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto unit-selector-scroll">
+    <div className="flex items-center gap-2 overflow-x-auto toolbar-scroll">
       {userUnits.map(unit => (
         <button
           key={unit.id}
           onClick={() => handleSelection(unit.id)}
-          className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0`}
+          className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
           style={
             selectedUnits.includes(unit.id)
               ? {
                   background: 'rgba(255,255,255,0.92)',
-                  color: '#0f172a', // slate-900
+                  color: '#0f172a',
                   border: '1px solid rgba(255,255,255,0.30)',
-                  textShadow: '0 1px 8px rgba(0,0,0,0.35)',
                 }
               : {
-                  // unselected: ne legyen túl áttetsző -> ettől lesz mindig olvasható
                   background: 'rgba(255,255,255,0.18)',
                   color: 'rgba(255,255,255,0.95)',
                   border: '1px solid rgba(255,255,255,0.28)',
