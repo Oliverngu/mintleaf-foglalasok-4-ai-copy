@@ -48,6 +48,16 @@ import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 
+const LAYERS = {
+  sidebar: 80,
+  toolbar: 60,
+  tableHeader: 30,
+  tableSection: 25,
+  tableCell: 20,
+  modal: 90,
+  toast: 70
+} as const;
+
 const DEFAULT_CLOSING_TIME = '22:00';
 const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
 const SUCCESS_TOAST_DURATION_MS = 3200;
@@ -142,7 +152,10 @@ const BulkTimeModal: FC<BulkTimeModalProps> = ({ state, onClose, onApply }) => {
   if (!state) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      style={{ zIndex: LAYERS.modal }}
+    >
       <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
         <h3 className="mb-2 text-lg font-semibold text-gray-800">
           {state.type === 'start' ? 'Kezdő idő beállítása' : 'Vég idő beállítása'}
@@ -183,13 +196,15 @@ interface HiddenUsersModalProps {
   onClose: () => void;
   hiddenUsers: User[];
   onUnhide: (userId: string) => void;
+  layer?: number;
 }
 
 const HiddenUsersModal: FC<HiddenUsersModalProps> = ({
   isOpen,
   onClose,
   hiddenUsers,
-  onUnhide
+  onUnhide,
+  layer = LAYERS.modal
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -208,7 +223,8 @@ const HiddenUsersModal: FC<HiddenUsersModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      style={{ zIndex: layer }}
       onClick={onClose}
     >
       <div
@@ -425,7 +441,8 @@ const ShiftModal: FC<ShiftModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -627,7 +644,8 @@ const PublishWeekModal: FC<PublishWeekModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -1381,7 +1399,8 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: LAYERS.modal }}
       onClick={onClose}
     >
       <div
@@ -2420,9 +2439,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const tableStickyLayers = {
-    header: 'z-10',
-    section: 'z-[9]',
-    cell: 'z-[8]'
+    header: LAYERS.tableHeader,
+    section: LAYERS.tableSection,
+    cell: LAYERS.tableCell
   } as const;
 
   const weekBlockGridColumns =
@@ -2439,13 +2458,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const toolbarButtonDisabledClass = isToolbarDisabled
     ? 'pointer-events-none'
     : '';
+  const toolbarWrapperClassName = `export-hide sticky top-2 mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
 
   const toolbarButtonClass = useCallback(
     (active: boolean) =>
-      `text-sm px-4 py-2 rounded-full border border-white/35 backdrop-blur-md transition-colors shadow-sm ${
+      `text-sm px-4 py-2 rounded-full border border-white/40 backdrop-blur-md transition-colors shadow-sm ${
         active
-          ? 'bg-slate-800/85 text-white shadow-md'
-          : 'bg-white/22 text-slate-900/90 hover:bg-white/30'
+          ? 'bg-slate-900/80 text-white shadow-md'
+          : 'bg-white/28 text-slate-950 hover:bg-white/35'
       } disabled:cursor-not-allowed disabled:opacity-60 disabled:pointer-events-none`,
     []
   );
@@ -2524,7 +2544,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           <thead className="bg-slate-100">
             <tr>
               <th
-                className={`sticky left-0 ${tableStickyLayers.header} bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600`}
+                className="sticky left-0 bg-slate-100 px-4 py-3 text-left text-xs font-semibold text-slate-600"
+                style={{ zIndex: tableStickyLayers.header }}
               >
                 Munkatárs
               </th>
@@ -2552,7 +2573,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   {weekSettings.showOpeningTime && (
                     <tr>
                       <td
-                        className={`sticky left-0 ${tableStickyLayers.header} bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200`}
+                        className="sticky left-0 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200"
+                        style={{ zIndex: tableStickyLayers.header }}
                       >
                         Nyitás
                       </td>
@@ -2569,7 +2591,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   {weekSettings.showClosingTime && (
                     <tr>
                       <td
-                        className={`sticky left-0 ${tableStickyLayers.header} bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200`}
+                        className="sticky left-0 bg-slate-50 px-4 py-1 text-left text-[11px] font-semibold text-slate-500 border border-slate-200"
+                        style={{ zIndex: tableStickyLayers.header }}
                       >
                         Zárás
                       </td>
@@ -2598,7 +2621,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   <tr>
                     <td
                       colSpan={1 + weekDays.length}
-                      className={`sticky left-0 ${tableStickyLayers.section} bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400`}
+                      className="sticky left-0 bg-slate-300 px-4 py-2 text-left align-middle text-xs font-semibold uppercase tracking-wide text-slate-800 border-t border-b border-slate-400"
+                      style={{ zIndex: tableStickyLayers.section }}
                     >
                       <div className="flex items-center justify-between">
                         <span>{positionName}</span>
@@ -2677,8 +2701,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                       >
                         {/* Név oszlop */}
                         <td
-                          className={`sticky left-0 ${tableStickyLayers.cell} bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle`}
-                          style={{ background: nameBg, color: nameTextColor }}
+                          className="sticky left-0 bg-white border border-slate-200 px-4 py-2 text-left align-middle align-middle"
+                          style={{
+                            background: nameBg,
+                            color: nameTextColor,
+                            zIndex: tableStickyLayers.cell
+                          }}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
@@ -2919,7 +2947,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             {/* Összesített sor (napi órák) */}
             <tr className="summary-row bg-slate-50 border-t border-slate-300">
               <td
-                className={`sticky left-0 ${tableStickyLayers.cell} bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700`}
+                className="sticky left-0 bg-slate-50 px-4 py-2 text-left align-middle text-xs font-semibold text-slate-700"
+                style={{ zIndex: tableStickyLayers.cell }}
               >
                 Napi összes (óra)
               </td>
@@ -3690,16 +3719,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         // 2) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
         tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-          el.classList.remove(
-            'sticky',
-            'left-0',
-            'z-10',
-            'z-[8]',
-            'z-[9]'
-          );
-          el.style.position = '';
-          el.style.left = '';
-          el.style.zIndex = '';
+          el.classList.remove('sticky', 'left-0');
+          el.style.position = 'static';
+          el.style.left = 'auto';
+          el.style.zIndex = 'auto';
+          el.style.top = 'auto';
         });
 
         // 3) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
@@ -3951,6 +3975,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           to { transform: translateY(18px); opacity: 0; }
         }
         .toast-slide-down { animation: toast-slide-down 240ms ease-in forwards; }
+        .toolbar-scroll { scrollbar-width: none; }
+        .toolbar-scroll::-webkit-scrollbar { display: none; }
         `}
       </style>
 
@@ -3982,48 +4008,52 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         onClose={() => setIsHiddenModalOpen(false)}
         hiddenUsers={hiddenUsers}
         onUnhide={handleShowUser}
+        layer={LAYERS.modal}
       />
 
-      <div className="export-hide sticky top-2 z-[35] mb-4">
+      <div
+        className={toolbarWrapperClassName}
+        style={{ zIndex: LAYERS.toolbar }}
+      >
         <GlassOverlay
           className={`w-full ${toolbarDisabledClass}`}
           elevation="high"
           radius={18}
           style={{ padding: 12 }}
-          interactive
+          interactive={!isSidebarOpen}
         >
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
+            <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={cycleViewSpan}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass}`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} shrink-0`}
                 disabled={isToolbarDisabled}
               >
                 {currentViewLabel}
               </button>
             </div>
             {canManage && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 flex-nowrap">
                 <button
                   onClick={handleToggleEditMode}
-                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass}`}
+                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} shrink-0`}
                   disabled={isToolbarDisabled}
                 >
                   Névsor szerkesztése
                 </button>
                 <button
                   onClick={handleToggleSelectionMode}
-                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass}`}
+                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} shrink-0`}
                   disabled={isToolbarDisabled}
                 >
                   Cella kijelölése
                 </button>
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass}`}
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} shrink-0`}
                 disabled={hiddenUsers.length === 0 || isToolbarDisabled}
                 title="Elrejtett munkatársak"
               >
@@ -4149,7 +4179,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       {canManage && showSettings && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[90] p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: LAYERS.modal }}
           onClick={() => setShowSettings(false)}
         >
           <div
@@ -4509,7 +4540,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       {/* Siker üzenet eltüntetése pár másodperc után */}
       {isToastVisible && successToast && (
         <div
-          className={`export-hide fixed bottom-4 right-4 z-40 ${isToastExiting ? 'toast-slide-down' : 'toast-slide-up'}`}
+          className={`export-hide fixed bottom-4 right-4 ${isToastExiting ? 'toast-slide-down' : 'toast-slide-up'}`}
+          style={{ zIndex: LAYERS.toast }}
         >
           <GlassOverlay
             interactive
