@@ -231,81 +231,107 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const UnitSelector: React.FC = () => {
-    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
-    const userUnits = useMemo(
-      () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
-      [allUnits, currentUser]
+  const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
+
+  const userUnits = useMemo(
+    () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
+    [allUnits, currentUser]
+  );
+
+  const isMultiSelect = currentUser.role === 'Admin';
+
+  const handleSelection = (unitId: string) => {
+    if (isMultiSelect) {
+      setSelectedUnits(prev =>
+        prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
+      );
+    } else {
+      setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
+    }
+  };
+
+  const glassPlateStyle: React.CSSProperties = {
+    padding: 6,
+    background: 'rgba(0,0,0,0.22)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+  };
+
+  // 0 unit fallback
+  if (!userUnits || userUnits.length === 0) {
+    return (
+      <GlassOverlay
+        elevation="high"
+        radius={999}
+        className="inline-flex w-fit max-w-[90vw]"
+        style={glassPlateStyle}
+        interactive={false}
+      >
+        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+          Nincs egység
+        </div>
+      </GlassOverlay>
     );
-    const isMultiSelect = currentUser.role === 'Admin';
+  }
 
-    const handleSelection = (unitId: string) => {
-      if (isMultiSelect) {
-        setSelectedUnits(prev =>
-          prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
-        );
-      } else {
-        setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
-      }
-    };
+  // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
+  if (userUnits.length === 1) {
+    return (
+      <GlassOverlay
+        elevation="high"
+        radius={999}
+        className="inline-flex w-fit max-w-[90vw]"
+        style={glassPlateStyle}
+        interactive={false}
+      >
+        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+          {userUnits[0].name}
+        </div>
+      </GlassOverlay>
+    );
+  }
 
-    const glassPlateStyle: React.CSSProperties = {
-  padding: 6,
-  background: 'rgba(0,0,0,0.22)',
-  border: '1px solid rgba(255,255,255,0.22)',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
-};
-
-if (!userUnits || userUnits.length <= 1) {
-  const unitName = userUnits?.[0]?.name || 'Nincs egység';
-
+  // multi unit
   return (
     <GlassOverlay
-  elevation="high"
-  radius={999}
-  className="inline-flex w-fit max-w-[90vw]"
-  style={glassPlateStyle}
-  interactive
->
-  <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
+      elevation="high"
+      radius={999}
+      className="inline-flex w-fit max-w-[90vw]"
+      style={glassPlateStyle}
+      interactive
+    >
+      <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
+        {userUnits.map(unit => {
+          const isSelected = selectedUnits.includes(unit.id);
+          return (
+            <button
+              key={unit.id}
+              onClick={() => handleSelection(unit.id)}
+              type="button"
+              className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+              style={
+                isSelected
+                  ? {
+                      background: 'rgba(255,255,255,0.92)',
+                      color: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.30)',
+                    }
+                  : {
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'rgba(255,255,255,0.95)',
+                      border: '1px solid rgba(255,255,255,0.28)',
+                    }
+              }
+            >
+              {unit.name}
+            </button>
+          );
+        })}
+      </div>
+    </GlassOverlay>
   );
-}
-
-    return (
-  <GlassOverlay
-  elevation="high"
-  radius={999}
-  className="inline-flex w-fit max-w-[90vw]"
-  style={glassPlateStyle}
-  interactive
->
-  <div className="inline-flex items-center gap-2 overflow-x-auto toolbar-scroll">
-      {userUnits.map(unit => (
-        <button
-          key={unit.id}
-          onClick={() => handleSelection(unit.id)}
-          className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-          style={
-            selectedUnits.includes(unit.id)
-              ? {
-                  background: 'rgba(255,255,255,0.92)',
-                  color: '#0f172a',
-                  border: '1px solid rgba(255,255,255,0.30)',
-                }
-              : {
-                  background: 'rgba(255,255,255,0.18)',
-                  color: 'rgba(255,255,255,0.95)',
-                  border: '1px solid rgba(255,255,255,0.28)',
-                }
-          }
-        >
-          {unit.name}
-        </button>
-      ))}
-    </div>
-  </GlassOverlay>
-);
-  };
+};
 
   interface NavItemProps {
     app: AppName;
