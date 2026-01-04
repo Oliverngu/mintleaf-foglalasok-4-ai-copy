@@ -310,22 +310,28 @@ return (
     style={{
       ...glassPlateStyle,
       padding: 6,
-      maxWidth: '100%',                 // a header középső cellájához igazodik
-      background: 'rgba(0,0,0,0.26)',   // egyezzen a UserBadge-hez
-      border: '1px solid rgba(255,255,255,0.22)',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
+
+      // kulcs: a panel csak addig nő, amíg van helye a grid cellában
+      // ha több lenne a tartalom, max 100%-nál megáll és a belső rész scrollol
+      width: 'fit-content',
+      maxWidth: '100%',
+
+      // ha bármilyen extra árnyék “csík” maradna:
+      boxShadow: 'none',
+      outline: 'none',
     }}
   >
-    {/* Scroll viewport */}
+    {/* Scroll viewport (ez lesz a "ablak") */}
     <div
       className="overflow-x-auto overflow-y-hidden scrollbar-hide"
       style={{
         WebkitOverflowScrolling: 'touch',
         maxWidth: '100%',
+        width: '100%',
+        touchAction: 'pan-x', // mobilon sokszor ez kell, hogy tényleg vízszintesen engedje
       }}
     >
-      {/* Content row must be wider than viewport to trigger scroll */}
+      {/* Content row (ez lesz a "túl széles tartalom") */}
       <div className="inline-flex items-center gap-2 w-max">
         {userUnits.map(unit => {
           const isSelected = selectedUnits.includes(unit.id);
@@ -836,7 +842,7 @@ return (
       </button>
 
       {/* Middle: unit selector (constrained cell) */}
-      <div className="min-w-0 overflow-hidden">
+      <div className="min-w-0 overflow-visible">
         <UnitSelector />
       </div>
 
