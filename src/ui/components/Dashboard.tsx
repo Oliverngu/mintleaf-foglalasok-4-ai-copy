@@ -260,7 +260,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   <GlassOverlay
     elevation="high"
     radius={999} // “pill plate”
-    className="max-w-[60vw]"
+    className="max-w-[72vw] sm:max-w-[60vw]"
     style={{
       padding: 6,
       // ez a rész a lényeg: egy enyhe sötét “scrim”, hogy bármilyen header képen olvasható legyen
@@ -271,12 +271,12 @@ const Dashboard: React.FC<DashboardProps> = ({
     }}
     interactive
   >
-    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto unit-selector-scroll">
       {userUnits.map(unit => (
         <button
           key={unit.id}
           onClick={() => handleSelection(unit.id)}
-          className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap`}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0`}
           style={
             selectedUnits.includes(unit.id)
               ? {
@@ -729,16 +729,26 @@ const Dashboard: React.FC<DashboardProps> = ({
     </button>
 
     <div className="min-w-0 flex-1">
-      <UnitSelector />
-    </div>
+  <div className="unit-selector-scroll overflow-x-auto whitespace-nowrap">
+    <UnitSelector />
+  </div>
+</div>
   </div>
 
   {/* Right: user + logout */}
-  <div className="flex items-center gap-3 shrink-0 ml-4">
-    <div className="text-right leading-tight" style={{ color: 'var(--color-text-on-primary)' }}>
-      <div className="text-sm font-medium">{currentUser.fullName}</div>
-      <div className="text-xs opacity-75">{currentUser.role}</div>
+  <div className="flex items-center gap-2 shrink-0 ml-3">
+  <div
+    className="text-right leading-tight max-w-[110px] sm:max-w-none"
+    style={{ color: 'var(--color-text-on-primary)' }}
+  >
+    <div className="text-xs sm:text-sm font-medium truncate">
+      {currentUser.fullName}
     </div>
+    <div className="text-[10px] sm:text-xs opacity-75 truncate">
+      {currentUser.role}
+    </div>
+  </div>
+</div>
 
     <button
       onClick={onLogout}
