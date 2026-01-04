@@ -297,7 +297,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // multi unit
   return (
-  return (
   <GlassOverlay
     elevation="high"
     radius={999}
