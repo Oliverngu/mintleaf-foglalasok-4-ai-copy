@@ -50,13 +50,12 @@ import GlassOverlay from '../common/GlassOverlay';
 
 const LAYERS = {
   modal: 90,
-  sidebar: 80,
-  dim: 75,
-  toast: 70,
-  toolbar: 60,
-  tableHeader: 30,
-  tableSection: 25,
-  tableCell: 20
+  // Dashboard: dim=20, sidebar=30 -> app elemek 20 alatt!
+  toast: 19,
+  toolbar: 18,
+  tableHeader: 17,
+  tableSection: 16,
+  tableCell: 15,
 } as const;
 
 const DEFAULT_CLOSING_TIME = '22:00';
@@ -4013,14 +4012,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         layer={LAYERS.modal}
       />
 
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/35 backdrop-blur-[1px] pointer-events-none"
-          style={{ zIndex: LAYERS.dim }}
-          aria-hidden="true"
-        />
-      )}
-
       <div
         className={toolbarWrapperClassName}
         style={{ zIndex: LAYERS.toolbar }}
@@ -4063,15 +4054,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div className="flex items-center gap-2 flex-nowrap">
               <button
                 onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px]`}
-                disabled={hiddenUsers.length === 0 || isToolbarDisabled}
-                title="Elrejtett munkatársak"
-              >
-                <span className="flex items-center gap-1">
-                  <EyeIcon className="h-5 w-5" />
-                  <span className="leading-none">({hiddenUsers.length})</span>
-                </span>
-              </button>
+                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
+>
+  <span className="inline-flex items-center gap-2 leading-none">
+    <EyeIcon className="h-5 w-5" />
+    <span className="leading-none">({hiddenUsers.length})</span>
+  </span>
+</button>
             </div>
           </div>
         </GlassOverlay>
