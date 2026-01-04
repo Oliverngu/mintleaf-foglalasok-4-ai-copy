@@ -55,6 +55,8 @@ import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
+import GlassOverlay from '../common/GlassOverlay';
+
 interface DashboardProps {
   currentUser: User | null;
   onLogout: () => void;
@@ -255,22 +257,48 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
 
     return (
-      <div className="flex items-center gap-2 overflow-x-auto py-2 -my-2 scrollbar-hide">
-        {userUnits.map(unit => (
-          <button
-            key={unit.id}
-            onClick={() => handleSelection(unit.id)}
-            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap ${
-              selectedUnits.includes(unit.id)
-                ? 'bg-white text-green-800 shadow-md'
-                : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            {unit.name}
-          </button>
-        ))}
-      </div>
-    );
+  <GlassOverlay
+    elevation="high"
+    radius={999} // “pill plate”
+    className="max-w-[60vw]"
+    style={{
+      padding: 6,
+      // ez a rész a lényeg: egy enyhe sötét “scrim”, hogy bármilyen header képen olvasható legyen
+      background: 'rgba(0,0,0,0.22)',
+      border: '1px solid rgba(255,255,255,0.22)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+    }}
+    interactive
+  >
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+      {userUnits.map(unit => (
+        <button
+          key={unit.id}
+          onClick={() => handleSelection(unit.id)}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap`}
+          style={
+            selectedUnits.includes(unit.id)
+              ? {
+                  background: 'rgba(255,255,255,0.92)',
+                  color: '#0f172a', // slate-900
+                  border: '1px solid rgba(255,255,255,0.30)',
+                  textShadow: '0 1px 8px rgba(0,0,0,0.35)',
+                }
+              : {
+                  // unselected: ne legyen túl áttetsző -> ettől lesz mindig olvasható
+                  background: 'rgba(255,255,255,0.18)',
+                  color: 'rgba(255,255,255,0.95)',
+                  border: '1px solid rgba(255,255,255,0.28)',
+                }
+          }
+        >
+          {unit.name}
+        </button>
+      ))}
+    </div>
+  </GlassOverlay>
+);
   };
 
   interface NavItemProps {
