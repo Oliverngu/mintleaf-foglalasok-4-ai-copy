@@ -301,7 +301,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         className="inline-flex max-w-full min-w-0"
         style={{
           ...headerPillStyle,
-          width: 'min(100%, max-content)',
           maxWidth: '100%',
           minWidth: 0,
           boxShadow: 'none',
