@@ -3709,20 +3709,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
       // Remove comment-only nodes so they cannot alter export sizing
-      const commentSelectors = [
-        '.handwritten-note',
-        '.comment',
-        '.note',
-        '.cell-note',
-        '.shift-comment',
-        '.schedule-comment',
-        '[data-comment]',
-        '[data-note]',
-        '[data-export-hide-comment]'
-      ];
-      tableClone.querySelectorAll<HTMLElement>(commentSelectors.join(',')).forEach(el => {
-        el.remove();
-      });
+      const commentSelectors = ['.handwritten-note'];
+      tableClone
+        .querySelectorAll<HTMLElement>(commentSelectors.join(','))
+        .forEach(el => {
+          el.remove();
+        });
 
       const dayHeaderTextColor = getContrastingTextColor(
         exportSettings.dayHeaderBgColor
@@ -3806,10 +3798,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       clonedTables.forEach((table, idx) => {
         const widths = measuredColumnWidths[idx];
         if (widths && widths.length) {
-          const existingColgroup = table.querySelector('colgroup');
-          if (existingColgroup) {
-            existingColgroup.remove();
-          }
+          table.querySelectorAll('colgroup').forEach(colgroup => colgroup.remove());
           const colgroup = document.createElement('colgroup');
           widths.forEach(width => {
             const col = document.createElement('col');
@@ -3832,7 +3821,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       tableClone
         .querySelectorAll<HTMLTableCellElement>('th, td')
         .forEach(cell => {
-          cell.style.borderWidth = '1px';
+          cell.style.borderWidth = '0.5px';
         });
 
       const paddingPx = 40; // matches container padding (20px * 2)
@@ -3881,8 +3870,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         useCORS: true,
         scale: 2,
         backgroundColor: '#ffffff',
-        logging: false,
-        removeContainer: true
+        logging: false
       });
 
       const link = document.createElement('a');
