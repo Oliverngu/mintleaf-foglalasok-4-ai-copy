@@ -3703,18 +3703,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       const tableClone =
         exportRef.current.cloneNode(true) as HTMLDivElement;
-      exportContainer.appendChild(tableClone);
-      document.body.appendChild(exportContainer);
 
       tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
-      // Remove comment-only nodes so they cannot alter export sizing
+      // Remove comment-only nodes (handwritten note spans in cells) so they cannot alter export sizing
       const commentSelectors = ['.handwritten-note'];
       tableClone
         .querySelectorAll<HTMLElement>(commentSelectors.join(','))
         .forEach(el => {
           el.remove();
         });
+
+      exportContainer.appendChild(tableClone);
+      document.body.appendChild(exportContainer);
 
       const dayHeaderTextColor = getContrastingTextColor(
         exportSettings.dayHeaderBgColor
