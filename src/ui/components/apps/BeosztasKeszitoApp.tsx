@@ -3663,6 +3663,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     });
   }, []);
 
+  const waitForCloneLayout = useCallback(async () => {
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }, []);
+
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
   const handlePngExport = async (hideEmptyUsers: boolean): Promise<void> => {
     setIsPngExportRenderMode(true);
@@ -3705,7 +3713,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       exportContainer.appendChild(tableClone);
       document.body.appendChild(exportContainer);
 
-      await waitForExportLayout();
+      await waitForCloneLayout();
 
       const measuredColumnWidths = Array.from(
         tableClone.querySelectorAll<HTMLTableElement>('table')
