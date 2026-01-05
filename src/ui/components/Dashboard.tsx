@@ -298,11 +298,11 @@ const Dashboard: React.FC<DashboardProps> = ({
         elevation="high"
         radius={999}
         interactive
-        className="inline-flex w-fit max-w-full"
+        className="inline-flex w-full max-w-full min-w-0"
         style={{
           ...headerPillStyle,
-          width: 'fit-content',
           maxWidth: '100%',
+          minWidth: 0,
           boxShadow: 'none',
           outline: 'none',
         }}
@@ -314,6 +314,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             style={{
               WebkitOverflowScrolling: 'touch',
               maxWidth: '100%',
+              minWidth: 0,
               width: '100%',
               touchAction: 'pan-x',
               overscrollBehaviorX: 'contain',
@@ -824,7 +825,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </button>
 
       {/* Middle: unit selector (constrained cell) */}
-      <div className="min-w-0 overflow-visible">
+      <div className="min-w-0">
         <UnitSelector />
       </div>
 
