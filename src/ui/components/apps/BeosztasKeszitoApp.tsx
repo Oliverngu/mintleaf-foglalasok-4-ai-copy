@@ -3708,7 +3708,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
-      tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+      // Remove comment-only nodes so they cannot alter export sizing
+      const commentSelectors = [
+        '.handwritten-note',
+        '.comment',
+        '.note',
+        '.cell-note',
+        '.shift-comment',
+        '.schedule-comment',
+        '[data-comment]',
+        '[data-note]',
+        '[data-export-hide-comment]'
+      ];
+      tableClone.querySelectorAll<HTMLElement>(commentSelectors.join(',')).forEach(el => {
         el.remove();
       });
 
@@ -3794,6 +3806,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       clonedTables.forEach((table, idx) => {
         const widths = measuredColumnWidths[idx];
         if (widths && widths.length) {
+          const existingColgroup = table.querySelector('colgroup');
+          if (existingColgroup) {
+            existingColgroup.remove();
+          }
           const colgroup = document.createElement('colgroup');
           widths.forEach(width => {
             const col = document.createElement('col');
@@ -3818,6 +3834,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         .forEach(cell => {
           cell.style.borderWidth = '1px';
         });
+
+      const paddingPx = 40; // matches container padding (20px * 2)
+      const rawWidth =
+        (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
+      const finalWidth = Math.ceil(rawWidth);
+      exportContainer.style.width = `${finalWidth}px`;
 
       let dataRowIndex = 0;
       tableClone
@@ -3858,7 +3880,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const canvas = await html2canvas(exportContainer, {
         useCORS: true,
         scale: 2,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        logging: false,
+        removeContainer: true
       });
 
       const link = document.createElement('a');
