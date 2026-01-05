@@ -3696,7 +3696,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         left: '-9999px',
         top: '0',
         backgroundColor: '#ffffff',
-        padding: '20px',
+        padding: '10px',
         display: 'inline-block',
         overflow: 'visible'
       } as CSSStyleDeclaration);
@@ -3706,8 +3706,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
 
-      // Remove comment-only nodes (handwritten note spans in cells) so they cannot alter export sizing
-      const commentSelectors = ['.handwritten-note'];
+      // Remove comment-only nodes so they cannot alter export sizing (export-only)
+      const commentSelectors = ['.handwritten-note', '[data-export-hide="comment"]'];
       tableClone
         .querySelectorAll<HTMLElement>(commentSelectors.join(','))
         .forEach(el => {
@@ -3754,6 +3754,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.style.top = 'auto';
           el.style.bottom = 'auto';
         });
+
+      tableClone.querySelectorAll<HTMLElement>('*').forEach(el => {
+        el.style.transform = 'none';
+        el.style.filter = 'none';
+        el.style.backdropFilter = 'none';
+        el.style.boxShadow = 'none';
+      });
 
       tableClone
         .querySelectorAll<HTMLDivElement>('.weekday-header')
@@ -3807,9 +3814,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             colgroup.appendChild(col);
           });
           table.insertBefore(colgroup, table.firstChild);
-          table.style.tableLayout = 'fixed';
         }
 
+        table.style.tableLayout = 'fixed';
         table.style.borderCollapse = 'collapse';
       });
 
@@ -3825,7 +3832,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           cell.style.borderWidth = '0.5px';
         });
 
-      const paddingPx = 40; // matches container padding (20px * 2)
+      const paddingPx = 20; // matches container padding (10px * 2)
       const rawWidth =
         (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
       const finalWidth = Math.ceil(rawWidth);
@@ -3871,7 +3878,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         useCORS: true,
         scale: 2,
         backgroundColor: '#ffffff',
-        logging: false
+        logging: false,
+        windowWidth: exportContainer.scrollWidth,
+        windowHeight: exportContainer.scrollHeight
       });
 
       const link = document.createElement('a');
