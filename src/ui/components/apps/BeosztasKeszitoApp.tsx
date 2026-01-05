@@ -3647,185 +3647,244 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds, weekStartDateStr]
   );
 
+  const waitForExportLayout = useCallback(async () => {
+    if (document.fonts?.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (err) {
+        console.warn('Font loading wait skipped:', err);
+      }
+    }
+
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }, []);
+
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      setIsPngExportRenderMode(true);
-      setPngHideEmptyUsers(hideEmptyUsers);
-      setIsPngExporting(true);
+  const handlePngExport = async (hideEmptyUsers: boolean): Promise<void> => {
+    setIsPngExportRenderMode(true);
+    setPngHideEmptyUsers(hideEmptyUsers);
+    setIsPngExporting(true);
 
-      const runExport = () => {
-        if (!exportRef.current) {
-          setIsPngExportRenderMode(false);
-          setPngHideEmptyUsers(false);
-          setIsPngExporting(false);
-          reject(new Error('Export container ref not found'));
-          return;
-        }
+    let exportContainer: HTMLDivElement | null = null;
 
-        // Offscreen konténer – csak háttér + padding
-        const exportContainer = document.createElement('div');
-        Object.assign(exportContainer.style, {
-          position: 'absolute',
-          left: '-9999px',
-          top: '0',
-          backgroundColor: '#ffffff',
-          padding: '20px',
-          display: 'inline-block',
-          overflow: 'hidden'
-        } as CSSStyleDeclaration);
+    try {
+      await waitForExportLayout();
 
-        // Teljes tábla klónozása – minden Tailwind osztály megmarad
-        const tableClone =
-          exportRef.current.cloneNode(true) as HTMLDivElement;
-        exportContainer.appendChild(tableClone);
-        document.body.appendChild(exportContainer);
+      if (!exportRef.current) {
+        throw new Error('Export container ref not found');
+      }
 
-        // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
-        tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+      const sourceTables = Array.from(
+        exportRef.current.querySelectorAll<HTMLTableElement>('table')
+      );
 
-        tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
-          el.style.whiteSpace = 'pre-wrap';
-          el.style.maxWidth = 'none';
-          el.style.overflow = 'visible';
-          el.style.textOverflow = 'unset';
+      const measuredColumnWidths = sourceTables.map(table => {
+        const headerCells = Array.from(
+          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
+        );
+
+        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+      });
+
+      exportContainer = document.createElement('div');
+      Object.assign(exportContainer.style, {
+        position: 'absolute',
+        left: '-9999px',
+        top: '0',
+        backgroundColor: '#ffffff',
+        padding: '20px',
+        display: 'inline-block',
+        overflow: 'visible'
+      } as CSSStyleDeclaration);
+
+      const tableClone =
+        exportRef.current.cloneNode(true) as HTMLDivElement;
+      exportContainer.appendChild(tableClone);
+      document.body.appendChild(exportContainer);
+
+      tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+      tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+        el.remove();
+      });
+
+      const dayHeaderTextColor = getContrastingTextColor(
+        exportSettings.dayHeaderBgColor
+      );
+      const nameHeaderTextColor = getContrastingTextColor(
+        exportSettings.nameColumnColor
+      );
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('thead th')
+        .forEach((th, idx) => {
+          const isNameHeader = idx === 0;
+          const bg = isNameHeader
+            ? exportSettings.nameColumnColor
+            : exportSettings.dayHeaderBgColor;
+          th.style.background = bg;
+          th.style.color = isNameHeader
+            ? nameHeaderTextColor
+            : dayHeaderTextColor;
         });
 
-        const dayHeaderTextColor = getContrastingTextColor(
-          exportSettings.dayHeaderBgColor
-        );
-        const nameHeaderTextColor = getContrastingTextColor(
-          exportSettings.nameColumnColor
-        );
-
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('thead th')
-          .forEach((th, idx) => {
-            const isNameHeader = idx === 0;
-            const bg = isNameHeader
-              ? exportSettings.nameColumnColor
-              : exportSettings.dayHeaderBgColor;
-            th.style.background = bg;
-            th.style.color = isNameHeader
-              ? nameHeaderTextColor
-              : dayHeaderTextColor;
-          });
-
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
-          .forEach(td => {
-            td.style.background = exportSettings.categoryHeaderBgColor;
-            td.style.color = exportSettings.categoryHeaderTextColor;
-          });
-
-        // 2) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
-        tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-          el.classList.remove('sticky', 'left-0');
+      tableClone
+        .querySelectorAll<HTMLElement>('.sticky')
+        .forEach(el => {
+          el.classList.remove(
+            'sticky',
+            'left-0',
+            'right-0',
+            'top-0',
+            'top-2',
+            'bottom-0'
+          );
           el.style.position = 'static';
           el.style.left = 'auto';
-          el.style.zIndex = 'auto';
+          el.style.right = 'auto';
           el.style.top = 'auto';
+          el.style.bottom = 'auto';
         });
 
-        // 3) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
-        tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
+      tableClone
+        .querySelectorAll<HTMLDivElement>('.weekday-header')
+        .forEach(div => {
+          div.style.background = exportSettings.dayHeaderBgColor;
+          div.style.color = dayHeaderTextColor;
+        });
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('tbody td')
+        .forEach(td => {
           const txt = (td.textContent || '').trim().toUpperCase();
           if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
             td.textContent = '';
           }
         });
 
-        // 4) Összesítő sor (Napi összes) kiszedése
-        tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+      tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
-        // 5) Zebra csíkozás alkalmazása az exportált táblára
-        const zebraBase = exportSettings.zebraColor;
-        const zebraDelta = exportSettings.zebraStrength / 5;
-        const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-        const nameBase = exportSettings.nameColumnColor;
-        const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+      tableClone.style.width = 'fit-content';
+      tableClone.style.maxWidth = 'none';
+      tableClone.style.overflow = 'visible';
 
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('th, td')
-          .forEach(cell => {
-            cell.style.borderWidth = '0.5px';
-          });
+      tableClone
+        .querySelectorAll<HTMLElement>('.overflow-x-auto')
+        .forEach(el => {
+          el.style.overflowX = 'visible';
+          el.style.overflowY = 'visible';
+          el.style.maxWidth = 'none';
+          el.style.width = 'fit-content';
+        });
 
-        let dataRowIndex = 0;
-        tableClone
-          .querySelectorAll<HTMLTableRowElement>('tbody tr')
-          .forEach(row => {
-            const isCategoryRow = row.querySelector('td[colSpan]');
-            const isSummaryRow = row.classList.contains('summary-row');
-            if (isCategoryRow || isSummaryRow) return;
+      const gridNode = tableClone.querySelector<HTMLElement>('.grid');
+      if (gridNode) {
+        gridNode.style.width = 'fit-content';
+        gridNode.style.maxWidth = 'none';
+      }
 
-            const isAltRow = dataRowIndex % 2 === 1;
-            const rowBg = isAltRow ? zebraAlt : zebraBase;
-            const rowText = getContrastingTextColor(rowBg);
-            row.style.background = rowBg;
-            row.style.color = rowText;
-
-            const nameCell = row.querySelector('td');
-            if (nameCell) {
-              const nameBg = isAltRow ? nameAlt : nameBase;
-              nameCell.style.background = nameBg;
-              nameCell.style.color = getContrastingTextColor(nameBg);
-            }
-
-            row
-              .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
-              .forEach(td => {
-                if (
-                  !td.classList.contains('day-off-cell') &&
-                  !td.classList.contains('leave-cell')
-                ) {
-                  td.style.background = rowBg;
-                  td.style.color = rowText;
-                }
-              });
-
-            dataRowIndex += 1;
-          });
-
-        // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
-
-        html2canvas(exportContainer, {
-          useCORS: true,
-          scale: 2,
-          backgroundColor: '#ffffff'
-        })
-          .then(canvas => {
-            const link = document.createElement('a');
-            const weekStart = weekDays[0]
-              .toLocaleDateString('hu-HU', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-              })
-              .replace(/\.\s/g, '-')
-              .replace('.', '');
-            link.download = `beosztas_${weekStart}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            resolve();
-          })
-          .catch(err => {
-            console.error('PNG export failed:', err);
-            alert('Hiba történt a PNG exportálás során.');
-            reject(err);
-          })
-          .finally(() => {
-            document.body.removeChild(exportContainer);
-            setIsPngExporting(false);
-            setIsPngExportRenderMode(false);
-            setPngHideEmptyUsers(false);
-          });
-      };
-
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => setTimeout(runExport, 0))
+      const clonedTables = Array.from(
+        tableClone.querySelectorAll<HTMLTableElement>('table')
       );
-    });
+
+      clonedTables.forEach((table, idx) => {
+        const widths = measuredColumnWidths[idx];
+        if (widths && widths.length) {
+          const colgroup = document.createElement('colgroup');
+          widths.forEach(width => {
+            const col = document.createElement('col');
+            col.style.width = `${width}px`;
+            colgroup.appendChild(col);
+          });
+          table.insertBefore(colgroup, table.firstChild);
+          table.style.tableLayout = 'fixed';
+        }
+
+        table.style.borderCollapse = 'collapse';
+      });
+
+      const zebraBase = exportSettings.zebraColor;
+      const zebraDelta = exportSettings.zebraStrength / 5;
+      const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
+      const nameBase = exportSettings.nameColumnColor;
+      const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('th, td')
+        .forEach(cell => {
+          cell.style.borderWidth = '1px';
+        });
+
+      let dataRowIndex = 0;
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          const isCategoryRow = row.querySelector('td[colSpan]');
+          const isSummaryRow = row.classList.contains('summary-row');
+          if (isCategoryRow || isSummaryRow) return;
+
+          const isAltRow = dataRowIndex % 2 === 1;
+          const rowBg = isAltRow ? zebraAlt : zebraBase;
+          const rowText = getContrastingTextColor(rowBg);
+          row.style.background = rowBg;
+          row.style.color = rowText;
+
+          const nameCell = row.querySelector('td');
+          if (nameCell) {
+            const nameBg = isAltRow ? nameAlt : nameBase;
+            nameCell.style.background = nameBg;
+            nameCell.style.color = getContrastingTextColor(nameBg);
+          }
+
+          row
+            .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
+            .forEach(td => {
+              if (
+                !td.classList.contains('day-off-cell') &&
+                !td.classList.contains('leave-cell')
+              ) {
+                td.style.background = rowBg;
+                td.style.color = rowText;
+              }
+            });
+
+          dataRowIndex += 1;
+        });
+
+      const canvas = await html2canvas(exportContainer, {
+        useCORS: true,
+        scale: 2,
+        backgroundColor: '#ffffff'
+      });
+
+      const link = document.createElement('a');
+      const weekStart = weekDays[0]
+        .toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })
+        .replace(/\.\s/g, '-')
+        .replace('.', '');
+      link.download = `beosztas_${weekStart}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('PNG export failed:', err);
+      alert('Hiba történt a PNG exportálás során.');
+      throw err;
+    } finally {
+      if (exportContainer?.parentElement) {
+        exportContainer.parentElement.removeChild(exportContainer);
+      }
+      setIsPngExporting(false);
+      setIsPngExportRenderMode(false);
+      setPngHideEmptyUsers(false);
+    }
   };
 
   const closeExportWithGuard = () => {
