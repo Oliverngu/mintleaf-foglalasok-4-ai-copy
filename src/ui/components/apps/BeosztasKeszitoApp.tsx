@@ -3678,18 +3678,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         throw new Error('Export container ref not found');
       }
 
-      const sourceTables = Array.from(
-        exportRef.current.querySelectorAll<HTMLTableElement>('table')
-      );
-
-      const measuredColumnWidths = sourceTables.map(table => {
-        const headerCells = Array.from(
-          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
-        );
-
-        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
-      });
-
       exportContainer = document.createElement('div');
       Object.assign(exportContainer.style, {
         position: 'absolute',
@@ -3716,6 +3704,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       exportContainer.appendChild(tableClone);
       document.body.appendChild(exportContainer);
+
+      await waitForExportLayout();
+
+      const measuredColumnWidths = Array.from(
+        tableClone.querySelectorAll<HTMLTableElement>('table')
+      ).map(table => {
+        const headerCells = Array.from(
+          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
+        );
+
+        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+      });
 
       const dayHeaderTextColor = getContrastingTextColor(
         exportSettings.dayHeaderBgColor
