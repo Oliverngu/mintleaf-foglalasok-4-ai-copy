@@ -230,184 +230,169 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
-  const UnitSelector: React.FC = () => {
-  const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
-
-  const userUnits = useMemo(
-    () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
-    [allUnits, currentUser]
-  );
-
-  const isMultiSelect = currentUser.role === 'Admin';
-
-  const handleSelection = (unitId: string) => {
-    if (isMultiSelect) {
-      setSelectedUnits(prev =>
-        prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
-      );
-    } else {
-      setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
-    }
+  const headerPillStyle: React.CSSProperties = {
+    padding: 6,
+    background: 'rgba(0,0,0,0.26)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
   };
 
-  const glassPlateStyle: React.CSSProperties = {
-  padding: 6,
-  background: 'rgba(0,0,0,0.26)',
-  border: '1px solid rgba(255,255,255,0.22)',
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-};
+  const UnitSelector: React.FC = () => {
+    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
 
-  // 0 unit fallback
-  if (!userUnits || userUnits.length === 0) {
+    const userUnits = useMemo(
+      () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
+      [allUnits, currentUser]
+    );
+
+    const isMultiSelect = currentUser.role === 'Admin';
+
+    const handleSelection = (unitId: string) => {
+      if (isMultiSelect) {
+        setSelectedUnits(prev =>
+          prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
+        );
+      } else {
+        setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
+      }
+    };
+
+    // 0 unit fallback
+    if (!userUnits || userUnits.length === 0) {
+      return (
+        <GlassOverlay
+          elevation="high"
+          radius={999}
+          className="inline-flex w-fit max-w-[90vw]"
+          style={headerPillStyle}
+          interactive={false}
+        >
+          <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+            Nincs egység
+          </div>
+        </GlassOverlay>
+      );
+    }
+
+    // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
+    if (userUnits.length === 1) {
+      return (
+        <GlassOverlay
+          elevation="high"
+          radius={999}
+          interactive={false}
+          className="inline-flex w-fit max-w-full"
+          style={headerPillStyle}
+        >
+          <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate max-w-full">
+            {userUnits[0].name}
+          </div>
+        </GlassOverlay>
+      );
+    }
+
+    // multi unit
     return (
       <GlassOverlay
         elevation="high"
         radius={999}
-        className="inline-flex w-fit max-w-[90vw]"
-        style={glassPlateStyle}
-        interactive={false}
+        interactive
+        className="inline-flex max-w-full min-w-0"
+        style={{
+          ...headerPillStyle,
+          width: 'min(100%, max-content)',
+          maxWidth: '100%',
+          minWidth: 0,
+          boxShadow: 'none',
+          outline: 'none',
+        }}
       >
-        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
-          Nincs egység
+        {/* Scroll viewport (ez lesz a "ablak") */}
+        <div className="relative w-full max-w-full" style={{ minWidth: 0 }}>
+          <div
+            className="overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+            style={{
+              WebkitOverflowScrolling: 'touch',
+              maxWidth: '100%',
+              minWidth: 0,
+              width: '100%',
+              touchAction: 'pan-x',
+              overscrollBehaviorX: 'contain',
+              pointerEvents: 'auto',
+            }}
+          >
+            {/* Content row (ez lesz a "túl széles tartalom") */}
+            <div className="inline-flex items-center gap-2 w-max">
+              {userUnits.map(unit => {
+                const isSelected = selectedUnits.includes(unit.id);
+                return (
+                  <button
+                    key={unit.id}
+                    onClick={() => handleSelection(unit.id)}
+                    type="button"
+                    className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+                    style={
+                      isSelected
+                        ? {
+                            background: 'rgba(255,255,255,0.92)',
+                            color: '#0f172a',
+                            border: '1px solid rgba(255,255,255,0.30)',
+                          }
+                        : {
+                            background: 'rgba(255,255,255,0.18)',
+                            color: 'rgba(255,255,255,0.95)',
+                            border: '1px solid rgba(255,255,255,0.28)',
+                          }
+                    }
+                  >
+                    {unit.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </GlassOverlay>
     );
-  }
-
-  // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
-  if (userUnits.length === 1) {
-  return (
-    <GlassOverlay
-      elevation="high"
-      radius={999}
-      interactive={false}
-      className="inline-flex"
-      style={{
-        ...glassPlateStyle,
-        padding: 6,
-        maxWidth: '100%',
-        background: 'rgba(0,0,0,0.26)',
-        border: '1px solid rgba(255,255,255,0.22)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-      }}
-    >
-      <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate max-w-full">
-        {userUnits[0].name}
-      </div>
-    </GlassOverlay>
-  );
-}
-
-  // multi unit
-return (
-  <GlassOverlay
-    elevation="high"
-    radius={999}
-    interactive
-    className="inline-flex"
-    style={{
-      ...glassPlateStyle,
-      padding: 6,
-
-      // kulcs: a panel csak addig nő, amíg van helye a grid cellában
-      // ha több lenne a tartalom, max 100%-nál megáll és a belső rész scrollol
-      width: 'fit-content',
-      maxWidth: '100%',
-
-      // ha bármilyen extra árnyék “csík” maradna:
-      boxShadow: 'none',
-      outline: 'none',
-    }}
-  >
-    {/* Scroll viewport (ez lesz a "ablak") */}
-    <div
-      className="overflow-x-auto overflow-y-hidden scrollbar-hide"
-      style={{
-        WebkitOverflowScrolling: 'touch',
-        maxWidth: '100%',
-        width: '100%',
-        touchAction: 'pan-x', // mobilon sokszor ez kell, hogy tényleg vízszintesen engedje
-      }}
-    >
-      {/* Content row (ez lesz a "túl széles tartalom") */}
-      <div className="inline-flex items-center gap-2 w-max">
-        {userUnits.map(unit => {
-          const isSelected = selectedUnits.includes(unit.id);
-          return (
-            <button
-              key={unit.id}
-              onClick={() => handleSelection(unit.id)}
-              type="button"
-              className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-              style={
-                isSelected
-                  ? {
-                      background: 'rgba(255,255,255,0.92)',
-                      color: '#0f172a',
-                      border: '1px solid rgba(255,255,255,0.30)',
-                    }
-                  : {
-                      background: 'rgba(255,255,255,0.18)',
-                      color: 'rgba(255,255,255,0.95)',
-                      border: '1px solid rgba(255,255,255,0.28)',
-                    }
-              }
-            >
-              {unit.name}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  </GlassOverlay>
-);
-};
+  };
 
   const UserBadge: React.FC = () => {
-  return (
-    <GlassOverlay
-      elevation="high"
-      radius={999}
-      interactive
-  className="shrink-0 pointer-events-auto"
-      style={{
-        padding: 6,
-        background: 'rgba(0,0,0,0.26)',
-        border: '1px solid rgba(255,255,255,0.22)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <div
-          className="text-right leading-tight max-w-[120px] sm:max-w-none"
-          style={{ color: 'var(--color-text-on-primary)' }}
-        >
-          <div className="text-xs sm:text-sm font-medium truncate">
-            {currentUser.fullName}
+    return (
+      <GlassOverlay
+        elevation="high"
+        radius={999}
+        interactive
+        className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
+        style={headerPillStyle}
+      >
+        <div className="flex items-center gap-2">
+          <div
+            className="text-right leading-tight max-w-[120px] sm:max-w-none"
+            style={{
+              color: 'var(--color-text-on-primary)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div className="text-xs sm:text-sm font-medium truncate">{currentUser.fullName}</div>
+            <div className="text-[10px] sm:text-xs opacity-90 truncate">{currentUser.role}</div>
           </div>
-          <div className="text-[10px] sm:text-xs opacity-75 truncate">
-            {currentUser.role}
-          </div>
-        </div>
 
-        <button
-          onClick={(e) => {
-  e.stopPropagation();
-  onLogout();
-}}
-          title="Kijelentkezés"
-          className="p-2 rounded-full hover:bg-white/20 shrink-0"
-          type="button"
-        >
-          <LogoutIcon className="h-6 w-6" />
-        </button>
-      </div>
-    </GlassOverlay>
-  );
-};
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onLogout();
+            }}
+            title="Kijelentkezés"
+            className="p-1.5 rounded-full hover:bg-white/20 shrink-0"
+            type="button"
+          >
+            <LogoutIcon className="h-5 w-5" />
+          </button>
+        </div>
+      </GlassOverlay>
+    );
+  };
 
   interface NavItemProps {
     app: AppName;
@@ -842,7 +827,7 @@ return (
       </button>
 
       {/* Middle: unit selector (constrained cell) */}
-      <div className="min-w-0 overflow-visible">
+      <div className="min-w-0">
         <UnitSelector />
       </div>
 
