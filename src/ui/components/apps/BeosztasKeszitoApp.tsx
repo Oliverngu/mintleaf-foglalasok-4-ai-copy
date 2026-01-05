@@ -3663,6 +3663,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           return;
         }
 
+        const sourceTables = Array.from(
+          exportRef.current.querySelectorAll<HTMLTableElement>('table')
+        );
+
+        const measuredColumnWidths = sourceTables.map(table => {
+          const headerCells = Array.from(
+            table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
+          );
+
+          return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+        });
+
         // Offscreen konténer – csak háttér + padding
         const exportContainer = document.createElement('div');
         Object.assign(exportContainer.style, {
@@ -3671,8 +3683,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           top: '0',
           backgroundColor: '#ffffff',
           padding: '20px',
-          display: 'inline-block',
-          overflow: 'hidden'
+          display: 'block',
+          overflow: 'visible'
         } as CSSStyleDeclaration);
 
         // Teljes tábla klónozása – minden Tailwind osztály megmarad
@@ -3683,6 +3695,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
         tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+        tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
+          el.remove();
+        });
+
+        tableClone
+          .querySelectorAll<HTMLElement>('span.whitespace-pre-wrap')
+          .forEach(span => {
+            const filtered = (span.textContent || '')
+              .split('\n')
+              .filter(line => {
+                const normalized = line.trim().toLowerCase();
+                return !normalized.startsWith('megjegyzés') &&
+                  !normalized.includes('(megjegyzés')
+                  ? true
+                  : false;
+              })
+              .join('\n')
+              .replace(/\n{2,}/g, '\n')
+              .trim();
+
+            span.textContent = filtered;
+          });
 
         tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
           el.style.whiteSpace = 'pre-wrap';
@@ -3737,6 +3772,50 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         // 4) Összesítő sor (Napi összes) kiszedése
         tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+
+        // 4/b) Export layout stabilizálása: szélességek, overflow és kommentsorok
+        tableClone.style.width = 'fit-content';
+        tableClone.style.maxWidth = 'none';
+        tableClone.style.overflow = 'visible';
+
+        tableClone
+          .querySelectorAll<HTMLElement>('.overflow-x-auto')
+          .forEach(el => {
+            el.style.overflowX = 'visible';
+            el.style.overflowY = 'visible';
+            el.style.maxWidth = 'none';
+            el.style.width = 'fit-content';
+          });
+
+        const gridNode = tableClone.querySelector<HTMLElement>('.grid');
+        if (gridNode) {
+          gridNode.style.width = 'fit-content';
+          gridNode.style.maxWidth = 'none';
+        }
+
+        const clonedTables = Array.from(
+          tableClone.querySelectorAll<HTMLTableElement>('table')
+        );
+
+        clonedTables.forEach((table, idx) => {
+          const widths = measuredColumnWidths[idx];
+          if (widths && widths.length) {
+            const colgroup = document.createElement('colgroup');
+            widths.forEach(width => {
+              const col = document.createElement('col');
+              col.style.width = `${width}px`;
+              colgroup.appendChild(col);
+            });
+            table.insertBefore(colgroup, table.firstChild);
+            table.style.tableLayout = 'fixed';
+          }
+
+          table.style.borderCollapse = 'collapse';
+        });
+
+        const fullWidth =
+          (gridNode?.scrollWidth || tableClone.scrollWidth) + 40;
+        exportContainer.style.width = `${fullWidth}px`;
 
         // 5) Zebra csíkozás alkalmazása az exportált táblára
         const zebraBase = exportSettings.zebraColor;
