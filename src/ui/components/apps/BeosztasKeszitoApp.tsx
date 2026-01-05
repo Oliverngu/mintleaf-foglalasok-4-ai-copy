@@ -3692,7 +3692,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         left: '-9999px',
         top: '0',
         backgroundColor: '#ffffff',
-        padding: '10px',
+        padding: '0px',
         display: 'inline-block',
         overflow: 'visible'
       } as CSSStyleDeclaration);
@@ -3840,7 +3840,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           cell.style.borderWidth = '0.5px';
         });
 
-      const paddingPx = 20; // matches container padding (10px * 2)
+      const paddingPx = 0;
       const rawWidth =
         (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
       const finalWidth = Math.ceil(rawWidth);
