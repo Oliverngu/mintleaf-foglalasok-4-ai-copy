@@ -298,11 +298,13 @@ const Dashboard: React.FC<DashboardProps> = ({
         elevation="high"
         radius={999}
         interactive
-        className="inline-flex w-full max-w-full min-w-0"
+        className="inline-flex w-fit max-w-full min-w-0"
         style={{
           ...headerPillStyle,
+          width: 'fit-content',
           maxWidth: '100%',
           minWidth: 0,
+          overflow: 'visible',
           boxShadow: 'none',
           outline: 'none',
         }}
@@ -318,6 +320,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               width: '100%',
               touchAction: 'pan-x',
               overscrollBehaviorX: 'contain',
+              pointerEvents: 'auto',
             }}
           >
             {/* Content row (ez lesz a "túl széles tartalom") */}
