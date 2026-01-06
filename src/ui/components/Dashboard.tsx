@@ -23,7 +23,7 @@ import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
 import { BerezesemApp } from './apps/BerezesemApp';
-import AdminisztracioApp from './apps/AdminTodoApp';
+import AdminisztracioApp from './apps/AdminisztracioApp'; // ✅ FIX
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
@@ -136,12 +136,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
-  // ✅ Dropdown state-ek (nálad ez hiányzott / szét volt csúszva)
-  const [isUnitMenuOpen, setIsUnitMenuOpen] = useState(false);
+  // ✅ User dropdown state
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-
-  // Click-outside kezeléshez
-  const unitWrapRef = useRef<HTMLDivElement | null>(null);
   const userWrapRef = useRef<HTMLDivElement | null>(null);
 
   // --- Accordion Menu State ---
@@ -184,20 +180,22 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
   // --- End Accordion Menu State ---
 
-  const { selectedUnits: activeUnitIds, setSelectedUnits: setActiveUnitIds } = useUnitContext();
+  const { selectedUnits: activeUnitIds } = useUnitContext();
 
   const activeUnit = useMemo(
     () => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null),
     [activeUnitIds, allUnits]
   );
 
-  // ✅ Click-outside + ESC: zárja a dropdownokat
+  const closeAllMenus = () => {
+    setIsUserMenuOpen(false);
+    setSidebarOpen(false);
+  };
+
+  // ✅ Click-outside + ESC: zárja a user dropdownot és a sidebart
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (isUnitMenuOpen && unitWrapRef.current && !unitWrapRef.current.contains(t)) {
-        setIsUnitMenuOpen(false);
-      }
       if (isUserMenuOpen && userWrapRef.current && !userWrapRef.current.contains(t)) {
         setIsUserMenuOpen(false);
       }
@@ -205,7 +203,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsUnitMenuOpen(false);
         setIsUserMenuOpen(false);
         setSidebarOpen(false);
       }
@@ -217,13 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       document.removeEventListener('mousedown', onDocMouseDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [isUnitMenuOpen, isUserMenuOpen]);
-
-  const closeAllMenus = () => {
-    setIsUnitMenuOpen(false);
-    setIsUserMenuOpen(false);
-    setSidebarOpen(false);
-  };
+  }, [isUserMenuOpen]);
 
   if (!currentUser) {
     return (
@@ -267,7 +258,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
-  // ✅ egységes “glass” stílus, ami olvasható háttértől függetlenül
+  // ✅ egységes “glass” stílus
   const headerPillStyle: React.CSSProperties = {
     padding: 6,
     background: 'rgba(0,0,0,0.26)',
@@ -288,123 +279,135 @@ const Dashboard: React.FC<DashboardProps> = ({
     textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
   };
 
+  /**
+   * ✅ UnitSelector: pill toggle list
+   * - Keskeny headerben: vízszintes scroll (overflow-x)
+   * - Szélesebb: engedheted a wrap-et (sm:flex-wrap), de nem kötelező
+   * - KATTINTÁS FIX: GlassOverlay interactive + inner pointer-events-auto
+   */
   const UnitSelector: React.FC = () => {
-  const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
+    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
 
-  const unitIds = currentUser.unitIds || [];
-    
-  const userUnits = useMemo(
-    () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
-    [allUnits, currentUser]
-  );
+    const isMultiSelect = currentUser.role === 'Admin';
+    const unitIds = currentUser.unitIds || [];
 
-  const isMultiSelect = currentUser.role === 'Admin';
-
-  const handleToggle = (unitId: string) => {
-    if (isMultiSelect) {
-      setSelectedUnits(prev =>
-        prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
-      );
-    } else {
-      setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
-    }
-  };
-
-  // 0 unit fallback
-  if (!userUnits || userUnits.length === 0) {
-    return (
-      <GlassOverlay
-        elevation="high"
-        radius={999}
-        className="inline-flex w-fit max-w-[90vw]"
-        style={headerPillStyle}
-        interactive={false}
-      >
-        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
-          Nincs egység
-        </div>
-      </GlassOverlay>
+    const userUnits = useMemo(
+      () => allUnits.filter(u => unitIds.includes(u.id)),
+      [allUnits, unitIds]
     );
-  }
 
-  // 1 unit
-  if (userUnits.length === 1) {
+    const handleToggle = (unitId: string) => {
+      if (isMultiSelect) {
+        setSelectedUnits(prev =>
+          prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
+        );
+      } else {
+        setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
+      }
+    };
+
+    // 0 unit fallback
+    if (!userUnits || userUnits.length === 0) {
+      return (
+        <GlassOverlay
+          elevation="high"
+          radius={999}
+          className="inline-flex w-fit max-w-[90vw]"
+          style={headerPillStyle}
+          interactive={false}
+        >
+          <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
+            Nincs egység
+          </div>
+        </GlassOverlay>
+      );
+    }
+
+    // 1 unit
+    if (userUnits.length === 1) {
+      return (
+        <GlassOverlay
+          elevation="high"
+          radius={999}
+          interactive={false}
+          className="inline-flex w-fit max-w-full"
+          style={headerPillStyle}
+        >
+          <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full" style={glassTextPrimary}>
+            {userUnits[0].name}
+          </div>
+        </GlassOverlay>
+      );
+    }
+
+    // multi unit: ✅ HORIZONTAL scroll on narrow
     return (
       <GlassOverlay
         elevation="high"
-        radius={999}
-        interactive={false}
-        className="inline-flex w-fit max-w-full"
-        style={headerPillStyle}
+        radius={22}
+        interactive // ✅ fontos, különben a GlassOverlay réteg elnyelheti a kattintást
+        className="inline-flex max-w-full min-w-0"
+        style={{
+          ...headerPillStyle,
+          padding: 8,
+          borderRadius: 22,
+        }}
       >
+        {/* scroll owner */}
         <div
-          className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full"
+          className="
+            pointer-events-auto
+            max-w-full min-w-0
+            overflow-x-auto overflow-y-hidden
+            overscroll-contain
+            pr-1
+          "
           style={{
-            color: 'rgba(255,255,255,0.96)',
-            textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
+            WebkitOverflowScrolling: 'touch',
           }}
         >
-          {userUnits[0].name}
+          <div
+            className="
+              flex flex-nowrap gap-2
+              sm:flex-wrap
+              w-max sm:w-auto
+            "
+          >
+            {userUnits.map(unit => {
+              const isSelected = selectedUnits.includes(unit.id);
+              return (
+                <button
+                  key={unit.id}
+                  type="button"
+                  onClick={() => handleToggle(unit.id)}
+                  className="shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors"
+                  style={
+                    isSelected
+                      ? {
+                          background: 'rgba(255,255,255,0.92)',
+                          color: '#0f172a',
+                          border: '1px solid rgba(255,255,255,0.30)',
+                        }
+                      : {
+                          background: 'rgba(255,255,255,0.14)',
+                          color: 'rgba(255,255,255,0.96)',
+                          border: '1px solid rgba(255,255,255,0.22)',
+                          textShadow: (glassTextPrimary as any).textShadow,
+                        }
+                  }
+                  title={unit.name}
+                >
+                  {unit.name}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </GlassOverlay>
     );
-  }
+  };
 
-  // multi unit (pill toggle list + vertical scroll if needed)
-  return (
-    <GlassOverlay
-      elevation="high"
-      radius={22}
-      interactive={false}
-      className="inline-flex max-w-full min-w-0"
-      style={{
-        ...headerPillStyle,
-        padding: 8,
-        borderRadius: 22,
-      }}
-    >
-      {/* SCROLL OWNER */}
-      <div
-        className="max-h-[60px] sm:max-h-[72px] overflow-y-auto overscroll-contain pr-1"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-      >
-        <div className="flex flex-wrap gap-2">
-          {userUnits.map(unit => {
-            const isSelected = selectedUnits.includes(unit.id);
-
-            return (
-              <button
-                key={unit.id}
-                type="button"
-                onClick={() => handleToggle(unit.id)}
-                className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors"
-                style={
-                  isSelected
-                    ? {
-                        background: 'rgba(255,255,255,0.92)',
-                        color: '#0f172a',
-                        border: '1px solid rgba(255,255,255,0.30)',
-                      }
-                    : {
-                        background: 'rgba(255,255,255,0.14)',
-                        color: 'rgba(255,255,255,0.96)',
-                        border: '1px solid rgba(255,255,255,0.22)',
-                        textShadow: '0 1px 3px rgba(0,0,0,0.55)',
-                      }
-                }
-                title={unit.name}
-              >
-                {unit.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </GlassOverlay>
-  );
-};
-
-  // ✅ UserBadge panel: ugyanaz a “glass panel” mint a UnitSelectornál + olvasható szöveg
+  // ✅ UserBadge (dropdown)
   const UserBadge: React.FC = () => {
     return (
       <div ref={userWrapRef} className="relative inline-flex">
@@ -414,10 +417,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           interactive
           className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
           style={headerPillStyle}
-          onClick={() => {
-            setIsUserMenuOpen(v => !v);
-            setIsUnitMenuOpen(false);
-          }}
+          onClick={() => setIsUserMenuOpen(v => !v)}
         >
           <div className="flex items-center gap-2">
             <div className="text-right leading-tight max-w-[160px] sm:max-w-none" style={glassTextPrimary}>
@@ -510,7 +510,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (permission && !hasPermission(permission)) return null;
 
     const isAppDisabled =
-      disabledAppCheck && activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
+      disabledAppCheck &&
+      activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
     const isActive = activeApp === app;
@@ -529,6 +530,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-text-main)',
         }}
         title={label}
+        type="button"
       >
         <Icon className="h-6 w-6" />
         <span className="ml-4 font-semibold text-base whitespace-nowrap">{label}</span>
@@ -556,6 +558,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--color-sidebar-hover)] transition-colors duration-200"
           aria-expanded={isOpen}
           style={{ color: 'var(--color-text-main)' }}
+          type="button"
         >
           <div className="flex items-center">
             <Icon className="h-6 w-6" />
@@ -565,10 +568,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </button>
 
         {isOpen && (
-          <div
-            className="pl-6 mt-1 space-y-1 border-l-2 ml-5"
-            style={{ borderColor: 'var(--color-border)' }}
-          >
+          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5" style={{ borderColor: 'var(--color-border)' }}>
             {children}
           </div>
         )}
@@ -647,11 +647,31 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'chat':
-        return <ChatApp currentUser={currentUser} allUsers={allUsers} allUnits={allUnits} activeUnitIds={activeUnitIds} />;
+        return (
+          <ChatApp
+            currentUser={currentUser}
+            allUsers={allUsers}
+            allUnits={allUnits}
+            activeUnitIds={activeUnitIds}
+          />
+        );
       case 'admin_todos':
-        return <AdminTodoApp todos={adminTodos} loading={false} error={null} currentUser={currentUser} />;
+        return (
+          <AdminTodoApp
+            todos={adminTodos}
+            loading={false}
+            error={null}
+            currentUser={currentUser}
+          />
+        );
       case 'elerhetosegek':
-        return <ContactsApp currentUser={currentUser} canManage={hasPermission('canManageContacts')} canViewAll={hasPermission('canViewAllContacts')} />;
+        return (
+          <ContactsApp
+            currentUser={currentUser}
+            canManage={hasPermission('canManageContacts')}
+            canViewAll={hasPermission('canViewAllContacts')}
+          />
+        );
       case 'tudastar':
         return (
           <TudastarApp
@@ -680,11 +700,32 @@ const Dashboard: React.FC<DashboardProps> = ({
         );
       }
       case 'velemenyek':
-        return <VelemenyekApp currentUser={currentUser} allUnits={allUnits} activeUnitIds={activeUnitIds} feedbackList={feedbackList} />;
+        return (
+          <VelemenyekApp
+            currentUser={currentUser}
+            allUnits={allUnits}
+            activeUnitIds={activeUnitIds}
+            feedbackList={feedbackList}
+          />
+        );
       case 'berezesem':
-        return <BerezesemApp currentUser={currentUser} schedule={shifts} activeUnitIds={activeUnitIds} timeEntries={timeEntries} allUnits={allUnits} />;
+        return (
+          <BerezesemApp
+            currentUser={currentUser}
+            schedule={shifts}
+            activeUnitIds={activeUnitIds}
+            timeEntries={timeEntries}
+            allUnits={allUnits}
+          />
+        );
       case 'szavazasok':
-        return <PollsApp currentUser={currentUser} canCreatePolls={hasPermission('canCreatePolls')} polls={polls} />;
+        return (
+          <PollsApp
+            currentUser={currentUser}
+            canCreatePolls={hasPermission('canCreatePolls')}
+            polls={polls}
+          />
+        );
       case 'unit_settings':
         if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
         return (
@@ -794,7 +835,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
           </nav>
 
-          {/* ✅ Settings gomb fix (nálad: setActiveApp(app) -> hibás) */}
+          {/* ✅ Settings gomb fix */}
           <div className="p-3 border-t space-y-1 flex-shrink-0">
             <button
               onClick={() => {
@@ -836,7 +877,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             <button
               onClick={() => {
                 setSidebarOpen(v => !v);
-                setIsUnitMenuOpen(false);
                 setIsUserMenuOpen(false);
               }}
               className="p-2 -ml-2 shrink-0"
