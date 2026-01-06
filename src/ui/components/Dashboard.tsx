@@ -799,7 +799,7 @@ return (
   };
 
   const isChatLayout = activeApp === 'chat';
-  const mainOverflowClass = isSidebarOpen || isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
+  const mainOverflowClass = isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
   return (
     <>
@@ -900,9 +900,11 @@ return (
             <div className="p-3 border-t space-y-1 flex-shrink-0">
               <button
                 onClick={() => {
-                  setActiveApp('settings');
-                  setSidebarOpen(false);
-                }}
+  setActiveApp(app);
+  setSidebarOpen(false);
+  setIsUnitMenuOpen(false);
+  setIsUserMenuOpen(false);
+}}
                 className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
                   activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
                 }`}
@@ -942,7 +944,11 @@ return (
     <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 w-full min-w-0">
       {/* Left: menu */}
       <button
-        onClick={() => setSidebarOpen(!isSidebarOpen)}
+  onClick={() => {
+    setSidebarOpen(v => !v);
+    setIsUnitMenuOpen(false);
+    setIsUserMenuOpen(false);
+  }}
         className="p-2 -ml-2 shrink-0"
         type="button"
       >
