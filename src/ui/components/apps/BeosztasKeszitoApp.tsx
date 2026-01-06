@@ -4237,13 +4237,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
   };
 
-  if (isDataLoading)
-    return (
-      <div className="relative h-64">
-        <LoadingSpinner />
-      </div>
-    );
-
   const selectionTargets = useMemo(() => computeSelectionTargets(), [computeSelectionTargets]);
   const targetCellsCount = selectionTargets.targetCells.length;
   const targetShiftsCount = selectionTargets.targetShifts.length;
@@ -4251,6 +4244,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
 
   let userRowIndex = 0;
+
+  if (isDataLoading)
+    return (
+      <div className="relative h-64">
+        <LoadingSpinner />
+      </div>
+    );
 
   return (
     <div className="p-4 md:p-8">
