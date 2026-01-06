@@ -634,6 +634,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       .replace(/\bflex\b/g, '')
       .replace(/\bflex-col\b/g, '')
       .replace(/\bitems-center\b/g, '')
+      .replace(/\bjustify-center\b/g, '')
       .replace(/\bjustify-start\b/g, '')
       .replace(/\bp-4\b/g, '')
       .replace(/\s+/g, ' ')
