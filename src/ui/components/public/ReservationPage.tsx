@@ -435,6 +435,20 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const t = translations[locale];
 
+  const ReservationFooter: React.FC<{
+    step: number;
+    themeProps: any;
+    t: any;
+    onNext: (e: React.FormEvent<HTMLFormElement>) => void;
+    onPrevious: () => void;
+    isSubmitting: boolean;
+    locale: Locale;
+    settings: ReservationSetting | null;
+    selectedDate: Date | null;
+    formData: any;
+    onLocaleChange: (locale: Locale) => void;
+  }> = () => null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDate || !formData.startTime || !unit || !settings) return;
