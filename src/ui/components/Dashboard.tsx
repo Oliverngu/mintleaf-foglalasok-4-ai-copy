@@ -293,105 +293,229 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
 
     // multi unit
-    return (
-      <GlassOverlay
-        elevation="high"
-        radius={999}
-        interactive
-        className="inline-flex max-w-full min-w-0"
-        style={{
-          ...headerPillStyle,
-          maxWidth: '100%',
-          minWidth: 0,
-          boxShadow: 'none',
-          outline: 'none',
-        }}
-      >
-        {/* Scroll viewport (ez lesz a "ablak") */}
-        <div className="relative w-full max-w-full" style={{ minWidth: 0 }}>
-          <div
-            className="overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-            style={{
-              WebkitOverflowScrolling: 'touch',
-              maxWidth: '100%',
-              minWidth: 0,
-              width: '100%',
-              touchAction: 'pan-x',
-              overscrollBehaviorX: 'contain',
-              pointerEvents: 'auto',
-            }}
-          >
-            {/* Content row (ez lesz a "túl széles tartalom") */}
-            <div className="inline-flex items-center gap-2 w-max">
-              {userUnits.map(unit => {
-                const isSelected = selectedUnits.includes(unit.id);
-                return (
-                  <button
-                    key={unit.id}
-                    onClick={() => handleSelection(unit.id)}
-                    type="button"
-                    className="px-3 py-1.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-                    style={
-                      isSelected
-                        ? {
-                            background: 'rgba(255,255,255,0.92)',
-                            color: '#0f172a',
-                            border: '1px solid rgba(255,255,255,0.30)',
-                          }
-                        : {
-                            background: 'rgba(255,255,255,0.18)',
-                            color: 'rgba(255,255,255,0.95)',
-                            border: '1px solid rgba(255,255,255,0.28)',
-                          }
-                    }
-                  >
-                    {unit.name}
-                  </button>
-                );
-              })}
+return (
+  <div className="relative inline-flex max-w-full min-w-0">
+    {/* Trigger pill */}
+    <GlassOverlay
+      elevation="high"
+      radius={999}
+      interactive
+      className="inline-flex max-w-full min-w-0"
+      style={{
+        ...headerPillStyle,
+        maxWidth: '100%',
+        minWidth: 0,
+        boxShadow: 'none',
+        outline: 'none',
+      }}
+      onClick={() => setIsUnitMenuOpen(v => !v)}
+    >
+      <div className="flex items-center gap-2 px-3 py-1.5 min-w-0">
+        <span
+          className="text-sm font-semibold truncate min-w-0"
+          style={{
+            color: 'rgba(255,255,255,0.96)',
+            textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
+          }}
+        >
+          {selectedUnits.length
+            ? `Egységek: ${selectedUnits.length}`
+            : 'Válassz egységet'}
+        </span>
+
+        <span className="shrink-0 opacity-90">
+          <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUnitMenuOpen ? 'rotate-180' : ''}`} />
+        </span>
+      </div>
+    </GlassOverlay>
+
+    {/* Dropdown panel */}
+    {isUnitMenuOpen && (
+      <div className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(420px,92vw)]">
+        <GlassOverlay
+          elevation="high"
+          radius={20}
+          interactive={false}
+          className="w-full"
+          style={{
+            background: 'rgba(0,0,0,0.28)',
+            border: '1px solid rgba(255,255,255,0.22)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+          }}
+        >
+          <div className="p-2">
+            <div
+              className="max-h-[60vh] overflow-y-auto overscroll-contain pr-1"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
+              <div className="flex flex-col gap-1">
+                {userUnits.map(unit => {
+                  const isSelected = selectedUnits.includes(unit.id);
+                  return (
+                    <button
+                      key={unit.id}
+                      onClick={() => handleSelection(unit.id)}
+                      type="button"
+                      className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                      style={
+                        isSelected
+                          ? {
+                              background: 'rgba(255,255,255,0.92)',
+                              color: '#0f172a',
+                              border: '1px solid rgba(255,255,255,0.30)',
+                            }
+                          : {
+                              background: 'rgba(255,255,255,0.16)',
+                              color: 'rgba(255,255,255,0.96)',
+                              border: '1px solid rgba(255,255,255,0.22)',
+                              textShadow: '0 1px 3px rgba(0,0,0,0.55)',
+                            }
+                      }
+                    >
+                      <div className="text-sm font-semibold">{unit.name}</div>
+                      <div className="text-xs opacity-90">
+                        {isSelected ? 'Kijelölve' : 'Kijelölés'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl text-sm font-semibold"
+                style={{
+                  background: 'rgba(255,255,255,0.14)',
+                  color: 'rgba(255,255,255,0.95)',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                }}
+                onClick={() => setSelectedUnits([])}
+              >
+                Kijelölés törlése
+              </button>
+
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl text-sm font-semibold"
+                style={{
+                  background: 'rgba(255,255,255,0.92)',
+                  color: '#0f172a',
+                  border: '1px solid rgba(255,255,255,0.30)',
+                }}
+                onClick={() => setIsUnitMenuOpen(false)}
+              >
+                Kész
+              </button>
             </div>
           </div>
-        </div>
-      </GlassOverlay>
-    );
-  };
+        </GlassOverlay>
+      </div>
+    )}
+  </div>
+);
 
   const UserBadge: React.FC = () => {
-    return (
+  return (
+    <div className="relative inline-flex">
+      {/* Trigger */}
       <GlassOverlay
         elevation="high"
         radius={999}
         interactive
         className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
         style={headerPillStyle}
+        onClick={() => setIsUserMenuOpen(v => !v)}
       >
         <div className="flex items-center gap-2">
           <div
-            className="text-right leading-tight max-w-[120px] sm:max-w-none"
+            className="text-right leading-tight max-w-[160px] sm:max-w-none"
             style={{
-              color: 'var(--color-text-on-primary)',
+              color: 'rgba(255,255,255,0.96)',
               textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
             }}
           >
-            <div className="text-xs sm:text-sm font-medium truncate">{currentUser.fullName}</div>
+            <div className="text-xs sm:text-sm font-semibold truncate">{currentUser.fullName}</div>
             <div className="text-[10px] sm:text-xs opacity-90 truncate">{currentUser.role}</div>
           </div>
 
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onLogout();
-            }}
-            title="Kijelentkezés"
-            className="p-1.5 rounded-full hover:bg-white/20 shrink-0"
-            type="button"
-          >
-            <LogoutIcon className="h-5 w-5" />
-          </button>
+          <span className="shrink-0 opacity-90">
+            <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+          </span>
         </div>
       </GlassOverlay>
-    );
-  };
+
+      {/* Dropdown panel */}
+      {isUserMenuOpen && (
+        <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,92vw)]">
+          <GlassOverlay
+            elevation="high"
+            radius={20}
+            interactive={false}
+            className="w-full"
+            style={{
+              background: 'rgba(0,0,0,0.28)',
+              border: '1px solid rgba(255,255,255,0.22)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+            }}
+          >
+            <div className="p-2">
+              <div className="px-3 py-2 rounded-xl"
+                   style={{
+                     background: 'rgba(255,255,255,0.12)',
+                     border: '1px solid rgba(255,255,255,0.18)',
+                     color: 'rgba(255,255,255,0.96)',
+                     textShadow: '0 1px 3px rgba(0,0,0,0.55)',
+                   }}>
+                <div className="text-sm font-semibold truncate">{currentUser.fullName}</div>
+                <div className="text-xs opacity-90 truncate">{currentUser.email}</div>
+              </div>
+
+              <div className="mt-2 flex flex-col gap-1">
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                  style={{
+                    background: 'rgba(255,255,255,0.16)',
+                    color: 'rgba(255,255,255,0.96)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.55)',
+                  }}
+                  onClick={() => {
+                    setActiveApp('settings');
+                    setIsUserMenuOpen(false);
+                    setSidebarOpen(false);
+                  }}
+                >
+                  Beállítások
+                </button>
+
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                  style={{
+                    background: 'rgba(255,255,255,0.92)',
+                    color: '#0f172a',
+                    border: '1px solid rgba(255,255,255,0.30)',
+                  }}
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    onLogout();
+                  }}
+                >
+                  Kijelentkezés
+                </button>
+              </div>
+            </div>
+          </GlassOverlay>
+        </div>
+      )}
+    </div>
+  );
+};
 
   interface NavItemProps {
     app: AppName;
