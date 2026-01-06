@@ -4,12 +4,11 @@ import { db, serverTimestamp } from '../../../core/firebase/config';
 import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
-import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
-import GlassOverlay from '../common/GlassOverlay';
+import PublicReservationLayout from './PublicReservationLayout';
 
 type Locale = 'hu' | 'en';
 
@@ -260,45 +259,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   };
 
   const t = translations[locale];
-  const themeClasses = useMemo(
-  () => ({
-    wrapper: `${theme.styles.page} relative overflow-x-hidden overflow-y-auto min-h-[100dvh] w-full flex flex-col justify-start`,
-    card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4 min-h-0 max-h-[calc(100dvh-4rem)] overflow-hidden`,
-    primaryButton: theme.styles.primaryButton,
-    secondaryButton: theme.styles.secondaryButton,
-    outlineButton: theme.styles.outlineButton,
-  }),
-  [theme]
-);
+  const baseButtonClasses = useMemo(
+    () => ({
+      primary: theme.styles.primaryButton,
+      secondary: theme.styles.secondaryButton,
+      outline: theme.styles.outlineButton,
+    }),
+    [theme.styles.outlineButton, theme.styles.primaryButton, theme.styles.secondaryButton]
+  );
 
-  const sanitizedWrapperClassName = (className: string) =>
-    className
-      .replace(/\bflex\b/g, '')
-      .replace(/\bflex-col\b/g, '')
-      .replace(/\bitems-center\b/g, '')
-      .replace(/\bjustify-center\b/g, '')
-      .replace(/\bjustify-start\b/g, '')
-      .replace(/\bp-4\b/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+  const decorations = theme.uiTheme === 'playful_bubble' ? <PlayfulBubbles /> : undefined;
+  const watermarkText = `${(unit?.name || 'MintLeaf')} reservation system, powered by MintLeaf.`;
 
-  const wrapperClassName = `${themeClasses.wrapper} ${
-  isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''
-} py-8 px-4`;
-  const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
-
-  const renderCard = (children: React.ReactNode, extraClass?: string) => {
-    const cardContent = (
-      <div className={`${themeClasses.card}${extraClass ? ` ${extraClass}` : ''}`} style={theme.cardStyle}>
-        {children}
-      </div>
-    );
-
-    if (isMinimalGlassTheme) {
-      return <GlassOverlay variant="minimal-glass">{cardContent}</GlassOverlay>;
-    }
-
-    return cardContent;
+  const baseLayoutProps = {
+    theme,
+    isMinimalGlassTheme,
+    decorations,
+    watermarkText,
   };
 
   useEffect(() => {
@@ -316,70 +293,35 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   if (loading)
     return (
-      <div
-        className={wrapperClassName}
-        style={{
-          color: theme.colors.textPrimary,
-          ...(theme.pageStyle || {}),
-        }}
-      >
-        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={pageInnerClassName}>
-          {renderCard(<LoadingSpinner />)}
-        </div>
-        <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
-          style={{
-            color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-            ...(theme.watermarkStyle || {}),
-          }}
-        >
-          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-        </div>
-      </div>
+      <PublicReservationLayout
+        {...baseLayoutProps}
+        header={<LoadingSpinner />}
+        body={<div />}
+      />
     );
   if (error)
     return (
-      <div
-        className={wrapperClassName}
-        style={{
-          color: theme.colors.textPrimary,
-          ...(theme.pageStyle || {}),
-        }}
-      >
-        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={pageInnerClassName}>
-          {renderCard(
-            <div className="text-center">
-              <h2
-                className={`text-xl font-bold text-red-600 ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
-                }`}
-              >
-                Hiba
-              </h2>
-              <p
-                className={`mt-2 ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : 'text-current'
-                }`}
-              >
-                {error}
-              </p>
-            </div>
-          )}
-        </div>
-        <div
-          className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
-          style={{
-            color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-            ...(theme.watermarkStyle || {}),
-          }}
-        >
-          {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-        </div>
-      </div>
+      <PublicReservationLayout
+        {...baseLayoutProps}
+        header={
+          <h2
+            className={`text-xl font-bold text-red-600 ${
+              isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+            }`}
+          >
+            Hiba
+          </h2>
+        }
+        body={
+          <p
+            className={`mt-2 ${
+              isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : 'text-current'
+            }`}
+          >
+            {error}
+          </p>
+        }
+      />
     );
   if (!booking || !unit) return null;
 
@@ -413,237 +355,219 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return phoneE164.slice(0, -7) + '••• •' + last4;
   };
 
-  return (
-    <div
-      className={wrapperClassName}
-      style={{
-        color: theme.colors.textPrimary,
-        ...(theme.pageStyle || {}),
-      }}
-    >
-      {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-      <div className={pageInnerClassName}>
-        {renderCard(
-          <>
-            <header className="text-center mb-6 mt-2 flex-shrink-0">
-              <h1
-                className={`text-4xl font-bold ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
-                }`}
-                style={{ color: 'var(--color-text-primary)' }}
-              >
-                {unit.name}
-              </h1>
-              <p
-                className={`text-lg mt-1 ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
-                }`}
-                style={{ color: 'var(--color-text-secondary)' }}
-              >
-                {t.manageTitle}
-              </p>
-            </header>
+  const headerSection = (
+    <>
+      <h1
+        className={`text-4xl font-bold ${
+          isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+        }`}
+        style={{ color: 'var(--color-text-primary)' }}
+      >
+        {unit.name}
+      </h1>
+      <p
+        className={`text-lg mt-1 ${
+          isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+        }`}
+        style={{ color: 'var(--color-text-secondary)' }}
+      >
+        {t.manageTitle}
+      </p>
+    </>
+  );
 
-            <main className="w-full flex-1 min-h-0 overflow-hidden flex flex-col gap-4">
-              <div
-                className="flex justify-between items-center mb-2 pb-4 border-b"
-                style={{ borderColor: `${theme.colors.surface}60` }}
-              >
-                <h2 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                  {t.reservationDetails}
-                </h2>
-                {getStatusChip(booking.status)}
-              </div>
-
-              <div
-                className="space-y-3 flex-1 pr-1 overflow-y-auto"
-                style={{ color: 'var(--color-text-primary)' }}
-              >
-                <p>
-                  <strong>{t.referenceCode}:</strong>{' '}
-                  <span
-                    className={`font-mono px-2 py-1 text-sm ${theme.radiusClass}`}
-                    style={{
-                      backgroundColor: theme.colors.surface,
-                      color: theme.colors.textPrimary,
-                      border: `1px solid ${theme.colors.surface}`,
-                    }}
-                  >
-                    {booking.referenceCode?.substring(0, 8).toUpperCase()}
-                  </span>
-                </p>
-                <p>
-                  <strong>{t.name}:</strong> {booking.name}
-                </p>
-                <p>
-                  <strong>{t.headcount}:</strong> {booking.headcount}
-                </p>
-                <p>
-                  <strong>{t.date}:</strong>{' '}
-                  {booking.startTime
-                    .toDate()
-                    .toLocaleDateString(locale, {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                </p>
-                <p>
-                  <strong>{t.startTime}:</strong>{' '}
-                  {booking.startTime
-                    .toDate()
-                    .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
-                </p>
-                <p>
-                  <strong>{t.email}:</strong> {booking.contact?.email}
-                </p>
-                <p>
-                  <strong>{t.phone}:</strong>{' '}
-                  {booking.contact?.phoneE164
-                    ? maskPhone(booking.contact.phoneE164)
-                    : 'N/A'}
-                </p>
-              </div>
-
-              {booking.status === 'pending' && (
-                <div
-                  className={`mt-6 p-4 ${theme.radiusClass} border`}
-                  style={{
-                    backgroundColor: theme.colors.background,
-                    color: theme.colors.textPrimary,
-                    borderColor: theme.colors.surface,
-                  }}
-                >
-                  <p className="font-semibold" style={{ color: theme.colors.textPrimary }}>
-                    {t.pendingApproval}
-                  </p>
-                  <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
-                    {t.pendingApprovalHint}
-                  </p>
-                </div>
-              )}
-
-              {booking.status === 'pending' &&
-                adminToken &&
-                booking.adminActionToken !== adminToken && (
-                  <div
-                    className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
-                    style={{
-                      backgroundColor: `${theme.colors.danger}10`,
-                      color: theme.colors.danger,
-                      borderColor: `${theme.colors.danger}50`,
-                    }}
-                  >
-                    {t.invalidAdminToken}
-                  </div>
-                )}
-
-              {booking.status === 'pending' &&
-                adminToken &&
-                booking.adminActionToken === adminToken && (
-                  <div
-                    className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
-                    style={{
-                      backgroundColor: `${theme.colors.accent}10`,
-                      color: theme.colors.textPrimary,
-                      borderColor: `${theme.colors.accent}40`,
-                    }}
-                  >
-                    <p className="font-semibold">{t.adminActionTitle}</p>
-                    {actionMessage && (
-                      <p
-                        className={`text-sm p-2 ${theme.radiusClass} border`}
-                        style={{
-                          color: theme.colors.primary,
-                          backgroundColor: theme.colors.surface,
-                          borderColor: `${theme.colors.primary}40`,
-                        }}
-                      >
-                        {actionMessage}
-                      </p>
-                    )}
-                    {actionError && (
-                      <p
-                        className={`text-sm p-2 ${theme.radiusClass} border`}
-                        style={{
-                          color: theme.colors.danger,
-                          backgroundColor: theme.colors.surface,
-                          borderColor: `${theme.colors.danger}40`,
-                        }}
-                      >
-                        {actionError}
-                      </p>
-                    )}
-                    {!actionMessage && (
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <button
-                          onClick={() => handleAdminDecision('approve')}
-                          className={`${themeClasses.primaryButton} flex-1`}
-                          style={{ backgroundColor: theme.colors.primary }}
-                          disabled={isProcessingAction}
-                        >
-                          {t.adminApprove}
-                        </button>
-                        <button
-                          onClick={() => handleAdminDecision('reject')}
-                          className={`${themeClasses.primaryButton} flex-1`}
-                          style={{ backgroundColor: theme.colors.danger }}
-                          disabled={isProcessingAction}
-                        >
-                          {t.adminReject}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-              {booking.status !== 'cancelled' ? (
-                <div
-                  className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4"
-                  style={{ borderColor: `${theme.colors.surface}60` }}
-                >
-                  <button
-                    disabled
-                    className={`${themeClasses.secondaryButton} w-full cursor-not-allowed`}
-                    style={{
-                      backgroundColor: theme.colors.surface,
-                      color: theme.colors.textSecondary,
-                      opacity: 0.6,
-                    }}
-                  >
-                    {t.modifyReservation}
-                  </button>
-                  <button
-                    onClick={() => setIsCancelModalOpen(true)}
-                    className={`${themeClasses.primaryButton} w-full`}
-                    style={{ backgroundColor: theme.colors.danger }}
-                  >
-                    {t.cancelReservation}
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-8 pt-6 border-t text-center">
-                  <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
-                    {t.reservationCancelledSuccess}
-                  </p>
-                </div>
-              )}
-            </main>
-          </>
-        )}
+  const bodySection = (
+    <div className="flex flex-col gap-4 min-h-full" style={{ color: theme.colors.textPrimary }}>
+      <div
+        className="flex justify-between items-center pb-4 border-b"
+        style={{ borderColor: `${theme.colors.surface}60` }}
+      >
+        <h2 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+          {t.reservationDetails}
+        </h2>
+        {getStatusChip(booking.status)}
       </div>
 
-      <div
-        className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
+      <div className="space-y-3">
+        <p>
+          <strong>{t.referenceCode}:</strong>{' '}
+          <span
+            className={`font-mono px-2 py-1 text-sm ${theme.radiusClass}`}
+            style={{
+              backgroundColor: theme.colors.surface,
+              color: theme.colors.textPrimary,
+              border: `1px solid ${theme.colors.surface}`,
+            }}
+          >
+            {booking.referenceCode?.substring(0, 8).toUpperCase()}
+          </span>
+        </p>
+        <p>
+          <strong>{t.name}:</strong> {booking.name}
+        </p>
+        <p>
+          <strong>{t.headcount}:</strong> {booking.headcount}
+        </p>
+        <p>
+          <strong>{t.date}:</strong>{' '}
+          {booking.startTime
+            .toDate()
+            .toLocaleDateString(locale, {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+        </p>
+        <p>
+          <strong>{t.startTime}:</strong>{' '}
+          {booking.startTime
+            .toDate()
+            .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+        </p>
+        <p>
+          <strong>{t.email}:</strong> {booking.contact?.email}
+        </p>
+        <p>
+          <strong>{t.phone}:</strong>{' '}
+          {booking.contact?.phoneE164 ? maskPhone(booking.contact.phoneE164) : 'N/A'}
+        </p>
+      </div>
+
+      {booking.status === 'pending' && (
+        <div
+          className={`mt-6 p-4 ${theme.radiusClass} border`}
+          style={{
+            backgroundColor: theme.colors.background,
+            color: theme.colors.textPrimary,
+            borderColor: theme.colors.surface,
+          }}
+        >
+          <p className="font-semibold" style={{ color: theme.colors.textPrimary }}>
+            {t.pendingApproval}
+          </p>
+          <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
+            {t.pendingApprovalHint}
+          </p>
+        </div>
+      )}
+
+      {booking.status === 'pending' &&
+        adminToken &&
+        booking.adminActionToken !== adminToken && (
+          <div
+            className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
+            style={{
+              backgroundColor: `${theme.colors.danger}10`,
+              color: theme.colors.danger,
+              borderColor: `${theme.colors.danger}50`,
+            }}
+          >
+            {t.invalidAdminToken}
+          </div>
+        )}
+
+      {booking.status === 'pending' &&
+        adminToken &&
+        booking.adminActionToken === adminToken && (
+          <div
+            className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
+            style={{
+              backgroundColor: `${theme.colors.accent}10`,
+              color: theme.colors.textPrimary,
+              borderColor: `${theme.colors.accent}40`,
+            }}
+          >
+            <p className="font-semibold">{t.adminActionTitle}</p>
+            {actionMessage && (
+              <p
+                className={`text-sm p-2 ${theme.radiusClass} border`}
+                style={{
+                  color: theme.colors.primary,
+                  backgroundColor: theme.colors.surface,
+                  borderColor: `${theme.colors.primary}40`,
+                }}
+              >
+                {actionMessage}
+              </p>
+            )}
+            {actionError && (
+              <p
+                className={`text-sm p-2 ${theme.radiusClass} border`}
+                style={{
+                  color: theme.colors.danger,
+                  backgroundColor: theme.colors.surface,
+                  borderColor: `${theme.colors.danger}40`,
+                }}
+              >
+                {actionError}
+              </p>
+            )}
+            {!actionMessage && (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => handleAdminDecision('approve')}
+                  className={`${baseButtonClasses.primary} flex-1`}
+                  style={{ backgroundColor: theme.colors.primary }}
+                  disabled={isProcessingAction}
+                >
+                  {t.adminApprove}
+                </button>
+                <button
+                  onClick={() => handleAdminDecision('reject')}
+                  className={`${baseButtonClasses.primary} flex-1`}
+                  style={{ backgroundColor: theme.colors.danger }}
+                  disabled={isProcessingAction}
+                >
+                  {t.adminReject}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+    </div>
+  );
+
+  const footerSection = booking.status !== 'cancelled' ? (
+    <div
+      className="flex flex-col sm:flex-row gap-4"
+      style={{ borderColor: `${theme.colors.surface}60` }}
+    >
+      <button
+        disabled
+        className={`${baseButtonClasses.secondary} w-full cursor-not-allowed`}
         style={{
-          color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-          ...(theme.watermarkStyle || {}),
+          backgroundColor: theme.colors.surface,
+          color: theme.colors.textSecondary,
+          opacity: 0.6,
         }}
       >
-        {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-      </div>
+        {t.modifyReservation}
+      </button>
+      <button
+        onClick={() => setIsCancelModalOpen(true)}
+        className={`${baseButtonClasses.primary} w-full`}
+        style={{ backgroundColor: theme.colors.danger }}
+      >
+        {t.cancelReservation}
+      </button>
+    </div>
+  ) : (
+    <div className="text-center">
+      <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
+        {t.reservationCancelledSuccess}
+      </p>
+    </div>
+  );
+
+  return (
+    <>
+      <PublicReservationLayout
+        {...baseLayoutProps}
+        header={headerSection}
+        body={bodySection}
+        footer={footerSection}
+      />
 
       {isCancelModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -660,7 +584,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             <div className="flex justify-center gap-4">
               <button
                 onClick={() => setIsCancelModalOpen(false)}
-                className={`${themeClasses.secondaryButton}`}
+                className={`${baseButtonClasses.secondary}`}
                 style={{
                   backgroundColor: theme.colors.surface,
                   color: theme.colors.textPrimary,
@@ -671,7 +595,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               </button>
               <button
                 onClick={handleCancelReservation}
-                className={`${themeClasses.primaryButton}`}
+                className={`${baseButtonClasses.primary}`}
                 style={{ backgroundColor: theme.colors.danger }}
               >
                 {t.yesCancel}
@@ -680,7 +604,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

@@ -855,7 +855,9 @@ const ReservationThemePreview: FC<{ themeSettings: ThemeSettings; uiTheme: strin
                 backgroundPosition: 'center',
             }}
         >
-            {tokens.styles.pageOverlay && <div className={`${tokens.styles.pageOverlay} z-0`} />}
+            {tokens.styles.pageOverlay && (
+                <div className={`pointer-events-none absolute inset-0 ${tokens.styles.pageOverlay} z-0`} />
+            )}
             {tokens.uiTheme === 'playful_bubble' && (
                 <div className="pointer-events-none absolute inset-0 overflow-hidden">
                     <div className="absolute w-40 h-40 bg-white/50 blur-3xl rounded-full -left-10 top-6" />

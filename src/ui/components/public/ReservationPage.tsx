@@ -27,7 +27,7 @@ import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
-import GlassOverlay from '../common/GlassOverlay';
+import PublicReservationLayout from './PublicReservationLayout';
 
 type Locale = 'hu' | 'en';
 
@@ -172,7 +172,9 @@ const ProgressIndicator: React.FC<{
 }> = ({ currentStep, t, theme }) => {
   const steps = [t.step1, t.step2, t.step3];
   return (
-    <div className={`${theme.styles.stepWrapper} w-full max-w-2xl mx-auto`}> 
+    <div
+      className={`w-full max-w-2xl mx-auto flex items-center justify-center ${theme.styles.stepWrapper}`.trim()}
+    >
       <div className="relative">
         <div className="absolute inset-x-4 top-5 md:top-6" aria-hidden>
           <div className="grid grid-cols-2 gap-4 items-center">
@@ -610,295 +612,223 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return resolveHeaderLogoUrl(settings, unit);
   }, [headerBrandMode, settings, unit]);
 
-const themeClasses = useMemo(
-  () => ({
-    wrapper: `${theme.styles.page} relative overflow-x-hidden overflow-y-auto min-h-[100dvh] w-full max-w-[100vw] flex flex-col justify-start`,
-    card: `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4 min-h-0 max-h-[calc(100dvh-4rem)] overflow-hidden`,
-    header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
-    content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
-    contentScrollable: 'flex-1 min-h-0 overflow-x-hidden overflow-y-auto pr-1 px-1 overscroll-contain scroll-smooth',
-    stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0 transition-opacity duration-300',
-    stepContent: 'flex-1 min-h-0 overflow-y-auto pb-12 pr-1',
-    primaryButton: theme.styles.primaryButton,
-    secondaryButton: theme.styles.secondaryButton,
-    outlineButton: theme.styles.outlineButton,
-    watermark:
-      'pointer-events-none select-none absolute bottom-3 right-4 text-xs md:text-sm z-40 drop-shadow',
-  }),
-  [theme]
-);
+  const baseButtonClasses = useMemo(
+    () => ({
+      primaryButton: theme.styles.primaryButton,
+      secondaryButton: theme.styles.secondaryButton,
+      outlineButton: theme.styles.outlineButton,
+    }),
+    [theme.styles.outlineButton, theme.styles.primaryButton, theme.styles.secondaryButton]
+  );
 
-  const wrapperClassName = `${themeClasses.wrapper} ${
-  isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''
-} py-8 px-4`;
-  const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
+  const decorations = theme.uiTheme === 'playful_bubble' ? <PlayfulBubbles /> : undefined;
+  const watermarkText = `${(unit?.name || 'MintLeaf')} reservation system, powered by MintLeaf.`;
+  const topRightLanguageSwitch = (
+    <>
+      <button
+        onClick={() => setLocale('hu')}
+        className={locale === 'hu' ? 'font-bold' : ''}
+        style={{
+          color: locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
+        }}
+      >
+        Magyar
+      </button>
+      <span style={{ color: theme.colors.textSecondary }}>|</span>
+      <button
+        onClick={() => setLocale('en')}
+        className={locale === 'en' ? 'font-bold' : ''}
+        style={{
+          color: locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
+        }}
+      >
+        English
+      </button>
+    </>
+  );
 
-  const renderCard = (children: React.ReactNode, extraClass?: string) => {
-    const cardContent = (
-      <div className={`${themeClasses.card}${extraClass ? ` ${extraClass}` : ''}`} style={theme.cardStyle}>
-        {children}
-      </div>
-    );
-
-    if (isMinimalGlassTheme) {
-      return <GlassOverlay variant="minimal-glass">{cardContent}</GlassOverlay>;
-    }
-
-    return cardContent;
+  const baseLayoutProps = {
+    theme,
+    isMinimalGlassTheme,
+    decorations,
+    watermarkText,
   };
 
   if (error && step !== 2) {
     return (
-      <div
-        className={wrapperClassName}
-        style={{
-          color: 'var(--color-text-primary)',
-          ...(theme.pageStyle || {}),
-        }}
-      >
-        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={pageInnerClassName}>
-          {renderCard(
-            <>
-              <h2
-                className={`text-xl font-bold ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
-                }`}
-                style={{ color: 'var(--color-danger)' }}
-              >
-                Hiba
-              </h2>
-              <p
-                className={`mt-2 ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
-                }`}
-              >
-                {error}
-              </p>
-              <div
-                className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
-                style={{
-                  color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-                  ...(theme.watermarkStyle || {}),
-                }}
-              >
-                {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <PublicReservationLayout
+        {...baseLayoutProps}
+        header={
+          <h2
+            className={`text-xl font-bold ${
+              isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+            }`}
+            style={{ color: 'var(--color-danger)' }}
+          >
+            Hiba
+          </h2>
+        }
+        body={
+          <p
+            className={`mt-2 ${
+              isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+            }`}
+          >
+            {error}
+          </p>
+        }
+      />
     );
   }
 
   if (loading || !unit || !settings) {
     return (
-      <div
-        className={wrapperClassName}
-        style={{
-          color: 'var(--color-text-primary)',
-          ...(theme.pageStyle || {}),
-        }}
-      >
-        {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-        {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={pageInnerClassName}>
-          {renderCard(
-            <>
-              <LoadingSpinner />
-              <div
-                className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
-                style={{
-                  color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-                  ...(theme.watermarkStyle || {}),
-                }}
-              >
-                {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <PublicReservationLayout
+        {...baseLayoutProps}
+        header={<LoadingSpinner />}
+        body={<div />}
+      />
     );
   }
 
-  return (
-    <div
-      className={wrapperClassName}
-      style={{
-        color: 'var(--color-text-primary)',
-        ...(theme.pageStyle || {}),
-      }}
-    >
-      {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-      <div className={pageInnerClassName}>
-        {renderCard(
-          <>
-            <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-              <button
-                onClick={() => setLocale('hu')}
-                className={locale === 'hu' ? 'font-bold' : ''}
-                style={{
-                  color: locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
-                }}
-              >
-                Magyar
-              </button>
-              <span style={{ color: theme.colors.textSecondary }}>|</span>
-              <button
-                onClick={() => setLocale('en')}
-                className={locale === 'en' ? 'font-bold' : ''}
-                style={{
-                  color: locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
-                }}
-              >
-                English
-              </button>
-            </div>
+  const headerSection = (
+    <>
+      {brandLogoUrl ? (
+        <img
+          src={brandLogoUrl}
+          alt={unit.name}
+          className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
+        />
+      ) : (
+        <h1
+          className={`text-4xl font-bold ${
+            isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+          }`}
+          style={{ color: 'var(--color-text-primary)' }}
+        >
+          {unit.name}
+        </h1>
+      )}
+      <p
+        className={`text-lg mt-1 ${
+          isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+        }`}
+        style={{ color: 'var(--color-text-secondary)' }}
+      >
+        {t.title}
+      </p>
+      <div className="w-full flex-shrink-0">
+        <ProgressIndicator currentStep={step} t={t} theme={theme} />
+      </div>
+    </>
+  );
 
-            <header className={`pt-2 ${themeClasses.header}`}>
-              {brandLogoUrl ? (
-                <img
-                  src={brandLogoUrl}
-                  alt={unit.name}
-                  className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
-                />
-              ) : (
-                <h1
-                  className={`text-4xl font-bold ${
-                    isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
-                  }`}
-                  style={{ color: 'var(--color-text-primary)' }}
-                >
-                  {unit.name}
-                </h1>
-              )}
-              <p
-                className={`text-lg mt-1 ${
-                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
-                }`}
-                style={{ color: 'var(--color-text-secondary)' }}
-              >
-                {t.title}
-              </p>
-            </header>
+  const stepPaneBase = 'w-full flex-shrink-0 flex flex-col min-h-0 transition-opacity duration-300';
 
-            <div className="flex-shrink-0">
-              <ProgressIndicator currentStep={step} t={t} theme={theme} />
-            </div>
-
-            <div className={`${themeClasses.content}`}>
-              <div
-                className={`${themeClasses.contentScrollable} overflow-y-auto`}
-                style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
-              >
-                <div
-                  className="flex transition-transform duration-500 ease-in-out h-full"
-                  style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
-                >
-                  <div
-                    className={`${themeClasses.stepPane} ${
-                      step === 1 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                    }`}
-                  >
-                    <div className={themeClasses.stepContent}>
-                      <Step1Date
-                        settings={settings}
-                        onDateSelect={handleDateSelect}
-                        themeProps={themeClassProps}
-                        t={t}
-                        currentMonth={currentMonth}
-                        onMonthChange={setCurrentMonth}
-                        dailyHeadcounts={dailyHeadcounts}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    className={`${themeClasses.stepPane} ${
-                      step === 2 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                    }`}
-                  >
-                    <div className={themeClasses.stepContent}>
-                      <Step2Details
-                        selectedDate={selectedDate}
-                        formData={formData}
-                        setFormData={setFormData}
-                        onBack={() => {
-                          setStep(1);
-                          setError('');
-                        }}
-                        onSubmit={handleSubmit}
-                        isSubmitting={isSubmitting}
-                        settings={settings}
-                        themeProps={themeClassProps}
-                        t={t}
-                        locale={locale}
-                        error={error}
-                        buttonClasses={{
-                          primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                          secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                        }}
-                        unit={unit}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    className={`${themeClasses.stepPane} ${
-                      step === 3 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                    }`}
-                  >
-                    <div className={themeClasses.stepContent}>
-                      <Step3Confirmation
-                        onReset={resetFlow}
-                        theme={theme}
-                        themeProps={themeClassProps}
-                        t={t}
-                        submittedData={submittedData}
-                        unit={unit}
-                        locale={locale}
-                        settings={settings}
-                        buttonClasses={{
-                          primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                          secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <footer className="flex-shrink-0 flex flex-col gap-3 pb-2">
-              <ReservationFooter
-                step={step}
+  const bodySection = (
+    <div className="flex flex-col gap-4 min-h-full">
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div
+          className="flex transition-transform duration-500 ease-in-out w-full"
+          style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+        >
+          <div
+            className={`${stepPaneBase} ${
+              step === 1 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+            }`}
+          >
+            <div className="flex-1 min-h-0">
+              <Step1Date
+                settings={settings}
+                onDateSelect={handleDateSelect}
                 themeProps={themeClassProps}
                 t={t}
-                onNext={handleSubmit}
-                onPrevious={() => setStep(prev => Math.max(1, prev - 1))}
-                isSubmitting={isSubmitting}
-                locale={locale}
-                settings={settings}
+                currentMonth={currentMonth}
+                onMonthChange={setCurrentMonth}
+                dailyHeadcounts={dailyHeadcounts}
+              />
+            </div>
+          </div>
+          <div
+            className={`${stepPaneBase} ${
+              step === 2 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+            }`}
+          >
+            <div className="flex-1 min-h-0">
+              <Step2Details
                 selectedDate={selectedDate}
                 formData={formData}
-                onLocaleChange={setLocale}
+                setFormData={setFormData}
+                onBack={() => {
+                  setStep(1);
+                  setError('');
+                }}
+                onSubmit={handleSubmit}
+                isSubmitting={isSubmitting}
+                settings={settings}
+                themeProps={themeClassProps}
+                t={t}
+                locale={locale}
+                error={error}
+                buttonClasses={{
+                  primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                  secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                }}
+                unit={unit}
               />
-            </footer>
-
-            <div
-              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
-              style={{
-                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-                ...(theme.watermarkStyle || {}),
-              }}
-            >
-              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
             </div>
-          </>
-        )}
+          </div>
+          <div
+            className={`${stepPaneBase} ${
+              step === 3 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+            }`}
+          >
+            <div className="flex-1 min-h-0">
+              <Step3Confirmation
+                onReset={resetFlow}
+                theme={theme}
+                themeProps={themeClassProps}
+                t={t}
+                submittedData={submittedData}
+                unit={unit}
+                locale={locale}
+                settings={settings}
+                buttonClasses={{
+                  primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                  secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+  );
+
+  const footerSection = (
+    <ReservationFooter
+      step={step}
+      themeProps={themeClassProps}
+      t={t}
+      onNext={handleSubmit}
+      onPrevious={() => setStep(prev => Math.max(1, prev - 1))}
+      isSubmitting={isSubmitting}
+      locale={locale}
+      settings={settings}
+      selectedDate={selectedDate}
+      formData={formData}
+      onLocaleChange={setLocale}
+    />
+  );
+
+  return (
+    <PublicReservationLayout
+      {...baseLayoutProps}
+      header={headerSection}
+      body={bodySection}
+      footer={footerSection}
+      topRightContent={topRightLanguageSwitch}
+    />
   );
 };
 

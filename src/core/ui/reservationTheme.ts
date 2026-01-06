@@ -131,11 +131,11 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
   minimal_glass: {
     uiTheme: 'minimal_glass',
     pageBackground:
-      'min-h-screen flex flex-col bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-slate-900/85 text-white',
+      'bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-slate-900/85 text-white',
     pageOverlay:
-      'absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-white/5 pointer-events-none mix-blend-screen',
+      'bg-gradient-to-br from-white/10 via-white/5 to-white/5 mix-blend-screen',
     cardBase:
-      'relative overflow-hidden backdrop-blur-2xl border border-white/50 shadow-[0_18px_45px_rgba(0,0,0,0.25)] text-[color:var(--color-text-primary)]',
+      'backdrop-blur-2xl border border-white/50 shadow-[0_18px_45px_rgba(0,0,0,0.25)] text-[color:var(--color-text-primary)]',
     infoPanel: 'bg-white/20 border border-white/40 backdrop-blur text-white/90',
     primaryButton:
       'bg-white/25 border border-white/40 text-white hover:bg-white/35 hover:shadow-lg transition transform hover:scale-[1.02] backdrop-blur',
@@ -148,9 +148,9 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     badge: 'bg-white/15 text-white border border-white/40 backdrop-blur',
     chip: 'bg-white/20 text-white',
     fontFamily: 'font-sans',
-    stepWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-3',
-    stepTrack: 'h-1 flex-1 rounded-full bg-white/25',
-    stepThumb: 'h-1 rounded-full bg-white',
+    stepWrapper: 'gap-3',
+    stepTrack: 'rounded-full bg-white/25',
+    stepThumb: 'rounded-full bg-white',
     stepActive:
       'bg-white text-[color:var(--color-primary)] border-2 border-[color:var(--color-primary)] shadow-sm',
     stepInactive: 'bg-white/70 text-white/70 border border-white/40',
@@ -159,10 +159,10 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
   smooth_touch: {
     uiTheme: 'smooth_touch',
     pageBackground:
-      'min-h-screen flex flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900',
-    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/40 via-white/30 to-white/10 pointer-events-none',
+      'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900',
+    pageOverlay: 'bg-gradient-to-br from-white/40 via-white/30 to-white/10',
     cardBase:
-      'relative overflow-hidden backdrop-blur-2xl border border-slate-100 shadow-[0_22px_60px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
+      'backdrop-blur-2xl border border-slate-100 shadow-[0_22px_60px_rgba(0,0,0,0.12)] text-[color:var(--color-text-primary)]',
     infoPanel:
       'bg-[color:var(--color-surface)]/85 border border-slate-200 text-[color:var(--color-text-primary)] shadow-inner',
     primaryButton:
@@ -176,9 +176,9 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     badge: 'bg-[color:var(--color-accent)]/15 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full',
     chip: 'bg-white text-slate-800 rounded-full shadow-inner',
     fontFamily: 'font-sans',
-    stepWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-3',
-    stepTrack: 'h-2 flex-1 rounded-full bg-[color:var(--color-accent)]/20',
-    stepThumb: 'h-2 rounded-full bg-[color:var(--color-primary)]/80 shadow-md',
+    stepWrapper: 'gap-3',
+    stepTrack: 'rounded-full bg-[color:var(--color-accent)]/20',
+    stepThumb: 'rounded-full bg-[color:var(--color-primary)]/80 shadow-md',
     stepActive:
       'bg-[color:var(--color-primary)]/90 text-white shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-[color:var(--color-primary)]/70 rounded-full',
     stepInactive: 'bg-white text-slate-500 border border-slate-200 rounded-full',
@@ -187,9 +187,9 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
   classic_elegant: {
     uiTheme: 'classic_elegant',
     pageBackground:
-      'min-h-screen flex flex-col bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50 text-slate-900',
-    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/30 via-white/10 to-white/5 pointer-events-none',
-    cardBase: 'relative overflow-hidden border border-amber-100 shadow-md text-[color:var(--color-text-primary)]',
+      'bg-gradient-to-br from-amber-50 via-amber-100 to-rose-50 text-slate-900',
+    pageOverlay: 'bg-gradient-to-br from-white/30 via-white/10 to-white/5',
+    cardBase: 'border border-amber-100 shadow-md text-[color:var(--color-text-primary)]',
     infoPanel: 'bg-amber-50 border border-amber-200 text-amber-900',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white border border-transparent hover:shadow-md transition',
@@ -202,9 +202,9 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     badge: 'bg-amber-100 text-amber-800 border border-amber-200',
     chip: 'bg-amber-50 text-amber-800',
     fontFamily: 'font-serif',
-    stepWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-2',
-    stepTrack: 'h-1 flex-1 rounded-full bg-amber-100',
-    stepThumb: 'h-1 rounded-full bg-[color:var(--color-primary)]',
+    stepWrapper: 'gap-2',
+    stepTrack: 'rounded-full bg-amber-100',
+    stepThumb: 'rounded-full bg-[color:var(--color-primary)]',
     stepActive:
       'bg-[color:var(--color-primary)] text-white shadow-sm border border-transparent',
     stepInactive: 'bg-white text-slate-500 border border-amber-100',
@@ -213,10 +213,10 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
   playful_bubble: {
     uiTheme: 'playful_bubble',
     pageBackground:
-      'min-h-screen flex flex-col relative overflow-hidden bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100 text-slate-900',
-    pageOverlay: 'absolute inset-0 bg-gradient-to-br from-white/50 via-white/30 to-white/20 pointer-events-none',
+      'bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100 text-slate-900',
+    pageOverlay: 'bg-gradient-to-br from-white/50 via-white/30 to-white/20',
     cardBase:
-      'relative overflow-hidden backdrop-blur-md border border-sky-100 shadow-xl text-[color:var(--color-text-primary)]',
+      'backdrop-blur-md border border-sky-100 shadow-xl text-[color:var(--color-text-primary)]',
     infoPanel: 'bg-white/85 border border-sky-100 text-slate-900',
     primaryButton:
       'bg-[color:var(--color-primary)] text-white rounded-full px-5 py-3 transition transform hover:scale-[1.04] hover:shadow-xl',
@@ -229,9 +229,9 @@ const basePresets: Record<ReservationUiTheme, BasePreset> = {
     badge: 'bg-[color:var(--color-accent)]/15 text-[color:var(--color-primary)] border border-[color:var(--color-primary)]/20 rounded-full',
     chip: 'bg-white text-slate-800 rounded-full',
     fontFamily: 'font-sans',
-    stepWrapper: 'flex items-center justify-center w-full max-w-2xl mx-auto mb-6 gap-3',
-    stepTrack: 'h-2 flex-1 rounded-full bg-white/60',
-    stepThumb: 'h-2 rounded-full bg-[color:var(--color-primary)] shadow-md',
+    stepWrapper: 'gap-3',
+    stepTrack: 'rounded-full bg-white/60',
+    stepThumb: 'rounded-full bg-[color:var(--color-primary)] shadow-md',
     stepActive:
       'bg-[color:var(--color-primary)] text-white shadow-md border border-transparent animate-pulse',
     stepInactive: 'bg-white text-slate-500 border border-sky-100',
@@ -347,21 +347,14 @@ export const buildReservationTheme = (
         backgroundColor: colors.background,
       };
 
-  const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass}`;
-  const cardBase = `${preset.cardBase} ${radiusClass} ${shadowClass}`;
-  const sanitizedCardBase = cardBase
-    .replace(/\boverflow-hidden\b/g, '')
-    .replace(/\bmax-h-\[calc\(100vh-3rem\)\]\b/g, '')
-    .replace(/\bmd:max-h-\[calc\(100vh-4rem\)\]\b/g, '')
-    .replace(/\bmin-h-\[calc\(100vh-6rem\)\]\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass}`.trim();
+  const cardBase = `${preset.cardBase} ${radiusClass} ${shadowClass}`.trim();
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
-    pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-10 md:py-12 gap-6 justify-center',
+    pageInner: `${preset.fontFamily} ${fontSizeClass}`.trim(),
     pageOverlay: preset.pageOverlay,
-    card: `${sanitizedCardBase} ${preset.fontFamily}`.trim(),
+    card: `${cardBase} ${preset.fontFamily}`.trim(),
     infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,
     primaryButton: `${preset.primaryButton} ${radiusClass} ${fontSizeClass}`,
     secondaryButton: `${preset.secondaryButton} ${radiusClass} ${fontSizeClass}`,
