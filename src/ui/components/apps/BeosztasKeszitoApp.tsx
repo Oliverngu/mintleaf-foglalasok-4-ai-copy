@@ -1701,6 +1701,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setAnchorCellKey(null);
   }, []);
 
+  const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
+
   const toggleCellSelection = useCallback((cellKey: string) => {
     setSelectedCellKeys(prev => {
       const next = new Set(prev);
@@ -2932,7 +2934,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             cellClasses += ' text-slate-400';
                           }
 
-                          const cellDataKey = `${user.id}-${dayKey}`;
+                          const cellDataKey = `${user.id}|${dayKey}`;
                           const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
 
                           const baseCellStyle: CSSProperties = {};
@@ -3278,15 +3280,32 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const parseSelectionKey = useCallback(
     (selectionKey: string) => {
       const [dataKey] = selectionKey.split('#');
-      const dayKey = dataKey.slice(-10);
-      const userId = dataKey.slice(0, dataKey.length - 11);
+      const dayKeyPattern = /^\d{4}-\d{2}-\d{2}$/;
+      let userId = '';
+      let dayKey = '';
+
+      if (dataKey.includes('|')) {
+        const [maybeUserId, maybeDayKey] = dataKey.split('|');
+        userId = maybeUserId;
+        if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
+          dayKey = maybeDayKey;
+        }
+      } else {
+        const maybeDayKey = dataKey.slice(-10);
+        const maybeUserId = dataKey.slice(0, dataKey.length - 11);
+        userId = maybeUserId;
+        if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
+          dayKey = maybeDayKey;
+        }
+      }
+
       return { dataKey, dayKey, userId };
     },
-    []
+    [weekDayKeySet]
   );
 
   const resolveCellDayKey = useCallback(
-    (cellKey: string): string => {
+    (cellKey: string): string | null => {
       const parsed = parseSelectionKey(cellKey);
       if (parsed.dayKey) return parsed.dayKey;
 
@@ -3296,7 +3315,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (day) return toDateString(day);
       }
 
-      throw new Error(`Missing dayKey for cell ${cellKey}`);
+      return null;
     },
     [parseSelectionKey, weekDays]
   );
@@ -3406,7 +3425,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         });
       } catch (err) {
         result.missingDayKeyErrors += 1;
-        throw err;
+        if (isDevEnv) {
+          console.debug('Skipping cell with missing/invalid dayKey', { cellKey, err });
+        }
       }
     });
 
