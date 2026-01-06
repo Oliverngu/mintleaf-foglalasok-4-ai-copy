@@ -349,12 +349,19 @@ export const buildReservationTheme = (
 
   const composedPage = `${preset.pageBackground} ${preset.fontFamily} ${fontSizeClass}`;
   const cardBase = `${preset.cardBase} ${radiusClass} ${shadowClass}`;
+  const sanitizedCardBase = cardBase
+    .replace(/\boverflow-hidden\b/g, '')
+    .replace(/\bmax-h-\[calc\(100vh-3rem\)\]\b/g, '')
+    .replace(/\bmd:max-h-\[calc\(100vh-4rem\)\]\b/g, '')
+    .replace(/\bmin-h-\[calc\(100vh-6rem\)\]\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   const styles: ReservationThemeStyles = {
     page: composedPage,
     pageInner: 'flex-1 flex flex-col w-full max-w-5xl mx-auto px-4 py-10 md:py-12 gap-6 justify-center',
     pageOverlay: preset.pageOverlay,
-    card: `${cardBase} ${preset.fontFamily}`,
+    card: `${sanitizedCardBase} ${preset.fontFamily}`.trim(),
     infoPanel: `${preset.infoPanel} ${radiusClass} ${fontSizeClass} px-4 py-3`,
     primaryButton: `${preset.primaryButton} ${radiusClass} ${fontSizeClass}`,
     secondaryButton: `${preset.secondaryButton} ${radiusClass} ${fontSizeClass}`,

@@ -378,64 +378,72 @@ const App: React.FC = () => {
     window.location.href = window.location.pathname;
   }
 
-  switch (appState) {
-    case 'public':
-        if (publicPage?.type === 'reserve') {
-            return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
-        }
-        if (publicPage?.type === 'manage') {
-            return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
-        }
+  const renderContent = () => {
+    switch (appState) {
+      case 'public':
+          if (publicPage?.type === 'reserve') {
+              return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
+          }
+          if (publicPage?.type === 'manage') {
+              return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
+          }
+          return (
+              <div className="fixed inset-0 flex items-center justify-center bg-gray-50 p-4">
+                  <div className="text-center">
+                      <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
+                      <p className="mt-2 text-gray-700">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
+                  </div>
+              </div>
+          );
+      case 'loading':
         return (
-            <div className="fixed inset-0 flex items-center justify-center bg-gray-50 p-4">
-                <div className="text-center">
-                    <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
-                    <p className="mt-2 text-gray-700">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
-                </div>
-            </div>
+          <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
+            <LoadingSpinner />
+          </div>
         );
-    case 'loading':
-      return (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
-          <LoadingSpinner />
-        </div>
-      );
-    case 'register':
-      return (
-        <div className="fixed inset-0 flex items-center justify-center p-4 bg-gradient-to-br from-green-50 to-emerald-100">
-          <Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} />
-        </div>
-      );
-    case 'dashboard':
-      return (
-        <UnitProvider currentUser={currentUser} allUnits={allUnits}>
-            <Dashboard 
-              currentUser={currentUser} 
-              onLogout={handleLogout} 
-              isDemoMode={isDemoMode}
-              requests={requests}
-              shifts={shifts}
-              todos={todos}
-              adminTodos={adminTodos}
-              allUnits={allUnits}
-              allUsers={allUsers}
-              permissions={permissions}
-              unitPermissions={unitPermissions}
-              timeEntries={timeEntries}
-              feedbackList={feedbackList}
-              polls={polls}
-              firestoreError={firestoreError}
-            />
-        </UnitProvider>
-      );
-    case 'login':
-    default:
-      return (
-        <div className="fixed inset-0">
-          <Login loginMessage={loginMessage} />
-        </div>
-      );
-  }
+      case 'register':
+        return (
+          <div className="fixed inset-0 flex items-center justify-center p-4 bg-gradient-to-br from-green-50 to-emerald-100">
+            <Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} />
+          </div>
+        );
+      case 'dashboard':
+        return (
+          <UnitProvider currentUser={currentUser} allUnits={allUnits}>
+              <Dashboard
+                currentUser={currentUser}
+                onLogout={handleLogout}
+                isDemoMode={isDemoMode}
+                requests={requests}
+                shifts={shifts}
+                todos={todos}
+                adminTodos={adminTodos}
+                allUnits={allUnits}
+                allUsers={allUsers}
+                permissions={permissions}
+                unitPermissions={unitPermissions}
+                timeEntries={timeEntries}
+                feedbackList={feedbackList}
+                polls={polls}
+                firestoreError={firestoreError}
+              />
+          </UnitProvider>
+        );
+      case 'login':
+      default:
+        return (
+          <div className="fixed inset-0">
+            <Login loginMessage={loginMessage} />
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="bg-gray-100 dark:bg-gray-900">
+      {renderContent()}
+    </div>
+  );
 };
 
 export default App;
