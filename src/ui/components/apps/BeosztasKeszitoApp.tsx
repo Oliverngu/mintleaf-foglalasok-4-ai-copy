@@ -1504,6 +1504,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   activeUnitIds,
   isSidebarOpen = false
 }) => {
+  const isDevEnv =
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.NODE_ENV !== 'production';
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'draft' | 'published'>(
     'published'
@@ -2245,8 +2250,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => unsub();
   }, [activeUnitIds, weekDays, canManage]);
 
-  const isDevEnv = process.env.NODE_ENV !== 'production';
-
   const activeShifts = useMemo(() => {
     const filtered = schedule.filter(s => {
       const statusMatch = (s.status || 'draft') === viewMode;
@@ -2820,9 +2823,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             unitIdForCell,
                             viewMode
                           );
-                          const devRenderLog =
-                            typeof process !== 'undefined' &&
-                            process.env.NODE_ENV !== 'production';
+                          const devRenderLog = isDevEnv;
                           if (devRenderLog && userDayShifts.length > 1) {
                             console.debug('render: multiple shifts in cell', {
                               userId: user.id,
@@ -3309,7 +3310,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         }
       }
 
-      if (!dayKey && process.env.NODE_ENV !== 'production') {
+      if (!dayKey && isDevEnv) {
         console.debug('Skipping selection key without valid dayKey', { selectionKey });
       }
 
@@ -3795,7 +3796,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       try {
         selectionData = computeSelectionTargets();
       } catch (err) {
-        if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+        if (isDevEnv) {
           console.debug('applyHighlightToSelection dayKey resolution error', err);
         }
         return;
@@ -3811,10 +3812,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         missingDayKeyErrors,
       } = selectionData;
 
-      const isDev =
-        typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
-
-      if (isDev) {
+      if (isDevEnv) {
         console.debug('applyHighlightToSelection', {
           selectionCount: selectionKeys.length,
           targetCells: targetCells.length,
@@ -3919,7 +3917,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
 
-      if (isDev) {
+      if (isDevEnv) {
         console.debug('applyHighlightToSelection summary', {
           selectionCount: selectionKeys.length,
           resolvedCellCount: targetCells.length,
