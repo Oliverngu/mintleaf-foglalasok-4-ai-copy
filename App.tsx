@@ -451,11 +451,14 @@ const App: React.FC = () => {
     }
   };
 
-  return (
-    <div className="min-h-[100dvh] w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
-      {renderContent()}
-    </div>
-  );
+ return (
+  <div
+    className="min-h-[100dvh] w-full overflow-x-hidden"
+    style={{ background: 'var(--app-bg)' }}
+  >
+    {renderContent()}
+  </div>
+);
 };
 
 export default App;
