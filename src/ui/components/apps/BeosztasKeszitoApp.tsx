@@ -1546,6 +1546,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [selectionOverlays, setSelectionOverlays] = useState<SelectionOverlay[]>([]);
   const cellRefs = useRef<Map<string, HTMLTableCellElement | null>>(new Map());
   const cellMetaRef = useRef<Map<string, { row: number; col: number }>>(new Map());
+  const cellCoordIndexRef = useRef<Map<string, string>>(new Map());
   const selectionRafId = useRef<number | null>(null);
   const [bulkTimeModal, setBulkTimeModal] = useState<
     { type: 'start' | 'end'; value: string } | null
@@ -2915,9 +2916,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                     row: currentRowIndex,
                                     col: dayIndex
                                   });
+                                  cellCoordIndexRef.current.set(
+                                    `${currentRowIndex}:${dayIndex}`,
+                                    cellUiKey
+                                  );
                                 } else {
                                   cellRefs.current.delete(cellUiKey);
                                   cellMetaRef.current.delete(cellUiKey);
+                                  cellCoordIndexRef.current.delete(
+                                    `${currentRowIndex}:${dayIndex}`
+                                  );
                                 }
                               }}
                               className={cellClasses}
@@ -3131,16 +3139,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const maxCol = Math.max(anchorMeta.col, targetMeta.col);
 
       const rangeKeys: string[] = [];
-      cellMetaRef.current.forEach((meta, key) => {
-        if (
-          meta.row >= minRow &&
-          meta.row <= maxRow &&
-          meta.col >= minCol &&
-          meta.col <= maxCol
-        ) {
-          rangeKeys.push(key);
+      for (let row = minRow; row <= maxRow; row += 1) {
+        for (let col = minCol; col <= maxCol; col += 1) {
+          const key = cellCoordIndexRef.current.get(`${row}:${col}`);
+          if (key) {
+            rangeKeys.push(key);
+          }
         }
-      });
+      }
 
       return rangeKeys;
     },
@@ -3248,8 +3254,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const buildHighlightShiftId = useCallback(
+    (unitId: string, status: 'draft' | 'published', userId: string, dayKey: string) =>
+      `hl_${unitId}_${status}_${userId}_${dayKey}`,
+    []
+  );
+
   const computeSelectionTargets = useCallback(() => {
-    const unitId = activeUnitIds[0];
     const result = {
       targetCells: [] as Array<{
         dayKey: string;
@@ -3261,6 +3272,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       skippedLegacyOrOtherUnit: 0,
     };
 
+    if (activeUnitIds.length !== 1) return result;
+
+    const unitId = activeUnitIds[0];
     if (!unitId) return result;
 
     selectedCellKeys.forEach(cellKey => {
@@ -3583,7 +3597,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     if (skippedLegacyOrOtherUnit > 0) {
-    console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+      console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
   }, [
     activeUnitIds,
@@ -3616,17 +3630,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         });
       }
 
-      if (targetShifts.length === 0) {
-        return;
-      }
-
       const unitId = activeUnitIds[0];
       if (!unitId) return;
+
+      if (targetCells.length === 0) {
+        return;
+      }
 
       const shouldHighlight =
         forceValue !== undefined
           ? forceValue
-          : !targetShifts.every(shift => shift.isHighlighted === true);
+          : targetShifts.length === 0
+            ? true
+            : !targetShifts.every(shift => shift.isHighlighted === true);
 
       let batch = writeBatch(db);
       let writeCount = 0;
@@ -3655,28 +3671,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       for (const cell of targetCells) {
         if (cell.shift || !shouldHighlight || !cell.user) continue;
 
-        const newRef = doc(
-          db,
-          'shifts',
-          `hl_${unitId}_${viewMode}_${cell.user.id}_${cell.dayKey}`
+        const highlightDocId = buildHighlightShiftId(
+          unitId,
+          viewMode,
+          cell.user.id,
+          cell.dayKey
         );
-        batch.set(
-          newRef,
-          {
-            userId: cell.user.id,
-            userName: cell.user.fullName,
-            position: cell.user.position || 'N/A',
-            unitId,
-            status: viewMode,
-            isDayOff: false,
-            start: null,
-            end: null,
-            note: '',
-            isHighlighted: true,
-            dayKey: cell.dayKey,
-          },
-          { merge: true }
-        );
+        const highlightPayload: Omit<Shift, 'id'> = {
+          userId: cell.user.id,
+          userName: cell.user.fullName,
+          position: cell.user.position || 'N/A',
+          unitId,
+          status: viewMode,
+          isDayOff: false,
+          start: null,
+          end: null,
+          note: '',
+          isHighlighted: true,
+          dayKey: cell.dayKey,
+        };
+
+        batch.set(doc(db, 'shifts', highlightDocId), highlightPayload, {
+          merge: true,
+        });
         writeCount += 1;
         if (writeCount >= 450) {
           await batch.commit();
@@ -3693,7 +3710,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
     },
-    [activeUnitIds, computeSelectionTargets, isHighlightOnlyShift, selectedCellKeys, viewMode]
+    [
+      activeUnitIds,
+      buildHighlightShiftId,
+      computeSelectionTargets,
+      isHighlightOnlyShift,
+      selectedCellKeys,
+      viewMode,
+    ]
   );
 
   useEffect(() => {
@@ -3705,6 +3729,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (
         target &&
         (target.closest('input, textarea, select') || target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (
+        isShiftModalOpen ||
+        isPublishModalOpen ||
+        isHiddenModalOpen ||
+        showSettings ||
+        bulkTimeModal !== null ||
+        isPngExporting
       ) {
         return;
       }
@@ -3744,11 +3779,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     applyHighlightToSelection,
+    bulkTimeModal,
     clearSelection,
     handleBulkClearCells,
     handleBulkDayOff,
+    isHiddenModalOpen,
+    isPngExporting,
+    isPublishModalOpen,
+    isShiftModalOpen,
     isSelectionMode,
     selectedCellKeys.size,
+    showSettings,
   ]);
 
   const handleSaveShift = async (
@@ -4372,13 +4413,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   disabled={
                     isToolbarDisabled ||
                     activeUnitIds.length !== 1 ||
-                    targetShiftsCount === 0
+                    targetCellsCount === 0
                   }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : targetShiftsCount === 0
-                        ? 'Nincs kiemelhető műszak a kijelölésben (üres cellák nem kiemelhetők)'
+                      : targetCellsCount === 0
+                        ? 'Nincs kijelölt cella a kiemeléshez'
                         : undefined
                   }
                   onClick={() => applyHighlightToSelection()}
