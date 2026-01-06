@@ -3285,13 +3285,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const resolveCellDayKey = useCallback(
+    (cellKey: string): string => {
+      const parsed = parseSelectionKey(cellKey);
+      if (parsed.dayKey) return parsed.dayKey;
+
+      const meta = cellMetaRef.current.get(cellKey);
+      if (meta) {
+        const day = weekDays[meta.col];
+        if (day) return toDateString(day);
+      }
+
+      throw new Error(`Missing dayKey for cell ${cellKey}`);
+    },
+    [parseSelectionKey, weekDays]
+  );
+
   const isHighlightOnlyShift = useCallback(
     (shift: Shift): boolean =>
       !shift.start &&
       !shift.end &&
       !shift.isDayOff &&
       (shift.note ?? '') === '' &&
-      !!shift.dayKey,
+      !!shift.dayKey &&
+      shift.isHighlighted === true,
     []
   );
 
@@ -3318,6 +3335,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const buildCellTargetKey = useCallback(
+    (
+      unitId: string,
+      userId: string,
+      dayKey: string,
+      status: 'draft' | 'published'
+    ) => `${unitId}|${status}|${userId}|${dayKey}`,
+    []
+  );
+
   const computeSelectionTargets = useCallback(() => {
     const result = {
       targetCells: [] as Array<{
@@ -3325,9 +3352,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         userId: string;
         user: User | null;
         shift: Shift | null;
+        status: 'draft' | 'published';
+        unitId: string;
+        cellKey: string;
       }>,
       targetShifts: [] as Shift[],
+      existingShiftsByCellKey: new Map<string, Shift>(),
       skippedLegacyOrOtherUnit: 0,
+      missingDayKeyErrors: 0,
     };
 
     if (activeUnitIds.length !== 1) return result;
@@ -3336,38 +3368,56 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (!unitId) return result;
 
     selectedCellKeys.forEach(cellKey => {
-      const { dayKey, userId } = parseSelectionKey(cellKey);
-      if (!dayKey || !userId) return;
-      if (!(canManage || currentUser.id === userId)) return;
+      try {
+        const { userId } = parseSelectionKey(cellKey);
+        const dayKey = resolveCellDayKey(cellKey);
+        if (!dayKey || !userId) return;
+        if (!(canManage || currentUser.id === userId)) return;
 
-      const user = userById.get(userId) || null;
-      if (!user) return;
+        const user = userById.get(userId) || null;
+        if (!user) return;
 
-      const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift = selectExistingShiftForCell(
-        userDayShifts,
-        unitId,
-        viewMode
-      );
+        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+        const existingShift = selectExistingShiftForCell(
+          userDayShifts,
+          unitId,
+          viewMode
+        );
 
-      if (!existingShift && userDayShifts.length > 0) {
-        result.skippedLegacyOrOtherUnit += 1;
-        return;
+        if (!existingShift && userDayShifts.length > 0) {
+          result.skippedLegacyOrOtherUnit += 1;
+          return;
+        }
+
+        if (existingShift) {
+          const key = buildCellTargetKey(unitId, userId, dayKey, viewMode);
+          result.existingShiftsByCellKey.set(key, existingShift);
+          result.targetShifts.push(existingShift);
+        }
+
+        result.targetCells.push({
+          dayKey,
+          userId,
+          user,
+          shift: existingShift,
+          status: viewMode,
+          unitId,
+          cellKey,
+        });
+      } catch (err) {
+        result.missingDayKeyErrors += 1;
+        throw err;
       }
-
-      if (existingShift) {
-        result.targetShifts.push(existingShift);
-      }
-
-      result.targetCells.push({ dayKey, userId, user, shift: existingShift });
     });
 
     return result;
   }, [
     activeUnitIds,
+    buildCellTargetKey,
     canManage,
     currentUser.id,
     parseSelectionKey,
+    resolveCellDayKey,
     selectExistingShiftForCell,
     selectedCellKeys,
     shiftsByUserDay,
@@ -3687,15 +3737,39 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     shiftsByUserDay,
     viewMode,
   ]);
+  // Self-tests (manual):
+  // a) Select empty cells and apply highlight -> highlight-only docs are created with dayKey.
+  // b) Select cells with normal shifts -> isHighlighted toggles true/false on the same docs.
+  // c) Select highlight-only cells -> remove highlight deletes those docs cleanly.
   const applyHighlightToSelection = useCallback(
     async (forceValue?: boolean) => {
       if (activeUnitIds.length !== 1) return;
 
+      const unitId = activeUnitIds[0];
+      if (!unitId) return;
+
       const selectionKeys = Array.from(selectedCellKeys);
       if (selectionKeys.length === 0) return;
 
-      const { targetCells, targetShifts, skippedLegacyOrOtherUnit } =
-        computeSelectionTargets();
+      let selectionData;
+      try {
+        selectionData = computeSelectionTargets();
+      } catch (err) {
+        if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+          console.debug('applyHighlightToSelection dayKey resolution error', err);
+        }
+        return;
+      }
+
+      if (!selectionData) return;
+
+      const {
+        targetCells,
+        targetShifts,
+        existingShiftsByCellKey,
+        skippedLegacyOrOtherUnit,
+        missingDayKeyErrors,
+      } = selectionData;
 
       const isDev =
         typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
@@ -3706,12 +3780,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           targetCells: targetCells.length,
           targetShifts: targetShifts.length,
           skippedLegacyOrOtherUnit,
+          missingDayKeyErrors,
           forceValue,
         });
       }
-
-      const unitId = activeUnitIds[0];
-      if (!unitId) return;
 
       if (targetCells.length === 0) {
         return;
@@ -3726,71 +3798,71 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       let batch = writeBatch(db);
       let writeCount = 0;
+      let createdCount = 0;
+      let updatedCount = 0;
+      let deletedCount = 0;
       const createdHighlightDocIds: string[] = [];
 
-      for (const shift of targetShifts) {
-        const shiftRef = doc(db, 'shifts', shift.id);
-        const ensuredDayKey =
-          shift.dayKey || (shift.start ? toDateString(shift.start.toDate()) : undefined);
+      for (const cell of targetCells) {
+        const cellKey = buildCellTargetKey(unitId, cell.userId, cell.dayKey, viewMode);
+        const existingShift = existingShiftsByCellKey.get(cellKey) || null;
+        const shiftRef = existingShift ? doc(db, 'shifts', existingShift.id) : null;
 
         if (shouldHighlight) {
-          const updatePayload: Partial<Shift> = {
-            isHighlighted: true,
-            status: viewMode,
-          };
-          if (ensuredDayKey) {
-            updatePayload.dayKey = ensuredDayKey;
+          if (existingShift && shiftRef) {
+            const updatePayload: Partial<Shift> = {
+              isHighlighted: true,
+              status: viewMode,
+              dayKey: cell.dayKey,
+              unitId,
+            };
+            batch.update(shiftRef, updatePayload);
+            updatedCount += 1;
+          } else if (cell.user) {
+            const highlightDocId = buildHighlightShiftId(
+              unitId,
+              viewMode,
+              cell.user.id,
+              cell.dayKey
+            );
+            const highlightPayload: Omit<Shift, 'id'> = {
+              userId: cell.user.id,
+              userName: cell.user.fullName,
+              position: cell.user.position || 'N/A',
+              unitId,
+              status: viewMode,
+              isDayOff: false,
+              start: null,
+              end: null,
+              note: '',
+              isHighlighted: true,
+              dayKey: cell.dayKey,
+            };
+
+            batch.set(doc(db, 'shifts', highlightDocId), highlightPayload, {
+              merge: true,
+            });
+            if (createdHighlightDocIds.length < 5) {
+              createdHighlightDocIds.push(highlightDocId);
+            }
+            createdCount += 1;
           }
-          batch.update(shiftRef, updatePayload);
-        } else if (isHighlightOnlyShift(shift)) {
-          batch.delete(shiftRef);
-        } else {
-          const updatePayload: Partial<Shift> = {
-            isHighlighted: false,
-            status: viewMode,
-          };
-          if (ensuredDayKey) {
-            updatePayload.dayKey = ensuredDayKey;
+        } else if (existingShift && shiftRef) {
+          if (isHighlightOnlyShift(existingShift)) {
+            batch.delete(shiftRef);
+            deletedCount += 1;
+          } else {
+            const updatePayload: Partial<Shift> = {
+              isHighlighted: false,
+              status: viewMode,
+              dayKey: cell.dayKey,
+              unitId,
+            };
+            batch.update(shiftRef, updatePayload);
+            updatedCount += 1;
           }
-          batch.update(shiftRef, updatePayload);
         }
-        writeCount += 1;
-        if (writeCount >= 450) {
-          await batch.commit();
-          batch = writeBatch(db);
-          writeCount = 0;
-        }
-      }
 
-      for (const cell of targetCells) {
-        if (cell.shift || !shouldHighlight || !cell.user || !cell.dayKey) continue;
-
-        const highlightDocId = buildHighlightShiftId(
-          unitId,
-          viewMode,
-          cell.user.id,
-          cell.dayKey
-        );
-        const highlightPayload: Omit<Shift, 'id'> = {
-          userId: cell.user.id,
-          userName: cell.user.fullName,
-          position: cell.user.position || 'N/A',
-          unitId,
-          status: viewMode,
-          isDayOff: false,
-          start: null,
-          end: null,
-          note: '',
-          isHighlighted: true,
-          dayKey: cell.dayKey,
-        };
-
-        batch.set(doc(db, 'shifts', highlightDocId), highlightPayload, {
-          merge: true,
-        });
-        if (createdHighlightDocIds.length < 5) {
-          createdHighlightDocIds.push(highlightDocId);
-        }
         writeCount += 1;
         if (writeCount >= 450) {
           await batch.commit();
@@ -3807,15 +3879,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
 
-      if (isDev && createdHighlightDocIds.length > 0) {
-        console.debug('applyHighlightToSelection created highlight docs', {
-          count: createdHighlightDocIds.length,
-          sample: createdHighlightDocIds,
+      if (isDev) {
+        console.debug('applyHighlightToSelection summary', {
+          selectionCount: selectionKeys.length,
+          resolvedCellCount: targetCells.length,
+          targetShifts: targetShifts.length,
+          createdCount,
+          updatedCount,
+          deletedCount,
+          skippedLegacyOrOtherUnit,
+          missingDayKeyErrors,
+          createdHighlightDocIds: createdHighlightDocIds.slice(0, 5),
         });
       }
     },
     [
       activeUnitIds,
+      buildCellTargetKey,
       buildHighlightShiftId,
       computeSelectionTargets,
       isHighlightOnlyShift,
