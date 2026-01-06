@@ -263,7 +263,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden justify-start`,
-    card: `${theme.styles.card} flex flex-col w-full mx-auto min-h-[calc(100vh-4rem)] max-h-[calc(100vh-3rem)] p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4 overflow-hidden`,
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
@@ -455,7 +455,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             {getStatusChip(booking.status)}
           </div>
 
-          <div className="space-y-3 flex-1 overflow-y-auto pr-1" style={{ color: 'var(--color-text-primary)' }}>
+          <div className="space-y-3 flex-1 pr-1" style={{ color: 'var(--color-text-primary)' }}>
             <p>
               <strong>{t.referenceCode}:</strong>{' '}
               <span
