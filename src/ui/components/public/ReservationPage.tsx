@@ -610,39 +610,27 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     return resolveHeaderLogoUrl(settings, unit);
   }, [headerBrandMode, settings, unit]);
 
-  const themeClasses = useMemo(
-    () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden overflow-x-hidden min-h-screen w-full max-w-[100vw] justify-start`,
-      card:
-        `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4`,
-      header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
-      content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
-      contentScrollable: 'flex-1 overflow-x-hidden pr-1 px-1 overscroll-contain scroll-smooth',
-      stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0 transition-opacity duration-300',
-      stepContent: 'flex-1 overflow-y-auto pb-12 pr-1',
-      primaryButton: theme.styles.primaryButton,
-      secondaryButton: theme.styles.secondaryButton,
-      outlineButton: theme.styles.outlineButton,
-      watermark:
-        'pointer-events-none select-none absolute bottom-3 right-4 text-xs md:text-sm z-40 drop-shadow',
-    }),
-    [theme]
-  );
+const themeClasses = useMemo(
+  () => ({
+    wrapper: `${theme.styles.page} relative overflow-x-hidden overflow-y-auto min-h-[100dvh] w-full max-w-[100vw] flex flex-col justify-start`,
+    card: `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4 min-h-0 max-h-[calc(100dvh-4rem)] overflow-hidden`,
+    header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
+    content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
+    contentScrollable: 'flex-1 min-h-0 overflow-x-hidden overflow-y-auto pr-1 px-1 overscroll-contain scroll-smooth',
+    stepPane: 'w-full flex-shrink-0 flex flex-col h-full min-h-0 transition-opacity duration-300',
+    stepContent: 'flex-1 min-h-0 overflow-y-auto pb-12 pr-1',
+    primaryButton: theme.styles.primaryButton,
+    secondaryButton: theme.styles.secondaryButton,
+    outlineButton: theme.styles.outlineButton,
+    watermark:
+      'pointer-events-none select-none absolute bottom-3 right-4 text-xs md:text-sm z-40 drop-shadow',
+  }),
+  [theme]
+);
 
-  const sanitizedWrapperClassName = (className: string) =>
-    className
-      .replace(/\bflex\b/g, '')
-      .replace(/\bflex-col\b/g, '')
-      .replace(/\bitems-center\b/g, '')
-      .replace(/\bjustify-center\b/g, '')
-      .replace(/\bjustify-start\b/g, '')
-      .replace(/\bp-4\b/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-  const wrapperClassName = `${sanitizedWrapperClassName(
-    `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`
-  )} py-8 px-4`;
+  const wrapperClassName = `${themeClasses.wrapper} ${
+  isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''
+} py-8 px-4`;
   const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
 
   const renderCard = (children: React.ReactNode, extraClass?: string) => {
