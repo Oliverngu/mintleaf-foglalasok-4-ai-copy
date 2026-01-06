@@ -2783,21 +2783,42 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             canManage || currentUser.id === user.id;
 
                           const displayParts: string[] = [];
-                          let isDayOff = false;
+                          const primaryShift = selectExistingShiftForCell(
+                            userDayShifts,
+                            activeUnitIds[0]
+                          );
+                          const devRenderLog =
+                            typeof process !== 'undefined' &&
+                            process.env.NODE_ENV !== 'production';
+                          if (devRenderLog && userDayShifts.length > 1) {
+                            console.debug('render: multiple shifts in cell', {
+                              userId: user.id,
+                              dayKey,
+                              shiftIds: userDayShifts.map(s => ({
+                                id: s.id,
+                                highlightOnly: isHighlightOnlyShift(s),
+                              })),
+                            });
+                          }
+                          const dayOffShift =
+                            primaryShift?.isDayOff
+                              ? primaryShift
+                              : userDayShifts.find(s => s.isDayOff);
+                          const isDayOff = !!dayOffShift;
                           const isLeave =
                             !!leaveRequest && userDayShifts.length === 0;
                           const shiftNote =
+                            (primaryShift?.note && !primaryShift.isDayOff
+                              ? primaryShift.note
+                              : null) ||
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
-                            )?.note || '';
+                            )?.note ||
+                            '';
 
                           if (userDayShifts.length > 0) {
-                            const dayOffShift = userDayShifts.find(
-                              s => s.isDayOff
-                            );
                             if (dayOffShift) {
                               displayParts.push('X');
-                              isDayOff = true;
                             } else {
                               displayParts.push(
                                 ...userDayShifts
@@ -3243,6 +3264,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     []
   );
 
+  const selectExistingShiftForCell = useCallback(
+    (userDayShifts: Shift[], unitId?: string | null) => {
+      if (!unitId) return null;
+      const shiftsForUnit = userDayShifts.filter(shift => shift.unitId === unitId);
+      if (shiftsForUnit.length === 0) return null;
+      return shiftsForUnit.find(shift => !isHighlightOnlyShift(shift)) || shiftsForUnit[0];
+    },
+    [isHighlightOnlyShift]
+  );
+
   const buildHighlightShiftId = useCallback(
     (unitId: string, status: 'draft' | 'published', userId: string, dayKey: string) =>
       `hl_${unitId}_${status}_${userId}_${dayKey}`,
@@ -3275,13 +3306,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!user) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift = userDayShifts.find(s => s.unitId === unitId) || null;
+      const existingShift = selectExistingShiftForCell(userDayShifts, unitId);
 
-      if (!existingShift) {
-        if (userDayShifts.length > 0) {
-          result.skippedLegacyOrOtherUnit += 1;
-          return;
-        }
+      if (!existingShift && userDayShifts.length > 0) {
+        result.skippedLegacyOrOtherUnit += 1;
+        return;
       }
 
       if (existingShift) {
@@ -3297,6 +3326,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     canManage,
     currentUser.id,
     parseSelectionKey,
+    selectExistingShiftForCell,
     selectedCellKeys,
     shiftsByUserDay,
     userById,
@@ -3337,8 +3367,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (!user) return;
 
         const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-        const existingShift =
-          userDayShifts.find(s => s.unitId === unitId) || null;
+        const existingShift = selectExistingShiftForCell(userDayShifts, unitId);
         if (!existingShift && userDayShifts.length > 0) {
           skippedLegacyOrOtherUnit += 1;
           return;
@@ -3426,6 +3455,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       shiftsByUserDay,
       userById,
       isHighlightOnlyShift,
+      selectExistingShiftForCell,
       viewMode,
     ]
   );
@@ -3448,8 +3478,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!user) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift =
-        userDayShifts.find(s => s.unitId === unitId) || null;
+      const existingShift = selectExistingShiftForCell(userDayShifts, unitId);
       if (!existingShift && userDayShifts.length > 0) {
         skippedLegacyOrOtherUnit += 1;
         return;
@@ -3505,6 +3534,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     parseDayKeyToDate,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
     userById,
     viewMode,
@@ -3521,8 +3551,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift =
-        userDayShifts.find(s => s.unitId === activeUnitIds[0]) || null;
+      const existingShift = selectExistingShiftForCell(
+        userDayShifts,
+        activeUnitIds[0]
+      );
       if (!existingShift && userDayShifts.length > 0) {
         skippedLegacyOrOtherUnit += 1;
         return;
@@ -3550,6 +3582,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     currentUser.id,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
     viewMode,
   ]);
@@ -3568,7 +3601,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift = userDayShifts.find(s => s.unitId === unitId) || null;
+      const existingShift = selectExistingShiftForCell(userDayShifts, unitId);
 
       if (!existingShift) {
         if (userDayShifts.length > 0) {
@@ -3594,6 +3627,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     currentUser.id,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
   ]);
   const applyHighlightToSelection = useCallback(
