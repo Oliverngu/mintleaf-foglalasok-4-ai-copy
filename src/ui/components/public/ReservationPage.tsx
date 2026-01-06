@@ -631,7 +631,19 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     [theme]
   );
 
-  const wrapperClassName = `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`;
+  const sanitizedWrapperClassName = (className: string) =>
+    className
+      .replace(/\bflex\b/g, '')
+      .replace(/\bflex-col\b/g, '')
+      .replace(/\bitems-center\b/g, '')
+      .replace(/\bjustify-start\b/g, '')
+      .replace(/\bp-4\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const wrapperClassName = `${sanitizedWrapperClassName(
+    `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`
+  )} py-8 px-4`;
   const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
 
   const renderCard = (children: React.ReactNode, extraClass?: string) => {
