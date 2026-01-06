@@ -4036,6 +4036,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       </div>
     );
 
+  const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
+
   let userRowIndex = 0;
 
   return (
@@ -4112,48 +4114,117 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           style={{ padding: 12 }}
           interactive={!isSidebarOpen}
         >
-          <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
-            <div className="flex items-center gap-2 flex-nowrap">
-              <button
-                onClick={cycleViewSpan}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                disabled={isToolbarDisabled}
-              >
-                {currentViewLabel}
-              </button>
-            </div>
-            {canManage && (
+          <div className="flex w-full flex-col">
+            <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
               <div className="flex items-center gap-2 flex-nowrap">
                 <button
-                  onClick={handleToggleEditMode}
-                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={cycleViewSpan}
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={isToolbarDisabled}
                 >
-                  Névsor szerkesztése
-                </button>
-                <button
-                  onClick={handleToggleSelectionMode}
-                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={isToolbarDisabled}
-                >
-                  Cella kijelölése
+                  {currentViewLabel}
                 </button>
               </div>
-            )}
-            <div className="flex items-center gap-2 flex-nowrap">
-              <button
-                onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
->
-  <span className="inline-flex items-center gap-2 leading-none">
-    <EyeIcon className="h-5 w-5" />
-    <span className="leading-none">({hiddenUsers.length})</span>
-  </span>
-</button>
+              {canManage && (
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <button
+                    onClick={handleToggleEditMode}
+                    className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Névsor szerkesztése
+                  </button>
+                  <button
+                    onClick={handleToggleSelectionMode}
+                    className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Cella kijelölése
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-nowrap">
+                <button
+                  onClick={() => setIsHiddenModalOpen(true)}
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
+                  disabled={isToolbarDisabled}
+                >
+                  <span className="inline-flex items-center gap-2 leading-none">
+                    <EyeIcon className="h-5 w-5" />
+                    <span className="leading-none">({hiddenUsers.length})</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-out ${
+                isSelectionActive
+                  ? 'max-h-24 opacity-100 translate-y-0'
+                  : 'max-h-0 opacity-0 -translate-y-1'
+              }`}
+            >
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
+                >
+                  Kezdő idő
+                </button>
+                <button
+                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
+                >
+                  Vég idő
+                </button>
+                <button
+                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  onClick={handleBulkDayOff}
+                >
+                  Szabadnap
+                </button>
+                <button
+                  className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={activeUnitIds.length !== 1}
+                  title={
+                    activeUnitIds.length !== 1
+                      ? 'Csak egy egység esetén érhető el'
+                      : undefined
+                  }
+                  onClick={() => applyHighlightToSelection()}
+                >
+                  Kiemelés
+                </button>
+                <button
+                  className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={activeUnitIds.length !== 1}
+                  title={
+                    activeUnitIds.length !== 1
+                      ? 'Csak egy egység esetén érhető el'
+                      : undefined
+                  }
+                  onClick={() => applyHighlightToSelection(false)}
+                >
+                  Kiemelés törlése
+                </button>
+                <button
+                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  onClick={handleBulkClearCells}
+                >
+                  Törlés
+                </button>
+                <button
+                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  onClick={() => setSelectedCellKeys(new Set())}
+                >
+                  Kijelölés megszüntetése
+                </button>
+              </div>
             </div>
           </div>
         </GlassOverlay>
       </div>
+
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="flex items-center gap-4">
@@ -4470,71 +4541,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             style={{ backgroundColor: 'var(--color-accent)' }}
           >
             Hét publikálása
-          </button>
-        </div>
-      )}
-
-      {isSelectionMode && selectedCellKeys.size > 0 && (
-        <div
-          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
-          style={{
-            maxWidth: 'calc(100vw - 16px)',
-            maxHeight: 'calc(100vh - 16px)'
-          }}
-        >
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
-          >
-            Kezdő idő
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
-          >
-            Vég idő
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={handleBulkDayOff}
-          >
-            Szabadnap
-          </button>
-          <button
-            className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={activeUnitIds.length !== 1}
-            title={
-              activeUnitIds.length !== 1
-                ? 'Csak egy egység esetén érhető el'
-                : undefined
-            }
-            onClick={() => applyHighlightToSelection()}
-          >
-            Kiemelés
-          </button>
-          <button
-            className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={activeUnitIds.length !== 1}
-            title={
-              activeUnitIds.length !== 1
-                ? 'Csak egy egység esetén érhető el'
-                : undefined
-            }
-            onClick={() => applyHighlightToSelection(false)}
-          >
-            Kiemelés törlése
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={handleBulkClearCells}
-          >
-            Törlés
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setSelectedCellKeys(new Set())}
-          >
-            Kijelölés megszüntetése
           </button>
         </div>
       )}
