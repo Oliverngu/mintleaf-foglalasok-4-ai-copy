@@ -1542,6 +1542,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(new Set());
+  const [anchorCellKey, setAnchorCellKey] = useState<string | null>(null);
   const [selectionOverlays, setSelectionOverlays] = useState<SelectionOverlay[]>([]);
   const cellRefs = useRef<Map<string, HTMLTableCellElement | null>>(new Map());
   const cellMetaRef = useRef<Map<string, { row: number; col: number }>>(new Map());
@@ -1694,6 +1695,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return activeUnitIds.sort().join('_');
   }, [activeUnitIds]);
 
+  const clearSelection = useCallback(() => {
+    setSelectedCellKeys(new Set());
+    setAnchorCellKey(null);
+  }, []);
+
   const toggleCellSelection = useCallback((cellKey: string) => {
     setSelectedCellKeys(prev => {
       const next = new Set(prev);
@@ -1704,6 +1710,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
       return next;
     });
+    setAnchorCellKey(cellKey);
   }, []);
 
   const recomputeSelectionOverlays = useCallback(() => {
@@ -1867,19 +1874,25 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   useEffect(() => {
     if (!isSelectionMode) {
-      setSelectedCellKeys(new Set());
+      clearSelection();
       setSelectionOverlays([]);
       setBulkTimeModal(null);
       return;
     }
 
     scheduleOverlayRecalc();
-  }, [isSelectionMode, scheduleOverlayRecalc]);
+  }, [clearSelection, isSelectionMode, scheduleOverlayRecalc]);
 
   useEffect(() => {
     if (!isSelectionMode) return;
     scheduleOverlayRecalc();
   }, [selectedCellKeys, scheduleOverlayRecalc, isSelectionMode]);
+
+  useEffect(() => {
+    if (selectedCellKeys.size === 0) {
+      setAnchorCellKey(null);
+    }
+  }, [selectedCellKeys]);
 
   useEffect(() => {
     const wrapper = tableWrapperRef.current;
@@ -2379,10 +2392,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   useEffect(() => {
     if (!isSelectionMode) return;
-    setSelectedCellKeys(new Set());
+    clearSelection();
     setSelectionOverlays([]);
     setBulkTimeModal(null);
   }, [
+    clearSelection,
     currentDate,
     activeUnitIds,
     visiblePositionOrder,
@@ -2908,13 +2922,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                               }}
                               className={cellClasses}
                               style={cellStyle}
-                              onClick={() =>
+                              onClick={event =>
                                 handleCellInteraction(
                                   cellUiKey,
                                   canEditCell,
                                   userDayShifts,
                                   user.id,
-                                  day
+                                  day,
+                                  event
                                 )
                               }
                             >
@@ -3104,16 +3119,80 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setIsShiftModalOpen(true);
   };
 
+  const buildRangeSelection = useCallback(
+    (anchorKey: string, targetKey: string) => {
+      const anchorMeta = cellMetaRef.current.get(anchorKey);
+      const targetMeta = cellMetaRef.current.get(targetKey);
+      if (!anchorMeta || !targetMeta) return null;
+
+      const minRow = Math.min(anchorMeta.row, targetMeta.row);
+      const maxRow = Math.max(anchorMeta.row, targetMeta.row);
+      const minCol = Math.min(anchorMeta.col, targetMeta.col);
+      const maxCol = Math.max(anchorMeta.col, targetMeta.col);
+
+      const rangeKeys: string[] = [];
+      cellMetaRef.current.forEach((meta, key) => {
+        if (
+          meta.row >= minRow &&
+          meta.row <= maxRow &&
+          meta.col >= minCol &&
+          meta.col <= maxCol
+        ) {
+          rangeKeys.push(key);
+        }
+      });
+
+      return rangeKeys;
+    },
+    []
+  );
+
   const handleCellInteraction = useCallback(
     (
       cellKey: string,
       canEditCell: boolean,
       userDayShifts: Shift[],
       userId: string,
-      day: Date
+      day: Date,
+      event?: React.MouseEvent<HTMLTableCellElement>
     ) => {
       if (isSelectionMode) {
-        toggleCellSelection(cellKey);
+        const metaPressed = event?.metaKey || event?.ctrlKey;
+        const shiftPressed = event?.shiftKey;
+
+        if (shiftPressed) {
+          const anchor = anchorCellKey || cellKey;
+          const rangeKeys = buildRangeSelection(anchor, cellKey);
+          setSelectedCellKeys(prev => {
+            const next = rangeKeys ? new Set(rangeKeys) : new Set(prev);
+            if (!rangeKeys) {
+              next.add(cellKey);
+            }
+            if (metaPressed) {
+              prev.forEach(key => next.add(key));
+            }
+            return next;
+          });
+          setAnchorCellKey(anchor);
+          return;
+        }
+
+        if (metaPressed) {
+          setSelectedCellKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(cellKey)) {
+              next.delete(cellKey);
+            } else {
+              next.add(cellKey);
+            }
+            return next;
+          });
+          setAnchorCellKey(cellKey);
+          return;
+        }
+
+        setSelectedCellKeys(() => new Set([cellKey]));
+        setAnchorCellKey(cellKey);
         return;
       }
 
@@ -3121,7 +3200,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         handleOpenShiftModal(userDayShifts[0] || null, userId, day);
       }
     },
-    [handleOpenShiftModal, isSelectionMode, toggleCellSelection]
+    [anchorCellKey, buildRangeSelection, handleOpenShiftModal, isSelectionMode]
   );
 
   const handleToggleSelectionMode = useCallback(() => {
@@ -3168,6 +3247,57 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       !!shift.dayKey,
     []
   );
+
+  const computeSelectionTargets = useCallback(() => {
+    const unitId = activeUnitIds[0];
+    const result = {
+      targetCells: [] as Array<{
+        dayKey: string;
+        userId: string;
+        user: User | null;
+        shift: Shift | null;
+      }>,
+      targetShifts: [] as Shift[],
+      skippedLegacyOrOtherUnit: 0,
+    };
+
+    if (!unitId) return result;
+
+    selectedCellKeys.forEach(cellKey => {
+      const { dayKey, userId } = parseSelectionKey(cellKey);
+      if (!dayKey || !userId) return;
+      if (!(canManage || currentUser.id === userId)) return;
+
+      const user = userById.get(userId) || null;
+      if (!user) return;
+
+      const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+      const existingShift = userDayShifts.find(s => s.unitId === unitId) || null;
+
+      if (!existingShift) {
+        if (userDayShifts.length > 0) {
+          result.skippedLegacyOrOtherUnit += 1;
+          return;
+        }
+      }
+
+      if (existingShift) {
+        result.targetShifts.push(existingShift);
+      }
+
+      result.targetCells.push({ dayKey, userId, user, shift: existingShift });
+    });
+
+    return result;
+  }, [
+    activeUnitIds,
+    canManage,
+    currentUser.id,
+    parseSelectionKey,
+    selectedCellKeys,
+    shiftsByUserDay,
+    userById,
+  ]);
 
   const handleBulkSetTime = useCallback(
     async (type: 'start' | 'end', value: string) => {
@@ -3467,48 +3597,36 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     async (forceValue?: boolean) => {
       if (activeUnitIds.length !== 1) return;
 
-      const unitId = activeUnitIds[0];
-      if (!unitId) return;
-
       const selectionKeys = Array.from(selectedCellKeys);
       if (selectionKeys.length === 0) return;
 
-      const targetShifts: Shift[] = [];
-      const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
-        = [];
-      let skippedLegacyOrOtherUnit = 0;
+      const { targetCells, targetShifts, skippedLegacyOrOtherUnit } =
+        computeSelectionTargets();
 
-      selectionKeys.forEach(cellKey => {
-        const { dayKey, userId } = parseSelectionKey(cellKey);
-        if (!dayKey || !userId) return;
-        if (!(canManage || currentUser.id === userId)) return;
+      const isDev =
+        typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
 
-        const user = userById.get(userId) || null;
-        if (!user) return;
+      if (isDev) {
+        console.debug('applyHighlightToSelection', {
+          selectionCount: selectionKeys.length,
+          targetCells: targetCells.length,
+          targetShifts: targetShifts.length,
+          skippedLegacyOrOtherUnit,
+          forceValue,
+        });
+      }
 
-        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-        const existingShift =
-          userDayShifts.find(s => s.unitId === unitId) || null;
+      if (targetShifts.length === 0) {
+        return;
+      }
 
-        if (!existingShift) {
-          if (userDayShifts.length > 0) {
-            skippedLegacyOrOtherUnit += 1;
-            return;
-          }
-        }
-
-        if (existingShift) {
-          targetShifts.push(existingShift);
-        }
-        targetCells.push({ dayKey, userId, user, shift: existingShift });
-      });
+      const unitId = activeUnitIds[0];
+      if (!unitId) return;
 
       const shouldHighlight =
         forceValue !== undefined
           ? forceValue
-          : targetShifts.length === 0
-            ? true
-            : !targetShifts.every(shift => shift.isHighlighted === true);
+          : !targetShifts.every(shift => shift.isHighlighted === true);
 
       let batch = writeBatch(db);
       let writeCount = 0;
@@ -3575,17 +3693,63 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
     },
-    [
-      activeUnitIds,
-      canManage,
-      currentUser.id,
-      parseSelectionKey,
-      selectedCellKeys,
-      shiftsByUserDay,
-      userById,
-      viewMode,
-    ]
+    [activeUnitIds, computeSelectionTargets, isHighlightOnlyShift, selectedCellKeys, viewMode]
   );
+
+  useEffect(() => {
+    const shouldHandleShortcuts = isSelectionMode || selectedCellKeys.size > 0;
+    if (!shouldHandleShortcuts) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.closest('input, textarea, select') || target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const metaOrCtrl = event.metaKey || event.ctrlKey;
+      const shift = event.shiftKey;
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
+
+      if (!metaOrCtrl || !shift) return;
+
+      const key = event.key.toLowerCase();
+
+      if (key === 'h') {
+        event.preventDefault();
+        applyHighlightToSelection();
+        return;
+      }
+
+      if (key === 'd') {
+        event.preventDefault();
+        handleBulkDayOff();
+        return;
+      }
+
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        event.preventDefault();
+        handleBulkClearCells();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    applyHighlightToSelection,
+    clearSelection,
+    handleBulkClearCells,
+    handleBulkDayOff,
+    isSelectionMode,
+    selectedCellKeys.size,
+  ]);
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -4039,6 +4203,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       </div>
     );
 
+  const selectionTargets = useMemo(() => computeSelectionTargets(), [computeSelectionTargets]);
+  const targetCellsCount = selectionTargets.targetCells.length;
+  const targetShiftsCount = selectionTargets.targetShifts.length;
+
   const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
 
   let userRowIndex = 0;
@@ -4174,6 +4342,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   : 'max-h-0 opacity-0'
               }`}
             >
+              <div className="mt-2 text-xs text-slate-700">
+                Kijelölve: {selectedCellKeys.size} cella | Kiemelhető műszak: {targetShiftsCount}
+              </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
@@ -4198,11 +4369,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={isToolbarDisabled || activeUnitIds.length !== 1}
+                  disabled={
+                    isToolbarDisabled ||
+                    activeUnitIds.length !== 1 ||
+                    targetShiftsCount === 0
+                  }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : undefined
+                      : targetShiftsCount === 0
+                        ? 'Nincs kiemelhető műszak a kijelölésben (üres cellák nem kiemelhetők)'
+                        : undefined
                   }
                   onClick={() => applyHighlightToSelection()}
                 >
@@ -4210,11 +4387,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={isToolbarDisabled || activeUnitIds.length !== 1}
+                  disabled={
+                    isToolbarDisabled ||
+                    activeUnitIds.length !== 1 ||
+                    targetShiftsCount === 0
+                  }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : undefined
+                      : targetShiftsCount === 0
+                        ? 'Nincs kiemelhető műszak a kijelölésben (üres cellák nem kiemelhetők)'
+                        : undefined
                   }
                   onClick={() => applyHighlightToSelection(false)}
                 >
@@ -4229,7 +4412,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={() => setSelectedCellKeys(new Set())}
+                  onClick={clearSelection}
                   disabled={isToolbarDisabled}
                 >
                   Kijelölés megszüntetése
