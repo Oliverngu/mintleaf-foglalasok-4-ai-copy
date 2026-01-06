@@ -23,7 +23,7 @@ import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
 import { BerezesemApp } from './apps/BerezesemApp';
-import AdminisztracioApp from './apps/AdminisztracioApp'; // ✅ FIX: correct path
+import AdminisztracioApp from './apps/AdminisztracioApp'; // ✅ FIX
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
@@ -36,7 +36,7 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import BookingIcon from '../../../components/icons/BookingIcon';
 import ScheduleIcon from '../../../components/icons/ScheduleIcon';
 import SettingsIcon from '../../../components/icons/SettingsIcon';
-import LogoutIcon from '../../../components/icons/LogoutIcon'; // ✅ back
+import LogoutIcon from '../../../components/icons/LogoutIcon';
 import MenuIcon from '../../../components/icons/MenuIcon';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import LoadingSpinner from '../../../components/LoadingSpinner';
@@ -110,6 +110,8 @@ const AccessDenied: React.FC<{ message?: string }> = ({ message }) => (
     </div>
   </div>
 );
+
+const HEADER_PILL_H = 48; // ✅ közös magasság
 
 const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
@@ -258,7 +260,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
-  // ✅ egységes “glass” stílus, olvasható háttértől függetlenül
   const headerPillStyle: React.CSSProperties = {
     padding: 6,
     background: 'rgba(0,0,0,0.26)',
@@ -279,7 +280,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
   };
 
-  // ✅ FIX: UnitSelector vízszintes scroll + fix magasság + kattintható gombok
+  // ✅ UnitSelector: FIX magasság + overflow hidden + X scroll
   const UnitSelector: React.FC = () => {
     const { selectedUnits, setSelectedUnits, allUnits: ctxAllUnits } = useUnitContext();
 
@@ -300,16 +301,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
     };
 
-    // 0 unit fallback
     if (!userUnits || userUnits.length === 0) {
       return (
-        <GlassOverlay
-          elevation="high"
-          radius={999}
-          interactive={false}
-          className="inline-flex w-fit max-w-[90vw]"
-          style={headerPillStyle}
-        >
+        <GlassOverlay elevation="high" radius={999} interactive={false} className="inline-flex w-fit max-w-[90vw]" style={headerPillStyle}>
           <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
             Nincs egység
           </div>
@@ -317,39 +311,28 @@ const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
-    // 1 unit
     if (userUnits.length === 1) {
       return (
-        <GlassOverlay
-          elevation="high"
-          radius={999}
-          interactive={false}
-          className="inline-flex w-fit max-w-full"
-          style={headerPillStyle}
-        >
-          <div
-            className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full"
-            style={glassTextPrimary}
-          >
+        <GlassOverlay elevation="high" radius={999} interactive={false} className="inline-flex w-fit max-w-full" style={headerPillStyle}>
+          <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full" style={glassTextPrimary}>
             {userUnits[0].name}
           </div>
         </GlassOverlay>
       );
     }
 
-    // multi unit: fix magasság + X scroll
     return (
       <GlassOverlay
         elevation="high"
         radius={999}
-        interactive // ✅ kell, hogy ne tiltson pointer eventet a belső gombokról
+        interactive
         className="w-full max-w-full min-w-0"
         style={{
           ...headerPillStyle,
           padding: 0,
-          height: 40, // ✅ fix magasság
+          height: HEADER_PILL_H,
           borderRadius: 999,
-          overflow: 'visible',
+          overflow: 'hidden', // ✅ ne lógjon ki
         }}
       >
         <div className="h-full w-full min-w-0 flex items-center px-2 pointer-events-auto">
@@ -357,7 +340,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             className="w-full min-w-0 overflow-x-auto overflow-y-hidden"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <div className="flex flex-nowrap gap-2 w-max">
+            <div className="flex flex-nowrap gap-2 w-max py-1">
               {userUnits.map(unit => {
                 const isSelected = selectedUnits.includes(unit.id);
 
@@ -394,22 +377,21 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
-  // ✅ FIX: UserBadge azonos magasság (40px), interaktív trigger, dropdown panel “glass”, és logout ikon vissza
+  // ✅ UserBadge: ugyanolyan magas, interaktív trigger, dropdown kattintható (interactive=true)
   const UserBadge: React.FC = () => {
     return (
       <div ref={userWrapRef} className="relative inline-flex">
-        {/* Trigger pill */}
         <GlassOverlay
           elevation="high"
           radius={999}
-          interactive // ✅ trigger legyen kattintható
+          interactive
           className="shrink-0 pointer-events-auto inline-flex max-w-full"
           style={{
             ...headerPillStyle,
             padding: 0,
-            height: 40, // ✅ ugyanaz mint UnitSelector
+            height: HEADER_PILL_H,
             borderRadius: 999,
-            overflow: 'visible',
+            overflow: 'hidden',
           }}
           onClick={() => setIsUserMenuOpen(v => !v)}
         >
@@ -425,10 +407,10 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </GlassOverlay>
 
-        {/* Dropdown panel */}
         {isUserMenuOpen && (
           <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(340px,92vw)]">
-            <GlassOverlay elevation="high" radius={20} interactive={false} className="w-full" style={glassPanelStyle}>
+            {/* ✅ interactive MUST be true, különben nem kattintható a Logout */}
+            <GlassOverlay elevation="high" radius={20} interactive className="w-full" style={glassPanelStyle}>
               <div className="p-2">
                 <div
                   className="px-3 py-2 rounded-xl"
@@ -467,7 +449,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </button>
 
-                  {/* ✅ Logout ikon vissza + kattintható, a panel (GlassOverlay) továbbra is interactive=false */}
                   <button
                     type="button"
                     className="w-full text-left px-3 py-2 rounded-xl transition-colors"
@@ -516,7 +497,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (permission && !hasPermission(permission)) return null;
 
     const isAppDisabled =
-      disabledAppCheck && activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
+      disabledAppCheck &&
+      activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
     const isActive = activeApp === app;
@@ -732,16 +714,10 @@ const Dashboard: React.FC<DashboardProps> = ({
         color: 'var(--color-text-main)',
       }}
     >
-      {/* Backdrop for sidebar */}
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden="true"
-        />
+        <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex items-start ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -822,7 +798,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex flex-col h-full w-full">
         <header
           className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
@@ -847,7 +822,6 @@ const Dashboard: React.FC<DashboardProps> = ({
               <MenuIcon />
             </button>
 
-            {/* ✅ must be min-w-0 to allow horizontal overflow */}
             <div className="min-w-0 w-full">
               <UnitSelector />
             </div>
