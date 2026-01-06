@@ -2823,8 +2823,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             unitIdForCell,
                             viewMode
                           );
-                          const devRenderLog = isDevEnv;
-                          if (devRenderLog && userDayShifts.length > 1) {
+                          if (isDevEnv && userDayShifts.length > 1) {
                             console.debug('render: multiple shifts in cell', {
                               userId: user.id,
                               dayKey,
@@ -3316,7 +3315,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       return { dataKey, dayKey, userId };
     },
-    [weekDayKeySet]
+    [isDevEnv, weekDayKeySet]
   );
 
   const resolveCellDayKey = useCallback(
@@ -3457,6 +3456,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     buildCellTargetKey,
     canManage,
     currentUser.id,
+    isDevEnv,
     parseSelectionKey,
     resolveCellDayKey,
     selectExistingShiftForCell,
@@ -3936,6 +3936,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       buildCellTargetKey,
       buildHighlightShiftId,
       computeSelectionTargets,
+      isDevEnv,
       isHighlightOnlyShift,
       selectedCellKeys,
       viewMode,
