@@ -416,7 +416,7 @@ return (
     )}
   </div>
 );
-
+};
   const UserBadge: React.FC = () => {
   return (
     <div className="relative inline-flex">
