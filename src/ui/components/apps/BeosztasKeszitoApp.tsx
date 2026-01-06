@@ -3288,20 +3288,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       let userId = '';
       let dayKey = '';
 
-      if (dataKey.includes('|')) {
-        const lastSep = dataKey.lastIndexOf('|');
+      const lastSep = dataKey.lastIndexOf('|');
+      if (lastSep > 0 && lastSep < dataKey.length - 1) {
         const maybeUserId = dataKey.slice(0, lastSep);
         const maybeDayKey = dataKey.slice(lastSep + 1);
         userId = maybeUserId;
         if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
           dayKey = maybeDayKey;
         }
-      } else {
+      }
+
+      if (!dayKey) {
         const maybeDayKey = dataKey.slice(-10);
-        const maybeUserId = dataKey.slice(0, dataKey.length - 11);
-        userId = maybeUserId;
         if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
           dayKey = maybeDayKey;
+          userId = userId || dataKey.slice(0, Math.max(0, dataKey.length - 11));
+        } else {
+          // legacy/invalid format: keep whatever userId we have, dayKey stays empty
+          userId = userId || (lastSep > 0 ? dataKey.slice(0, lastSep) : dataKey);
         }
       }
 
@@ -4450,7 +4454,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const selectionTargets = useMemo(() => computeSelectionTargets(), [computeSelectionTargets]);
   const targetCellsCount = selectionTargets.targetCells.length;
-  const targetShiftsCount = selectionTargets.targetShifts.length;
 
   const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
 
@@ -4642,13 +4645,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   disabled={
                     isToolbarDisabled ||
                     activeUnitIds.length !== 1 ||
-                    targetShiftsCount === 0
+                    targetCellsCount === 0
                   }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : targetShiftsCount === 0
-                        ? 'Nincs kiemelhető műszak a kijelölésben (üres cellák nem kiemelhetők)'
+                      : targetCellsCount === 0
+                        ? 'Nincs kijelölt cella a kiemeléshez'
                         : undefined
                   }
                   onClick={() => applyHighlightToSelection(false)}
