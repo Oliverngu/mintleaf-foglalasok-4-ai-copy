@@ -4115,7 +4115,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           interactive={!isSidebarOpen}
         >
           <div className="flex w-full flex-col">
-            <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
+            <div
+              className="toolbar-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
+              style={{
+                touchAction: 'pan-x',
+                overscrollBehaviorX: 'contain',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
               <div className="flex items-center gap-2 flex-nowrap">
                 <button
                   onClick={cycleViewSpan}
@@ -4160,31 +4167,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             <div
               className={`overflow-hidden transition-all duration-300 ease-out ${
                 isSelectionActive
-                  ? 'max-h-24 opacity-100 translate-y-0'
-                  : 'max-h-0 opacity-0 -translate-y-1'
+                  ? 'max-h-28 opacity-100'
+                  : 'max-h-0 opacity-0'
               }`}
             >
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <button
-                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
                 >
                   Kezdő idő
                 </button>
                 <button
-                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
                 >
                   Vég idő
                 </button>
                 <button
-                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={handleBulkDayOff}
                 >
                   Szabadnap
                 </button>
                 <button
-                  className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={activeUnitIds.length !== 1}
                   title={
                     activeUnitIds.length !== 1
@@ -4196,7 +4203,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   Kiemelés
                 </button>
                 <button
-                  className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={activeUnitIds.length !== 1}
                   title={
                     activeUnitIds.length !== 1
@@ -4208,13 +4215,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   Kiemelés törlése
                 </button>
                 <button
-                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={handleBulkClearCells}
                 >
                   Törlés
                 </button>
                 <button
-                  className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setSelectedCellKeys(new Set())}
                 >
                   Kijelölés megszüntetése
