@@ -19,13 +19,13 @@
   <style>
     /*
       =====================================================
-      GLOBAL SCROLL + BACKGROUND CONTRACT (FINAL)
+      GLOBAL SCROLL + THEME BACKGROUND CONTRACT (UNIT-READY)
       =====================================================
 
-      - A BODY a scroll owner
-      - A háttér a BODY-n van → SOHA nem fogy el
-      - #root normál flow-ban, NEM fixed
-      - Unit theme háttér CSS változón keresztül
+      - BODY a scroll owner
+      - BODY rajzolja a teljes app hátterét
+      - A háttér CSS változókból jön: unitonként állítható
+      - #root normál flow-ban (nem fixed), min-height viewport
     */
 
     html,
@@ -37,13 +37,18 @@
       overflow-x: hidden;
       overflow-y: auto;
 
-      /* DEFAULT háttér (ha nincs unit theme) */
-      background: var(--app-bg, #f3f4f6);
+      /* Theme-driven background (unitonként változhat) */
+      background-color: var(--app-bg, #f3f4f6);
+      background-image: var(--app-bg-image, none);
+      background-size: var(--app-bg-size, cover);
+      background-position: var(--app-bg-position, center);
+      background-repeat: var(--app-bg-repeat, no-repeat);
+      background-attachment: var(--app-bg-attachment, scroll);
     }
 
-    /* Dark mode fallback */
+    /* Optional dark fallback (ha html-en tényleg van .dark class) */
     html.dark body {
-      background: var(--app-bg, #111827);
+      background-color: var(--app-bg, #111827);
     }
 
     #root {
