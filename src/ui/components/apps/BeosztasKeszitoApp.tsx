@@ -1504,6 +1504,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   activeUnitIds,
   isSidebarOpen = false
 }) => {
+  const isDevEnv =
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.NODE_ENV !== 'production';
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'draft' | 'published'>(
     'published'
@@ -1542,9 +1547,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedCellKeys, setSelectedCellKeys] = useState<Set<string>>(new Set());
+  const [anchorCellKey, setAnchorCellKey] = useState<string | null>(null);
   const [selectionOverlays, setSelectionOverlays] = useState<SelectionOverlay[]>([]);
   const cellRefs = useRef<Map<string, HTMLTableCellElement | null>>(new Map());
   const cellMetaRef = useRef<Map<string, { row: number; col: number }>>(new Map());
+  const cellCoordIndexRef = useRef<Map<string, string>>(new Map());
   const selectionRafId = useRef<number | null>(null);
   const [bulkTimeModal, setBulkTimeModal] = useState<
     { type: 'start' | 'end'; value: string } | null
@@ -1691,8 +1698,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
-    return activeUnitIds.sort().join('_');
+    return activeUnitIds.slice().sort().join('_');
   }, [activeUnitIds]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedCellKeys(new Set());
+    setAnchorCellKey(null);
+  }, []);
 
   const toggleCellSelection = useCallback((cellKey: string) => {
     setSelectedCellKeys(prev => {
@@ -1704,6 +1716,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
       return next;
     });
+    setAnchorCellKey(cellKey);
   }, []);
 
   const recomputeSelectionOverlays = useCallback(() => {
@@ -1867,19 +1880,25 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   useEffect(() => {
     if (!isSelectionMode) {
-      setSelectedCellKeys(new Set());
+      clearSelection();
       setSelectionOverlays([]);
       setBulkTimeModal(null);
       return;
     }
 
     scheduleOverlayRecalc();
-  }, [isSelectionMode, scheduleOverlayRecalc]);
+  }, [clearSelection, isSelectionMode, scheduleOverlayRecalc]);
 
   useEffect(() => {
     if (!isSelectionMode) return;
     scheduleOverlayRecalc();
   }, [selectedCellKeys, scheduleOverlayRecalc, isSelectionMode]);
+
+  useEffect(() => {
+    if (selectedCellKeys.size === 0) {
+      setAnchorCellKey(null);
+    }
+  }, [selectedCellKeys]);
 
   useEffect(() => {
     const wrapper = tableWrapperRef.current;
@@ -1996,10 +2015,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [currentDate, finalWeekBlocksDays]
   );
 
+  const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
+
   const weekStartDateStr = useMemo(
     () => toDateString(weekDays[0]),
     [weekDays]
   );
+
+  useEffect(() => {
+    clearSelection();
+  }, [clearSelection, weekStartDateStr]);
 
   const openingSettings = useMemo(
     () =>
@@ -2225,15 +2250,38 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => unsub();
   }, [activeUnitIds, weekDays, canManage]);
 
-  const activeShifts = useMemo(
-    () =>
-      schedule.filter(
-        s =>
-          (s.status || 'draft') === viewMode &&
-          (!s.unitId || activeUnitIds.includes(s.unitId))
-      ),
-    [schedule, viewMode, activeUnitIds]
-  );
+  const activeShifts = useMemo(() => {
+    const filtered = schedule.filter(s => {
+      const statusMatch = (s.status || 'draft') === viewMode;
+      const unitMatch = !s.unitId || activeUnitIds.includes(s.unitId);
+      const hasContent =
+        !!s.start ||
+        !!s.isDayOff ||
+        (s.note ?? '') !== '' ||
+        s.isHighlighted === true;
+      return statusMatch && unitMatch && hasContent;
+    });
+
+    if (isDevEnv && filtered.length) {
+      const highlightOnly = filtered.filter(
+        shift =>
+          !shift.start &&
+          !shift.end &&
+          !shift.isDayOff &&
+          (shift.note ?? '') === '' &&
+          !!shift.dayKey
+      );
+      if (highlightOnly.length > 0) {
+        console.debug('activeShifts include highlight-only entries', {
+          total: filtered.length,
+          highlightOnlyCount: highlightOnly.length,
+          sample: highlightOnly.slice(0, 10).map(shift => shift.id),
+        });
+      }
+    }
+
+    return filtered;
+  }, [activeUnitIds, isDevEnv, schedule, viewMode]);
 
   const getUnitDaySetting = useCallback(
     (shift: Shift, dayIndex: number): DailySetting | null => {
@@ -2379,10 +2427,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   useEffect(() => {
     if (!isSelectionMode) return;
-    setSelectedCellKeys(new Set());
+    clearSelection();
     setSelectionOverlays([]);
     setBulkTimeModal(null);
   }, [
+    clearSelection,
     currentDate,
     activeUnitIds,
     visiblePositionOrder,
@@ -2766,23 +2815,48 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
                           const canEditCell =
                             canManage || currentUser.id === user.id;
-
                           const displayParts: string[] = [];
-                          let isDayOff = false;
+                          const unitIdForCell =
+                            activeUnitIds.length === 1 ? activeUnitIds[0] : null;
+                          const primaryShift = selectExistingShiftForCell(
+                            userDayShifts,
+                            unitIdForCell,
+                            viewMode
+                          );
+                          if (isDevEnv && userDayShifts.length > 1) {
+                            console.debug('render: multiple shifts in cell', {
+                              userId: user.id,
+                              dayKey,
+                              unitIdForCell,
+                              viewMode,
+                              primaryShiftId: primaryShift?.id,
+                              primaryIsHighlighted: primaryShift?.isHighlighted,
+                              shiftIds: userDayShifts.map(s => ({
+                                id: s.id,
+                                status: s.status,
+                                highlightOnly: isHighlightOnlyShift(s),
+                              })),
+                            });
+                          }
+                          const dayOffShift =
+                            primaryShift?.isDayOff
+                              ? primaryShift
+                              : userDayShifts.find(s => s.isDayOff);
+                          const isDayOff = !!dayOffShift;
                           const isLeave =
                             !!leaveRequest && userDayShifts.length === 0;
                           const shiftNote =
+                            (primaryShift?.note && !primaryShift.isDayOff
+                              ? primaryShift.note
+                              : null) ||
                             userDayShifts.find(
                               s => s.note && !s.isDayOff
-                            )?.note || '';
+                            )?.note ||
+                            '';
 
                           if (userDayShifts.length > 0) {
-                            const dayOffShift = userDayShifts.find(
-                              s => s.isDayOff
-                            );
                             if (dayOffShift) {
                               displayParts.push('X');
-                              isDayOff = true;
                             } else {
                               displayParts.push(
                                 ...userDayShifts
@@ -2837,19 +2911,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const hasNote = shiftNote !== '';
 
                           const highlightedShift =
-                            activeUnitIds.length === 1
+                            unitIdForCell && primaryShift?.isHighlighted
+                              ? primaryShift
+                              : unitIdForCell
                               ? userDayShifts.find(
                                   s =>
-                                    s.unitId === activeUnitIds[0] &&
+                                    s.unitId === unitIdForCell &&
+                                    s.status === viewMode &&
                                     s.isHighlighted
                                 )
-                              : userDayShifts.find(
-                                  s =>
-                                    s.unitId &&
-                                    activeUnitIds.includes(s.unitId) &&
-                                    s.isHighlighted
-                                );
-                          const isHighlightedCell = !!highlightedShift?.isHighlighted;
+                              : null;
+                          const isHighlightedCell =
+                            !!(unitIdForCell && highlightedShift?.isHighlighted);
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
@@ -2865,7 +2938,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                             cellClasses += ' text-slate-400';
                           }
 
-                          const cellDataKey = `${user.id}-${dayKey}`;
+                          const cellDataKey = `${user.id}|${dayKey}`;
                           const cellUiKey = `${cellDataKey}#${currentRowIndex}`;
 
                           const baseCellStyle: CSSProperties = {};
@@ -2901,20 +2974,28 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                                     row: currentRowIndex,
                                     col: dayIndex
                                   });
+                                  cellCoordIndexRef.current.set(
+                                    `${currentRowIndex}:${dayIndex}`,
+                                    cellUiKey
+                                  );
                                 } else {
                                   cellRefs.current.delete(cellUiKey);
                                   cellMetaRef.current.delete(cellUiKey);
+                                  cellCoordIndexRef.current.delete(
+                                    `${currentRowIndex}:${dayIndex}`
+                                  );
                                 }
                               }}
                               className={cellClasses}
                               style={cellStyle}
-                              onClick={() =>
+                              onClick={event =>
                                 handleCellInteraction(
                                   cellUiKey,
                                   canEditCell,
                                   userDayShifts,
                                   user.id,
-                                  day
+                                  day,
+                                  event
                                 )
                               }
                             >
@@ -3104,15 +3185,60 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setIsShiftModalOpen(true);
   };
 
+  const buildRangeSelection = useCallback(
+    (anchorKey: string, targetKey: string) => {
+      const anchorMeta = cellMetaRef.current.get(anchorKey);
+      const targetMeta = cellMetaRef.current.get(targetKey);
+      if (!anchorMeta || !targetMeta) return null;
+
+      const minRow = Math.min(anchorMeta.row, targetMeta.row);
+      const maxRow = Math.max(anchorMeta.row, targetMeta.row);
+      const minCol = Math.min(anchorMeta.col, targetMeta.col);
+      const maxCol = Math.max(anchorMeta.col, targetMeta.col);
+
+      const rangeKeys: string[] = [];
+      for (let row = minRow; row <= maxRow; row += 1) {
+        for (let col = minCol; col <= maxCol; col += 1) {
+          const key = cellCoordIndexRef.current.get(`${row}:${col}`);
+          if (key) {
+            rangeKeys.push(key);
+          }
+        }
+      }
+
+      return rangeKeys;
+    },
+    []
+  );
+
   const handleCellInteraction = useCallback(
     (
       cellKey: string,
       canEditCell: boolean,
       userDayShifts: Shift[],
       userId: string,
-      day: Date
+      day: Date,
+      event?: React.MouseEvent<HTMLTableCellElement>
     ) => {
       if (isSelectionMode) {
+        const shiftPressed = event?.shiftKey;
+
+        if (shiftPressed) {
+          const anchor = anchorCellKey || cellKey;
+          const rangeKeys = buildRangeSelection(anchor, cellKey);
+          setSelectedCellKeys(prev => {
+            const next = new Set(prev);
+            if (rangeKeys) {
+              rangeKeys.forEach(key => next.add(key));
+            } else {
+              next.add(cellKey);
+            }
+            return next;
+          });
+          setAnchorCellKey(anchor);
+          return;
+        }
+
         toggleCellSelection(cellKey);
         return;
       }
@@ -3121,7 +3247,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         handleOpenShiftModal(userDayShifts[0] || null, userId, day);
       }
     },
-    [handleOpenShiftModal, isSelectionMode, toggleCellSelection]
+    [
+      anchorCellKey,
+      buildRangeSelection,
+      handleOpenShiftModal,
+      isSelectionMode,
+      toggleCellSelection,
+    ]
   );
 
   const handleToggleSelectionMode = useCallback(() => {
@@ -3152,11 +3284,54 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const parseSelectionKey = useCallback(
     (selectionKey: string) => {
       const [dataKey] = selectionKey.split('#');
-      const dayKey = dataKey.slice(-10);
-      const userId = dataKey.slice(0, dataKey.length - 11);
+      const dayKeyPattern = /^\d{4}-\d{2}-\d{2}$/;
+      let userId = '';
+      let dayKey = '';
+
+      const lastSep = dataKey.lastIndexOf('|');
+      if (lastSep > 0 && lastSep < dataKey.length - 1) {
+        const maybeUserId = dataKey.slice(0, lastSep);
+        const maybeDayKey = dataKey.slice(lastSep + 1);
+        userId = maybeUserId;
+        if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
+          dayKey = maybeDayKey;
+        }
+      }
+
+      if (!dayKey) {
+        const maybeDayKey = dataKey.slice(-10);
+        if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
+          dayKey = maybeDayKey;
+          userId = userId || dataKey.slice(0, Math.max(0, dataKey.length - 11));
+        } else {
+          // legacy/invalid format: keep whatever userId we have, dayKey stays empty
+          userId = userId || (lastSep > 0 ? dataKey.slice(0, lastSep) : dataKey);
+        }
+      }
+
+      if (!dayKey && isDevEnv) {
+        console.debug('Skipping selection key without valid dayKey', { selectionKey });
+      }
+
       return { dataKey, dayKey, userId };
     },
-    []
+    [isDevEnv, weekDayKeySet]
+  );
+
+  const resolveCellDayKey = useCallback(
+    (cellKey: string): string | null => {
+      const parsed = parseSelectionKey(cellKey);
+      if (parsed.dayKey) return parsed.dayKey;
+
+      const meta = cellMetaRef.current.get(cellKey);
+      if (meta) {
+        const day = weekDays[meta.col];
+        if (day) return toDateString(day);
+      }
+
+      return null;
+    },
+    [parseSelectionKey, weekDays]
   );
 
   const isHighlightOnlyShift = useCallback(
@@ -3165,9 +3340,131 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       !shift.end &&
       !shift.isDayOff &&
       (shift.note ?? '') === '' &&
-      !!shift.dayKey,
+      !!shift.dayKey &&
+      shift.isHighlighted === true,
     []
   );
+
+  const selectExistingShiftForCell = useCallback(
+    (
+      userDayShifts: Shift[],
+      unitId?: string | null,
+      status?: 'draft' | 'published'
+    ) => {
+      if (!unitId) return null;
+      let shiftsForUnit = userDayShifts.filter(shift => shift.unitId === unitId);
+      if (status) {
+        shiftsForUnit = shiftsForUnit.filter(shift => shift.status === status);
+      }
+      if (shiftsForUnit.length === 0) return null;
+      return shiftsForUnit.find(shift => !isHighlightOnlyShift(shift)) || shiftsForUnit[0];
+    },
+    [isHighlightOnlyShift]
+  );
+
+  const buildHighlightShiftId = useCallback(
+    (unitId: string, status: 'draft' | 'published', userId: string, dayKey: string) =>
+      `hl_${unitId}_${status}_${userId}_${dayKey}`,
+    []
+  );
+
+  const buildCellTargetKey = useCallback(
+    (
+      unitId: string,
+      userId: string,
+      dayKey: string,
+      status: 'draft' | 'published'
+    ) => `${unitId}|${status}|${userId}|${dayKey}`,
+    []
+  );
+
+  const computeSelectionTargets = useCallback(() => {
+    const result = {
+      targetCells: [] as Array<{
+        dayKey: string;
+        userId: string;
+        user: User | null;
+        shift: Shift | null;
+        status: 'draft' | 'published';
+        unitId: string;
+        cellKey: string;
+      }>,
+      targetShifts: [] as Shift[],
+      existingShiftsByCellKey: new Map<string, Shift>(),
+      skippedLegacyOrOtherUnit: 0,
+      missingDayKeyErrors: 0,
+    };
+
+    if (activeUnitIds.length !== 1) return result;
+
+    const unitId = activeUnitIds[0];
+    if (!unitId) return result;
+
+    selectedCellKeys.forEach(cellKey => {
+      try {
+        const { userId } = parseSelectionKey(cellKey);
+        const dayKey = resolveCellDayKey(cellKey);
+        if (!dayKey || !userId) {
+          if (isDevEnv) {
+            console.debug('Skipping cell due to missing dayKey/userId', { cellKey, dayKey });
+          }
+          return;
+        }
+        if (!(canManage || currentUser.id === userId)) return;
+
+        const user = userById.get(userId) || null;
+        if (!user) return;
+
+        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
+        const existingShift = selectExistingShiftForCell(
+          userDayShifts,
+          unitId,
+          viewMode
+        );
+
+        if (!existingShift && userDayShifts.length > 0) {
+          result.skippedLegacyOrOtherUnit += 1;
+          return;
+        }
+
+        if (existingShift) {
+          const key = buildCellTargetKey(unitId, userId, dayKey, viewMode);
+          result.existingShiftsByCellKey.set(key, existingShift);
+          result.targetShifts.push(existingShift);
+        }
+
+        result.targetCells.push({
+          dayKey,
+          userId,
+          user,
+          shift: existingShift,
+          status: viewMode,
+          unitId,
+          cellKey,
+        });
+      } catch (err) {
+        result.missingDayKeyErrors += 1;
+        if (isDevEnv) {
+          console.debug('Skipping cell with missing/invalid dayKey', { cellKey, err });
+        }
+      }
+    });
+
+    return result;
+  }, [
+    activeUnitIds,
+    buildCellTargetKey,
+    canManage,
+    currentUser.id,
+    isDevEnv,
+    parseSelectionKey,
+    resolveCellDayKey,
+    selectExistingShiftForCell,
+    selectedCellKeys,
+    shiftsByUserDay,
+    userById,
+    viewMode,
+  ]);
 
   const handleBulkSetTime = useCallback(
     async (type: 'start' | 'end', value: string) => {
@@ -3204,8 +3501,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         if (!user) return;
 
         const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-        const existingShift =
-          userDayShifts.find(s => s.unitId === unitId) || null;
+        const existingShift = selectExistingShiftForCell(
+          userDayShifts,
+          unitId,
+          viewMode
+        );
         if (!existingShift && userDayShifts.length > 0) {
           skippedLegacyOrOtherUnit += 1;
           return;
@@ -3293,6 +3593,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       shiftsByUserDay,
       userById,
       isHighlightOnlyShift,
+      selectExistingShiftForCell,
       viewMode,
     ]
   );
@@ -3315,8 +3616,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!user) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift =
-        userDayShifts.find(s => s.unitId === unitId) || null;
+      const existingShift = selectExistingShiftForCell(
+        userDayShifts,
+        unitId,
+        viewMode
+      );
       if (!existingShift && userDayShifts.length > 0) {
         skippedLegacyOrOtherUnit += 1;
         return;
@@ -3372,6 +3676,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     parseDayKeyToDate,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
     userById,
     viewMode,
@@ -3388,8 +3693,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift =
-        userDayShifts.find(s => s.unitId === activeUnitIds[0]) || null;
+      const existingShift = selectExistingShiftForCell(
+        userDayShifts,
+        activeUnitIds[0],
+        viewMode
+      );
       if (!existingShift && userDayShifts.length > 0) {
         skippedLegacyOrOtherUnit += 1;
         return;
@@ -3417,6 +3725,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     currentUser.id,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
     viewMode,
   ]);
@@ -3435,7 +3744,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-      const existingShift = userDayShifts.find(s => s.unitId === unitId) || null;
+      const existingShift = selectExistingShiftForCell(
+        userDayShifts,
+        unitId,
+        viewMode
+      );
 
       if (!existingShift) {
         if (userDayShifts.length > 0) {
@@ -3453,7 +3766,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
 
     if (skippedLegacyOrOtherUnit > 0) {
-    console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
+      console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
   }, [
     activeUnitIds,
@@ -3461,8 +3774,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     currentUser.id,
     parseSelectionKey,
     selectedCellKeys,
+    selectExistingShiftForCell,
     shiftsByUserDay,
+    viewMode,
   ]);
+  // Self-tests (manual):
+  // a) Select empty cells and apply highlight -> highlight-only docs are created with dayKey.
+  // b) Select cells with normal shifts -> isHighlighted toggles true/false on the same docs.
+  // c) Select highlight-only cells -> remove highlight deletes those docs cleanly.
   const applyHighlightToSelection = useCallback(
     async (forceValue?: boolean) => {
       if (activeUnitIds.length !== 1) return;
@@ -3470,35 +3789,43 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const unitId = activeUnitIds[0];
       if (!unitId) return;
 
-      const targetShifts: Shift[] = [];
-      const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
-        = [];
-      let skippedLegacyOrOtherUnit = 0;
+      const selectionKeys = Array.from(selectedCellKeys);
+      if (selectionKeys.length === 0) return;
 
-      selectedCellKeys.forEach(cellKey => {
-        const { dayKey, userId } = parseSelectionKey(cellKey);
-        if (!dayKey || !userId) return;
-        if (!(canManage || currentUser.id === userId)) return;
-
-        const user = userById.get(userId) || null;
-        if (!user) return;
-
-        const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
-        const existingShift =
-          userDayShifts.find(s => s.unitId === unitId) || null;
-
-        if (!existingShift) {
-          if (userDayShifts.length > 0) {
-            skippedLegacyOrOtherUnit += 1;
-            return;
-          }
+      let selectionData;
+      try {
+        selectionData = computeSelectionTargets();
+      } catch (err) {
+        if (isDevEnv) {
+          console.debug('applyHighlightToSelection dayKey resolution error', err);
         }
+        return;
+      }
 
-        if (existingShift) {
-          targetShifts.push(existingShift);
-        }
-        targetCells.push({ dayKey, userId, user, shift: existingShift });
-      });
+      if (!selectionData) return;
+
+      const {
+        targetCells,
+        targetShifts,
+        existingShiftsByCellKey,
+        skippedLegacyOrOtherUnit,
+        missingDayKeyErrors,
+      } = selectionData;
+
+      if (isDevEnv) {
+        console.debug('applyHighlightToSelection', {
+          selectionCount: selectionKeys.length,
+          targetCells: targetCells.length,
+          targetShifts: targetShifts.length,
+          skippedLegacyOrOtherUnit,
+          missingDayKeyErrors,
+          forceValue,
+        });
+      }
+
+      if (targetCells.length === 0) {
+        return;
+      }
 
       const shouldHighlight =
         forceValue !== undefined
@@ -3509,53 +3836,71 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       let batch = writeBatch(db);
       let writeCount = 0;
-
-      for (const shift of targetShifts) {
-        const shiftRef = doc(db, 'shifts', shift.id);
-        if (shouldHighlight) {
-          batch.update(shiftRef, {
-            isHighlighted: true,
-          });
-        } else if (isHighlightOnlyShift(shift)) {
-          batch.delete(shiftRef);
-        } else {
-          batch.update(shiftRef, {
-            isHighlighted: false,
-          });
-        }
-        writeCount += 1;
-        if (writeCount >= 450) {
-          await batch.commit();
-          batch = writeBatch(db);
-          writeCount = 0;
-        }
-      }
+      let createdCount = 0;
+      let updatedCount = 0;
+      let deletedCount = 0;
+      const createdHighlightDocIds: string[] = [];
 
       for (const cell of targetCells) {
-        if (cell.shift || !shouldHighlight || !cell.user) continue;
+        const cellKey = buildCellTargetKey(unitId, cell.userId, cell.dayKey, viewMode);
+        const existingShift = existingShiftsByCellKey.get(cellKey) || null;
+        const shiftRef = existingShift ? doc(db, 'shifts', existingShift.id) : null;
 
-        const newRef = doc(
-          db,
-          'shifts',
-          `hl_${unitId}_${viewMode}_${cell.user.id}_${cell.dayKey}`
-        );
-        batch.set(
-          newRef,
-          {
-            userId: cell.user.id,
-            userName: cell.user.fullName,
-            position: cell.user.position || 'N/A',
-            unitId,
-            status: viewMode,
-            isDayOff: false,
-            start: null,
-            end: null,
-            note: '',
-            isHighlighted: true,
-            dayKey: cell.dayKey,
-          },
-          { merge: true }
-        );
+        if (shouldHighlight) {
+          if (existingShift && shiftRef) {
+            const updatePayload: Partial<Shift> = {
+              isHighlighted: true,
+              status: viewMode,
+              dayKey: cell.dayKey,
+              unitId,
+            };
+            batch.update(shiftRef, updatePayload);
+            updatedCount += 1;
+          } else if (cell.user) {
+            const highlightDocId = buildHighlightShiftId(
+              unitId,
+              viewMode,
+              cell.user.id,
+              cell.dayKey
+            );
+            const highlightPayload: Omit<Shift, 'id'> = {
+              userId: cell.user.id,
+              userName: cell.user.fullName,
+              position: cell.user.position || 'N/A',
+              unitId,
+              status: viewMode,
+              isDayOff: false,
+              start: null,
+              end: null,
+              note: '',
+              isHighlighted: true,
+              dayKey: cell.dayKey,
+            };
+
+            batch.set(doc(db, 'shifts', highlightDocId), highlightPayload, {
+              merge: true,
+            });
+            if (createdHighlightDocIds.length < 5) {
+              createdHighlightDocIds.push(highlightDocId);
+            }
+            createdCount += 1;
+          }
+        } else if (existingShift && shiftRef) {
+          if (isHighlightOnlyShift(existingShift)) {
+            batch.delete(shiftRef);
+            deletedCount += 1;
+          } else {
+            const updatePayload: Partial<Shift> = {
+              isHighlighted: false,
+              status: viewMode,
+              dayKey: cell.dayKey,
+              unitId,
+            };
+            batch.update(shiftRef, updatePayload);
+            updatedCount += 1;
+          }
+        }
+
         writeCount += 1;
         if (writeCount >= 450) {
           await batch.commit();
@@ -3571,18 +3916,104 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       if (skippedLegacyOrOtherUnit > 0) {
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
+
+      if (isDevEnv) {
+        console.debug('applyHighlightToSelection summary', {
+          selectionCount: selectionKeys.length,
+          resolvedCellCount: targetCells.length,
+          targetShifts: targetShifts.length,
+          createdCount,
+          updatedCount,
+          deletedCount,
+          skippedLegacyOrOtherUnit,
+          missingDayKeyErrors,
+          createdHighlightDocIds: createdHighlightDocIds.slice(0, 5),
+        });
+      }
     },
     [
       activeUnitIds,
-      canManage,
-      currentUser.id,
-      parseSelectionKey,
+      buildCellTargetKey,
+      buildHighlightShiftId,
+      computeSelectionTargets,
+      isDevEnv,
+      isHighlightOnlyShift,
       selectedCellKeys,
-      shiftsByUserDay,
-      userById,
       viewMode,
     ]
   );
+
+  useEffect(() => {
+    const shouldHandleShortcuts = isSelectionMode || selectedCellKeys.size > 0;
+    if (!shouldHandleShortcuts) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.closest('input, textarea, select') || target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (
+        isShiftModalOpen ||
+        isPublishModalOpen ||
+        isHiddenModalOpen ||
+        showSettings ||
+        bulkTimeModal !== null ||
+        isPngExporting
+      ) {
+        return;
+      }
+
+      const metaOrCtrl = event.metaKey || event.ctrlKey;
+      const shift = event.shiftKey;
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
+
+      if (!metaOrCtrl || !shift) return;
+
+      const key = event.key.toLowerCase();
+
+      if (key === 'h') {
+        event.preventDefault();
+        applyHighlightToSelection();
+        return;
+      }
+
+      if (key === 'd') {
+        event.preventDefault();
+        handleBulkDayOff();
+        return;
+      }
+
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        event.preventDefault();
+        handleBulkClearCells();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    applyHighlightToSelection,
+    bulkTimeModal,
+    clearSelection,
+    handleBulkClearCells,
+    handleBulkDayOff,
+    isHiddenModalOpen,
+    isPngExporting,
+    isPublishModalOpen,
+    isShiftModalOpen,
+    isSelectionMode,
+    selectedCellKeys.size,
+    showSettings,
+  ]);
 
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
@@ -3647,185 +4078,274 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [canManage, activeUnitIds, weekStartDateStr]
   );
 
+  const waitForExportLayout = useCallback(async () => {
+    if (document.fonts?.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (err) {
+        console.warn('Font loading wait skipped:', err);
+      }
+    }
+
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }, []);
+
+  const waitForCloneLayout = useCallback(async () => {
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }, []);
+
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-  const handlePngExport = (hideEmptyUsers: boolean): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      setIsPngExportRenderMode(true);
-      setPngHideEmptyUsers(hideEmptyUsers);
-      setIsPngExporting(true);
+  const handlePngExport = async (hideEmptyUsers: boolean): Promise<void> => {
+    setIsPngExportRenderMode(true);
+    setPngHideEmptyUsers(hideEmptyUsers);
+    setIsPngExporting(true);
 
-      const runExport = () => {
-        if (!exportRef.current) {
-          setIsPngExportRenderMode(false);
-          setPngHideEmptyUsers(false);
-          setIsPngExporting(false);
-          reject(new Error('Export container ref not found'));
-          return;
-        }
+    let exportContainer: HTMLDivElement | null = null;
 
-        // Offscreen konténer – csak háttér + padding
-        const exportContainer = document.createElement('div');
-        Object.assign(exportContainer.style, {
-          position: 'absolute',
-          left: '-9999px',
-          top: '0',
-          backgroundColor: '#ffffff',
-          padding: '20px',
-          display: 'inline-block',
-          overflow: 'hidden'
-        } as CSSStyleDeclaration);
+    try {
+      await waitForExportLayout();
 
-        // Teljes tábla klónozása – minden Tailwind osztály megmarad
-        const tableClone =
-          exportRef.current.cloneNode(true) as HTMLDivElement;
-        exportContainer.appendChild(tableClone);
-        document.body.appendChild(exportContainer);
+      if (!exportRef.current) {
+        throw new Error('Export container ref not found');
+      }
 
-        // 1) UI-only elemek eltávolítása (gombok, plusz overlay, óraszám stb.)
-        tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+      exportContainer = document.createElement('div');
+      Object.assign(exportContainer.style, {
+        position: 'absolute',
+        left: '-9999px',
+        top: '0',
+        backgroundColor: '#ffffff',
+        padding: '0px',
+        display: 'inline-block',
+        overflow: 'visible'
+      } as CSSStyleDeclaration);
 
-        tableClone.querySelectorAll<HTMLElement>('.handwritten-note').forEach(el => {
-          el.style.whiteSpace = 'pre-wrap';
-          el.style.maxWidth = 'none';
-          el.style.overflow = 'visible';
-          el.style.textOverflow = 'unset';
+      const tableClone =
+        exportRef.current.cloneNode(true) as HTMLDivElement;
+
+      tableClone.querySelectorAll('.export-hide').forEach(el => el.remove());
+
+      // Remove comment-only nodes so they cannot alter export sizing (export-only)
+      const commentSelectors = ['.handwritten-note', '[data-export-hide="comment"]'];
+      tableClone
+        .querySelectorAll<HTMLElement>(commentSelectors.join(','))
+        .forEach(el => {
+          el.remove();
         });
 
-        const dayHeaderTextColor = getContrastingTextColor(
-          exportSettings.dayHeaderBgColor
+      exportContainer.appendChild(tableClone);
+      document.body.appendChild(exportContainer);
+
+      await waitForCloneLayout();
+
+      const measuredColumnWidths = Array.from(
+        tableClone.querySelectorAll<HTMLTableElement>('table')
+      ).map(table => {
+        const headerCells = Array.from(
+          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
         );
-        const nameHeaderTextColor = getContrastingTextColor(
-          exportSettings.nameColumnColor
-        );
 
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('thead th')
-          .forEach((th, idx) => {
-            const isNameHeader = idx === 0;
-            const bg = isNameHeader
-              ? exportSettings.nameColumnColor
-              : exportSettings.dayHeaderBgColor;
-            th.style.background = bg;
-            th.style.color = isNameHeader
-              ? nameHeaderTextColor
-              : dayHeaderTextColor;
-          });
+        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
+      });
 
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('tbody tr td[colspan]')
-          .forEach(td => {
-            td.style.background = exportSettings.categoryHeaderBgColor;
-            td.style.color = exportSettings.categoryHeaderTextColor;
-          });
+      const dayHeaderTextColor = getContrastingTextColor(
+        exportSettings.dayHeaderBgColor
+      );
+      const nameHeaderTextColor = getContrastingTextColor(
+        exportSettings.nameColumnColor
+      );
 
-        // 2) Sticky oszlopok kikapcsolása (hogy ne keverje meg a canvas-t)
-        tableClone.querySelectorAll<HTMLElement>('.sticky').forEach(el => {
-          el.classList.remove('sticky', 'left-0');
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('thead th')
+        .forEach((th, idx) => {
+          const isNameHeader = idx === 0;
+          const bg = isNameHeader
+            ? exportSettings.nameColumnColor
+            : exportSettings.dayHeaderBgColor;
+          th.style.background = bg;
+          th.style.color = isNameHeader
+            ? nameHeaderTextColor
+            : dayHeaderTextColor;
+        });
+
+      tableClone
+        .querySelectorAll<HTMLElement>('.sticky')
+        .forEach(el => {
+          el.classList.remove(
+            'sticky',
+            'left-0',
+            'right-0',
+            'top-0',
+            'top-2',
+            'bottom-0'
+          );
           el.style.position = 'static';
           el.style.left = 'auto';
-          el.style.zIndex = 'auto';
+          el.style.right = 'auto';
           el.style.top = 'auto';
+          el.style.bottom = 'auto';
         });
 
-        // 3) X / SZ / SZABI szöveg elrejtése – a háttérszín marad
-        tableClone.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
+      tableClone.querySelectorAll<HTMLElement>('*').forEach(el => {
+        el.style.transform = 'none';
+        el.style.filter = 'none';
+        el.style.backdropFilter = 'none';
+        el.style.boxShadow = 'none';
+      });
+
+      tableClone
+        .querySelectorAll<HTMLDivElement>('.weekday-header')
+        .forEach(div => {
+          div.style.background = exportSettings.dayHeaderBgColor;
+          div.style.color = dayHeaderTextColor;
+        });
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('tbody td')
+        .forEach(td => {
           const txt = (td.textContent || '').trim().toUpperCase();
           if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
             td.textContent = '';
           }
         });
 
-        // 4) Összesítő sor (Napi összes) kiszedése
-        tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+      tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
 
-        // 5) Zebra csíkozás alkalmazása az exportált táblára
-        const zebraBase = exportSettings.zebraColor;
-        const zebraDelta = exportSettings.zebraStrength / 5;
-        const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-        const nameBase = exportSettings.nameColumnColor;
-        const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+      tableClone.style.width = 'fit-content';
+      tableClone.style.maxWidth = 'none';
+      tableClone.style.overflow = 'visible';
 
-        tableClone
-          .querySelectorAll<HTMLTableCellElement>('th, td')
-          .forEach(cell => {
-            cell.style.borderWidth = '0.5px';
-          });
+      tableClone
+        .querySelectorAll<HTMLElement>('.overflow-x-auto')
+        .forEach(el => {
+          el.style.overflowX = 'visible';
+          el.style.overflowY = 'visible';
+          el.style.maxWidth = 'none';
+          el.style.width = 'fit-content';
+        });
 
-        let dataRowIndex = 0;
-        tableClone
-          .querySelectorAll<HTMLTableRowElement>('tbody tr')
-          .forEach(row => {
-            const isCategoryRow = row.querySelector('td[colSpan]');
-            const isSummaryRow = row.classList.contains('summary-row');
-            if (isCategoryRow || isSummaryRow) return;
+      const gridNode = tableClone.querySelector<HTMLElement>('.grid');
+      if (gridNode) {
+        gridNode.style.width = 'fit-content';
+        gridNode.style.maxWidth = 'none';
+      }
 
-            const isAltRow = dataRowIndex % 2 === 1;
-            const rowBg = isAltRow ? zebraAlt : zebraBase;
-            const rowText = getContrastingTextColor(rowBg);
-            row.style.background = rowBg;
-            row.style.color = rowText;
-
-            const nameCell = row.querySelector('td');
-            if (nameCell) {
-              const nameBg = isAltRow ? nameAlt : nameBase;
-              nameCell.style.background = nameBg;
-              nameCell.style.color = getContrastingTextColor(nameBg);
-            }
-
-            row
-              .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
-              .forEach(td => {
-                if (
-                  !td.classList.contains('day-off-cell') &&
-                  !td.classList.contains('leave-cell')
-                ) {
-                  td.style.background = rowBg;
-                  td.style.color = rowText;
-                }
-              });
-
-            dataRowIndex += 1;
-          });
-
-        // NINCS padding / font-size / text-align átírás → ugyanaz, mint az UI
-
-        html2canvas(exportContainer, {
-          useCORS: true,
-          scale: 2,
-          backgroundColor: '#ffffff'
-        })
-          .then(canvas => {
-            const link = document.createElement('a');
-            const weekStart = weekDays[0]
-              .toLocaleDateString('hu-HU', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-              })
-              .replace(/\.\s/g, '-')
-              .replace('.', '');
-            link.download = `beosztas_${weekStart}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            resolve();
-          })
-          .catch(err => {
-            console.error('PNG export failed:', err);
-            alert('Hiba történt a PNG exportálás során.');
-            reject(err);
-          })
-          .finally(() => {
-            document.body.removeChild(exportContainer);
-            setIsPngExporting(false);
-            setIsPngExportRenderMode(false);
-            setPngHideEmptyUsers(false);
-          });
-      };
-
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => setTimeout(runExport, 0))
+      const clonedTables = Array.from(
+        tableClone.querySelectorAll<HTMLTableElement>('table')
       );
-    });
+
+      clonedTables.forEach((table, idx) => {
+        const widths = measuredColumnWidths[idx];
+        if (widths && widths.length) {
+          table.querySelectorAll('colgroup').forEach(colgroup => colgroup.remove());
+          const colgroup = document.createElement('colgroup');
+          widths.forEach(width => {
+            const col = document.createElement('col');
+            col.style.width = `${width}px`;
+            colgroup.appendChild(col);
+          });
+          table.insertBefore(colgroup, table.firstChild);
+        }
+
+        table.style.tableLayout = 'fixed';
+        table.style.borderCollapse = 'collapse';
+      });
+
+      const zebraBase = exportSettings.zebraColor;
+      const zebraDelta = exportSettings.zebraStrength / 5;
+      const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
+      const nameBase = exportSettings.nameColumnColor;
+      const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('th, td')
+        .forEach(cell => {
+          cell.style.borderWidth = '0.5px';
+        });
+
+      const paddingPx = 0;
+      const rawWidth =
+        (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
+      const finalWidth = Math.ceil(rawWidth);
+      exportContainer.style.width = `${finalWidth}px`;
+
+      let dataRowIndex = 0;
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          const isCategoryRow = row.querySelector('td[colSpan]');
+          const isSummaryRow = row.classList.contains('summary-row');
+          if (isCategoryRow || isSummaryRow) return;
+
+          const isAltRow = dataRowIndex % 2 === 1;
+          const rowBg = isAltRow ? zebraAlt : zebraBase;
+          const rowText = getContrastingTextColor(rowBg);
+          row.style.background = rowBg;
+          row.style.color = rowText;
+
+          const nameCell = row.querySelector('td');
+          if (nameCell) {
+            const nameBg = isAltRow ? nameAlt : nameBase;
+            nameCell.style.background = nameBg;
+            nameCell.style.color = getContrastingTextColor(nameBg);
+          }
+
+          row
+            .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
+            .forEach(td => {
+              if (
+                !td.classList.contains('day-off-cell') &&
+                !td.classList.contains('leave-cell')
+              ) {
+                td.style.background = rowBg;
+                td.style.color = rowText;
+              }
+            });
+
+          dataRowIndex += 1;
+        });
+
+      const canvas = await html2canvas(exportContainer, {
+        useCORS: true,
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: exportContainer.scrollWidth,
+        windowHeight: exportContainer.scrollHeight
+      });
+
+      const link = document.createElement('a');
+      const weekStart = weekDays[0]
+        .toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })
+        .replace(/\.\s/g, '-')
+        .replace('.', '');
+      link.download = `beosztas_${weekStart}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('PNG export failed:', err);
+      alert('Hiba történt a PNG exportálás során.');
+      throw err;
+    } finally {
+      if (exportContainer?.parentElement) {
+        exportContainer.parentElement.removeChild(exportContainer);
+      }
+      setIsPngExporting(false);
+      setIsPngExportRenderMode(false);
+      setPngHideEmptyUsers(false);
+    }
   };
 
   const closeExportWithGuard = () => {
@@ -3940,14 +4460,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
   };
 
+  const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
+
+  let userRowIndex = 0;
+
   if (isDataLoading)
     return (
       <div className="relative h-64">
         <LoadingSpinner />
       </div>
     );
-
-  let userRowIndex = 0;
 
   return (
     <div className="p-4 md:p-8">
@@ -4023,48 +4545,144 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           style={{ padding: 12 }}
           interactive={!isSidebarOpen}
         >
-          <div className="toolbar-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto">
-            <div className="flex items-center gap-2 flex-nowrap">
-              <button
-                onClick={cycleViewSpan}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                disabled={isToolbarDisabled}
-              >
-                {currentViewLabel}
-              </button>
-            </div>
-            {canManage && (
+          <div className="flex w-full flex-col">
+            <div
+              className="toolbar-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
+              style={{
+                touchAction: 'pan-x',
+                overscrollBehaviorX: 'contain',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
               <div className="flex items-center gap-2 flex-nowrap">
                 <button
-                  onClick={handleToggleEditMode}
-                  className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={cycleViewSpan}
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   disabled={isToolbarDisabled}
                 >
-                  Névsor szerkesztése
-                </button>
-                <button
-                  onClick={handleToggleSelectionMode}
-                  className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={isToolbarDisabled}
-                >
-                  Cella kijelölése
+                  {currentViewLabel}
                 </button>
               </div>
-            )}
-            <div className="flex items-center gap-2 flex-nowrap">
-              <button
-                onClick={() => setIsHiddenModalOpen(true)}
-                className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
->
-  <span className="inline-flex items-center gap-2 leading-none">
-    <EyeIcon className="h-5 w-5" />
-    <span className="leading-none">({hiddenUsers.length})</span>
-  </span>
-</button>
+              {canManage && (
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <button
+                    onClick={handleToggleEditMode}
+                    className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Névsor szerkesztése
+                  </button>
+                  <button
+                    onClick={handleToggleSelectionMode}
+                    className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Cella kijelölése
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-nowrap">
+                <button
+                  onClick={() => setIsHiddenModalOpen(true)}
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
+                  disabled={isToolbarDisabled}
+                >
+                  <span className="inline-flex items-center gap-2 leading-none">
+                    <EyeIcon className="h-5 w-5" />
+                    <span className="leading-none">({hiddenUsers.length})</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              className={`w-full min-w-0 overflow-hidden transition-all duration-300 ease-out ${
+                isSelectionActive
+                  ? 'max-h-40 opacity-100'
+                  : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="mt-2 text-xs text-slate-700 ml-[6px]">
+                Kijelölve: {selectedCellKeys.size} cella
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
+                  disabled={isToolbarDisabled}
+                >
+                  Kezdő idő
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
+                  disabled={isToolbarDisabled}
+                >
+                  Vég idő
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={handleBulkDayOff}
+                  disabled={isToolbarDisabled}
+                >
+                  Szabadnap
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  disabled={
+                    isToolbarDisabled ||
+                    activeUnitIds.length !== 1 ||
+                    selectedCellKeys.size === 0
+                  }
+                  title={
+                    activeUnitIds.length !== 1
+                      ? 'Csak egy egység esetén érhető el'
+                      : selectedCellKeys.size === 0
+                        ? 'Nincs kijelölt cella a kiemeléshez'
+                        : undefined
+                  }
+                  onClick={() => applyHighlightToSelection()}
+                >
+                  Kiemelés
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  disabled={
+                    isToolbarDisabled ||
+                    activeUnitIds.length !== 1 ||
+                    selectedCellKeys.size === 0
+                  }
+                  title={
+                    activeUnitIds.length !== 1
+                      ? 'Csak egy egység esetén érhető el'
+                      : selectedCellKeys.size === 0
+                        ? 'Nincs kijelölt cella a kiemeléshez'
+                        : undefined
+                  }
+                  onClick={() => applyHighlightToSelection(false)}
+                >
+                  Kiemelés törlése
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={handleBulkClearCells}
+                  disabled={isToolbarDisabled}
+                >
+                  Törlés
+                </button>
+                <button
+                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                  onClick={clearSelection}
+                  disabled={isToolbarDisabled}
+                >
+                  Kijelölés megszüntetése
+                </button>
+              </div>
             </div>
           </div>
         </GlassOverlay>
       </div>
+
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="flex items-center gap-4">
@@ -4381,71 +4999,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             style={{ backgroundColor: 'var(--color-accent)' }}
           >
             Hét publikálása
-          </button>
-        </div>
-      )}
-
-      {isSelectionMode && selectedCellKeys.size > 0 && (
-        <div
-          className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs shadow-lg max-h-[calc(100vh-16px)] overflow-y-auto"
-          style={{
-            maxWidth: 'calc(100vw - 16px)',
-            maxHeight: 'calc(100vh - 16px)'
-          }}
-        >
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
-          >
-            Kezdő idő
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
-          >
-            Vég idő
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={handleBulkDayOff}
-          >
-            Szabadnap
-          </button>
-          <button
-            className="rounded-full border bg-orange-100 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={activeUnitIds.length !== 1}
-            title={
-              activeUnitIds.length !== 1
-                ? 'Csak egy egység esetén érhető el'
-                : undefined
-            }
-            onClick={() => applyHighlightToSelection()}
-          >
-            Kiemelés
-          </button>
-          <button
-            className="rounded-full border bg-orange-50 px-3 py-1 text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={activeUnitIds.length !== 1}
-            title={
-              activeUnitIds.length !== 1
-                ? 'Csak egy egység esetén érhető el'
-                : undefined
-            }
-            onClick={() => applyHighlightToSelection(false)}
-          >
-            Kiemelés törlése
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={handleBulkClearCells}
-          >
-            Törlés
-          </button>
-          <button
-            className="rounded-full border bg-slate-100 px-3 py-1 whitespace-nowrap transition-colors hover:bg-slate-200"
-            onClick={() => setSelectedCellKeys(new Set())}
-          >
-            Kijelölés megszüntetése
           </button>
         </div>
       )}
