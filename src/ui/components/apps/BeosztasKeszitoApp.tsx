@@ -2879,15 +2879,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                           const hasContent = displayParts.length > 0;
                           const hasNote = shiftNote !== '';
 
-                          const highlightedShift = primaryShift?.isHighlighted
-                            ? primaryShift
-                            : userDayShifts.find(
-                                s =>
-                                  s.unitId === unitIdForCell &&
-                                  s.status === viewMode &&
-                                  s.isHighlighted
-                              );
-                          const isHighlightedCell = !!highlightedShift?.isHighlighted;
+                          const highlightedShift =
+                            unitIdForCell && primaryShift?.isHighlighted
+                              ? primaryShift
+                              : unitIdForCell
+                              ? userDayShifts.find(
+                                  s =>
+                                    s.unitId === unitIdForCell &&
+                                    s.status === viewMode &&
+                                    s.isHighlighted
+                                )
+                              : null;
+                          const isHighlightedCell =
+                            !!(unitIdForCell && highlightedShift?.isHighlighted);
 
                           let cellClasses =
                             'whitespace-pre-wrap align-middle text-center border border-slate-200 text-[13px] cursor-pointer transition-colors';
