@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   User,
   Request,
@@ -23,7 +23,7 @@ import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
 import { BerezesemApp } from './apps/BerezesemApp';
-import AdminisztracioApp from './apps/AdminisztracioApp';
+import AdminisztracioApp from './apps/AdminTodoApp';
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
@@ -36,7 +36,6 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import BookingIcon from '../../../components/icons/BookingIcon';
 import ScheduleIcon from '../../../components/icons/ScheduleIcon';
 import SettingsIcon from '../../../components/icons/SettingsIcon';
-import LogoutIcon from '../../../components/icons/LogoutIcon';
 import MenuIcon from '../../../components/icons/MenuIcon';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import LoadingSpinner from '../../../components/LoadingSpinner';
@@ -50,9 +49,10 @@ import AdminIcon from '../../../components/icons/AdminIcon';
 import PollsIcon from '../../../components/icons/PollsIcon';
 import ChatIcon from '../../../components/icons/ChatIcon';
 import BriefcaseIcon from '../../../components/icons/BriefcaseIcon';
-import { useUnitContext } from '../context/UnitContext';
 import ArrowDownIcon from '../../../components/icons/ArrowDownIcon';
 import Cog6ToothIcon from '../../../components/icons/Cog6ToothIcon';
+
+import { useUnitContext } from '../context/UnitContext';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 
 import GlassOverlay from './common/GlassOverlay';
@@ -103,7 +103,9 @@ const AccessDenied: React.FC<{ message?: string }> = ({ message }) => (
   <div className="flex items-center justify-center h-full p-8 text-center bg-gray-100">
     <div>
       <h2 className="text-2xl font-bold text-red-600">Hozzáférés megtagadva</h2>
-      <p className="mt-2 text-gray-600">{message || 'Nincs jogosultságod ennek az oldalnak a megtekintéséhez.'}</p>
+      <p className="mt-2 text-gray-600">
+        {message || 'Nincs jogosultságod ennek az oldalnak a megtekintéséhez.'}
+      </p>
     </div>
   </div>
 );
@@ -134,6 +136,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
+  // ✅ Dropdown state-ek (nálad ez hiányzott / szét volt csúszva)
+  const [isUnitMenuOpen, setIsUnitMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Click-outside kezeléshez
+  const unitWrapRef = useRef<HTMLDivElement | null>(null);
+  const userWrapRef = useRef<HTMLDivElement | null>(null);
+
   // --- Accordion Menu State ---
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
   const categoryStorageKey = useMemo(
@@ -142,33 +152,30 @@ const Dashboard: React.FC<DashboardProps> = ({
   );
 
   useEffect(() => {
-    if (categoryStorageKey) {
-      try {
-        const savedState = localStorage.getItem(categoryStorageKey);
-        if (savedState) {
-          setOpenCategories(JSON.parse(savedState));
-        } else {
-          // alap: minden nyitva
-          setOpenCategories({
-            altalanos: true,
-            feladatok: true,
-            kommunikacio: true,
-            adminisztracio: true,
-          });
-        }
-      } catch (e) {
-        console.error('Failed to load sidebar state from localStorage', e);
+    if (!categoryStorageKey) return;
+    try {
+      const savedState = localStorage.getItem(categoryStorageKey);
+      if (savedState) {
+        setOpenCategories(JSON.parse(savedState));
+      } else {
+        setOpenCategories({
+          altalanos: true,
+          feladatok: true,
+          kommunikacio: true,
+          adminisztracio: true,
+        });
       }
+    } catch (e) {
+      console.error('Failed to load sidebar state from localStorage', e);
     }
   }, [categoryStorageKey]);
 
   useEffect(() => {
-    if (categoryStorageKey && Object.keys(openCategories).length > 0) {
-      try {
-        localStorage.setItem(categoryStorageKey, JSON.stringify(openCategories));
-      } catch (e) {
-        console.error('Failed to save sidebar state to localStorage', e);
-      }
+    if (!categoryStorageKey || Object.keys(openCategories).length === 0) return;
+    try {
+      localStorage.setItem(categoryStorageKey, JSON.stringify(openCategories));
+    } catch (e) {
+      console.error('Failed to save sidebar state to localStorage', e);
     }
   }, [openCategories, categoryStorageKey]);
 
@@ -177,16 +184,46 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
   // --- End Accordion Menu State ---
 
-  const {
-    selectedUnits: activeUnitIds,
-    setSelectedUnits: setActiveUnitIds,
-    allUnits: contextAllUnits,
-  } = useUnitContext();
+  const { selectedUnits: activeUnitIds, setSelectedUnits: setActiveUnitIds } = useUnitContext();
 
   const activeUnit = useMemo(
     () => (activeUnitIds.length ? allUnits.find(u => u.id === activeUnitIds[0]) || null : null),
     [activeUnitIds, allUnits]
   );
+
+  // ✅ Click-outside + ESC: zárja a dropdownokat
+  useEffect(() => {
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (isUnitMenuOpen && unitWrapRef.current && !unitWrapRef.current.contains(t)) {
+        setIsUnitMenuOpen(false);
+      }
+      if (isUserMenuOpen && userWrapRef.current && !userWrapRef.current.contains(t)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsUnitMenuOpen(false);
+        setIsUserMenuOpen(false);
+        setSidebarOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isUnitMenuOpen, isUserMenuOpen]);
+
+  const closeAllMenus = () => {
+    setIsUnitMenuOpen(false);
+    setIsUserMenuOpen(false);
+    setSidebarOpen(false);
+  };
 
   if (!currentUser) {
     return (
@@ -230,6 +267,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return globalPerms[permission as keyof Permissions] || false;
   };
 
+  // ✅ egységes “glass” stílus, ami olvasható háttértől függetlenül
   const headerPillStyle: React.CSSProperties = {
     padding: 6,
     background: 'rgba(0,0,0,0.26)',
@@ -238,36 +276,40 @@ const Dashboard: React.FC<DashboardProps> = ({
     WebkitBackdropFilter: 'blur(12px)',
   };
 
+  const glassPanelStyle: React.CSSProperties = {
+    background: 'rgba(0,0,0,0.28)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
+  };
+
+  const glassTextPrimary: React.CSSProperties = {
+    color: 'rgba(255,255,255,0.96)',
+    textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
+  };
+
   const UnitSelector: React.FC = () => {
-    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
+    const { selectedUnits, setSelectedUnits, allUnits: ctxAllUnits } = useUnitContext();
 
     const userUnits = useMemo(
-      () => allUnits.filter(u => currentUser.unitIds?.includes(u.id)),
-      [allUnits, currentUser]
+      () => ctxAllUnits.filter(u => currentUser.unitIds?.includes(u.id)),
+      [ctxAllUnits, currentUser]
     );
 
     const isMultiSelect = currentUser.role === 'Admin';
 
     const handleSelection = (unitId: string) => {
       if (isMultiSelect) {
-        setSelectedUnits(prev =>
-          prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
-        );
+        setSelectedUnits(prev => (prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]));
       } else {
         setSelectedUnits(prev => (prev.includes(unitId) ? [] : [unitId]));
+        setIsUnitMenuOpen(false); // single selectnél UX: katt -> zár
       }
     };
 
-    // 0 unit fallback
     if (!userUnits || userUnits.length === 0) {
       return (
-        <GlassOverlay
-          elevation="high"
-          radius={999}
-          className="inline-flex w-fit max-w-[90vw]"
-          style={headerPillStyle}
-          interactive={false}
-        >
+        <GlassOverlay elevation="high" radius={999} className="inline-flex w-fit max-w-[90vw]" style={headerPillStyle} interactive={false}>
           <div className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white">
             Nincs egység
           </div>
@@ -275,16 +317,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
-    // 1 unit -> ugyanaz az üveg “plate”, csak nem gombos
     if (userUnits.length === 1) {
       return (
-        <GlassOverlay
-          elevation="high"
-          radius={999}
-          interactive={false}
-          className="inline-flex w-fit max-w-full"
-          style={headerPillStyle}
-        >
+        <GlassOverlay elevation="high" radius={999} interactive={false} className="inline-flex w-fit max-w-full" style={headerPillStyle}>
           <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap text-white truncate max-w-full">
             {userUnits[0].name}
           </div>
@@ -292,230 +327,201 @@ const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
-    // multi unit
-return (
-  <div className="relative inline-flex max-w-full min-w-0">
-    {/* Trigger pill */}
-    <GlassOverlay
-      elevation="high"
-      radius={999}
-      interactive
-      className="inline-flex max-w-full min-w-0"
-      style={{
-        ...headerPillStyle,
-        maxWidth: '100%',
-        minWidth: 0,
-        boxShadow: 'none',
-        outline: 'none',
-      }}
-      onClick={() => setIsUnitMenuOpen(v => !v)}
-    >
-      <div className="flex items-center gap-2 px-3 py-1.5 min-w-0">
-        <span
-          className="text-sm font-semibold truncate min-w-0"
-          style={{
-            color: 'rgba(255,255,255,0.96)',
-            textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
-          }}
-        >
-          {selectedUnits.length
-            ? `Egységek: ${selectedUnits.length}`
-            : 'Válassz egységet'}
-        </span>
-
-        <span className="shrink-0 opacity-90">
-          <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUnitMenuOpen ? 'rotate-180' : ''}`} />
-        </span>
-      </div>
-    </GlassOverlay>
-
-    {/* Dropdown panel */}
-    {isUnitMenuOpen && (
-      <div className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(420px,92vw)]">
+    // ✅ multi unit (scroll fix: max-h + overflow + iOS)
+    return (
+      <div ref={unitWrapRef} className="relative inline-flex max-w-full min-w-0">
         <GlassOverlay
           elevation="high"
-          radius={20}
-          interactive={false}
-          className="w-full"
-          style={{
-            background: 'rgba(0,0,0,0.28)',
-            border: '1px solid rgba(255,255,255,0.22)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
+          radius={999}
+          interactive
+          className="inline-flex max-w-full min-w-0"
+          style={{ ...headerPillStyle, maxWidth: '100%', minWidth: 0, boxShadow: 'none', outline: 'none' }}
+          onClick={() => {
+            setIsUnitMenuOpen(v => !v);
+            setIsUserMenuOpen(false);
           }}
         >
-          <div className="p-2">
-            <div
-              className="max-h-[60vh] overflow-y-auto overscroll-contain pr-1"
-              style={{ WebkitOverflowScrolling: 'touch' }}
-            >
-              <div className="flex flex-col gap-1">
-                {userUnits.map(unit => {
-                  const isSelected = selectedUnits.includes(unit.id);
-                  return (
-                    <button
-                      key={unit.id}
-                      onClick={() => handleSelection(unit.id)}
-                      type="button"
-                      className="w-full text-left px-3 py-2 rounded-xl transition-colors"
-                      style={
-                        isSelected
-                          ? {
-                              background: 'rgba(255,255,255,0.92)',
-                              color: '#0f172a',
-                              border: '1px solid rgba(255,255,255,0.30)',
-                            }
-                          : {
-                              background: 'rgba(255,255,255,0.16)',
-                              color: 'rgba(255,255,255,0.96)',
-                              border: '1px solid rgba(255,255,255,0.22)',
-                              textShadow: '0 1px 3px rgba(0,0,0,0.55)',
-                            }
-                      }
-                    >
-                      <div className="text-sm font-semibold">{unit.name}</div>
-                      <div className="text-xs opacity-90">
-                        {isSelected ? 'Kijelölve' : 'Kijelölés'}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 min-w-0">
+            <span className="text-sm font-semibold truncate min-w-0" style={glassTextPrimary}>
+              {selectedUnits.length ? `Egységek: ${selectedUnits.length}` : 'Válassz egységet'}
+            </span>
 
-            <div className="pt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                className="px-3 py-2 rounded-xl text-sm font-semibold"
-                style={{
-                  background: 'rgba(255,255,255,0.14)',
-                  color: 'rgba(255,255,255,0.95)',
-                  border: '1px solid rgba(255,255,255,0.22)',
-                }}
-                onClick={() => setSelectedUnits([])}
-              >
-                Kijelölés törlése
-              </button>
-
-              <button
-                type="button"
-                className="px-3 py-2 rounded-xl text-sm font-semibold"
-                style={{
-                  background: 'rgba(255,255,255,0.92)',
-                  color: '#0f172a',
-                  border: '1px solid rgba(255,255,255,0.30)',
-                }}
-                onClick={() => setIsUnitMenuOpen(false)}
-              >
-                Kész
-              </button>
-            </div>
+            <span className="shrink-0 opacity-90">
+              <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUnitMenuOpen ? 'rotate-180' : ''}`} />
+            </span>
           </div>
         </GlassOverlay>
-      </div>
-    )}
-  </div>
-);
-};
-  const UserBadge: React.FC = () => {
-  return (
-    <div className="relative inline-flex">
-      {/* Trigger */}
-      <GlassOverlay
-        elevation="high"
-        radius={999}
-        interactive
-        className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
-        style={headerPillStyle}
-        onClick={() => setIsUserMenuOpen(v => !v)}
-      >
-        <div className="flex items-center gap-2">
-          <div
-            className="text-right leading-tight max-w-[160px] sm:max-w-none"
-            style={{
-              color: 'rgba(255,255,255,0.96)',
-              textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
-            }}
-          >
-            <div className="text-xs sm:text-sm font-semibold truncate">{currentUser.fullName}</div>
-            <div className="text-[10px] sm:text-xs opacity-90 truncate">{currentUser.role}</div>
+
+        {isUnitMenuOpen && (
+          <div className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(420px,92vw)]">
+            <GlassOverlay elevation="high" radius={20} interactive={false} className="w-full" style={glassPanelStyle}>
+              <div className="p-2">
+                {/* ✅ EZ a scroll owner */}
+                <div
+                  className="max-h-[min(60vh,420px)] overflow-y-auto overscroll-contain pr-1"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  <div className="flex flex-col gap-1">
+                    {userUnits.map(unit => {
+                      const isSelected = selectedUnits.includes(unit.id);
+                      return (
+                        <button
+                          key={unit.id}
+                          onClick={() => handleSelection(unit.id)}
+                          type="button"
+                          className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                          style={
+                            isSelected
+                              ? {
+                                  background: 'rgba(255,255,255,0.92)',
+                                  color: '#0f172a',
+                                  border: '1px solid rgba(255,255,255,0.30)',
+                                }
+                              : {
+                                  background: 'rgba(255,255,255,0.16)',
+                                  color: 'rgba(255,255,255,0.96)',
+                                  border: '1px solid rgba(255,255,255,0.22)',
+                                  textShadow: (glassTextPrimary as any).textShadow,
+                                }
+                          }
+                        >
+                          <div className="text-sm font-semibold">{unit.name}</div>
+                          <div className="text-xs opacity-90">
+                            {isSelected ? 'Kijelölve' : isMultiSelect ? 'Kijelölés / Levétel' : 'Kijelölés'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-xl text-sm font-semibold"
+                    style={{
+                      background: 'rgba(255,255,255,0.14)',
+                      color: 'rgba(255,255,255,0.95)',
+                      border: '1px solid rgba(255,255,255,0.22)',
+                      textShadow: (glassTextPrimary as any).textShadow,
+                    }}
+                    onClick={() => {
+                      setSelectedUnits([]);
+                      // opcionális: maradjon nyitva; de UX-ben sokszor jobb zárni:
+                      // setIsUnitMenuOpen(false);
+                    }}
+                  >
+                    Kijelölés törlése
+                  </button>
+
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-xl text-sm font-semibold"
+                    style={{
+                      background: 'rgba(255,255,255,0.92)',
+                      color: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.30)',
+                    }}
+                    onClick={() => setIsUnitMenuOpen(false)}
+                  >
+                    Kész
+                  </button>
+                </div>
+              </div>
+            </GlassOverlay>
           </div>
+        )}
+      </div>
+    );
+  };
 
-          <span className="shrink-0 opacity-90">
-            <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
-          </span>
-        </div>
-      </GlassOverlay>
-
-      {/* Dropdown panel */}
-      {isUserMenuOpen && (
-        <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,92vw)]">
-          <GlassOverlay
-            elevation="high"
-            radius={20}
-            interactive={false}
-            className="w-full"
-            style={{
-              background: 'rgba(0,0,0,0.28)',
-              border: '1px solid rgba(255,255,255,0.22)',
-              backdropFilter: 'blur(14px)',
-              WebkitBackdropFilter: 'blur(14px)',
-            }}
-          >
-            <div className="p-2">
-              <div className="px-3 py-2 rounded-xl"
-                   style={{
-                     background: 'rgba(255,255,255,0.12)',
-                     border: '1px solid rgba(255,255,255,0.18)',
-                     color: 'rgba(255,255,255,0.96)',
-                     textShadow: '0 1px 3px rgba(0,0,0,0.55)',
-                   }}>
-                <div className="text-sm font-semibold truncate">{currentUser.fullName}</div>
-                <div className="text-xs opacity-90 truncate">{currentUser.email}</div>
-              </div>
-
-              <div className="mt-2 flex flex-col gap-1">
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-2 rounded-xl transition-colors"
-                  style={{
-                    background: 'rgba(255,255,255,0.16)',
-                    color: 'rgba(255,255,255,0.96)',
-                    border: '1px solid rgba(255,255,255,0.22)',
-                    textShadow: '0 1px 3px rgba(0,0,0,0.55)',
-                  }}
-                  onClick={() => {
-                    setActiveApp('settings');
-                    setIsUserMenuOpen(false);
-                    setSidebarOpen(false);
-                  }}
-                >
-                  Beállítások
-                </button>
-
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-2 rounded-xl transition-colors"
-                  style={{
-                    background: 'rgba(255,255,255,0.92)',
-                    color: '#0f172a',
-                    border: '1px solid rgba(255,255,255,0.30)',
-                  }}
-                  onClick={() => {
-                    setIsUserMenuOpen(false);
-                    onLogout();
-                  }}
-                >
-                  Kijelentkezés
-                </button>
-              </div>
+  // ✅ UserBadge panel: ugyanaz a “glass panel” mint a UnitSelectornál + olvasható szöveg
+  const UserBadge: React.FC = () => {
+    return (
+      <div ref={userWrapRef} className="relative inline-flex">
+        <GlassOverlay
+          elevation="high"
+          radius={999}
+          interactive
+          className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
+          style={headerPillStyle}
+          onClick={() => {
+            setIsUserMenuOpen(v => !v);
+            setIsUnitMenuOpen(false);
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <div className="text-right leading-tight max-w-[160px] sm:max-w-none" style={glassTextPrimary}>
+              <div className="text-xs sm:text-sm font-semibold truncate">{currentUser.fullName}</div>
+              <div className="text-[10px] sm:text-xs opacity-90 truncate">{currentUser.role}</div>
             </div>
-          </GlassOverlay>
-        </div>
-      )}
-    </div>
-  );
-};
+
+            <span className="shrink-0 opacity-90">
+              <ArrowDownIcon className={`h-4 w-4 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+            </span>
+          </div>
+        </GlassOverlay>
+
+        {isUserMenuOpen && (
+          <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,92vw)]">
+            <GlassOverlay elevation="high" radius={20} interactive={false} className="w-full" style={glassPanelStyle}>
+              <div className="p-2">
+                <div
+                  className="px-3 py-2 rounded-xl"
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    border: '1px solid rgba(255,255,255,0.18)',
+                    color: 'rgba(255,255,255,0.96)',
+                    textShadow: (glassTextPrimary as any).textShadow,
+                  }}
+                >
+                  <div className="text-sm font-semibold truncate">{currentUser.fullName}</div>
+                  <div className="text-xs opacity-90 truncate">{currentUser.email}</div>
+                </div>
+
+                <div className="mt-2 flex flex-col gap-1">
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                    style={{
+                      background: 'rgba(255,255,255,0.16)',
+                      color: 'rgba(255,255,255,0.96)',
+                      border: '1px solid rgba(255,255,255,0.22)',
+                      textShadow: (glassTextPrimary as any).textShadow,
+                    }}
+                    onClick={() => {
+                      setActiveApp('settings');
+                      closeAllMenus();
+                    }}
+                  >
+                    <div className="text-sm font-semibold">Beállítások</div>
+                    <div className="text-xs opacity-85">Fiók, megjelenés, értesítések</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                    style={{
+                      background: 'rgba(255,255,255,0.92)',
+                      color: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.30)',
+                    }}
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      onLogout();
+                    }}
+                  >
+                    <div className="text-sm font-semibold">Kijelentkezés</div>
+                    <div className="text-xs opacity-80">Kilépés a fiókból</div>
+                  </button>
+                </div>
+              </div>
+            </GlassOverlay>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   interface NavItemProps {
     app: AppName;
@@ -535,8 +541,7 @@ return (
     if (permission && !hasPermission(permission)) return null;
 
     const isAppDisabled =
-      disabledAppCheck &&
-      activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
+      disabledAppCheck && activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
     const isActive = activeApp === app;
@@ -545,7 +550,7 @@ return (
       <button
         onClick={() => {
           setActiveApp(app);
-          setSidebarOpen(false);
+          closeAllMenus();
         }}
         className={`w-full flex items-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
           isActive ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
@@ -587,12 +592,14 @@ return (
             <Icon className="h-6 w-6" />
             <span className="ml-4 font-bold text-base whitespace-nowrap">{label}</span>
           </div>
-          <ArrowDownIcon
-            className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          />
+          <ArrowDownIcon className={`h-5 w-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
+
         {isOpen && (
-          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5" style={{ borderColor: 'var(--color-border)' }}>
+          <div
+            className="pl-6 mt-1 space-y-1 border-l-2 ml-5"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
             {children}
           </div>
         )}
@@ -671,31 +678,11 @@ return (
           />
         );
       case 'chat':
-        return (
-          <ChatApp
-            currentUser={currentUser}
-            allUsers={allUsers}
-            allUnits={allUnits}
-            activeUnitIds={activeUnitIds}
-          />
-        );
+        return <ChatApp currentUser={currentUser} allUsers={allUsers} allUnits={allUnits} activeUnitIds={activeUnitIds} />;
       case 'admin_todos':
-        return (
-          <AdminTodoApp
-            todos={adminTodos}
-            loading={false}
-            error={null}
-            currentUser={currentUser}
-          />
-        );
+        return <AdminTodoApp todos={adminTodos} loading={false} error={null} currentUser={currentUser} />;
       case 'elerhetosegek':
-        return (
-          <ContactsApp
-            currentUser={currentUser}
-            canManage={hasPermission('canManageContacts')}
-            canViewAll={hasPermission('canViewAllContacts')}
-          />
-        );
+        return <ContactsApp currentUser={currentUser} canManage={hasPermission('canManageContacts')} canViewAll={hasPermission('canViewAllContacts')} />;
       case 'tudastar':
         return (
           <TudastarApp
@@ -706,7 +693,7 @@ return (
             canManageCategories={hasPermission('canManageKnowledgeCategories')}
           />
         );
-      case 'keszlet':
+      case 'keszlet': {
         const canManageInventory = hasPermission('canManageInventory');
         const canViewInventory = hasPermission('canViewInventory') || canManageInventory;
         if (!canViewInventory) return <AccessDenied message="Nincs jogosultságod a Készlet megtekintéséhez." />;
@@ -722,33 +709,13 @@ return (
             canManageInventory={canManageInventory}
           />
         );
+      }
       case 'velemenyek':
-        return (
-          <VelemenyekApp
-            currentUser={currentUser}
-            allUnits={allUnits}
-            activeUnitIds={activeUnitIds}
-            feedbackList={feedbackList}
-          />
-        );
+        return <VelemenyekApp currentUser={currentUser} allUnits={allUnits} activeUnitIds={activeUnitIds} feedbackList={feedbackList} />;
       case 'berezesem':
-        return (
-          <BerezesemApp
-            currentUser={currentUser}
-            schedule={shifts}
-            activeUnitIds={activeUnitIds}
-            timeEntries={timeEntries}
-            allUnits={allUnits}
-          />
-        );
+        return <BerezesemApp currentUser={currentUser} schedule={shifts} activeUnitIds={activeUnitIds} timeEntries={timeEntries} allUnits={allUnits} />;
       case 'szavazasok':
-        return (
-          <PollsApp
-            currentUser={currentUser}
-            canCreatePolls={hasPermission('canCreatePolls')}
-            polls={polls}
-          />
-        );
+        return <PollsApp currentUser={currentUser} canCreatePolls={hasPermission('canCreatePolls')} polls={polls} />;
       case 'unit_settings':
         if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
         return (
@@ -773,28 +740,7 @@ return (
           />
         );
       default:
-        return (
-          <HomeDashboard
-            currentUser={currentUser}
-            requests={requests}
-            schedule={shifts}
-            todos={todos}
-            adminTodos={adminTodos}
-            timeEntries={timeEntries}
-            setActiveApp={setActiveApp}
-            feedbackList={feedbackList}
-            polls={polls}
-            activeUnitIds={activeUnitIds}
-            allUnits={allUnits}
-            themeMode={themeMode}
-            onThemeChange={onThemeModeChange}
-            activeUnit={activeUnit}
-            themeBases={themeBases}
-            onThemeBasesChange={onThemeBasesChange}
-            useBrandTheme={useBrandTheme}
-            onBrandChange={onBrandChange}
-          />
-        );
+        return null;
     }
   };
 
@@ -802,170 +748,143 @@ return (
   const mainOverflowClass = isChatLayout ? 'overflow-y-hidden' : 'overflow-y-auto';
 
   return (
-    <>
-      <div
-        className="relative h-full overflow-hidden transition-colors duration-200"
-        style={{
-          backgroundColor: 'var(--color-background)',
-          backgroundImage: 'var(--ui-bg-image)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundAttachment: 'fixed',
-          color: 'var(--color-text-main)',
-        }}
+    <div
+      className="relative min-h-[100dvh] overflow-hidden transition-colors duration-200"
+      style={{
+        backgroundColor: 'var(--color-background)',
+        backgroundImage: 'var(--ui-bg-image)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        color: 'var(--color-text-main)',
+      }}
+    >
+      {/* Backdrop for sidebar */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex items-start ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } w-64`}
+        style={{ backgroundColor: 'var(--color-secondary)' }}
       >
-        {/* Backdrop for sidebar */}
-        {isSidebarOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-20"
-            onClick={() => setSidebarOpen(false)}
-            aria-hidden="true"
-          ></div>
-        )}
-
-        {/* Sidebar */}
-        <aside
-          className={`fixed inset-y-0 left-0 z-30 border-r transform transition-transform duration-300 ease-in-out flex items-start ${
-            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } w-64`}
-          style={{ backgroundColor: 'var(--color-secondary)' }}
+        <div
+          className="flex h-full w-[calc(100%-6px)] flex-col shadow-xl mr-1.5"
+          style={{
+            backgroundColor: 'var(--color-sidebar-bg)',
+            backgroundImage: 'var(--ui-sidebar-image)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            color: 'var(--color-sidebar-text)',
+            overflowY: 'auto',
+          }}
         >
-          <div
-            className="flex h-full w-[calc(100%-6px)] flex-col shadow-xl mr-1.5"
-            style={{
-              backgroundColor: 'var(--color-sidebar-bg)',
-              backgroundImage: 'var(--ui-sidebar-image)',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              color: 'var(--color-sidebar-text)',
-              overflowY: 'auto',
-            }}
-          >
-            <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <MintLeafLogo className="h-8 w-8" />
-                <span className="font-bold text-xl" style={{ color: 'var(--color-sidebar-text)' }}>
-                  MintLeaf
-                </span>
-              </div>
-            </div>
-            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-              <NavItem app="home" icon={HomeIcon} label="Kezdőlap" disabledAppCheck={false} />
-
-              <CategoryItem name="altalanos" label="Általános" icon={ScheduleIcon}>
-                <NavItem app="beosztas" icon={ScheduleIcon} label="Beosztás" />
-                <NavItem app="foglalasok" icon={BookingIcon} label="Foglalások" />
-                <NavItem app="berezesem" icon={MoneyIcon} label="Óraszámok" />
-                <NavItem
-                  app="kerelemek"
-                  icon={CalendarIcon}
-                  label="Szabadnapok"
-                  permission="canSubmitLeaveRequests"
-                />
-              </CategoryItem>
-
-              <CategoryItem name="feladatok" label="Feladatok és Tudás" icon={TodoIcon}>
-                <NavItem app="todos" icon={TodoIcon} label="Teendők" />
-                {currentUser.role === 'Admin' && (
-                  <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />
-                )}
-                <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
-                {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && (
-                  <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
-                )}
-                <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
-              </CategoryItem>
-
-              <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
-                <NavItem app="chat" icon={ChatIcon} label="Chat" />
-                <NavItem app="szavazasok" icon={PollsIcon} label="Szavazások" />
-                <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
-              </CategoryItem>
-
-              <NavItem
-                app="unit_settings"
-                icon={Cog6ToothIcon}
-                label="Üzlet Beállítások"
-                permission="canManageAdminPage"
-                disabledAppCheck={false}
-              />
-              <NavItem
-                app="adminisztracio"
-                icon={AdminIcon}
-                label="Adminisztráció"
-                permission="canManageAdminPage"
-                disabledAppCheck={false}
-              />
-            </nav>
-            <div className="p-3 border-t space-y-1 flex-shrink-0">
-              <button
-                onClick={() => {
-  setActiveApp(app);
-  setSidebarOpen(false);
-  setIsUnitMenuOpen(false);
-  setIsUserMenuOpen(false);
-}}
-                className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-                  activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
-                }`}
-                style={{
-                  backgroundColor:
-                    activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
-                  color:
-                    activeApp === 'settings'
-                      ? 'var(--color-text-on-primary)'
-                      : 'var(--color-text-main)',
-                }}
-                title="Beállítások"
-              >
-                <SettingsIcon className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="p-2 text-center text-gray-400 text-xs">
-              Beta version by Oliver Nguyen
+          <div className="flex items-center justify-center h-16 px-4 border-b flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <MintLeafLogo className="h-8 w-8" />
+              <span className="font-bold text-xl" style={{ color: 'var(--color-sidebar-text)' }}>
+                MintLeaf
+              </span>
             </div>
           </div>
-        </aside>
+
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+            <NavItem app="home" icon={HomeIcon} label="Kezdőlap" disabledAppCheck={false} />
+
+            <CategoryItem name="altalanos" label="Általános" icon={ScheduleIcon}>
+              <NavItem app="beosztas" icon={ScheduleIcon} label="Beosztás" />
+              <NavItem app="foglalasok" icon={BookingIcon} label="Foglalások" />
+              <NavItem app="berezesem" icon={MoneyIcon} label="Óraszámok" />
+              <NavItem app="kerelemek" icon={CalendarIcon} label="Szabadnapok" permission="canSubmitLeaveRequests" />
+            </CategoryItem>
+
+            <CategoryItem name="feladatok" label="Feladatok és Tudás" icon={TodoIcon}>
+              <NavItem app="todos" icon={TodoIcon} label="Teendők" />
+              {currentUser.role === 'Admin' && <NavItem app="admin_todos" icon={AdminTodoIcon} label="Vezetői Teendők" />}
+              <NavItem app="tudastar" icon={BookIcon} label="Tudástár" />
+              {(hasPermission('canViewInventory') || hasPermission('canManageInventory')) && (
+                <NavItem app="keszlet" icon={BriefcaseIcon} label="Készlet" />
+              )}
+              <NavItem app="elerhetosegek" icon={ContactsIcon} label="Kapcsolatok" />
+            </CategoryItem>
+
+            <CategoryItem name="kommunikacio" label="Kommunikáció" icon={ChatIcon}>
+              <NavItem app="chat" icon={ChatIcon} label="Chat" />
+              <NavItem app="szavazasok" icon={PollsIcon} label="Szavazások" />
+              <NavItem app="velemenyek" icon={FeedbackIcon} label="Vélemények" />
+            </CategoryItem>
+
+            <NavItem app="unit_settings" icon={Cog6ToothIcon} label="Üzlet Beállítások" permission="canManageAdminPage" disabledAppCheck={false} />
+            <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
+          </nav>
+
+          {/* ✅ Settings gomb fix (nálad: setActiveApp(app) -> hibás) */}
+          <div className="p-3 border-t space-y-1 flex-shrink-0">
+            <button
+              onClick={() => {
+                setActiveApp('settings');
+                closeAllMenus();
+              }}
+              className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
+                activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
+              }`}
+              style={{
+                backgroundColor: activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
+                color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'var(--color-text-main)',
+              }}
+              title="Beállítások"
+              type="button"
+            >
+              <SettingsIcon className="h-6 w-6" />
+            </button>
+          </div>
+
+          <div className="p-2 text-center text-gray-400 text-xs">Beta version by Oliver Nguyen</div>
+        </div>
+      </aside>
 
       {/* Main Content */}
-<div className="flex flex-col h-full w-full">
-  <header
-    className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
-    style={{
-      backgroundColor: 'var(--color-primary)',
-      color: 'var(--color-text-on-primary)',
-      backgroundImage: 'var(--ui-header-image)',
-      backgroundBlendMode: 'var(--ui-header-blend-mode)',
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-    }}
-  >
-    {/* Header content */}
-    <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 w-full min-w-0">
-      {/* Left: menu */}
-      <button
-  onClick={() => {
-    setSidebarOpen(v => !v);
-    setIsUnitMenuOpen(false);
-    setIsUserMenuOpen(false);
-  }}
-        className="p-2 -ml-2 shrink-0"
-        type="button"
-      >
-        <MenuIcon />
-      </button>
+      <div className="flex flex-col h-full w-full">
+        <header
+          className="h-16 shadow-md flex items-center px-6 z-10 flex-shrink-0"
+          style={{
+            backgroundColor: 'var(--color-primary)',
+            color: 'var(--color-text-on-primary)',
+            backgroundImage: 'var(--ui-header-image)',
+            backgroundBlendMode: 'var(--ui-header-blend-mode)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 w-full min-w-0">
+            <button
+              onClick={() => {
+                setSidebarOpen(v => !v);
+                setIsUnitMenuOpen(false);
+                setIsUserMenuOpen(false);
+              }}
+              className="p-2 -ml-2 shrink-0"
+              type="button"
+            >
+              <MenuIcon />
+            </button>
 
-      {/* Middle: unit selector (constrained cell) */}
-      <div className="min-w-0">
-        <UnitSelector />
-      </div>
+            <div className="min-w-0">
+              <UnitSelector />
+            </div>
 
-      {/* Right: user badge */}
-      <div className="shrink-0 pointer-events-auto">
-        <UserBadge />
-      </div>
-    </div>
-  </header>
+            <div className="shrink-0 pointer-events-auto">
+              <UserBadge />
+            </div>
+          </div>
+        </header>
 
         <main
           className={`flex-1 min-h-0 overflow-x-hidden ${mainOverflowClass}`}
@@ -981,7 +900,6 @@ return (
         </main>
       </div>
     </div>
-  </>
   );
 };
 
