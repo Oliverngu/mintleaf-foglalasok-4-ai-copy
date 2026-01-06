@@ -18,12 +18,11 @@
 
   <style>
     /*
-      GLOBAL SCROLL CONTRACT (STABLE SPA BASELINE)
+      GLOBAL SCROLL + BACKGROUND CONTRACT (STABLE SPA BASELINE)
 
-      - html / body scrollol
-      - #root normál flow-ban van
-      - NINCS fixed root
-      - NINCS overflow lock
+      - html/body provide the scroll container
+      - #root is normal flow (NOT fixed)
+      - background is applied to body so it never “ends” on long pages
     */
 
     html,
@@ -34,13 +33,24 @@
       min-height: 100%;
       overflow-y: auto;
       overflow-x: hidden;
+
+      /* IMPORTANT: global background that always extends with content */
+      background: #f3f4f6; /* gray-100 */
+    }
+
+    /* Optional: dark-mode background if you toggle html.dark elsewhere */
+    html.dark body {
+      background: #111827; /* gray-900 */
     }
 
     #root {
-      position: relative;       /* kritikus: NEM fixed */
+      position: relative;   /* critical: NOT fixed */
       width: 100%;
-      min-height: 100dvh;       /* mobil safe viewport */
+      min-height: 100dvh;   /* mobile-safe viewport */
     }
+
+    /* Improve scrolling performance on touch devices for child elements */
+    -webkit-overflow-scrolling: touch;
 
     /* Disable transitions when needed (e.g. during theme switch) */
     .no-transition,
