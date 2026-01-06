@@ -12,47 +12,52 @@
   <!-- SheetJS -->
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 
-  <!-- Eruda (dev only – ha prod, érdemes flagelni) -->
+  <!-- Eruda (DEV ONLY – productionben érdemes kapcsolóhoz kötni) -->
   <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
   <script>eruda.init();</script>
 
   <style>
     /*
-      GLOBAL SCROLL + BACKGROUND CONTRACT (STABLE SPA BASELINE)
+      =====================================================
+      GLOBAL SCROLL + BACKGROUND CONTRACT (FINAL)
+      =====================================================
 
-      - html/body provide the scroll container
-      - #root is normal flow (NOT fixed)
-      - background is applied to body so it never “ends” on long pages
+      - A BODY a scroll owner
+      - A háttér a BODY-n van → SOHA nem fogy el
+      - #root normál flow-ban, NEM fixed
+      - Unit theme háttér CSS változón keresztül
     */
 
     html,
     body {
       margin: 0;
       padding: 0;
-      height: 100%;
       min-height: 100%;
-      overflow-y: auto;
+      height: auto;
       overflow-x: hidden;
+      overflow-y: auto;
 
-      /* IMPORTANT: global background that always extends with content */
-      background: #f3f4f6; /* gray-100 */
+      /* DEFAULT háttér (ha nincs unit theme) */
+      background: var(--app-bg, #f3f4f6);
     }
 
-    /* Optional: dark-mode background if you toggle html.dark elsewhere */
+    /* Dark mode fallback */
     html.dark body {
-      background: #111827; /* gray-900 */
+      background: var(--app-bg, #111827);
     }
 
     #root {
-      position: relative;   /* critical: NOT fixed */
+      position: relative;
       width: 100%;
-      min-height: 100dvh;   /* mobile-safe viewport */
+      min-height: 100dvh;
     }
 
-    /* Improve scrolling performance on touch devices for child elements */
-    -webkit-overflow-scrolling: touch;
+    /* Smooth scrolling on iOS */
+    body {
+      -webkit-overflow-scrolling: touch;
+    }
 
-    /* Disable transitions when needed (e.g. during theme switch) */
+    /* Disable transitions when needed */
     .no-transition,
     .no-transition * {
       transition: none !important;
