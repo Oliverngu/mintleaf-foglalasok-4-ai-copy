@@ -111,7 +111,7 @@ const AccessDenied: React.FC<{ message?: string }> = ({ message }) => (
   </div>
 );
 
-const HEADER_PILL_H = 48; // ✅ közös magasság
+const HEADER_PILL_H = 48;
 
 const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
@@ -189,7 +189,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     [activeUnitIds, allUnits]
   );
 
-  // ✅ Click-outside + ESC: zárja a user dropdownot és sidebart
+  // Click-outside + ESC: zárja a user dropdownot és sidebart
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -280,7 +280,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
   };
 
-  // ✅ UnitSelector: FIX magasság + overflow hidden + X scroll
+  // ✅ UnitSelector: ne legyen hosszabb jobbra a tartalomnál (w-fit), belül szimmetrikus padding
   const UnitSelector: React.FC = () => {
     const { selectedUnits, setSelectedUnits, allUnits: ctxAllUnits } = useUnitContext();
 
@@ -326,21 +326,24 @@ const Dashboard: React.FC<DashboardProps> = ({
         elevation="high"
         radius={999}
         interactive
-        className="w-full max-w-full min-w-0"
+        className="inline-flex w-fit max-w-full min-w-0"
         style={{
           ...headerPillStyle,
           padding: 0,
           height: HEADER_PILL_H,
           borderRadius: 999,
-          overflow: 'hidden', // ✅ ne lógjon ki
+          overflow: 'hidden',
         }}
       >
-        <div className="h-full w-full min-w-0 flex items-center px-2 pointer-events-auto">
+        {/* outer padding: szimmetrikus felül/alul és bal/jobb */}
+        <div className="h-full flex items-center px-3 min-w-0 pointer-events-auto">
+          {/* scroll container: csak X */}
           <div
-            className="w-full min-w-0 overflow-x-auto overflow-y-hidden"
+            className="min-w-0 overflow-x-auto overflow-y-hidden"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <div className="flex flex-nowrap gap-2 w-max py-1">
+            {/* row: nincs w-max stretch; a tartalom szélessége határozza meg, de scrollolható */}
+            <div className="flex flex-nowrap items-center gap-2 py-2">
               {userUnits.map(unit => {
                 const isSelected = selectedUnits.includes(unit.id);
 
@@ -349,7 +352,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     key={unit.id}
                     type="button"
                     onClick={() => handleToggle(unit.id)}
-                    className="shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors"
+                    className="shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors pointer-events-auto"
                     style={
                       isSelected
                         ? {
@@ -377,7 +380,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
-  // ✅ UserBadge: ugyanolyan magas, interaktív trigger, dropdown kattintható (interactive=true)
+  // ✅ UserBadge: vissza a logout ikon, garantált kattinthatóság
   const UserBadge: React.FC = () => {
     return (
       <div ref={userWrapRef} className="relative inline-flex">
@@ -409,9 +412,9 @@ const Dashboard: React.FC<DashboardProps> = ({
 
         {isUserMenuOpen && (
           <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(340px,92vw)]">
-            {/* ✅ interactive MUST be true, különben nem kattintható a Logout */}
-            <GlassOverlay elevation="high" radius={20} interactive className="w-full" style={glassPanelStyle}>
-              <div className="p-2">
+            {/* interactive MUST be true: különben a gombok nem kapnak klikket */}
+            <GlassOverlay elevation="high" radius={20} interactive className="w-full pointer-events-auto" style={glassPanelStyle}>
+              <div className="p-2 pointer-events-auto">
                 <div
                   className="px-3 py-2 rounded-xl"
                   style={{
@@ -425,10 +428,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="text-xs opacity-90 truncate">{currentUser.email}</div>
                 </div>
 
-                <div className="mt-2 flex flex-col gap-1">
+                <div className="mt-2 flex flex-col gap-1 pointer-events-auto">
                   <button
                     type="button"
-                    className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                    className="w-full text-left px-3 py-2 rounded-xl transition-colors pointer-events-auto"
                     style={{
                       background: 'rgba(255,255,255,0.16)',
                       color: 'rgba(255,255,255,0.96)',
@@ -451,7 +454,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                   <button
                     type="button"
-                    className="w-full text-left px-3 py-2 rounded-xl transition-colors"
+                    className="w-full text-left px-3 py-2 rounded-xl transition-colors pointer-events-auto"
                     style={{
                       background: 'rgba(255,255,255,0.92)',
                       color: '#0f172a',
@@ -554,7 +557,10 @@ const Dashboard: React.FC<DashboardProps> = ({
         </button>
 
         {isOpen && (
-          <div className="pl-6 mt-1 space-y-1 border-l-2 ml-5" style={{ borderColor: 'var(--color-border)' }}>
+          <div
+            className="pl-6 mt-1 space-y-1 border-l-2 ml-5"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
             {children}
           </div>
         )}
@@ -633,11 +639,24 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'chat':
-        return <ChatApp currentUser={currentUser} allUsers={allUsers} allUnits={allUnits} activeUnitIds={activeUnitIds} />;
+        return (
+          <ChatApp
+            currentUser={currentUser}
+            allUsers={allUsers}
+            allUnits={allUnits}
+            activeUnitIds={activeUnitIds}
+          />
+        );
       case 'admin_todos':
         return <AdminTodoApp todos={adminTodos} loading={false} error={null} currentUser={currentUser} />;
       case 'elerhetosegek':
-        return <ContactsApp currentUser={currentUser} canManage={hasPermission('canManageContacts')} canViewAll={hasPermission('canViewAllContacts')} />;
+        return (
+          <ContactsApp
+            currentUser={currentUser}
+            canManage={hasPermission('canManageContacts')}
+            canViewAll={hasPermission('canViewAllContacts')}
+          />
+        );
       case 'tudastar':
         return (
           <TudastarApp
@@ -666,9 +685,24 @@ const Dashboard: React.FC<DashboardProps> = ({
         );
       }
       case 'velemenyek':
-        return <VelemenyekApp currentUser={currentUser} allUnits={allUnits} activeUnitIds={activeUnitIds} feedbackList={feedbackList} />;
+        return (
+          <VelemenyekApp
+            currentUser={currentUser}
+            allUnits={allUnits}
+            activeUnitIds={activeUnitIds}
+            feedbackList={feedbackList}
+          />
+        );
       case 'berezesem':
-        return <BerezesemApp currentUser={currentUser} schedule={shifts} activeUnitIds={activeUnitIds} timeEntries={timeEntries} allUnits={allUnits} />;
+        return (
+          <BerezesemApp
+            currentUser={currentUser}
+            schedule={shifts}
+            activeUnitIds={activeUnitIds}
+            timeEntries={timeEntries}
+            allUnits={allUnits}
+          />
+        );
       case 'szavazasok':
         return <PollsApp currentUser={currentUser} canCreatePolls={hasPermission('canCreatePolls')} polls={polls} />;
       case 'unit_settings':
