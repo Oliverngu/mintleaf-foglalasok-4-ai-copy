@@ -3163,19 +3163,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       event?: React.MouseEvent<HTMLTableCellElement>
     ) => {
       if (isSelectionMode) {
-        const metaPressed = event?.metaKey || event?.ctrlKey;
         const shiftPressed = event?.shiftKey;
 
         if (shiftPressed) {
           const anchor = anchorCellKey || cellKey;
           const rangeKeys = buildRangeSelection(anchor, cellKey);
           setSelectedCellKeys(prev => {
-            const next = rangeKeys ? new Set(rangeKeys) : new Set(prev);
-            if (!rangeKeys) {
+            const next = new Set(prev);
+            if (rangeKeys) {
+              rangeKeys.forEach(key => next.add(key));
+            } else {
               next.add(cellKey);
-            }
-            if (metaPressed) {
-              prev.forEach(key => next.add(key));
             }
             return next;
           });
@@ -3183,22 +3181,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           return;
         }
 
-        if (metaPressed) {
-          setSelectedCellKeys(prev => {
-            const next = new Set(prev);
-            if (next.has(cellKey)) {
-              next.delete(cellKey);
-            } else {
-              next.add(cellKey);
-            }
-            return next;
-          });
-          setAnchorCellKey(cellKey);
-          return;
-        }
-
-        setSelectedCellKeys(() => new Set([cellKey]));
-        setAnchorCellKey(cellKey);
+        toggleCellSelection(cellKey);
         return;
       }
 
@@ -3206,7 +3189,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         handleOpenShiftModal(userDayShifts[0] || null, userId, day);
       }
     },
-    [anchorCellKey, buildRangeSelection, handleOpenShiftModal, isSelectionMode]
+    [
+      anchorCellKey,
+      buildRangeSelection,
+      handleOpenShiftModal,
+      isSelectionMode,
+      toggleCellSelection,
+    ]
   );
 
   const handleToggleSelectionMode = useCallback(() => {
