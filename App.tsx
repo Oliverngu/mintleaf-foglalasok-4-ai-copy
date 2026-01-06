@@ -400,7 +400,7 @@ const App: React.FC = () => {
               return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
           }
           return (
-              <div className="fixed inset-0 flex items-center justify-center bg-gray-50 p-4">
+              <div className="min-h-[100dvh] w-full flex items-center justify-center bg-gray-50 p-4">
                   <div className="text-center">
                       <h1 className="text-2xl font-bold text-red-600">Hiba</h1>
                       <p className="mt-2 text-gray-700">{publicPage?.message || 'Ismeretlen hiba történt.'}</p>
@@ -409,13 +409,13 @@ const App: React.FC = () => {
           );
       case 'loading':
         return (
-          <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
+          <div className="min-h-[100dvh] w-full flex items-center justify-center bg-gray-50">
             <LoadingSpinner />
           </div>
         );
       case 'register':
         return (
-          <div className="fixed inset-0 flex items-center justify-center p-4 bg-gradient-to-br from-green-50 to-emerald-100">
+          <div className="min-h-[100dvh] w-full flex items-center justify-center p-4 bg-gradient-to-br from-green-50 to-emerald-100">
             <Register inviteCode={inviteCode!} onRegisterSuccess={handleRegisterSuccess} />
           </div>
         );
@@ -444,7 +444,7 @@ const App: React.FC = () => {
       case 'login':
       default:
         return (
-          <div className="fixed inset-0">
+          <div className="min-h-[100dvh] w-full">
             <Login loginMessage={loginMessage} />
           </div>
         );
