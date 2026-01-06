@@ -27,6 +27,7 @@ import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
+import GlassOverlay from '../common/GlassOverlay';
 
 type Locale = 'hu' | 'en';
 
@@ -285,6 +286,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
     [settings]
   );
+
+  const isMinimalGlassTheme = settings?.theme?.id === 'minimal_glass';
 
   useEffect(() => {
     const browserLang = navigator.language.split('-')[0];
@@ -595,7 +598,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden overflow-x-hidden min-h-screen w-full max-w-[100vw]`,
+      wrapper: `${theme.styles.page} relative overflow-hidden overflow-x-hidden min-h-screen w-full max-w-[100vw] justify-start`,
       card:
         `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden ` +
         'max-h-[calc(100vh-3rem)] md:max-h-[calc(100vh-4rem)] min-h-[calc(100vh-6rem)]',
@@ -614,10 +617,27 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     [theme]
   );
 
+  const wrapperClassName = `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`;
+  const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
+
+  const renderCard = (children: React.ReactNode, extraClass?: string) => {
+    const cardContent = (
+      <div className={`${themeClasses.card}${extraClass ? ` ${extraClass}` : ''}`} style={theme.cardStyle}>
+        {children}
+      </div>
+    );
+
+    if (isMinimalGlassTheme) {
+      return <GlassOverlay variant="minimal-glass">{cardContent}</GlassOverlay>;
+    }
+
+    return cardContent;
+  };
+
   if (error && step !== 2) {
     return (
       <div
-        className={themeClasses.wrapper}
+        className={wrapperClassName}
         style={{
           color: 'var(--color-text-primary)',
           ...(theme.pageStyle || {}),
@@ -625,22 +645,35 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       >
         {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={`${theme.styles.pageInner} relative z-10`}>
-          <div className={`${themeClasses.card} text-center`} style={theme.cardStyle}>
-            <h2 className="text-xl font-bold" style={{ color: 'var(--color-danger)' }}>
-              Hiba
-            </h2>
-            <p className="mt-2">{error}</p>
-            <div
-              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
-              style={{
-                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-                ...(theme.watermarkStyle || {}),
-              }}
-            >
-              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-            </div>
-          </div>
+        <div className={pageInnerClassName}>
+          {renderCard(
+            <>
+              <h2
+                className={`text-xl font-bold ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+                }`}
+                style={{ color: 'var(--color-danger)' }}
+              >
+                Hiba
+              </h2>
+              <p
+                className={`mt-2 ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+                }`}
+              >
+                {error}
+              </p>
+              <div
+                className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+                style={{
+                  color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                  ...(theme.watermarkStyle || {}),
+                }}
+              >
+                {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -649,7 +682,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   if (loading || !unit || !settings) {
     return (
       <div
-        className={themeClasses.wrapper}
+        className={wrapperClassName}
         style={{
           color: 'var(--color-text-primary)',
           ...(theme.pageStyle || {}),
@@ -657,19 +690,21 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       >
         {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={`${theme.styles.pageInner} relative z-10`}>
-          <div className={themeClasses.card} style={theme.cardStyle}>
-            <LoadingSpinner />
-            <div
-              className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
-              style={{
-                color: theme.watermarkStyle?.color || theme.colors.textSecondary,
-                ...(theme.watermarkStyle || {}),
-              }}
-            >
-              {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
-            </div>
-          </div>
+        <div className={pageInnerClassName}>
+          {renderCard(
+            <>
+              <LoadingSpinner />
+              <div
+                className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
+                style={{
+                  color: theme.watermarkStyle?.color || theme.colors.textSecondary,
+                  ...(theme.watermarkStyle || {}),
+                }}
+              >
+                {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -677,142 +712,169 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   return (
     <div
-      className={themeClasses.wrapper}
+      className={wrapperClassName}
       style={{
         color: 'var(--color-text-primary)',
         ...(theme.pageStyle || {}),
       }}
     >
       {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
-          {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-          <div className={`${theme.styles.pageInner} relative z-10`}>
-            <div className={themeClasses.card} style={theme.cardStyle}>
-              <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
-            <button
-              onClick={() => setLocale('hu')}
-              className={locale === 'hu' ? 'font-bold' : ''}
-              style={{
-                color:
-                  locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
-              }}
-            >
-              Magyar
-            </button>
-            <span style={{ color: theme.colors.textSecondary }}>|</span>
-            <button
-              onClick={() => setLocale('en')}
-              className={locale === 'en' ? 'font-bold' : ''}
-              style={{
-                color:
-                  locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
-              }}
-            >
-              English
-            </button>
+      {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
+      <div className={pageInnerClassName}>
+        {renderCard(
+          <>
+            <div className="absolute top-4 right-4 flex items-center gap-2 text-sm font-medium">
+              <button
+                onClick={() => setLocale('hu')}
+                className={locale === 'hu' ? 'font-bold' : ''}
+                style={{
+                  color: locale === 'hu' ? theme.colors.primary : theme.colors.textSecondary,
+                }}
+              >
+                Magyar
+              </button>
+              <span style={{ color: theme.colors.textSecondary }}>|</span>
+              <button
+                onClick={() => setLocale('en')}
+                className={locale === 'en' ? 'font-bold' : ''}
+                style={{
+                  color: locale === 'en' ? theme.colors.primary : theme.colors.textSecondary,
+                }}
+              >
+                English
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 flex-1 overflow-hidden">
+              <header className={`pt-2 ${themeClasses.header}`}>
+                {brandLogoUrl ? (
+                  <img
+                    src={brandLogoUrl}
+                    alt={unit.name}
+                    className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
+                  />
+                ) : (
+                  <h1
+                    className={`text-4xl font-bold ${
+                      isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+                    }`}
+                    style={{ color: 'var(--color-text-primary)' }}
+                  >
+                    {unit.name}
+                  </h1>
+                )}
+                <p
+                  className={`text-lg mt-1 ${
+                    isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+                  }`}
+                  style={{ color: 'var(--color-text-secondary)' }}
+                >
+                  {t.title}
+                </p>
+              </header>
+
+              <div className="flex-shrink-0">
+                <ProgressIndicator currentStep={step} t={t} theme={theme} />
               </div>
 
-              <div className="flex flex-col gap-4 flex-1 overflow-hidden">
-                <header className={`pt-2 ${themeClasses.header}`}>
-                  {brandLogoUrl ? (
-                    <img
-                      src={brandLogoUrl}
-                      alt={unit.name}
-                      className="max-h-16 md:max-h-20 max-w-[70%] object-contain"
-                    />
-                  ) : (
-                    <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-                      {unit.name}
-                    </h1>
-                  )}
-                  <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    {t.title}
-                  </p>
-                </header>
-
-                <div className="flex-shrink-0">
-                  <ProgressIndicator currentStep={step} t={t} theme={theme} />
-                </div>
-
-                <div className={`${themeClasses.content}`}>
+              <div className={`${themeClasses.content}`}>
+                <div
+                  className={`${themeClasses.contentScrollable}`}
+                  style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                >
                   <div
-                    className={`${themeClasses.contentScrollable}`}
-                    style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                    className="flex transition-transform duration-500 ease-in-out h-full"
+                    style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
                   >
                     <div
-                      className="flex transition-transform duration-500 ease-in-out h-full"
-                      style={{ transform: `translateX(-${(step - 1) * 100}%)` }}
+                      className={`${themeClasses.stepPane} ${
+                        step === 1 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                      }`}
                     >
-                      <div
-                        className={`${themeClasses.stepPane} ${
-                          step === 1 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                        }`}
-                      >
-                        <div className={themeClasses.stepContent}>
-                          <Step1Date
-                            settings={settings}
-                            onDateSelect={handleDateSelect}
-                            themeProps={themeClassProps}
-                            t={t}
-                            currentMonth={currentMonth}
-                            onMonthChange={setCurrentMonth}
-                            dailyHeadcounts={dailyHeadcounts}
-                          />
-                        </div>
+                      <div className={themeClasses.stepContent}>
+                        <Step1Date
+                          settings={settings}
+                          onDateSelect={handleDateSelect}
+                          themeProps={themeClassProps}
+                          t={t}
+                          currentMonth={currentMonth}
+                          onMonthChange={setCurrentMonth}
+                          dailyHeadcounts={dailyHeadcounts}
+                        />
                       </div>
-                      <div
-                        className={`${themeClasses.stepPane} ${
-                          step === 2 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                        }`}
-                      >
-                        <div className={themeClasses.stepContent}>
-                          <Step2Details
-                            selectedDate={selectedDate}
-                            formData={formData}
-                            setFormData={setFormData}
-                            onBack={() => {
-                              setStep(1);
-                              setError('');
-                            }}
-                            onSubmit={handleSubmit}
-                            isSubmitting={isSubmitting}
-                            settings={settings}
-                            themeProps={themeClassProps}
-                            t={t}
-                            locale={locale}
-                            error={error}
-                            buttonClasses={{
-                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                            }}
-                            unit={unit}
-                          />
-                        </div>
+                    </div>
+                    <div
+                      className={`${themeClasses.stepPane} ${
+                        step === 2 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                      }`}
+                    >
+                      <div className={themeClasses.stepContent}>
+                        <Step2Details
+                          selectedDate={selectedDate}
+                          formData={formData}
+                          setFormData={setFormData}
+                          onBack={() => {
+                            setStep(1);
+                            setError('');
+                          }}
+                          onSubmit={handleSubmit}
+                          isSubmitting={isSubmitting}
+                          settings={settings}
+                          themeProps={themeClassProps}
+                          t={t}
+                          locale={locale}
+                          error={error}
+                          buttonClasses={{
+                            primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                            secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                          }}
+                          unit={unit}
+                        />
                       </div>
-                      <div
-                        className={`${themeClasses.stepPane} ${
-                          step === 3 ? 'opacity-100' : 'opacity-50 md:opacity-70'
-                        }`}
-                      >
-                        <div className={themeClasses.stepContent}>
-                          <Step3Confirmation
-                            onReset={resetFlow}
-                            theme={theme}
-                            themeProps={themeClassProps}
-                            t={t}
-                            submittedData={submittedData}
-                            unit={unit}
-                            locale={locale}
-                            settings={settings}
-                            buttonClasses={{
-                              primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                              secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                            }}
-                          />
-                        </div>
+                    </div>
+                    <div
+                      className={`${themeClasses.stepPane} ${
+                        step === 3 ? 'opacity-100' : 'opacity-50 md:opacity-70'
+                      }`}
+                    >
+                      <div className={themeClasses.stepContent}>
+                        <Step3Confirmation
+                          onReset={resetFlow}
+                          theme={theme}
+                          themeProps={themeClassProps}
+                          t={t}
+                          submittedData={submittedData}
+                          unit={unit}
+                          locale={locale}
+                          settings={settings}
+                          buttonClasses={{
+                            primary: `${themeClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                            secondary: `${themeClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <footer className="flex-shrink-0 flex flex-col gap-3 pb-2">
+                <ReservationFooter
+                  step={step}
+                  themeProps={themeClassProps}
+                  t={t}
+                  onNext={handleSubmit}
+                  onPrevious={() => setStep(prev => Math.max(1, prev - 1))}
+                  isSubmitting={isSubmitting}
+                  locale={locale}
+                  settings={settings}
+                  selectedDate={selectedDate}
+                  formData={formData}
+                  onLocaleChange={setLocale}
+                />
+              </footer>
+            </div>
+
             <div
               className={`${themeClasses.watermark} ${theme.styles.watermark || ''}`}
               style={{
@@ -822,8 +884,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             >
               {(unit?.name || 'MintLeaf') + ' reservation system, powered by MintLeaf.'}
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

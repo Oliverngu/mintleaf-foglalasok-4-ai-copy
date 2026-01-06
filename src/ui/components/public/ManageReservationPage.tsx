@@ -9,6 +9,7 @@ import {
   buildReservationTheme,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
+import GlassOverlay from '../common/GlassOverlay';
 
 type Locale = 'hu' | 'en';
 
@@ -48,6 +49,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     () => buildReservationTheme(settings?.theme || null, settings?.uiTheme),
     [settings]
   );
+
+  const isMinimalGlassTheme = settings?.theme?.id === 'minimal_glass';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -259,7 +262,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const t = translations[locale];
   const themeClasses = useMemo(
     () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden`,
+      wrapper: `${theme.styles.page} relative overflow-hidden justify-start`,
     card: `${theme.styles.card} flex flex-col w-full mx-auto min-h-[calc(100vh-4rem)] max-h-[calc(100vh-3rem)] p-6 md:p-8 gap-4 overflow-hidden`,
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
@@ -267,6 +270,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     }),
     [theme]
   );
+
+  const wrapperClassName = `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`;
+  const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
+
+  const renderCard = (children: React.ReactNode, extraClass?: string) => {
+    const cardContent = (
+      <div className={`${themeClasses.card}${extraClass ? ` ${extraClass}` : ''}`} style={theme.cardStyle}>
+        {children}
+      </div>
+    );
+
+    if (isMinimalGlassTheme) {
+      return <GlassOverlay variant="minimal-glass">{cardContent}</GlassOverlay>;
+    }
+
+    return cardContent;
+  };
 
   useEffect(() => {
     if (
@@ -284,7 +304,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   if (loading)
     return (
       <div
-        className={themeClasses.wrapper}
+        className={wrapperClassName}
         style={{
           color: theme.colors.textPrimary,
           ...(theme.pageStyle || {}),
@@ -292,10 +312,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       >
         {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={`${theme.styles.pageInner} relative z-10`}>
-          <div className={themeClasses.card} style={theme.cardStyle}>
-            <LoadingSpinner />
-          </div>
+        <div className={pageInnerClassName}>
+          {renderCard(<LoadingSpinner />)}
         </div>
         <div
           className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
@@ -311,7 +329,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   if (error)
     return (
       <div
-        className={themeClasses.wrapper}
+        className={wrapperClassName}
         style={{
           color: theme.colors.textPrimary,
           ...(theme.pageStyle || {}),
@@ -319,11 +337,25 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       >
         {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
         {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-        <div className={`${theme.styles.pageInner} relative z-10`}>
-          <div className={`${themeClasses.card} text-center`} style={theme.cardStyle}>
-            <h2 className="text-xl font-bold text-red-600">Hiba</h2>
-            <p className="mt-2 text-current">{error}</p>
-          </div>
+        <div className={pageInnerClassName}>
+          {renderCard(
+            <div className="text-center">
+              <h2
+                className={`text-xl font-bold text-red-600 ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+                }`}
+              >
+                Hiba
+              </h2>
+              <p
+                className={`mt-2 ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : 'text-current'
+                }`}
+              >
+                {error}
+              </p>
+            </div>
+          )}
         </div>
         <div
           className={`pointer-events-none absolute bottom-4 right-4 text-xs z-40 drop-shadow ${theme.styles.watermark || ''}`}
@@ -370,7 +402,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   return (
     <div
-      className={themeClasses.wrapper}
+      className={wrapperClassName}
       style={{
         color: theme.colors.textPrimary,
         ...(theme.pageStyle || {}),
@@ -378,16 +410,27 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     >
       {theme.styles.pageOverlay && <div className={`${theme.styles.pageOverlay} z-0`} />}
       {theme.uiTheme === 'playful_bubble' && <PlayfulBubbles />}
-      <div className={`${theme.styles.pageInner} relative z-10`}>
-        <div className={themeClasses.card} style={theme.cardStyle}>
-          <header className="text-center mb-6 mt-2 flex-shrink-0">
-            <h1 className="text-4xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-              {unit.name}
-            </h1>
-            <p className="text-lg mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-              {t.manageTitle}
-            </p>
-          </header>
+      <div className={pageInnerClassName}>
+        {renderCard(
+          <>
+            <header className="text-center mb-6 mt-2 flex-shrink-0">
+              <h1
+                className={`text-4xl font-bold ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-primary)]' : ''
+                }`}
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                {unit.name}
+              </h1>
+              <p
+                className={`text-lg mt-1 ${
+                  isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+                }`}
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                {t.manageTitle}
+              </p>
+            </header>
 
         <main className="w-full flex-1 flex flex-col gap-4 min-h-0">
           <div
@@ -572,7 +615,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             </div>
           )}
         </main>
-      </div>
+          </>
+        )}
       </div>
 
       <div
