@@ -360,7 +360,21 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     if (isDemoMode) {
-        window.location.href = window.location.pathname; // Reload without query params
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setIsDemoMode(false);
+        setCurrentUser(null);
+        setRequests([]);
+        setShifts([]);
+        setTodos([]);
+        setAdminTodos([]);
+        setAllUnits([]);
+        setAllUsers([]);
+        setPermissions({});
+        setUnitPermissions({});
+        setTimeEntries([]);
+        setFeedbackList([]);
+        setPolls([]);
+        setAppState('login');
         return;
     }
     try {
@@ -372,10 +386,8 @@ const App: React.FC = () => {
   
   const handleRegisterSuccess = () => {
     // onRegisterSuccess is called after a user is created and automatically signed in by Firebase Auth.
-    // We reload the page to re-trigger the entire app initialization.
-    // The onAuthStateChanged listener will then pick up the signed-in user and navigate to the dashboard.
-    // This also clears any URL params like ?register=... from the URL.
-    window.location.href = window.location.pathname;
+    // Clear URL params without forcing a reload; the auth listener will handle navigation.
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 
   const renderContent = () => {
@@ -440,7 +452,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-100 dark:bg-gray-900">
+    <div className="min-h-[100dvh] w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
       {renderContent()}
     </div>
   );
