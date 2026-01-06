@@ -452,10 +452,7 @@ const App: React.FC = () => {
   };
 
  return (
-  <div
-    className="min-h-[100dvh] w-full overflow-x-hidden"
-    style={{ background: 'var(--app-bg)' }}
-  >
+  <div className="min-h-[100dvh] w-full overflow-x-hidden">
     {renderContent()}
   </div>
 );
