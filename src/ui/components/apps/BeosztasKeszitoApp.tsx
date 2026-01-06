@@ -3309,6 +3309,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         }
       }
 
+      if (!dayKey && process.env.NODE_ENV !== 'production') {
+        console.debug('Skipping selection key without valid dayKey', { selectionKey });
+      }
+
       return { dataKey, dayKey, userId };
     },
     [weekDayKeySet]
@@ -3400,7 +3404,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       try {
         const { userId } = parseSelectionKey(cellKey);
         const dayKey = resolveCellDayKey(cellKey);
-        if (!dayKey || !userId) return;
+        if (!dayKey || !userId) {
+          if (isDevEnv) {
+            console.debug('Skipping cell due to missing dayKey/userId', { cellKey, dayKey });
+          }
+          return;
+        }
         if (!(canManage || currentUser.id === userId)) return;
 
         const user = userById.get(userId) || null;
@@ -4452,9 +4461,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
   };
 
-  const selectionTargets = useMemo(() => computeSelectionTargets(), [computeSelectionTargets]);
-  const targetCellsCount = selectionTargets.targetCells.length;
-
   const isSelectionActive = isSelectionMode && selectedCellKeys.size > 0;
 
   let userRowIndex = 0;
@@ -4627,12 +4633,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   disabled={
                     isToolbarDisabled ||
                     activeUnitIds.length !== 1 ||
-                    targetCellsCount === 0
+                    selectedCellKeys.size === 0
                   }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : targetCellsCount === 0
+                      : selectedCellKeys.size === 0
                         ? 'Nincs kijelölt cella a kiemeléshez'
                         : undefined
                   }
@@ -4645,12 +4651,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   disabled={
                     isToolbarDisabled ||
                     activeUnitIds.length !== 1 ||
-                    targetCellsCount === 0
+                    selectedCellKeys.size === 0
                   }
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
-                      : targetCellsCount === 0
+                      : selectedCellKeys.size === 0
                         ? 'Nincs kijelölt cella a kiemeléshez'
                         : undefined
                   }
