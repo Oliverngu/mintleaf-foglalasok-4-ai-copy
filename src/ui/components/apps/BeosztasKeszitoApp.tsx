@@ -3470,12 +3470,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const unitId = activeUnitIds[0];
       if (!unitId) return;
 
+      const selectionKeys = Array.from(selectedCellKeys);
+      if (selectionKeys.length === 0) return;
+
       const targetShifts: Shift[] = [];
       const targetCells: Array<{ dayKey: string; userId: string; user: User | null; shift: Shift | null }>
         = [];
       let skippedLegacyOrOtherUnit = 0;
 
-      selectedCellKeys.forEach(cellKey => {
+      selectionKeys.forEach(cellKey => {
         const { dayKey, userId } = parseSelectionKey(cellKey);
         if (!dayKey || !userId) return;
         if (!(canManage || currentUser.id === userId)) return;
@@ -4165,9 +4168,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             </div>
 
             <div
-              className={`overflow-hidden transition-all duration-300 ease-out ${
+              className={`w-full min-w-0 overflow-hidden transition-all duration-300 ease-out ${
                 isSelectionActive
-                  ? 'max-h-28 opacity-100'
+                  ? 'max-h-40 opacity-100'
                   : 'max-h-0 opacity-0'
               }`}
             >
@@ -4175,24 +4178,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
+                  disabled={isToolbarDisabled}
                 >
                   Kezdő idő
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
+                  disabled={isToolbarDisabled}
                 >
                   Vég idő
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={handleBulkDayOff}
+                  disabled={isToolbarDisabled}
                 >
                   Szabadnap
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={activeUnitIds.length !== 1}
+                  disabled={isToolbarDisabled || activeUnitIds.length !== 1}
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
@@ -4204,7 +4210,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={activeUnitIds.length !== 1}
+                  disabled={isToolbarDisabled || activeUnitIds.length !== 1}
                   title={
                     activeUnitIds.length !== 1
                       ? 'Csak egy egység esetén érhető el'
@@ -4217,12 +4223,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={handleBulkClearCells}
+                  disabled={isToolbarDisabled}
                 >
                   Törlés
                 </button>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setSelectedCellKeys(new Set())}
+                  disabled={isToolbarDisabled}
                 >
                   Kijelölés megszüntetése
                 </button>
