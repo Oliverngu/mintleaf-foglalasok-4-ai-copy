@@ -1698,15 +1698,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const settingsDocId = useMemo(() => {
     if (activeUnitIds.length === 0) return null;
-    return activeUnitIds.sort().join('_');
+    return activeUnitIds.slice().sort().join('_');
   }, [activeUnitIds]);
 
   const clearSelection = useCallback(() => {
     setSelectedCellKeys(new Set());
     setAnchorCellKey(null);
   }, []);
-
-  const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
 
   const toggleCellSelection = useCallback((cellKey: string) => {
     setSelectedCellKeys(prev => {
@@ -2016,6 +2014,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       ),
     [currentDate, finalWeekBlocksDays]
   );
+
+  const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
 
   const weekStartDateStr = useMemo(
     () => toDateString(weekDays[0]),
