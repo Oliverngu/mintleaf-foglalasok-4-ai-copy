@@ -9,16 +9,22 @@ interface ThemeManagerProps {
   adminConfig?: ThemeBases;
 }
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useBrandTheme, adminConfig }) => {
+const ThemeManager: React.FC<ThemeManagerProps> = ({
+  activeUnit,
+  themeMode,
+  useBrandTheme,
+  adminConfig,
+}) => {
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.add('no-transition');
 
-    // 1. Reset all relevant CSS variables to avoid stale values
+    // 1) Reset all relevant CSS variables to avoid stale values
     const resetVars = [
       '--ui-header-image',
       '--ui-sidebar-image',
       '--ui-header-blend-mode',
+
       '--color-primary',
       '--color-secondary',
       '--color-background',
@@ -31,44 +37,73 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
       '--color-text-main',
       '--color-text-secondary',
       '--color-border',
+
+      // IMPORTANT: global app background vars (body uses these)
+      '--app-bg',
+      '--app-bg-image',
+      '--app-bg-size',
+      '--app-bg-position',
+      '--app-bg-repeat',
+      '--app-bg-attachment',
     ];
     resetVars.forEach(v => root.style.removeProperty(v));
 
-    if (themeMode === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
+    // 2) Theme mode class
+    if (themeMode === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
 
     const isLight = themeMode === 'light';
     const config = isLight ? adminConfig?.light : adminConfig?.dark;
 
     const set = (k: string, v: string) => root.style.setProperty(k, v);
 
-    // 2. Base admin configuration
-    set('--color-primary', config?.primary || '#15803d');
-    set('--color-secondary', config?.secondary || '#15803d');
-    set('--color-background', config?.background || (isLight ? '#f1f5f9' : '#020617'));
-    set('--color-surface', config?.surface || (isLight ? '#ffffff' : '#1e293b'));
-    set('--color-header-bg', config?.headerBg || (isLight ? '#15803d' : '#0f172a'));
-    set('--color-sidebar-bg', config?.sidebarBg || (isLight ? '#ffffff' : '#1e293b'));
-    set('--color-sidebar-hover', config?.sidebarHover || (isLight ? '#ecfdf3' : '#334155'));
-    set('--color-accent', config?.accent || (isLight ? '#f97316' : '#22d3ee'));
-    set('--color-input-bg', config?.inputBg || (isLight ? '#ffffff' : '#0f172a'));
-    set('--color-text-main', config?.textMain || (isLight ? '#000000' : '#ffffff'));
-    set('--color-text-secondary', config?.textSecondary || (isLight ? '#64748b' : '#94a3b8'));
-    set('--color-border', config?.border || '#e2e8f0');
+    // 3) Base admin configuration
+    const basePrimary = config?.primary || '#15803d';
+    const baseSecondary = config?.secondary || '#15803d';
+    const baseBackground = config?.background || (isLight ? '#f1f5f9' : '#020617');
+    const baseSurface = config?.surface || (isLight ? '#ffffff' : '#1e293b');
+    const baseHeaderBg = config?.headerBg || (isLight ? '#15803d' : '#0f172a');
+    const baseSidebarBg = config?.sidebarBg || (isLight ? '#ffffff' : '#1e293b');
+    const baseSidebarHover = config?.sidebarHover || (isLight ? '#ecfdf3' : '#334155');
+    const baseAccent = config?.accent || (isLight ? '#f97316' : '#22d3ee');
+    const baseInputBg = config?.inputBg || (isLight ? '#ffffff' : '#0f172a');
+    const baseTextMain = config?.textMain || (isLight ? '#000000' : '#ffffff');
+    const baseTextSecondary = config?.textSecondary || (isLight ? '#64748b' : '#94a3b8');
+    const baseBorder = config?.border || '#e2e8f0';
 
+    set('--color-primary', basePrimary);
+    set('--color-secondary', baseSecondary);
+    set('--color-background', baseBackground);
+    set('--color-surface', baseSurface);
+    set('--color-header-bg', baseHeaderBg);
+    set('--color-sidebar-bg', baseSidebarBg);
+    set('--color-sidebar-hover', baseSidebarHover);
+    set('--color-accent', baseAccent);
+    set('--color-input-bg', baseInputBg);
+    set('--color-text-main', baseTextMain);
+    set('--color-text-secondary', baseTextSecondary);
+    set('--color-border', baseBorder);
+
+    // Header + sidebar images from admin config
     let headerImage = config?.headerImage ? `url('${config.headerImage}')` : 'none';
     const sidebarImage = config?.sidebarImage ? `url('${config.sidebarImage}')` : 'none';
     set('--ui-sidebar-image', sidebarImage);
 
-    // 3. Brand overrides
+    // 4) Brand overrides
+    let resolvedAppBackground = baseBackground;
+
     if (useBrandTheme && activeUnit) {
       if (activeUnit.brandColors?.primary) {
         set('--color-primary', activeUnit.brandColors.primary);
         set('--color-header-bg', activeUnit.brandColors.primary);
       }
-      if (activeUnit.brandColors?.secondary) set('--color-secondary', activeUnit.brandColors.secondary);
+      if (activeUnit.brandColors?.secondary) {
+        set('--color-secondary', activeUnit.brandColors.secondary);
+      }
       if (activeUnit.brandColors?.background) {
-        set('--color-background', activeUnit.brandColors.background);
-        set('--color-sidebar-bg', activeUnit.brandColors.background);
+        resolvedAppBackground = activeUnit.brandColors.background;
+        set('--color-background', resolvedAppBackground);
+        set('--color-sidebar-bg', resolvedAppBackground);
       }
 
       if (activeUnit.uiHeaderImageUrl) {
@@ -81,9 +116,23 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ activeUnit, themeMode, useB
     const shouldTintHeader = headerImage !== 'none';
     set('--ui-header-blend-mode', shouldTintHeader ? 'overlay' : 'normal');
 
-    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-transition')));
+    // 5) IMPORTANT: bind "global body background" to the resolved background
+    // This fixes the "background ends / white gap" issue on desktop.
+    set('--app-bg', resolvedAppBackground);
+
+    // Optional defaults (safe; only matter if you later add background images)
+    set('--app-bg-image', 'none');
+    set('--app-bg-size', 'cover');
+    set('--app-bg-position', 'center');
+    set('--app-bg-repeat', 'no-repeat');
+    set('--app-bg-attachment', 'scroll');
+
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => root.classList.remove('no-transition'))
+    );
   }, [activeUnit, themeMode, useBrandTheme, adminConfig]);
 
   return null;
 };
+
 export default ThemeManager;
