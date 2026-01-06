@@ -23,7 +23,7 @@ import ContactsApp from './apps/ContactsApp';
 import TudastarApp from './apps/TudastarApp';
 import VelemenyekApp from './apps/VelemenyekApp';
 import { BerezesemApp } from './apps/BerezesemApp';
-import AdminisztracioApp from './apps/AdminisztracioApp'; // ✅ FIX
+import AdminisztracioApp from './apps/AdminisztracioApp'; // ✅ FIX: helyes import
 import HomeDashboard from './HomeDashboard';
 import PollsApp from './polls/PollsApp';
 import ChatApp from './apps/ChatApp';
@@ -36,6 +36,7 @@ import CalendarIcon from '../../../components/icons/CalendarIcon';
 import BookingIcon from '../../../components/icons/BookingIcon';
 import ScheduleIcon from '../../../components/icons/ScheduleIcon';
 import SettingsIcon from '../../../components/icons/SettingsIcon';
+import LogoutIcon from '../../../components/icons/LogoutIcon';
 import MenuIcon from '../../../components/icons/MenuIcon';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import LoadingSpinner from '../../../components/LoadingSpinner';
@@ -136,8 +137,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
-  // ✅ User dropdown state
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
   const userWrapRef = useRef<HTMLDivElement | null>(null);
 
   // --- Accordion Menu State ---
@@ -187,12 +188,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     [activeUnitIds, allUnits]
   );
 
-  const closeAllMenus = () => {
-    setIsUserMenuOpen(false);
-    setSidebarOpen(false);
-  };
-
-  // ✅ Click-outside + ESC: zárja a user dropdownot és a sidebart
+  // ✅ Click-outside + ESC: zárja a dropdownokat
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -215,6 +211,11 @@ const Dashboard: React.FC<DashboardProps> = ({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [isUserMenuOpen]);
+
+  const closeAllMenus = () => {
+    setIsUserMenuOpen(false);
+    setSidebarOpen(false);
+  };
 
   if (!currentUser) {
     return (
@@ -279,22 +280,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     textShadow: '0 1px 3px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35)',
   };
 
-  /**
-   * ✅ UnitSelector: pill toggle list
-   * - Keskeny headerben: vízszintes scroll (overflow-x)
-   * - Szélesebb: engedheted a wrap-et (sm:flex-wrap), de nem kötelező
-   * - KATTINTÁS FIX: GlassOverlay interactive + inner pointer-events-auto
-   */
   const UnitSelector: React.FC = () => {
-    const { selectedUnits, setSelectedUnits, allUnits } = useUnitContext();
-
-    const isMultiSelect = currentUser.role === 'Admin';
-    const unitIds = currentUser.unitIds || [];
+    const { selectedUnits, setSelectedUnits, allUnits: ctxAllUnits } = useUnitContext();
 
     const userUnits = useMemo(
-      () => allUnits.filter(u => unitIds.includes(u.id)),
-      [allUnits, unitIds]
+      () => ctxAllUnits.filter(u => currentUser.unitIds?.includes(u.id)),
+      [ctxAllUnits, currentUser]
     );
+
+    const isMultiSelect = currentUser.role === 'Admin';
 
     const handleToggle = (unitId: string) => {
       if (isMultiSelect) {
@@ -333,48 +327,33 @@ const Dashboard: React.FC<DashboardProps> = ({
           className="inline-flex w-fit max-w-full"
           style={headerPillStyle}
         >
-          <div className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full" style={glassTextPrimary}>
+          <div
+            className="px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap truncate max-w-full"
+            style={glassTextPrimary}
+          >
             {userUnits[0].name}
           </div>
         </GlassOverlay>
       );
     }
 
-    // multi unit: ✅ HORIZONTAL scroll on narrow
+    // ✅ multi unit: HORIZONTAL scroll when narrow (no vertical scroll)
     return (
       <GlassOverlay
         elevation="high"
         radius={22}
-        interactive // ✅ fontos, különben a GlassOverlay réteg elnyelheti a kattintást
-        className="inline-flex max-w-full min-w-0"
-        style={{
-          ...headerPillStyle,
-          padding: 8,
-          borderRadius: 22,
-        }}
+        interactive={false}
+        className="w-full max-w-full min-w-0" // ✅ fontos
+        style={{ ...headerPillStyle, padding: 8, borderRadius: 22 }}
       >
-        {/* scroll owner */}
         <div
-          className="
-            pointer-events-auto
-            max-w-full min-w-0
-            overflow-x-auto overflow-y-hidden
-            overscroll-contain
-            pr-1
-          "
-          style={{
-            WebkitOverflowScrolling: 'touch',
-          }}
+          className="w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
-          <div
-            className="
-              flex flex-nowrap gap-2
-              sm:flex-wrap
-              w-max sm:w-auto
-            "
-          >
+          <div className="flex flex-nowrap gap-2 w-max">
             {userUnits.map(unit => {
               const isSelected = selectedUnits.includes(unit.id);
+
               return (
                 <button
                   key={unit.id}
@@ -407,20 +386,20 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   };
 
-  // ✅ UserBadge (dropdown)
+  // ✅ UserBadge dropdown panel: ugyanaz a “glass panel” mint a UnitSelector (magasságérzet + olvashatóság)
   const UserBadge: React.FC = () => {
     return (
       <div ref={userWrapRef} className="relative inline-flex">
         <GlassOverlay
           elevation="high"
-          radius={999}
+          radius={22} // ✅ közelebb a UnitSelectorhoz
           interactive
-          className="shrink-0 pointer-events-auto inline-flex w-fit max-w-full"
-          style={headerPillStyle}
+          className="shrink-0 pointer-events-auto inline-flex max-w-full"
+          style={{ ...headerPillStyle, padding: 8, borderRadius: 22 }} // ✅ magasság/érzet egységes
           onClick={() => setIsUserMenuOpen(v => !v)}
         >
-          <div className="flex items-center gap-2">
-            <div className="text-right leading-tight max-w-[160px] sm:max-w-none" style={glassTextPrimary}>
+          <div className="flex items-center gap-3">
+            <div className="text-right leading-tight max-w-[180px] sm:max-w-none" style={glassTextPrimary}>
               <div className="text-xs sm:text-sm font-semibold truncate">{currentUser.fullName}</div>
               <div className="text-[10px] sm:text-xs opacity-90 truncate">{currentUser.role}</div>
             </div>
@@ -432,7 +411,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </GlassOverlay>
 
         {isUserMenuOpen && (
-          <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,92vw)]">
+          <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(340px,92vw)]">
             <GlassOverlay elevation="high" radius={20} interactive={false} className="w-full" style={glassPanelStyle}>
               <div className="p-2">
                 <div
@@ -510,8 +489,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (permission && !hasPermission(permission)) return null;
 
     const isAppDisabled =
-      disabledAppCheck &&
-      activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
+      disabledAppCheck && activeUnitIds.some(unitId => unitPermissions[unitId]?.disabledApps?.includes(app));
     if (isAppDisabled && currentUser.role !== 'Admin') return null;
 
     const isActive = activeApp === app;
@@ -647,31 +625,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           />
         );
       case 'chat':
-        return (
-          <ChatApp
-            currentUser={currentUser}
-            allUsers={allUsers}
-            allUnits={allUnits}
-            activeUnitIds={activeUnitIds}
-          />
-        );
+        return <ChatApp currentUser={currentUser} allUsers={allUsers} allUnits={allUnits} activeUnitIds={activeUnitIds} />;
       case 'admin_todos':
-        return (
-          <AdminTodoApp
-            todos={adminTodos}
-            loading={false}
-            error={null}
-            currentUser={currentUser}
-          />
-        );
+        return <AdminTodoApp todos={adminTodos} loading={false} error={null} currentUser={currentUser} />;
       case 'elerhetosegek':
-        return (
-          <ContactsApp
-            currentUser={currentUser}
-            canManage={hasPermission('canManageContacts')}
-            canViewAll={hasPermission('canViewAllContacts')}
-          />
-        );
+        return <ContactsApp currentUser={currentUser} canManage={hasPermission('canManageContacts')} canViewAll={hasPermission('canViewAllContacts')} />;
       case 'tudastar':
         return (
           <TudastarApp
@@ -700,32 +658,11 @@ const Dashboard: React.FC<DashboardProps> = ({
         );
       }
       case 'velemenyek':
-        return (
-          <VelemenyekApp
-            currentUser={currentUser}
-            allUnits={allUnits}
-            activeUnitIds={activeUnitIds}
-            feedbackList={feedbackList}
-          />
-        );
+        return <VelemenyekApp currentUser={currentUser} allUnits={allUnits} activeUnitIds={activeUnitIds} feedbackList={feedbackList} />;
       case 'berezesem':
-        return (
-          <BerezesemApp
-            currentUser={currentUser}
-            schedule={shifts}
-            activeUnitIds={activeUnitIds}
-            timeEntries={timeEntries}
-            allUnits={allUnits}
-          />
-        );
+        return <BerezesemApp currentUser={currentUser} schedule={shifts} activeUnitIds={activeUnitIds} timeEntries={timeEntries} allUnits={allUnits} />;
       case 'szavazasok':
-        return (
-          <PollsApp
-            currentUser={currentUser}
-            canCreatePolls={hasPermission('canCreatePolls')}
-            polls={polls}
-          />
-        );
+        return <PollsApp currentUser={currentUser} canCreatePolls={hasPermission('canCreatePolls')} polls={polls} />;
       case 'unit_settings':
         if (!hasPermission('canManageAdminPage')) return <AccessDenied />;
         return (
@@ -771,11 +708,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     >
       {/* Backdrop for sidebar */}
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden="true"
-        />
+        <div className="fixed inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
       )}
 
       {/* Sidebar */}
@@ -835,25 +768,51 @@ const Dashboard: React.FC<DashboardProps> = ({
             <NavItem app="adminisztracio" icon={AdminIcon} label="Adminisztráció" permission="canManageAdminPage" disabledAppCheck={false} />
           </nav>
 
-          {/* ✅ Settings gomb fix */}
-          <div className="p-3 border-t space-y-1 flex-shrink-0">
-            <button
-              onClick={() => {
-                setActiveApp('settings');
-                closeAllMenus();
-              }}
-              className={`w-full flex items-center justify-center px-3 py-2.5 rounded-lg transition-colors duration-200 ${
-                activeApp === 'settings' ? 'shadow-inner' : 'hover:bg-[var(--color-sidebar-hover)]'
-              }`}
-              style={{
-                backgroundColor: activeApp === 'settings' ? 'var(--color-secondary)' : 'transparent',
-                color: activeApp === 'settings' ? 'var(--color-text-on-primary)' : 'var(--color-text-main)',
-              }}
-              title="Beállítások"
-              type="button"
+          {/* ✅ Bottom actions: Settings + Logout ICON vissza (Glass panel: interactive=false, ikonok kattinthatók) */}
+          <div className="p-3 border-t flex-shrink-0">
+            <GlassOverlay
+              elevation="high"
+              radius={22}
+              interactive={false} // ✅ kérésed szerint
+              className="w-full"
+              style={{ ...headerPillStyle, padding: 8, borderRadius: 22 }}
             >
-              <SettingsIcon className="h-6 w-6" />
-            </button>
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveApp('settings');
+                    closeAllMenus();
+                  }}
+                  className="p-2 rounded-xl pointer-events-auto"
+                  style={{
+                    background: 'rgba(255,255,255,0.14)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    color: 'rgba(255,255,255,0.96)',
+                  }}
+                  title="Beállítások"
+                >
+                  <SettingsIcon className="h-6 w-6" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeAllMenus();
+                    onLogout();
+                  }}
+                  className="p-2 rounded-xl pointer-events-auto"
+                  style={{
+                    background: 'rgba(255,255,255,0.14)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    color: 'rgba(255,255,255,0.96)',
+                  }}
+                  title="Kijelentkezés"
+                >
+                  <LogoutIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </GlassOverlay>
           </div>
 
           <div className="p-2 text-center text-gray-400 text-xs">Beta version by Oliver Nguyen</div>
@@ -873,6 +832,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             backgroundPosition: 'center',
           }}
         >
+          {/* grid middle cell MUST allow shrink */}
           <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 w-full min-w-0">
             <button
               onClick={() => {
@@ -885,7 +845,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               <MenuIcon />
             </button>
 
-            <div className="min-w-0">
+            {/* ✅ allow horizontal scroll to be visible inside */}
+            <div className="min-w-0 w-full">
               <UnitSelector />
             </div>
 
