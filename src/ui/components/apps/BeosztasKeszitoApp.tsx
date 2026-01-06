@@ -3730,16 +3730,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       for (const shift of targetShifts) {
         const shiftRef = doc(db, 'shifts', shift.id);
+        const ensuredDayKey =
+          shift.dayKey || (shift.start ? toDateString(shift.start.toDate()) : undefined);
+
         if (shouldHighlight) {
-          batch.update(shiftRef, {
+          const updatePayload: Partial<Shift> = {
             isHighlighted: true,
-          });
+            status: viewMode,
+          };
+          if (ensuredDayKey) {
+            updatePayload.dayKey = ensuredDayKey;
+          }
+          batch.update(shiftRef, updatePayload);
         } else if (isHighlightOnlyShift(shift)) {
           batch.delete(shiftRef);
         } else {
-          batch.update(shiftRef, {
+          const updatePayload: Partial<Shift> = {
             isHighlighted: false,
-          });
+            status: viewMode,
+          };
+          if (ensuredDayKey) {
+            updatePayload.dayKey = ensuredDayKey;
+          }
+          batch.update(shiftRef, updatePayload);
         }
         writeCount += 1;
         if (writeCount >= 450) {
@@ -3750,7 +3763,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       }
 
       for (const cell of targetCells) {
-        if (cell.shift || !shouldHighlight || !cell.user) continue;
+        if (cell.shift || !shouldHighlight || !cell.user || !cell.dayKey) continue;
 
         const highlightDocId = buildHighlightShiftId(
           unitId,
