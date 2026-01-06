@@ -614,7 +614,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden overflow-x-hidden min-h-screen w-full max-w-[100vw] justify-start`,
       card:
-        `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4 overflow-hidden`,
+        `${theme.styles.card} flex flex-col w-full max-w-full md:max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 gap-4`,
       header: 'flex-shrink-0 flex flex-col items-center gap-2 text-center',
       content: 'flex-1 min-h-0 overflow-hidden flex flex-col gap-4',
       contentScrollable: 'flex-1 overflow-x-hidden pr-1 px-1 overscroll-contain scroll-smooth',

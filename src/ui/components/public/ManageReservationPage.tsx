@@ -263,7 +263,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const themeClasses = useMemo(
     () => ({
       wrapper: `${theme.styles.page} relative overflow-hidden justify-start`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4 overflow-hidden`,
+      card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4`,
       primaryButton: theme.styles.primaryButton,
       secondaryButton: theme.styles.secondaryButton,
       outlineButton: theme.styles.outlineButton,
