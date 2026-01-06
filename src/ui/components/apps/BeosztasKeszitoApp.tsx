@@ -2239,15 +2239,40 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => unsub();
   }, [activeUnitIds, weekDays, canManage]);
 
-  const activeShifts = useMemo(
-    () =>
-      schedule.filter(
-        s =>
-          (s.status || 'draft') === viewMode &&
-          (!s.unitId || activeUnitIds.includes(s.unitId))
-      ),
-    [schedule, viewMode, activeUnitIds]
-  );
+  const isDevEnv = process.env.NODE_ENV !== 'production';
+
+  const activeShifts = useMemo(() => {
+    const filtered = schedule.filter(s => {
+      const statusMatch = (s.status || 'draft') === viewMode;
+      const unitMatch = !s.unitId || activeUnitIds.includes(s.unitId);
+      const hasContent =
+        !!s.start ||
+        !!s.isDayOff ||
+        (s.note ?? '') !== '' ||
+        s.isHighlighted === true;
+      return statusMatch && unitMatch && hasContent;
+    });
+
+    if (isDevEnv && filtered.length) {
+      const highlightOnly = filtered.filter(
+        shift =>
+          !shift.start &&
+          !shift.end &&
+          !shift.isDayOff &&
+          (shift.note ?? '') === '' &&
+          !!shift.dayKey
+      );
+      if (highlightOnly.length > 0) {
+        console.debug('activeShifts include highlight-only entries', {
+          total: filtered.length,
+          highlightOnlyCount: highlightOnly.length,
+          sample: highlightOnly.slice(0, 10).map(shift => shift.id),
+        });
+      }
+    }
+
+    return filtered;
+  }, [activeUnitIds, isDevEnv, schedule, viewMode]);
 
   const getUnitDaySetting = useCallback(
     (shift: Shift, dayIndex: number): DailySetting | null => {
