@@ -444,189 +444,192 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               </p>
             </header>
 
-        <main className="w-full flex-1 flex flex-col gap-4 min-h-0">
-          <div
-            className="flex justify-between items-center mb-2 pb-4 border-b"
-            style={{ borderColor: `${theme.colors.surface}60` }}
-          >
-            <h2 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              {t.reservationDetails}
-            </h2>
-            {getStatusChip(booking.status)}
-          </div>
-
-          <div className="space-y-3 flex-1 pr-1" style={{ color: 'var(--color-text-primary)' }}>
-            <p>
-              <strong>{t.referenceCode}:</strong>{' '}
-              <span
-                className={`font-mono px-2 py-1 text-sm ${theme.radiusClass}`}
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  color: theme.colors.textPrimary,
-                  border: `1px solid ${theme.colors.surface}`,
-                }}
-              >
-                {booking.referenceCode?.substring(0, 8).toUpperCase()}
-              </span>
-            </p>
-            <p>
-              <strong>{t.name}:</strong> {booking.name}
-            </p>
-            <p>
-              <strong>{t.headcount}:</strong> {booking.headcount}
-            </p>
-            <p>
-              <strong>{t.date}:</strong>{' '}
-              {booking.startTime
-                .toDate()
-                .toLocaleDateString(locale, {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-            </p>
-            <p>
-              <strong>{t.startTime}:</strong>{' '}
-              {booking.startTime
-                .toDate()
-                .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
-            </p>
-            <p>
-              <strong>{t.email}:</strong> {booking.contact?.email}
-            </p>
-            <p>
-              <strong>{t.phone}:</strong>{' '}
-              {booking.contact?.phoneE164
-                ? maskPhone(booking.contact.phoneE164)
-                : 'N/A'}
-            </p>
-          </div>
-
-          {booking.status === 'pending' && (
-            <div
-              className={`mt-6 p-4 ${theme.radiusClass} border`}
-              style={{
-                backgroundColor: theme.colors.background,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.surface,
-              }}
-            >
-              <p className="font-semibold" style={{ color: theme.colors.textPrimary }}>
-                {t.pendingApproval}
-              </p>
-              <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
-                {t.pendingApprovalHint}
-              </p>
-            </div>
-          )}
-
-          {booking.status === 'pending' &&
-            adminToken &&
-            booking.adminActionToken !== adminToken && (
+            <main className="w-full flex-1 flex flex-col gap-4 min-h-0">
               <div
-                className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
-                style={{
-                  backgroundColor: `${theme.colors.danger}10`,
-                  color: theme.colors.danger,
-                  borderColor: `${theme.colors.danger}50`,
-                }}
+                className="flex justify-between items-center mb-2 pb-4 border-b"
+                style={{ borderColor: `${theme.colors.surface}60` }}
               >
-                {t.invalidAdminToken}
+                <h2 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  {t.reservationDetails}
+                </h2>
+                {getStatusChip(booking.status)}
               </div>
-            )}
 
-          {booking.status === 'pending' &&
-            adminToken &&
-            booking.adminActionToken === adminToken && (
               <div
-                className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
-                style={{
-                  backgroundColor: `${theme.colors.accent}10`,
-                  color: theme.colors.textPrimary,
-                  borderColor: `${theme.colors.accent}40`,
-                }}
+                className="space-y-3 flex-1 pr-1 overflow-y-auto"
+                style={{ color: 'var(--color-text-primary)' }}
               >
-                <p className="font-semibold">{t.adminActionTitle}</p>
-                {actionMessage && (
-                  <p
-                    className={`text-sm p-2 ${theme.radiusClass} border`}
+                <p>
+                  <strong>{t.referenceCode}:</strong>{' '}
+                  <span
+                    className={`font-mono px-2 py-1 text-sm ${theme.radiusClass}`}
                     style={{
-                      color: theme.colors.primary,
                       backgroundColor: theme.colors.surface,
-                      borderColor: `${theme.colors.primary}40`,
+                      color: theme.colors.textPrimary,
+                      border: `1px solid ${theme.colors.surface}`,
                     }}
                   >
-                    {actionMessage}
+                    {booking.referenceCode?.substring(0, 8).toUpperCase()}
+                  </span>
+                </p>
+                <p>
+                  <strong>{t.name}:</strong> {booking.name}
+                </p>
+                <p>
+                  <strong>{t.headcount}:</strong> {booking.headcount}
+                </p>
+                <p>
+                  <strong>{t.date}:</strong>{' '}
+                  {booking.startTime
+                    .toDate()
+                    .toLocaleDateString(locale, {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                </p>
+                <p>
+                  <strong>{t.startTime}:</strong>{' '}
+                  {booking.startTime
+                    .toDate()
+                    .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                <p>
+                  <strong>{t.email}:</strong> {booking.contact?.email}
+                </p>
+                <p>
+                  <strong>{t.phone}:</strong>{' '}
+                  {booking.contact?.phoneE164
+                    ? maskPhone(booking.contact.phoneE164)
+                    : 'N/A'}
+                </p>
+              </div>
+
+              {booking.status === 'pending' && (
+                <div
+                  className={`mt-6 p-4 ${theme.radiusClass} border`}
+                  style={{
+                    backgroundColor: theme.colors.background,
+                    color: theme.colors.textPrimary,
+                    borderColor: theme.colors.surface,
+                  }}
+                >
+                  <p className="font-semibold" style={{ color: theme.colors.textPrimary }}>
+                    {t.pendingApproval}
                   </p>
-                )}
-                {actionError && (
-                  <p
-                    className={`text-sm p-2 ${theme.radiusClass} border`}
+                  <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
+                    {t.pendingApprovalHint}
+                  </p>
+                </div>
+              )}
+
+              {booking.status === 'pending' &&
+                adminToken &&
+                booking.adminActionToken !== adminToken && (
+                  <div
+                    className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
                     style={{
+                      backgroundColor: `${theme.colors.danger}10`,
                       color: theme.colors.danger,
-                      backgroundColor: theme.colors.surface,
-                      borderColor: `${theme.colors.danger}40`,
+                      borderColor: `${theme.colors.danger}50`,
                     }}
                   >
-                    {actionError}
-                  </p>
-                )}
-                {!actionMessage && (
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      onClick={() => handleAdminDecision('approve')}
-                      className={`${themeClasses.primaryButton} flex-1`}
-                      style={{ backgroundColor: theme.colors.primary }}
-                      disabled={isProcessingAction}
-                    >
-                      {t.adminApprove}
-                    </button>
-                    <button
-                      onClick={() => handleAdminDecision('reject')}
-                      className={`${themeClasses.primaryButton} flex-1`}
-                      style={{ backgroundColor: theme.colors.danger }}
-                      disabled={isProcessingAction}
-                    >
-                      {t.adminReject}
-                    </button>
+                    {t.invalidAdminToken}
                   </div>
                 )}
-              </div>
-            )}
 
-          {booking.status !== 'cancelled' ? (
-            <div
-              className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4"
-              style={{ borderColor: `${theme.colors.surface}60` }}
-            >
-              <button
-                disabled
-                className={`${themeClasses.secondaryButton} w-full cursor-not-allowed`}
-                style={{
-                  backgroundColor: theme.colors.surface,
-                  color: theme.colors.textSecondary,
-                  opacity: 0.6,
-                }}
-              >
-                {t.modifyReservation}
-              </button>
-              <button
-                onClick={() => setIsCancelModalOpen(true)}
-                className={`${themeClasses.primaryButton} w-full`}
-                style={{ backgroundColor: theme.colors.danger }}
-              >
-                {t.cancelReservation}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-8 pt-6 border-t text-center">
-              <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
-                {t.reservationCancelledSuccess}
-              </p>
-            </div>
-          )}
-        </main>
+              {booking.status === 'pending' &&
+                adminToken &&
+                booking.adminActionToken === adminToken && (
+                  <div
+                    className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
+                    style={{
+                      backgroundColor: `${theme.colors.accent}10`,
+                      color: theme.colors.textPrimary,
+                      borderColor: `${theme.colors.accent}40`,
+                    }}
+                  >
+                    <p className="font-semibold">{t.adminActionTitle}</p>
+                    {actionMessage && (
+                      <p
+                        className={`text-sm p-2 ${theme.radiusClass} border`}
+                        style={{
+                          color: theme.colors.primary,
+                          backgroundColor: theme.colors.surface,
+                          borderColor: `${theme.colors.primary}40`,
+                        }}
+                      >
+                        {actionMessage}
+                      </p>
+                    )}
+                    {actionError && (
+                      <p
+                        className={`text-sm p-2 ${theme.radiusClass} border`}
+                        style={{
+                          color: theme.colors.danger,
+                          backgroundColor: theme.colors.surface,
+                          borderColor: `${theme.colors.danger}40`,
+                        }}
+                      >
+                        {actionError}
+                      </p>
+                    )}
+                    {!actionMessage && (
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          onClick={() => handleAdminDecision('approve')}
+                          className={`${themeClasses.primaryButton} flex-1`}
+                          style={{ backgroundColor: theme.colors.primary }}
+                          disabled={isProcessingAction}
+                        >
+                          {t.adminApprove}
+                        </button>
+                        <button
+                          onClick={() => handleAdminDecision('reject')}
+                          className={`${themeClasses.primaryButton} flex-1`}
+                          style={{ backgroundColor: theme.colors.danger }}
+                          disabled={isProcessingAction}
+                        >
+                          {t.adminReject}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {booking.status !== 'cancelled' ? (
+                <div
+                  className="mt-8 pt-6 border-t flex flex-col sm:flex-row gap-4"
+                  style={{ borderColor: `${theme.colors.surface}60` }}
+                >
+                  <button
+                    disabled
+                    className={`${themeClasses.secondaryButton} w-full cursor-not-allowed`}
+                    style={{
+                      backgroundColor: theme.colors.surface,
+                      color: theme.colors.textSecondary,
+                      opacity: 0.6,
+                    }}
+                  >
+                    {t.modifyReservation}
+                  </button>
+                  <button
+                    onClick={() => setIsCancelModalOpen(true)}
+                    className={`${themeClasses.primaryButton} w-full`}
+                    style={{ backgroundColor: theme.colors.danger }}
+                  >
+                    {t.cancelReservation}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-8 pt-6 border-t text-center">
+                  <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
+                    {t.reservationCancelledSuccess}
+                  </p>
+                </div>
+              )}
+            </main>
           </>
         )}
       </div>
