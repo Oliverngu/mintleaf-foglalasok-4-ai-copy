@@ -2017,6 +2017,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [weekDays]
   );
 
+  useEffect(() => {
+    clearSelection();
+  }, [clearSelection, weekStartDateStr]);
+
   const openingSettings = useMemo(
     () =>
       weekSettings ||
@@ -3285,7 +3289,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       let dayKey = '';
 
       if (dataKey.includes('|')) {
-        const [maybeUserId, maybeDayKey] = dataKey.split('|');
+        const lastSep = dataKey.lastIndexOf('|');
+        const maybeUserId = dataKey.slice(0, lastSep);
+        const maybeDayKey = dataKey.slice(lastSep + 1);
         userId = maybeUserId;
         if (dayKeyPattern.test(maybeDayKey) && weekDayKeySet.has(maybeDayKey)) {
           dayKey = maybeDayKey;
@@ -4588,8 +4594,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   : 'max-h-0 opacity-0'
               }`}
             >
-              <div className="mt-2 text-xs text-slate-700">
-                Kijelölve: {selectedCellKeys.size} cella | Kiemelhető műszak: {targetShiftsCount}
+              <div className="mt-2 text-xs text-slate-700 ml-[6px]">
+                Kijelölve: {selectedCellKeys.size} cella
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <button
