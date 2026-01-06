@@ -261,15 +261,15 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const t = translations[locale];
   const themeClasses = useMemo(
-    () => ({
-      wrapper: `${theme.styles.page} relative overflow-hidden justify-start`,
-      card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4`,
-      primaryButton: theme.styles.primaryButton,
-      secondaryButton: theme.styles.secondaryButton,
-      outlineButton: theme.styles.outlineButton,
-    }),
-    [theme]
-  );
+  () => ({
+    wrapper: `${theme.styles.page} relative overflow-x-hidden overflow-y-auto min-h-[100dvh] w-full flex flex-col justify-start`,
+    card: `${theme.styles.card} flex flex-col w-full mx-auto p-6 md:p-8 gap-4 min-h-0 max-h-[calc(100dvh-4rem)] overflow-hidden`,
+    primaryButton: theme.styles.primaryButton,
+    secondaryButton: theme.styles.secondaryButton,
+    outlineButton: theme.styles.outlineButton,
+  }),
+  [theme]
+);
 
   const sanitizedWrapperClassName = (className: string) =>
     className
@@ -282,9 +282,9 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       .replace(/\s+/g, ' ')
       .trim();
 
-  const wrapperClassName = `${sanitizedWrapperClassName(
-    `${themeClasses.wrapper} ${isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''}`
-  )} py-8 px-4`;
+  const wrapperClassName = `${themeClasses.wrapper} ${
+  isMinimalGlassTheme ? 'bg-gray-200 dark:bg-gray-800' : ''
+} py-8 px-4`;
   const pageInnerClassName = `${theme.styles.pageInner} relative z-10 justify-start`;
 
   const renderCard = (children: React.ReactNode, extraClass?: string) => {
@@ -445,7 +445,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               </p>
             </header>
 
-            <main className="w-full flex-1 flex flex-col gap-4 min-h-0">
+            <main className="w-full flex-1 min-h-0 overflow-hidden flex flex-col gap-4">
               <div
                 className="flex justify-between items-center mb-2 pb-4 border-b"
                 style={{ borderColor: `${theme.colors.surface}60` }}
