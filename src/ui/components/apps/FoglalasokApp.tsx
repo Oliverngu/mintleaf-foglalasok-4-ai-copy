@@ -470,8 +470,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       unitId,
       type,
       createdAt: serverTimestamp(),
-      createdByUserId: currentUser.id ?? null,
-      createdByName: currentUser.displayName ?? currentUser.name ?? null,
+      createdByUserId: currentUser.id,
+      createdByName: currentUser.name,
       source: 'internal',
       message,
     });

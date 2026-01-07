@@ -286,7 +286,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         unitId: unit.id,
         type: status === 'confirmed' ? 'updated' : 'cancelled',
         createdAt: serverTimestamp(),
-        createdByUserId: null,
         createdByName: 'Email jóváhagyás',
         source: 'internal',
         message:
@@ -483,7 +482,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             unitId: unit.id,
             type: 'cancelled',
             createdAt: serverTimestamp(),
-            createdByUserId: null,
             createdByName: booking.name,
             source: 'guest',
             message: 'Vendég lemondta a foglalást a vendégportálon.',

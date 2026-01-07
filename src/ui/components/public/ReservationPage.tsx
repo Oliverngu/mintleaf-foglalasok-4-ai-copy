@@ -166,7 +166,6 @@ const writeGuestLog = async (
       type,
       createdAt: serverTimestamp(),
       source: 'guest',
-      createdByUserId: null,
       createdByName: booking.name,
       message,
     });
