@@ -287,7 +287,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         type: status === 'confirmed' ? 'updated' : 'cancelled',
         createdAt: serverTimestamp(),
         createdByName: 'Email jóváhagyás',
-        source: 'internal',
+        source: 'system',
         message:
           status === 'confirmed'
             ? 'Foglalás jóváhagyva e-mailből'

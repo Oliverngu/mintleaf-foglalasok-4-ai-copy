@@ -471,7 +471,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       type,
       createdAt: serverTimestamp(),
       createdByUserId: currentUser.id,
-      createdByName: currentUser.name,
+      createdByName: currentUser.displayName ?? currentUser.name ?? 'Ismeretlen felhasználó',
       source: 'internal',
       message,
     });
