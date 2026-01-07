@@ -10,7 +10,7 @@ import TrashIcon from '../../../../components/icons/TrashIcon';
 import PencilIcon from '../../../../components/icons/PencilIcon';
 import ColorPicker from '../common/ColorPicker';
 import { buildReservationTheme, defaultThemeSettings } from '../../../core/ui/reservationTheme';
-import { overrideDailyCapacity } from '../../../core/services/reservationCapacityService';
+import { overrideDailyCapacity } from '../../../core/services/adminCapacityApiService';
 
 interface ReservationSettingsFormProps {
     unitId: string;
@@ -368,8 +368,7 @@ const GeneralSettingsTab: FC<{
                                 const result = await overrideDailyCapacity(
                                     unitId,
                                     overrideDate,
-                                    parsedLimit,
-                                    { id: currentUser.id, name: currentUser.name }
+                                    parsedLimit
                                 );
                                 if (result.status === 'OVERBOOKED') {
                                     setOverrideStatus('Figyelem: a napi foglalások száma meghaladja az új limitet.');

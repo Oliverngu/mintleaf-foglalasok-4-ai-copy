@@ -480,9 +480,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       const payload = await response.json();
       const referenceCode = payload.bookingId || payload.id;
+      const manageToken = payload.manageToken as string | undefined;
       setSubmittedData({
         ...baseReservation,
         referenceCode,
+        manageToken,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         date: selectedDate,
@@ -1222,7 +1224,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
     if (!submittedData)
       return { googleLink: '#', icsLink: '#', manageLink: '#' };
 
-    const { startTime, endTime, name, referenceCode } = submittedData;
+    const { startTime, endTime, name, referenceCode, manageToken } = submittedData;
     const startDate = startTime.toDate();
     const endDate = endTime.toDate();
 
@@ -1255,8 +1257,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
     )}`;
 
     const mLinkParams = new URLSearchParams({
-      token: referenceCode,
+      reservationId: referenceCode,
       unitId: unit.id,
+      token: manageToken || '',
     });
     const mLink = `${window.location.origin}/manage?${mLinkParams.toString()}`;
 

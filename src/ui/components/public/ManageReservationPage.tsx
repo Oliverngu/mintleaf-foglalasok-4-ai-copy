@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
@@ -16,16 +16,6 @@ const FUNCTIONS_BASE_URL =
   import.meta.env.VITE_FUNCTIONS_BASE_URL ||
   'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
 
-const toDateKey = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const getCapacityRef = (unitId: string, dateKey: string) =>
-  doc(db, 'units', unitId, 'reservation_capacity', dateKey);
-
 const PlayfulBubbles = () => (
   <>
     <div className="pointer-events-none absolute w-64 h-64 bg-white/40 blur-3xl rounded-full -top-10 -left-10" />
@@ -36,13 +26,15 @@ const PlayfulBubbles = () => (
 
 interface ManageReservationPageProps {
   unitId: string;
-  token: string;
+  reservationId: string;
+  manageToken: string;
   allUnits: Unit[];
 }
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   unitId,
-  token,
+  reservationId,
+  manageToken,
   allUnits,
 }) => {
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -68,6 +60,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   );
 
   const isMinimalGlassTheme = settings?.theme?.id === 'minimal_glass';
+  const t = translations[locale];
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -138,14 +131,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const isAdminTokenMatch = (
     bookingRecord: Booking | null,
-    tokenValue: string | null,
     tokenHash: string | null
   ) => {
-    if (!bookingRecord || !tokenValue) return false;
-    if (bookingRecord.adminActionTokenHash) {
-      return !!tokenHash && bookingRecord.adminActionTokenHash === tokenHash;
-    }
-    return bookingRecord.adminActionToken === tokenValue;
+    if (!bookingRecord) return false;
+    return !!tokenHash && bookingRecord.adminActionTokenHash === tokenHash;
   };
 
   const isAdminTokenExpired = (bookingRecord: Booking | null) => {
@@ -160,44 +149,24 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const doesAdminTokenMatchDoc = (
     reservationData: Booking,
-    tokenValue: string,
     tokenHash: string | null
   ) => {
-    if (reservationData.adminActionTokenHash) {
-      return !!tokenHash && reservationData.adminActionTokenHash === tokenHash;
-    }
-    return reservationData.adminActionToken === tokenValue;
+    return !!tokenHash && reservationData.adminActionTokenHash === tokenHash;
   };
 
   const isAdminTokenUsed = (bookingRecord: Booking | null) =>
     !!bookingRecord?.adminActionUsedAt;
 
-  const isAdminTokenValid = isAdminTokenMatch(booking, adminToken, hashedAdminToken);
+  const isAdminTokenValid = isAdminTokenMatch(booking, hashedAdminToken);
   const isAdminTokenInvalid =
     !!adminToken &&
     (!isAdminTokenValid || isAdminTokenExpired(booking) || isAdminTokenUsed(booking));
-
-  const buildCapacityUpdate = (
-    dateKey: string,
-    nextCount: number,
-    limit?: number
-  ) => {
-    const update: Record<string, any> = {
-      date: dateKey,
-      count: nextCount,
-      updatedAt: serverTimestamp(),
-    };
-    if (typeof limit === 'number') {
-      update.limit = limit;
-    }
-    return update;
-  };
 
   useEffect(() => {
     const fetchBooking = async () => {
       setLoading(true);
       try {
-        const bookingRef = doc(db, 'units', unitId, 'reservations', token);
+        const bookingRef = doc(db, 'units', unitId, 'reservations', reservationId);
         const bookingSnap = await getDoc(bookingRef);
 
         if (!bookingSnap.exists()) {
@@ -227,7 +196,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       }
     };
 
-    if (unitId && token) {
+    if (unitId && reservationId) {
       fetchBooking();
     } else {
       if (!unitId) {
@@ -236,12 +205,12 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         );
       } else {
         setError(
-          'Hiányzik a foglalási azonosító. Kérjük, használd a teljes foglalási linket.'
+          t.invalidManageLink
         );
       }
       setLoading(false);
     }
-  }, [token, unitId]);
+  }, [reservationId, unitId, t.invalidManageLink]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -322,7 +291,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         if (isAdminTokenExpiredDoc(reservationData)) {
           throw new Error('ADMIN_TOKEN_EXPIRED');
         }
-        if (!doesAdminTokenMatchDoc(reservationData, adminToken, hashedAdminToken)) {
+        if (!doesAdminTokenMatchDoc(reservationData, hashedAdminToken)) {
           throw new Error('ADMIN_TOKEN_INVALID');
         }
 
@@ -335,39 +304,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
         if (nextStatus === 'cancelled') {
           update.cancelledBy = 'admin';
-          if (
-            reservationData.status !== 'cancelled' &&
-            reservationData.startTime &&
-            reservationData.headcount > 0
-          ) {
-            const dateKey = toDateKey(reservationData.startTime.toDate());
-            const capacityRef = getCapacityRef(unit.id, dateKey);
-            const capacitySnap = await transaction.get(capacityRef);
-            const currentCount = capacitySnap.exists()
-              ? (capacitySnap.data().count as number) || 0
-              : 0;
-            const nextCount = Math.max(0, currentCount - reservationData.headcount);
-            const capacityExists = capacitySnap.exists();
-            const limitFromDoc = capacityExists
-              ? (capacitySnap.data().limit as number | undefined)
-              : undefined;
-            const fallbackLimit =
-              settings?.dailyCapacity && settings.dailyCapacity > 0
-                ? settings.dailyCapacity
-                : undefined;
-            const shouldWriteLimit =
-              (!capacityExists || limitFromDoc == null) &&
-              typeof fallbackLimit === 'number';
-            transaction.set(
-              capacityRef,
-              buildCapacityUpdate(
-                dateKey,
-                nextCount,
-                shouldWriteLimit ? fallbackLimit : undefined
-              ),
-              { merge: true }
-            );
-          }
         }
 
         transaction.update(reservationRef, update);
@@ -402,6 +338,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const handleCancelReservation = async () => {
     if (!booking || !unit) return;
+    if (!manageToken) {
+      setError(t.invalidManageLink);
+      return;
+    }
     try {
       const response = await fetch(
         `${FUNCTIONS_BASE_URL}/guestUpdateReservation`,
@@ -413,6 +353,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           body: JSON.stringify({
             unitId: unit.id,
             reservationId: booking.id,
+            manageToken,
             action: 'cancel',
             reason: '',
           }),
@@ -420,6 +361,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
 
       if (!response.ok) {
+        if (response.status === 403 || response.status === 404) {
+          setError(t.invalidManageLink);
+          return;
+        }
         throw new Error('CANCEL_FAILED');
       }
 
@@ -431,11 +376,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       setIsCancelModalOpen(false);
     } catch (err) {
       console.error('Error cancelling reservation:', err);
-      setError('Hiba a lemondás során.');
+      setError(t.cancelFailed);
     }
   };
 
-  const t = translations[locale];
   const baseButtonClasses = useMemo(
     () => ({
       primary: theme.styles.primaryButton,

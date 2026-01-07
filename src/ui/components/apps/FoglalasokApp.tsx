@@ -21,7 +21,13 @@ import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
-type BookingLogType = 'created' | 'cancelled' | 'updated' | 'guest_created' | 'guest_cancelled';
+type BookingLogType =
+  | 'created'
+  | 'cancelled'
+  | 'updated'
+  | 'guest_created'
+  | 'guest_cancelled'
+  | 'capacity_override';
 
 interface BookingLog {
   id: string;
@@ -236,6 +242,9 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
       // zöld – vendég foglalta
       return 'bg-green-500';
     }
+    if (log.type === 'capacity_override') {
+      return 'bg-blue-500';
+    }
     // kék – admin / belső
     return 'bg-blue-500';
   };
@@ -266,6 +275,12 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
 
           const dotClass = getDotClass(log);
 
+          const message =
+            log.message ||
+            (log.type === 'capacity_override'
+              ? 'Napi limit módosítva.'
+              : 'Ismeretlen naplóbejegyzés');
+
           return (
             <div
               key={log.id}
@@ -277,7 +292,7 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
                     className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`}
                   />
                   <span className="font-medium text-[var(--color-text-main)]">
-                    {log.message}
+                    {message}
                   </span>
                 </div>
                 <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
@@ -437,51 +452,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     type: BookingLogType,
     extraMessage?: string
   ) => {
-    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
-
-    let baseMessage = '';
-    const dateStr = booking.startTime
-      ? booking.startTime
-          .toDate()
-          .toLocaleString('hu-HU', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-      : '';
-
-    switch (type) {
-      case 'created':
-        baseMessage = `Új foglalás létrehozva: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
-        break;
-      case 'cancelled':
-        baseMessage = `Foglalás lemondva/törölve: ${booking.name} (${dateStr})`;
-        break;
-      case 'updated':
-        baseMessage = `Foglalás módosítva: ${booking.name}`;
-        break;
-      case 'guest_created':
-        baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
-        break;
-      case 'guest_cancelled':
-        baseMessage = `Vendég lemondta a foglalást: ${booking.name} (${dateStr})`;
-        break;
-    }
-
-    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
-
-    await addDoc(logsRef, {
-      bookingId: booking.id,
-      unitId,
-      type,
-      createdAt: serverTimestamp(),
-      createdByUserId: currentUser.id,
-      createdByName: currentUser.displayName ?? currentUser.name ?? 'Ismeretlen felhasználó',
-      source: 'internal',
-      message,
-    });
+    void unitId;
+    void booking;
+    void type;
+    void extraMessage;
   };
 
   const handleAddBooking = async (bookingData: Omit<Booking, 'id'>) => {

@@ -1,7 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { onRequest } from "firebase-functions/v2/https";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
@@ -30,6 +30,11 @@ const generateAdminActionToken = () =>
 const hashAdminActionToken = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
+const generateManageToken = () => randomBytes(24).toString("base64url");
+
+const hashManageToken = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
 export const guestUpdateReservation = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
@@ -41,35 +46,17 @@ export const guestUpdateReservation = onRequest(
 
       const { unitId, manageToken, reservationId, action, reason } = req.body || {};
 
-      if (!unitId || !action || (!manageToken && !reservationId)) {
-        res.status(400).json({ error: 'unitId, action és token kötelező' });
+      if (!unitId || !action || !manageToken || !reservationId) {
+        res.status(400).json({ error: 'unitId, reservationId, action és token kötelező' });
         return;
       }
 
-      let docRef = db
+      const docRef = db
         .collection('units')
         .doc(unitId)
         .collection('reservations')
-        .doc(reservationId || '__missing__');
-      let bookingSnap = reservationId ? await docRef.get() : null;
-
-      if (!reservationId) {
-        const snap = await db
-          .collection('units')
-          .doc(unitId)
-          .collection('reservations')
-          .where('manageToken', '==', manageToken)
-          .limit(1)
-          .get();
-
-        if (snap.empty) {
-          res.status(404).json({ error: 'Foglalás nem található' });
-          return;
-        }
-
-        docRef = snap.docs[0].ref;
-        bookingSnap = snap.docs[0];
-      }
+        .doc(reservationId);
+      const bookingSnap = await docRef.get();
 
       if (!bookingSnap || !bookingSnap.exists) {
         res.status(404).json({ error: 'Foglalás nem található' });
@@ -77,6 +64,11 @@ export const guestUpdateReservation = onRequest(
       }
 
       const booking = bookingSnap.data();
+      const manageTokenHash = hashManageToken(manageToken);
+      if (booking.manageTokenHash !== manageTokenHash) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
 
       // 2) Extra biztonság: ne lehessen múltbeli foglalást piszkálni
       if (booking.startTime && booking.startTime.toDate() < new Date()) {
@@ -124,10 +116,10 @@ export const guestUpdateReservation = onRequest(
 
           transaction.update(docRef, {
             status: 'cancelled',
-            cancelledAt: Timestamp.now(),
+            cancelledAt: FieldValue.serverTimestamp(),
             cancelReason: reason || '',
             cancelledBy: 'guest',
-            updatedAt: Timestamp.now(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
 
           const logRef = db
@@ -221,6 +213,8 @@ export const guestCreateReservation = onRequest(
         .doc(unitId)
         .collection('reservations');
 
+      const manageToken = generateManageToken();
+      const manageTokenHash = hashManageToken(manageToken);
       const adminActionToken =
         reservationMode === 'request' ? generateAdminActionToken() : null;
       const adminActionTokenHash = adminActionToken
@@ -251,7 +245,6 @@ export const guestCreateReservation = onRequest(
 
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
-        const manageToken = reservationRef.id;
 
         transaction.set(reservationRef, {
           unitId,
@@ -271,15 +264,15 @@ export const guestCreateReservation = onRequest(
           occasion: reservation.occasion || '',
           source: reservation.source || '',
           customData: reservation.customData || {},
-          manageToken,
+          manageTokenHash,
           ...(adminActionToken
             ? {
-                adminActionToken,
                 adminActionTokenHash: adminActionTokenHash ?? undefined,
                 adminActionExpiresAt: adminActionExpiresAt ?? undefined,
                 adminActionUsedAt: null,
               }
             : {}),
+          skipCreateEmails: true,
         });
 
         const capacityUpdate: Record<string, any> = {
@@ -317,7 +310,46 @@ export const guestCreateReservation = onRequest(
         return { bookingId: referenceCode };
       });
 
-      res.status(200).json(createResult);
+      const bookingForEmail: BookingRecord = {
+        unitId,
+        name: reservation.name,
+        headcount,
+        startTime: Timestamp.fromDate(startTime),
+        endTime: Timestamp.fromDate(endTime),
+        contact: {
+          phoneE164: reservation.contact?.phoneE164 || '',
+          email: String(reservation.contact?.email || '').toLowerCase(),
+        },
+        locale: reservation.locale || 'hu',
+        status,
+        createdAt: Timestamp.now(),
+        referenceCode: createResult.bookingId,
+        reservationMode,
+        occasion: reservation.occasion || '',
+        source: reservation.source || '',
+        customData: reservation.customData || {},
+        adminActionToken: adminActionToken || undefined,
+      };
+
+      const unitName = await getUnitName(unitId);
+      await Promise.all([
+        sendGuestCreatedEmail(
+          unitId,
+          bookingForEmail,
+          unitName,
+          createResult.bookingId,
+          manageToken
+        ),
+        sendAdminCreatedEmail(
+          unitId,
+          bookingForEmail,
+          unitName,
+          createResult.bookingId,
+          adminActionToken || undefined
+        ),
+      ]);
+
+      res.status(200).json({ ...createResult, manageToken });
     } catch (err: any) {
       if (err instanceof Error && err.message === 'CAPACITY_FULL') {
         res.status(409).json({ error: 'capacity_full' });
@@ -329,7 +361,110 @@ export const guestCreateReservation = onRequest(
   }
 );
 
+export const adminOverrideDailyCapacity = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const decoded = await admin.auth().verifyIdToken(token);
+      const userSnap = await db.collection('users').doc(decoded.uid).get();
+      if (!userSnap.exists) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const { unitId, dateKey, newLimit } = req.body || {};
+      if (!unitId || !dateKey || typeof newLimit !== 'number' || Number.isNaN(newLimit)) {
+        res.status(400).json({ error: 'unitId, dateKey és newLimit kötelező' });
+        return;
+      }
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const capacityRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_capacity')
+        .doc(dateKey);
+
+      const result = await db.runTransaction(async (transaction) => {
+        const capacitySnap = await transaction.get(capacityRef);
+        const count = capacitySnap.exists
+          ? (capacitySnap.data()?.count as number) || 0
+          : 0;
+
+        if (capacitySnap.exists) {
+          transaction.update(capacityRef, {
+            limit: newLimit,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.set(capacityRef, {
+            date: dateKey,
+            count: 0,
+            limit: newLimit,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        const logRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .doc();
+        transaction.set(logRef, {
+          type: 'capacity_override',
+          unitId,
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUserId: decoded.uid,
+          createdByName:
+            userData.name ||
+            userData.fullName ||
+            decoded.name ||
+            decoded.email ||
+            'Ismeretlen felhasználó',
+          source: 'internal',
+          message: `Daily capacity changed to ${newLimit}.`,
+          date: dateKey,
+        });
+
+        return {
+          status: newLimit < count ? 'OVERBOOKED' : 'UPDATED',
+          count,
+          limit: newLimit,
+        };
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      logger.error('adminOverrideDailyCapacity error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
 interface BookingRecord {
+  unitId?: string;
   name?: string;
   headcount?: number;
   occasion?: string;
@@ -350,10 +485,13 @@ interface BookingRecord {
   referenceCode?: string;
   reservationMode?: 'auto' | 'request';
   adminActionToken?: string;
+  adminActionTokenHash?: string;
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  customData?: Record<string, any>; 
+  customData?: Record<string, any>;
+  manageTokenHash?: string;
+  skipCreateEmails?: boolean;
 }
 
 interface QueuedEmail {
@@ -1174,7 +1312,8 @@ const sendGuestCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
-  bookingId: string
+  bookingId: string,
+  manageToken?: string
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
@@ -1193,7 +1332,8 @@ const sendGuestCreatedEmail = async (
     customSelects,
     publicBaseUrl,
   });
-  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const manageTokenValue = manageToken || bookingId;
+  const manageUrl = `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${manageTokenValue}`;
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_guest',
@@ -1235,7 +1375,8 @@ const sendAdminCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
-  bookingId: string
+  bookingId: string,
+  adminActionTokenOverride?: string
 ) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
@@ -1259,16 +1400,13 @@ const sendAdminCreatedEmail = async (
     customSelects,
     publicBaseUrl,
   });
+  const adminActionToken = adminActionTokenOverride || payload.adminActionToken || '';
 
-  const manageApproveUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
-    payload.adminActionToken || ''
-  }&action=approve`;
-  const manageRejectUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
-    payload.adminActionToken || ''
-  }&action=reject`;
+  const manageApproveUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&adminToken=${adminActionToken}&action=approve`;
+  const manageRejectUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&adminToken=${adminActionToken}&action=reject`;
 
   const showAdminButtons =
-    booking.reservationMode === 'request' && !!payload.adminActionToken;
+    booking.reservationMode === 'request' && !!adminActionToken;
 
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
@@ -1578,6 +1716,7 @@ export const onReservationCreated = onDocumentCreated(
   async (event) => {
     const booking = event.data?.data() as BookingRecord | undefined;
     if (!booking) return;
+    if (booking.skipCreateEmails) return;
 
     const unitId = event.params.unitId as string;
     const bookingId = event.params.bookingId as string;
@@ -1643,6 +1782,10 @@ export const onReservationStatusChange = onDocumentUpdated(
       statusChanged &&
       after.status === "cancelled" &&
       after.cancelledBy === "guest";
+    const adminCancelled =
+      statusChanged &&
+      after.status === "cancelled" &&
+      after.cancelledBy !== "guest";
 
     const tasks: Promise<void>[] = [];
 
@@ -1663,7 +1806,6 @@ export const onReservationStatusChange = onDocumentUpdated(
             unitId,
             type: after.status === 'confirmed' ? 'updated' : 'cancelled',
             createdAt: FieldValue.serverTimestamp(),
-            createdByUserId: 'system',
             createdByName: 'Email jóváhagyás',
             source: 'internal',
             message:
@@ -1682,6 +1824,43 @@ export const onReservationStatusChange = onDocumentUpdated(
         sendAdminCancellationEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send admin cancellation email", { unitId, err })
         )
+      );
+    }
+
+    if (adminCancelled && after.startTime && after.headcount && after.headcount > 0) {
+      tasks.push(
+        db
+          .runTransaction(async transaction => {
+            const startDate =
+              after.startTime instanceof admin.firestore.Timestamp
+                ? after.startTime.toDate()
+                : after.startTime instanceof Date
+                ? after.startTime
+                : new Date(after.startTime as any);
+            const dateKey = toDateKey(startDate);
+            const capacityRef = db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservation_capacity')
+              .doc(dateKey);
+            const capacitySnap = await transaction.get(capacityRef);
+            const currentCount = capacitySnap.exists
+              ? (capacitySnap.data()?.count as number) || 0
+              : 0;
+            const nextCount = Math.max(0, currentCount - (after.headcount || 0));
+            transaction.set(
+              capacityRef,
+              {
+                date: dateKey,
+                count: nextCount,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          })
+          .catch(err =>
+            logger.error("Failed to adjust capacity after admin cancel", { unitId, err })
+          )
       );
     }
 
