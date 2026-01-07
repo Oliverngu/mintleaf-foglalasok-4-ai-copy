@@ -278,24 +278,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, [theme]);
 
   const writeDecisionLog = async (status: 'confirmed' | 'cancelled') => {
-    if (!booking || !unit) return;
-    try {
-      const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
-      await addDoc(logsRef, {
-        bookingId: booking.id,
-        unitId: unit.id,
-        type: status === 'confirmed' ? 'updated' : 'cancelled',
-        createdAt: serverTimestamp(),
-        createdByName: 'Email jóváhagyás',
-        source: 'internal',
-        message:
-          status === 'confirmed'
-            ? 'Foglalás jóváhagyva e-mailből'
-            : 'Foglalás elutasítva e-mailből',
-      });
-    } catch (logErr) {
-      console.error('Failed to write admin decision log', logErr);
-    }
+    // Decision logs are written by the backend after token validation.
+    void status;
   };
 
   const handleAdminDecision = async (decision: 'approve' | 'reject') => {

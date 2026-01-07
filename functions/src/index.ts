@@ -1431,6 +1431,29 @@ export const onReservationStatusChange = onDocumentUpdated(
           logger.error("Failed to send guest status email", { unitId, err })
         )
       );
+
+      tasks.push(
+        db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .add({
+            bookingId,
+            unitId,
+            type: after.status === 'confirmed' ? 'updated' : 'cancelled',
+            createdAt: Timestamp.now(),
+            createdByUserId: 'system',
+            createdByName: 'Email jóváhagyás',
+            source: 'internal',
+            message:
+              after.status === 'confirmed'
+                ? 'Foglalás jóváhagyva e-mailből'
+                : 'Foglalás elutasítva e-mailből',
+          })
+          .catch(err =>
+            logger.error("Failed to write admin decision log", { unitId, err })
+          )
+      );
     }
 
     if (guestCancelled) {
