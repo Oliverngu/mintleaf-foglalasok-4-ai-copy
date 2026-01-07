@@ -1256,10 +1256,14 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       icsContent
     )}`;
 
+    if (!manageToken) {
+      return { googleLink: gLink, icsLink: iLink, manageLink: '#' };
+    }
+
     const mLinkParams = new URLSearchParams({
       reservationId: referenceCode,
       unitId: unit.id,
-      token: manageToken || '',
+      token: manageToken,
     });
     const mLink = `${window.location.origin}/manage?${mLinkParams.toString()}`;
 
@@ -1267,6 +1271,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
   }, [submittedData, unit.name, t]);
 
   const handleCopy = () => {
+    if (manageLink === '#') return;
     navigator.clipboard.writeText(manageLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -1397,20 +1402,31 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
         >
           <input
             type="text"
-            value={manageLink}
+            value={manageLink === '#' ? '' : manageLink}
             readOnly
             className="w-full bg-transparent text-sm focus:outline-none placeholder:text-gray-600"
             style={inputTextStyle}
           />
           <button
             onClick={handleCopy}
+            disabled={manageLink === '#'}
             className={`${themeProps.radiusClass} font-semibold text-sm px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 ${theme.shadowClass}`}
-            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
+            style={{
+              backgroundColor:
+                manageLink === '#'
+                  ? themeProps.colors.textSecondary
+                  : themeProps.colors.primary,
+              color: '#fff',
+              opacity: manageLink === '#' ? 0.6 : 1,
+            }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
           </button>
         </div>
+        {manageLink === '#' && (
+          <p className="text-sm text-red-600">{t.invalidManageLink}</p>
+        )}
       </div>
 
       <div className="mt-6 space-y-3">

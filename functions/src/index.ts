@@ -65,7 +65,9 @@ export const guestUpdateReservation = onRequest(
 
       const booking = bookingSnap.data();
       const manageTokenHash = hashManageToken(manageToken);
-      if (booking.manageTokenHash !== manageTokenHash) {
+      const hasHash = typeof booking.manageTokenHash === 'string' && booking.manageTokenHash;
+      const legacyMatch = !hasHash && manageToken === reservationId;
+      if (!legacyMatch && booking.manageTokenHash !== manageTokenHash) {
         res.status(404).json({ error: 'Foglalás nem található' });
         return;
       }
@@ -356,6 +358,90 @@ export const guestCreateReservation = onRequest(
         return;
       }
       logger.error('guestCreateReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const guestGetReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, reservationId, manageToken } = req.body || {};
+      if (!unitId || !reservationId || !manageToken) {
+        res.status(400).json({ error: 'unitId, reservationId és token kötelező' });
+        return;
+      }
+
+      const docRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+      const bookingSnap = await docRef.get();
+      if (!bookingSnap.exists) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const booking = bookingSnap.data() || {};
+      const manageTokenHash = hashManageToken(manageToken);
+      const hasHash = typeof booking.manageTokenHash === 'string' && booking.manageTokenHash;
+      const legacyMatch = !hasHash && manageToken === reservationId;
+      if (!legacyMatch && booking.manageTokenHash !== manageTokenHash) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const unitName = await getUnitName(unitId);
+      const startTime = booking.startTime?.toDate
+        ? booking.startTime.toDate()
+        : booking.startTime instanceof Date
+        ? booking.startTime
+        : null;
+      const endTime = booking.endTime?.toDate
+        ? booking.endTime.toDate()
+        : booking.endTime instanceof Date
+        ? booking.endTime
+        : null;
+      const adminActionExpiresAt = booking.adminActionExpiresAt?.toDate
+        ? booking.adminActionExpiresAt.toDate()
+        : booking.adminActionExpiresAt instanceof Date
+        ? booking.adminActionExpiresAt
+        : null;
+      const adminActionUsedAt = booking.adminActionUsedAt?.toDate
+        ? booking.adminActionUsedAt.toDate()
+        : booking.adminActionUsedAt instanceof Date
+        ? booking.adminActionUsedAt
+        : null;
+
+      res.status(200).json({
+        id: bookingSnap.id,
+        unitId,
+        unitName,
+        name: booking.name || '',
+        headcount: booking.headcount || 0,
+        startTime: startTime ? startTime.getTime() : null,
+        endTime: endTime ? endTime.getTime() : null,
+        status: booking.status || 'pending',
+        locale: booking.locale || 'hu',
+        occasion: booking.occasion || '',
+        source: booking.source || '',
+        referenceCode: booking.referenceCode || bookingSnap.id,
+        contact: booking.contact || {},
+        adminActionTokenHash: booking.adminActionTokenHash || null,
+        adminActionExpiresAt: adminActionExpiresAt
+          ? adminActionExpiresAt.getTime()
+          : null,
+        adminActionUsedAt: adminActionUsedAt ? adminActionUsedAt.getTime() : null,
+      });
+    } catch (err) {
+      logger.error('guestGetReservation error', err);
       res.status(500).json({ error: 'Szerverhiba' });
     }
   }
@@ -1479,7 +1565,7 @@ const sendGuestStatusEmail = async (
     customSelects,
     publicBaseUrl,
   });
-  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const manageUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&token=${payload.bookingId}`;
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_status_updated_guest',

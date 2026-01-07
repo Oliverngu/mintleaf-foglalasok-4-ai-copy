@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
-import { db, serverTimestamp } from '../../../core/firebase/config';
+import { db, serverTimestamp, Timestamp } from '../../../core/firebase/config';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
@@ -83,26 +83,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, [allUnits, unitId]);
 
   useEffect(() => {
-    const fetchUnit = async () => {
-      if (unit || !unitId) return;
-      try {
-        const unitRef = doc(db, 'units', unitId);
-        const unitSnap = await getDoc(unitRef);
-        if (unitSnap.exists()) {
-          setUnit({ id: unitSnap.id, ...unitSnap.data() } as Unit);
-        } else {
-          setError('A megadott egység nem található.');
-        }
-      } catch (unitErr) {
-        console.error('Error fetching unit', unitErr);
-        setError('Hiba az egység betöltésekor.');
-      }
-    };
-
-    fetchUnit();
-  }, [unit, unitId]);
-
-  useEffect(() => {
     const hashToken = async () => {
       if (!adminToken) {
         setHashedAdminToken(null);
@@ -166,37 +146,81 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     const fetchBooking = async () => {
       setLoading(true);
       try {
-        const bookingRef = doc(db, 'units', unitId, 'reservations', reservationId);
-        const bookingSnap = await getDoc(bookingRef);
-
-        if (!bookingSnap.exists()) {
-          setError('A foglalás nem található.');
-        } else {
-          const foundBooking = {
-            id: bookingSnap.id,
-            ...bookingSnap.data(),
-          } as Booking;
-          setBooking(foundBooking);
-
-          const urlParams = new URLSearchParams(window.location.search);
-          const langOverride = urlParams.get('lang');
-          if (langOverride === 'en' || langOverride === 'hu') {
-            setLocale(langOverride);
-          } else {
-            setLocale(foundBooking.locale || 'hu');
+        const response = await fetch(
+          `${FUNCTIONS_BASE_URL}/guestGetReservation`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              unitId,
+              reservationId,
+              manageToken,
+            }),
           }
+        );
+
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 404) {
+            setError(t.invalidManageLink);
+            return;
+          }
+          throw new Error('FETCH_FAILED');
+        }
+
+        const payload = await response.json();
+        const foundBooking: Booking = {
+          id: payload.id,
+          unitId: payload.unitId,
+          name: payload.name,
+          headcount: payload.headcount,
+          startTime: payload.startTime
+            ? Timestamp.fromMillis(payload.startTime)
+            : Timestamp.fromMillis(Date.now()),
+          endTime: payload.endTime
+            ? Timestamp.fromMillis(payload.endTime)
+            : Timestamp.fromMillis(Date.now()),
+          status: payload.status,
+          createdAt: Timestamp.fromMillis(Date.now()),
+          occasion: payload.occasion || '',
+          source: payload.source || '',
+          locale: payload.locale || 'hu',
+          referenceCode: payload.referenceCode,
+          contact: payload.contact || { phoneE164: '', email: '' },
+          adminActionTokenHash: payload.adminActionTokenHash || undefined,
+          adminActionExpiresAt: payload.adminActionExpiresAt
+            ? Timestamp.fromMillis(payload.adminActionExpiresAt)
+            : undefined,
+          adminActionUsedAt: payload.adminActionUsedAt
+            ? Timestamp.fromMillis(payload.adminActionUsedAt)
+            : undefined,
+        };
+
+        setBooking(foundBooking);
+        if (!unit) {
+          setUnit({
+            id: payload.unitId,
+            name: payload.unitName || 'MintLeaf',
+          } as Unit);
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const langOverride = urlParams.get('lang');
+        if (langOverride === 'en' || langOverride === 'hu') {
+          setLocale(langOverride);
+        } else {
+          setLocale(foundBooking.locale || 'hu');
         }
       } catch (err: any) {
         console.error('Error fetching reservation:', err);
-        setError(
-          'Hiba a foglalás betöltésekor. Ellenőrizze a linket, vagy próbálja meg később.'
-        );
+        setError(t.actionFailed);
       } finally {
         setLoading(false);
       }
     };
 
-    if (unitId && reservationId) {
+    if (unitId && reservationId && manageToken) {
       fetchBooking();
     } else {
       if (!unitId) {
@@ -204,13 +228,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           'Hiányzik az egység azonosítója. Kérjük, használd a teljes foglalási linket.'
         );
       } else {
-        setError(
-          t.invalidManageLink
-        );
+        setError(t.invalidManageLink);
       }
       setLoading(false);
     }
-  }, [reservationId, unitId, t.invalidManageLink]);
+  }, [manageToken, reservationId, t.actionFailed, t.invalidManageLink, unit, unitId]);
 
   useEffect(() => {
     const fetchSettings = async () => {

@@ -104,7 +104,6 @@ export interface Booking {
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  manageToken?: string;
   manageTokenHash?: string;
 }
 
