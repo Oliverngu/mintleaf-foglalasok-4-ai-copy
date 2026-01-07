@@ -288,7 +288,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
 
       if (!response.ok) {
-        if ([403, 404, 409].includes(response.status)) {
+        if (response.status === 404) {
           throw new Error('ADMIN_TOKEN_INVALID');
         }
         throw new Error('ADMIN_ACTION_FAILED');

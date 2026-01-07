@@ -588,6 +588,16 @@ export const adminHandleReservationAction = onRequest(
         .collection('reservations')
         .doc(reservationId);
 
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
+      }
+
       await db.runTransaction(async transaction => {
         const snap = await transaction.get(docRef);
         if (!snap.exists) {
@@ -606,23 +616,23 @@ export const adminHandleReservationAction = onRequest(
           ? booking.adminActionUsedAt
           : null;
 
-        if (booking.status && booking.status !== 'pending') {
-          throw new Error('ALREADY_HANDLED');
-        }
-
         if (
           !booking.adminActionTokenHash ||
           booking.adminActionTokenHash !== tokenHash
         ) {
-          throw new Error('INVALID_TOKEN');
+          throw new Error('NOT_FOUND');
         }
 
         if (expiresAt && expiresAt.getTime() < Date.now()) {
-          throw new Error('TOKEN_EXPIRED');
+          throw new Error('NOT_FOUND');
         }
 
         if (usedAt) {
-          throw new Error('TOKEN_USED');
+          throw new Error('NOT_FOUND');
+        }
+
+        if (booking.status && booking.status !== 'pending') {
+          throw new Error('NOT_FOUND');
         }
 
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
@@ -646,18 +656,6 @@ export const adminHandleReservationAction = onRequest(
       if (err instanceof Error) {
         if (err.message === 'NOT_FOUND') {
           res.status(404).json({ error: 'Foglalás nem található' });
-          return;
-        }
-        if (
-          err.message === 'INVALID_TOKEN' ||
-          err.message === 'TOKEN_EXPIRED' ||
-          err.message === 'TOKEN_USED'
-        ) {
-          res.status(403).json({ error: 'Érvénytelen token' });
-          return;
-        }
-        if (err.message === 'ALREADY_HANDLED') {
-          res.status(409).json({ error: 'A foglalás már feldolgozva.' });
           return;
         }
       }
