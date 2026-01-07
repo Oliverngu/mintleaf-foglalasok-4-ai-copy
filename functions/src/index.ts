@@ -426,8 +426,8 @@ export const guestGetReservation = onRequest(
         unitName,
         name: booking.name || '',
         headcount: booking.headcount || 0,
-        startTime: startTime ? startTime.getTime() : null,
-        endTime: endTime ? endTime.getTime() : null,
+        startTimeMs: startTime ? startTime.getTime() : null,
+        endTimeMs: endTime ? endTime.getTime() : null,
         status: booking.status || 'pending',
         locale: booking.locale || 'hu',
         occasion: booking.occasion || '',
@@ -435,10 +435,10 @@ export const guestGetReservation = onRequest(
         referenceCode: booking.referenceCode || bookingSnap.id,
         contact: booking.contact || {},
         adminActionTokenHash: booking.adminActionTokenHash || null,
-        adminActionExpiresAt: adminActionExpiresAt
+        adminActionExpiresAtMs: adminActionExpiresAt
           ? adminActionExpiresAt.getTime()
           : null,
-        adminActionUsedAt: adminActionUsedAt ? adminActionUsedAt.getTime() : null,
+        adminActionUsedAtMs: adminActionUsedAt ? adminActionUsedAt.getTime() : null,
       });
     } catch (err) {
       logger.error('guestGetReservation error', err);

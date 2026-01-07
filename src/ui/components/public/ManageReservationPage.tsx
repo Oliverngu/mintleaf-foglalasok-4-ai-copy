@@ -176,8 +176,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           unitName: payload.unitName,
           name: payload.name,
           headcount: payload.headcount,
-          startTimeMs: payload.startTime ?? null,
-          endTimeMs: payload.endTime ?? null,
+          startTimeMs: payload.startTimeMs ?? null,
+          endTimeMs: payload.endTimeMs ?? null,
           status: payload.status,
           occasion: payload.occasion || '',
           source: payload.source || '',
@@ -185,8 +185,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           referenceCode: payload.referenceCode,
           contact: payload.contact || { phoneE164: '', email: '' },
           adminActionTokenHash: payload.adminActionTokenHash || null,
-          adminActionExpiresAtMs: payload.adminActionExpiresAt ?? null,
-          adminActionUsedAtMs: payload.adminActionUsedAt ?? null,
+          adminActionExpiresAtMs: payload.adminActionExpiresAtMs ?? null,
+          adminActionUsedAtMs: payload.adminActionUsedAtMs ?? null,
         };
 
         setBooking(foundBooking);
