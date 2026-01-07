@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
-import { db, serverTimestamp, Timestamp } from '../../../core/firebase/config';
+import { Unit, Booking, PublicBookingDTO, ReservationSetting } from '../../../core/models/data';
+import { db, serverTimestamp } from '../../../core/firebase/config';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
@@ -37,7 +37,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   manageToken,
   allUnits,
 }) => {
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [booking, setBooking] = useState<PublicBookingDTO | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,16 +110,16 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, [adminToken]);
 
   const isAdminTokenMatch = (
-    bookingRecord: Booking | null,
+    bookingRecord: PublicBookingDTO | null,
     tokenHash: string | null
   ) => {
     if (!bookingRecord) return false;
     return !!tokenHash && bookingRecord.adminActionTokenHash === tokenHash;
   };
 
-  const isAdminTokenExpired = (bookingRecord: Booking | null) => {
-    if (!bookingRecord?.adminActionExpiresAt) return false;
-    return bookingRecord.adminActionExpiresAt.toMillis() < Date.now();
+  const isAdminTokenExpired = (bookingRecord: PublicBookingDTO | null) => {
+    if (!bookingRecord?.adminActionExpiresAtMs) return false;
+    return bookingRecord.adminActionExpiresAtMs < Date.now();
   };
 
   const isAdminTokenExpiredDoc = (reservationData: Booking) => {
@@ -134,8 +134,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return !!tokenHash && reservationData.adminActionTokenHash === tokenHash;
   };
 
-  const isAdminTokenUsed = (bookingRecord: Booking | null) =>
-    !!bookingRecord?.adminActionUsedAt;
+  const isAdminTokenUsed = (bookingRecord: PublicBookingDTO | null) =>
+    !!bookingRecord?.adminActionUsedAtMs;
 
   const isAdminTokenValid = isAdminTokenMatch(booking, hashedAdminToken);
   const isAdminTokenInvalid =
@@ -170,31 +170,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         }
 
         const payload = await response.json();
-        const foundBooking: Booking = {
+        const foundBooking: PublicBookingDTO = {
           id: payload.id,
           unitId: payload.unitId,
+          unitName: payload.unitName,
           name: payload.name,
           headcount: payload.headcount,
-          startTime: payload.startTime
-            ? Timestamp.fromMillis(payload.startTime)
-            : Timestamp.fromMillis(Date.now()),
-          endTime: payload.endTime
-            ? Timestamp.fromMillis(payload.endTime)
-            : Timestamp.fromMillis(Date.now()),
+          startTimeMs: payload.startTime ?? null,
+          endTimeMs: payload.endTime ?? null,
           status: payload.status,
-          createdAt: Timestamp.fromMillis(Date.now()),
           occasion: payload.occasion || '',
           source: payload.source || '',
           locale: payload.locale || 'hu',
           referenceCode: payload.referenceCode,
           contact: payload.contact || { phoneE164: '', email: '' },
-          adminActionTokenHash: payload.adminActionTokenHash || undefined,
-          adminActionExpiresAt: payload.adminActionExpiresAt
-            ? Timestamp.fromMillis(payload.adminActionExpiresAt)
-            : undefined,
-          adminActionUsedAt: payload.adminActionUsedAt
-            ? Timestamp.fromMillis(payload.adminActionUsedAt)
-            : undefined,
+          adminActionTokenHash: payload.adminActionTokenHash || null,
+          adminActionExpiresAtMs: payload.adminActionExpiresAt ?? null,
+          adminActionUsedAtMs: payload.adminActionUsedAt ?? null,
         };
 
         setBooking(foundBooking);
@@ -500,6 +492,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return phoneE164.slice(0, -7) + '••• •' + last4;
   };
 
+  const getStartDate = () =>
+    booking?.startTimeMs ? new Date(booking.startTimeMs) : null;
+  const getEndDate = () =>
+    booking?.endTimeMs ? new Date(booking.endTimeMs) : null;
+
   const headerSection = (
     <>
       <h1
@@ -555,20 +552,32 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         </p>
         <p>
           <strong>{t.date}:</strong>{' '}
-          {booking.startTime
-            .toDate()
-            .toLocaleDateString(locale, {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
+          {getStartDate()
+            ? getStartDate()!.toLocaleDateString(locale, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })
+            : '—'}
         </p>
         <p>
           <strong>{t.startTime}:</strong>{' '}
-          {booking.startTime
-            .toDate()
-            .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+          {getStartDate()
+            ? getStartDate()!.toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—'}
+        </p>
+        <p>
+          <strong>{t.endTime}:</strong>{' '}
+          {getEndDate()
+            ? getEndDate()!.toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—'}
         </p>
         <p>
           <strong>{t.email}:</strong> {booking.contact?.email}

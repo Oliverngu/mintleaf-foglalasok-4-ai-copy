@@ -107,6 +107,28 @@ export interface Booking {
   manageTokenHash?: string;
 }
 
+export interface PublicBookingDTO {
+  id: string;
+  unitId: string;
+  unitName?: string;
+  name: string;
+  headcount: number;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  locale?: 'hu' | 'en';
+  occasion?: string;
+  source?: string;
+  referenceCode?: string;
+  contact?: {
+    phoneE164?: string;
+    email?: string;
+  };
+  adminActionTokenHash?: string | null;
+  adminActionExpiresAtMs?: number | null;
+  adminActionUsedAtMs?: number | null;
+}
+
 export interface ThemeSettings {
     primary: string;
     surface: string;

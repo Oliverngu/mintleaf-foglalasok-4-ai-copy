@@ -1293,6 +1293,21 @@ const getPublicBaseUrl = (settings?: ReservationSettings) => {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 };
 
+const buildGuestManageUrl = (params: {
+  publicBaseUrl: string;
+  unitId: string;
+  bookingId: string;
+  manageToken?: string | null;
+  hasManageTokenHash: boolean;
+}): string | null => {
+  const { publicBaseUrl, unitId, bookingId, manageToken, hasManageTokenHash } = params;
+  if (hasManageTokenHash) {
+    if (!manageToken) return null;
+    return `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${manageToken}`;
+  }
+  return `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${bookingId}`;
+};
+
 const buildPayload = (
   booking: BookingRecord,
   unitName: string,
@@ -1565,7 +1580,13 @@ const sendGuestStatusEmail = async (
     customSelects,
     publicBaseUrl,
   });
-  const manageUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&token=${payload.bookingId}`;
+  const manageUrl = buildGuestManageUrl({
+    publicBaseUrl,
+    unitId,
+    bookingId,
+    manageToken: null,
+    hasManageTokenHash: !!booking.manageTokenHash,
+  });
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_status_updated_guest',
@@ -1581,15 +1602,19 @@ const sendGuestStatusEmail = async (
     payload
   );
 
-  const extraHtml = `${buildButtonBlock(
-    [
-      {
-        label: 'FOGLALÁS MÓDOSÍTÁSA',
-        url: manageUrl,
-      },
-    ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+  const extraHtml = `${
+    manageUrl
+      ? buildButtonBlock(
+          [
+            {
+              label: 'FOGLALÁS MÓDOSÍTÁSA',
+              url: manageUrl,
+            },
+          ],
+          theme
+        )
+      : ''
+  }${buildDetailsCardHtml(payload, theme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
