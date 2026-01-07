@@ -7,7 +7,7 @@ import {
   GuestFormSettings,
   CustomSelectField,
 } from '../../../core/models/data';
-import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
+import { db, Timestamp } from '../../../core/firebase/config';
 import {
   doc,
   getDoc,
@@ -15,8 +15,6 @@ import {
   query,
   where,
   getDocs,
-  addDoc,
-  runTransaction,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -107,73 +105,9 @@ const resolveHeaderLogoUrl = (
   return null;
 };
 
-const generateAdminActionToken = () =>
-  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-
-const DEFAULT_DAILY_CAPACITY_LIMIT = 9999;
-
-const hashAdminActionToken = async (token: string): Promise<string> => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(token);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-};
-
-// ===== GUEST LOG HELPER =====
-const writeGuestLog = async (
-  unitId: string,
-  booking: {
-    id: string;
-    name: string;
-    headcount?: number;
-    startTime?: Timestamp;
-  },
-  type: 'guest_created' | 'guest_cancelled',
-  extraMessage?: string
-) => {
-  try {
-    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
-
-    let dateStr = '';
-    if (booking.startTime && typeof booking.startTime.toDate === 'function') {
-      dateStr = booking.startTime.toDate().toLocaleString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
-
-    let baseMessage = '';
-    if (type === 'guest_created') {
-      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${
-        dateStr ? `, ${dateStr}` : ''
-      })`;
-    }
-    if (type === 'guest_cancelled') {
-      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${
-        dateStr ? ` (${dateStr})` : ''
-      }`;
-    }
-
-    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
-
-    await addDoc(logsRef, {
-      bookingId: booking.id,
-      unitId,
-      type,
-      createdAt: serverTimestamp(),
-      source: 'guest',
-      // createdByUserId intentionally omitted: public guest log must stay unauthenticated
-      createdByName: booking.name,
-      message,
-    });
-  } catch (logErr) {
-    console.error('Failed to write reservation log from guest page:', logErr);
-  }
-};
+const FUNCTIONS_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
 
 const ProgressIndicator: React.FC<{
   currentStep: number;
@@ -470,12 +404,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
     let startDateTime: Date;
     let endDateTime: Date;
-    let newReservation: any;
-
     try {
       const requestedStartTime = formData.startTime;
-      const requestedHeadcount = parseInt(formData.headcount, 10);
-
       const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || {
         from: '00:00',
         to: '23:59',
@@ -500,22 +430,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           endDateTime = potentialEndDateTime;
       }
 
-      const newReservationRef = doc(
-        collection(db, 'units', unitId, 'reservations')
-      );
-      const referenceCode = newReservationRef.id;
-      const adminActionToken =
-        settings.reservationMode === 'request'
-          ? generateAdminActionToken()
-          : null;
-      const adminActionTokenHash =
-        typeof adminActionToken === 'string' && adminActionToken
-          ? await hashAdminActionToken(adminActionToken)
-          : null;
-      const adminActionExpiresAt =
-        typeof adminActionToken === 'string' && adminActionToken
-          ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
-          : null;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -531,82 +445,48 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         },
         locale,
         status: reservationStatus,
-        createdAt: serverTimestamp(),
-        referenceCode,
         reservationMode: settings.reservationMode,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
         customData: formData.customData,
       };
-
-      const adminActionFields =
-        typeof adminActionToken === 'string' && adminActionToken
-          ? {
-              adminActionToken,
-              adminActionTokenHash: adminActionTokenHash ?? undefined,
-              adminActionExpiresAt: adminActionExpiresAt ?? undefined,
-              adminActionUsedAt: null,
-            }
-          : {};
-
-      newReservation = {
-        ...baseReservation,
-        ...adminActionFields,
-      };
-
       const dateKey = toDateKey(selectedDate);
-      const capacityRef = doc(
-        db,
-        'units',
-        unitId,
-        'reservation_capacity',
-        dateKey
+
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/guestCreateReservation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId,
+            dateKey,
+            reservation: {
+              ...baseReservation,
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+            },
+          }),
+        }
       );
-      const configuredLimit =
-        settings.dailyCapacity && settings.dailyCapacity > 0
-          ? settings.dailyCapacity
-          : DEFAULT_DAILY_CAPACITY_LIMIT;
 
-      await runTransaction(db, async (transaction) => {
-        const capacitySnap = await transaction.get(capacityRef);
-        const currentCount = capacitySnap.exists()
-          ? (capacitySnap.data().count as number) || 0
-          : 0;
-        const existingLimit = capacitySnap.exists()
-          ? (capacitySnap.data().limit as number) || configuredLimit
-          : configuredLimit;
-        const nextCount = currentCount + requestedHeadcount;
-
-        if (nextCount > existingLimit) {
+      if (!response.ok) {
+        if (response.status === 409) {
           throw new Error('DAILY_LIMIT_REACHED');
         }
+        throw new Error(t.genericError);
+      }
 
-        transaction.set(
-          capacityRef,
-          {
-            date: dateKey,
-            limit: existingLimit,
-            count: nextCount,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-        transaction.set(newReservationRef, newReservation);
+      const payload = await response.json();
+      const referenceCode = payload.bookingId || payload.id;
+      setSubmittedData({
+        ...baseReservation,
+        referenceCode,
+        startTime: Timestamp.fromDate(startDateTime),
+        endTime: Timestamp.fromDate(endDateTime),
+        date: selectedDate,
       });
-
-      // ---- GUEST LOG: booking created ----
-      await writeGuestLog(
-        unitId,
-        {
-          id: referenceCode,
-          name: newReservation.name,
-          headcount: newReservation.headcount,
-          startTime: newReservation.startTime,
-        },
-        'guest_created'
-      );
-
-      setSubmittedData({ ...newReservation, date: selectedDate });
       setStep(3);
 
       // !!! FRONTEND NEM KÜLD EMAILT !!!

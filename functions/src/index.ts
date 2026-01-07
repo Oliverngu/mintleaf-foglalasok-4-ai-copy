@@ -1,6 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import { createHash } from "crypto";
 import { onRequest } from "firebase-functions/v2/https";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
@@ -16,6 +17,19 @@ const EMAIL_GATEWAY_URL =
   process.env.EMAIL_GATEWAY_URL ||
   "https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send";
 
+const toDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const generateAdminActionToken = () =>
+  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+
+const hashAdminActionToken = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
 export const guestUpdateReservation = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
@@ -25,29 +39,44 @@ export const guestUpdateReservation = onRequest(
         return;
       }
 
-      const { unitId, manageToken, action, reason } = req.body || {};
+      const { unitId, manageToken, reservationId, action, reason } = req.body || {};
 
-      if (!unitId || !manageToken || !action) {
-        res.status(400).json({ error: 'unitId, manageToken és action kötelező' });
+      if (!unitId || !action || (!manageToken && !reservationId)) {
+        res.status(400).json({ error: 'unitId, action és token kötelező' });
         return;
       }
 
-      // 1) Foglalás keresése: unit + manageToken alapján
-      const snap = await db
+      let docRef = db
         .collection('units')
         .doc(unitId)
         .collection('reservations')
-        .where('manageToken', '==', manageToken)
-        .limit(1)
-        .get();
+        .doc(reservationId || '__missing__');
+      let bookingSnap = reservationId ? await docRef.get() : null;
 
-      if (snap.empty) {
+      if (!reservationId) {
+        const snap = await db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservations')
+          .where('manageToken', '==', manageToken)
+          .limit(1)
+          .get();
+
+        if (snap.empty) {
+          res.status(404).json({ error: 'Foglalás nem található' });
+          return;
+        }
+
+        docRef = snap.docs[0].ref;
+        bookingSnap = snap.docs[0];
+      }
+
+      if (!bookingSnap || !bookingSnap.exists) {
         res.status(404).json({ error: 'Foglalás nem található' });
         return;
       }
 
-      const docRef = snap.docs[0].ref;
-      const booking = snap.docs[0].data();
+      const booking = bookingSnap.data();
 
       // 2) Extra biztonság: ne lehessen múltbeli foglalást piszkálni
       if (booking.startTime && booking.startTime.toDate() < new Date()) {
@@ -58,37 +87,68 @@ export const guestUpdateReservation = onRequest(
       }
 
       if (action === 'cancel') {
-        // már lemondott? akkor ne csináljunk semmit
-        if (booking.status === 'cancelled') {
-          res.status(200).json({ ok: true, alreadyCancelled: true });
-          return;
-        }
+        const result = await db.runTransaction(async (transaction) => {
+          const latestSnap = await transaction.get(docRef);
+          if (!latestSnap.exists) {
+            throw new Error('NOT_FOUND');
+          }
+          const latest = latestSnap.data() || {};
 
-        await docRef.update({
-          status: 'cancelled',
-          cancelledAt: Timestamp.now(),
-          cancelReason: reason || '',
-          cancelledBy: 'guest',
-          updatedAt: Timestamp.now(),
-        });
+          if (latest.status === 'cancelled') {
+            return { alreadyCancelled: true };
+          }
 
-        // opcionális: log írás
-        await db
-          .collection('units')
-          .doc(unitId)
-          .collection('reservation_logs')
-          .add({
+          if (latest.startTime && latest.headcount > 0) {
+            const startDate = latest.startTime.toDate();
+            const dateKey = toDateKey(startDate);
+            const capacityRef = db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservation_capacity')
+              .doc(dateKey);
+            const capacitySnap = await transaction.get(capacityRef);
+            const currentCount = capacitySnap.exists
+              ? (capacitySnap.data()?.count as number) || 0
+              : 0;
+            const nextCount = Math.max(0, currentCount - (latest.headcount || 0));
+            transaction.set(
+              capacityRef,
+              {
+                date: dateKey,
+                count: nextCount,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+
+          transaction.update(docRef, {
+            status: 'cancelled',
+            cancelledAt: Timestamp.now(),
+            cancelReason: reason || '',
+            cancelledBy: 'guest',
+            updatedAt: Timestamp.now(),
+          });
+
+          const logRef = db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservation_logs')
+            .doc();
+          transaction.set(logRef, {
             bookingId: docRef.id,
             unitId,
-            type: 'cancelled',
-            createdAt: Timestamp.now(),
-            createdByUserId: null,
-            createdByName: booking.name || 'Guest',
+            type: 'guest_cancelled',
+            createdAt: FieldValue.serverTimestamp(),
+            createdByName: latest.name || 'Guest',
             source: 'guest',
             message: reason ? `Vendég lemondta: ${reason}` : 'Vendég lemondta',
           });
 
-        res.status(200).json({ ok: true });
+          return { alreadyCancelled: false };
+        });
+
+        res.status(200).json({ ok: true, alreadyCancelled: result.alreadyCancelled });
         return;
       }
 
@@ -104,6 +164,166 @@ export const guestUpdateReservation = onRequest(
       res.status(400).json({ error: 'Ismeretlen action' });
     } catch (err) {
       logger.error('guestUpdateReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const guestCreateReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, dateKey, reservation } = req.body || {};
+      if (!unitId || !reservation) {
+        res.status(400).json({ error: 'unitId és reservation kötelező' });
+        return;
+      }
+
+      const startTime = reservation.startTime ? new Date(reservation.startTime) : null;
+      const endTime = reservation.endTime ? new Date(reservation.endTime) : null;
+      const headcount = Number(reservation.headcount || 0);
+
+      if (!startTime || Number.isNaN(startTime.getTime())) {
+        res.status(400).json({ error: 'startTime hiányzik vagy érvénytelen' });
+        return;
+      }
+      if (!endTime || Number.isNaN(endTime.getTime())) {
+        res.status(400).json({ error: 'endTime hiányzik vagy érvénytelen' });
+        return;
+      }
+      if (!reservation.name || headcount <= 0) {
+        res.status(400).json({ error: 'Név és létszám kötelező' });
+        return;
+      }
+      if (!reservation.contact?.email) {
+        res.status(400).json({ error: 'E-mail kötelező' });
+        return;
+      }
+
+      const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
+      const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+      const reservationMode = settings.reservationMode || 'request';
+      const status = reservationMode === 'auto' ? 'confirmed' : 'pending';
+
+      const effectiveDateKey = dateKey || toDateKey(startTime);
+      const capacityRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_capacity')
+        .doc(effectiveDateKey);
+      const reservationsRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations');
+
+      const adminActionToken =
+        reservationMode === 'request' ? generateAdminActionToken() : null;
+      const adminActionTokenHash = adminActionToken
+        ? hashAdminActionToken(adminActionToken)
+        : null;
+      const adminActionExpiresAt = adminActionToken
+        ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
+        : null;
+
+      const createResult = await db.runTransaction(async (transaction) => {
+        const capacitySnap = await transaction.get(capacityRef);
+        const currentCount = capacitySnap.exists
+          ? (capacitySnap.data()?.count as number) || 0
+          : 0;
+        const limitFromDoc = capacitySnap.exists
+          ? (capacitySnap.data()?.limit as number | undefined)
+          : undefined;
+        const limitFromSettings =
+          settings.dailyCapacity && settings.dailyCapacity > 0
+            ? settings.dailyCapacity
+            : undefined;
+        const limit = limitFromDoc ?? limitFromSettings;
+        const nextCount = currentCount + headcount;
+
+        if (typeof limit === 'number' && nextCount > limit) {
+          throw new Error('CAPACITY_FULL');
+        }
+
+        const reservationRef = reservationsRef.doc();
+        const referenceCode = reservationRef.id;
+        const manageToken = reservationRef.id;
+
+        transaction.set(reservationRef, {
+          unitId,
+          name: reservation.name,
+          headcount,
+          startTime: Timestamp.fromDate(startTime),
+          endTime: Timestamp.fromDate(endTime),
+          contact: {
+            phoneE164: reservation.contact?.phoneE164 || '',
+            email: String(reservation.contact?.email || '').toLowerCase(),
+          },
+          locale: reservation.locale || 'hu',
+          status,
+          createdAt: FieldValue.serverTimestamp(),
+          referenceCode,
+          reservationMode,
+          occasion: reservation.occasion || '',
+          source: reservation.source || '',
+          customData: reservation.customData || {},
+          manageToken,
+          ...(adminActionToken
+            ? {
+                adminActionToken,
+                adminActionTokenHash: adminActionTokenHash ?? undefined,
+                adminActionExpiresAt: adminActionExpiresAt ?? undefined,
+                adminActionUsedAt: null,
+              }
+            : {}),
+        });
+
+        const capacityUpdate: Record<string, any> = {
+          date: effectiveDateKey,
+          count: nextCount,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (limitFromDoc == null && typeof limitFromSettings === 'number') {
+          capacityUpdate.limit = limitFromSettings;
+        }
+        transaction.set(capacityRef, capacityUpdate, { merge: true });
+
+        const dateStr = startTime.toLocaleString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const logRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .doc();
+        transaction.set(logRef, {
+          bookingId: referenceCode,
+          unitId,
+          type: 'guest_created',
+          createdAt: FieldValue.serverTimestamp(),
+          createdByName: reservation.name,
+          source: 'guest',
+          message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})`,
+        });
+
+        return { bookingId: referenceCode };
+      });
+
+      res.status(200).json(createResult);
+    } catch (err: any) {
+      if (err instanceof Error && err.message === 'CAPACITY_FULL') {
+        res.status(409).json({ error: 'capacity_full' });
+        return;
+      }
+      logger.error('guestCreateReservation error', err);
       res.status(500).json({ error: 'Szerverhiba' });
     }
   }

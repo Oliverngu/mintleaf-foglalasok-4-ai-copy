@@ -138,16 +138,8 @@ service cloud.firestore {
       }
 
       match /reservation_capacity/{dateKey} {
-        allow read: if canViewUnit(unitId);
-        allow create: if canViewUnit(unitId)
-          && capacityFieldsAllowed()
-          && (!capacityLimitTouched() || canManageUnit(unitId));
-        allow update: if capacityFieldsAllowed()
-          && (
-            (capacityLimitChanged() && canManageUnit(unitId))
-            || (!capacityLimitChanged() && canViewUnit(unitId))
-          );
-        allow delete: if canManageUnit(unitId);
+        allow read: if true;
+        allow create, update, delete: if false;
       }
 
       match /reservation_logs/{logId} {
@@ -201,24 +193,13 @@ service cloud.firestore {
           ];
         }
 
-        allow create: if logUnitMatches()
-          && (
-            (
-              !isSignedIn()
-              && logFieldsAllowedGuest()
-              && request.resource.data.source == 'guest'
-              && logTypeAllowedGuest()
-              && !('createdByUserId' in request.resource.data)
-            )
-            || (
-              isSignedIn()
-              && canViewUnit(unitId)
-              && logFieldsAllowedSignedIn()
-              && request.resource.data.source == 'internal'
-              && request.resource.data.createdByUserId == request.auth.uid
-              && logTypeAllowedSignedIn()
-            )
-          );
+        allow create: if isSignedIn()
+          && canViewUnit(unitId)
+          && logFieldsAllowedSignedIn()
+          && logUnitMatches()
+          && request.resource.data.source == 'internal'
+          && request.resource.data.createdByUserId == request.auth.uid
+          && logTypeAllowedSignedIn();
         allow update, delete: if canManageUnit(unitId);
       }
 

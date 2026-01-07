@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, updateDoc, getDoc, addDoc, collection, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
@@ -11,6 +11,10 @@ import {
 import PublicReservationLayout from './PublicReservationLayout';
 
 type Locale = 'hu' | 'en';
+
+const FUNCTIONS_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
 
 const toDateKey = (date: Date): string => {
   const year = date.getFullYear();
@@ -399,81 +403,24 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const handleCancelReservation = async () => {
     if (!booking || !unit) return;
     try {
-      const reservationRef = doc(
-        db,
-        'units',
-        unit.id,
-        'reservations',
-        booking.id
-      );
-      const { didCancel } = await runTransaction(db, async (transaction) => {
-        const reservationSnap = await transaction.get(reservationRef);
-        if (!reservationSnap.exists()) {
-          throw new Error('RESERVATION_NOT_FOUND');
-        }
-        const reservationData = reservationSnap.data() as Booking;
-        if (reservationData.status === 'cancelled') {
-          return { didCancel: false };
-        }
-
-        if (
-          reservationData.startTime &&
-          reservationData.headcount > 0 &&
-          (reservationData.status === 'pending' || reservationData.status === 'confirmed')
-        ) {
-          const dateKey = toDateKey(reservationData.startTime.toDate());
-          const capacityRef = getCapacityRef(unit.id, dateKey);
-          const capacitySnap = await transaction.get(capacityRef);
-          const currentCount = capacitySnap.exists()
-            ? (capacitySnap.data().count as number) || 0
-            : 0;
-          const nextCount = Math.max(0, currentCount - reservationData.headcount);
-          const capacityExists = capacitySnap.exists();
-          const limitFromDoc = capacityExists
-            ? (capacitySnap.data().limit as number | undefined)
-            : undefined;
-          const fallbackLimit =
-            settings?.dailyCapacity && settings.dailyCapacity > 0
-              ? settings.dailyCapacity
-              : undefined;
-          const shouldWriteLimit =
-            (!capacityExists || limitFromDoc == null) &&
-            typeof fallbackLimit === 'number';
-          transaction.set(
-            capacityRef,
-            buildCapacityUpdate(
-              dateKey,
-              nextCount,
-              shouldWriteLimit ? fallbackLimit : undefined
-            ),
-            { merge: true }
-          );
-        }
-
-        transaction.update(reservationRef, {
-          status: 'cancelled',
-          cancelledAt: serverTimestamp(),
-          cancelledBy: 'guest',
-        });
-        return { didCancel: true };
-      });
-
-      try {
-        if (didCancel) {
-          const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
-          await addDoc(logsRef, {
-            bookingId: booking.id,
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/guestUpdateReservation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             unitId: unit.id,
-            type: 'guest_cancelled',
-            createdAt: serverTimestamp(),
-            // createdByUserId intentionally omitted: guest log must remain unauthenticated
-            createdByName: booking.name,
-            source: 'guest',
-            message: 'Vendég lemondta a foglalást a vendégportálon.',
-          });
+            reservationId: booking.id,
+            action: 'cancel',
+            reason: '',
+          }),
         }
-      } catch (logErr) {
-        console.error('Failed to log guest cancellation', logErr);
+      );
+
+      if (!response.ok) {
+        throw new Error('CANCEL_FAILED');
       }
 
       // !!! nincs FE email küldés, backend intézi !!!
