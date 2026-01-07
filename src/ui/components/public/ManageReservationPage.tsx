@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking, PublicBookingDTO, ReservationSetting } from '../../../core/models/data';
-import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, getDoc, runTransaction } from 'firebase/firestore';
+import { db } from '../../../core/firebase/config';
+import { doc, getDoc } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
@@ -120,18 +120,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const isAdminTokenExpired = (bookingRecord: PublicBookingDTO | null) => {
     if (!bookingRecord?.adminActionExpiresAtMs) return false;
     return bookingRecord.adminActionExpiresAtMs < Date.now();
-  };
-
-  const isAdminTokenExpiredDoc = (reservationData: Booking) => {
-    if (!reservationData.adminActionExpiresAt) return false;
-    return reservationData.adminActionExpiresAt.toMillis() < Date.now();
-  };
-
-  const doesAdminTokenMatchDoc = (
-    reservationData: Booking,
-    tokenHash: string | null
-  ) => {
-    return !!tokenHash && reservationData.adminActionTokenHash === tokenHash;
   };
 
   const isAdminTokenUsed = (bookingRecord: PublicBookingDTO | null) =>
@@ -283,50 +271,41 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     setActionError('');
     try {
       const nextStatus = decision === 'approve' ? 'confirmed' : 'cancelled';
-      const reservationRef = doc(
-        db,
-        'units',
-        unit.id,
-        'reservations',
-        booking.id
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/adminHandleReservationAction`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId: unit.id,
+            reservationId: booking.id,
+            adminToken,
+            action: decision,
+          }),
+        }
       );
-      await runTransaction(db, async (transaction) => {
-        const reservationSnap = await transaction.get(reservationRef);
-        if (!reservationSnap.exists()) {
-          throw new Error('RESERVATION_NOT_FOUND');
-        }
-        const reservationData = reservationSnap.data() as Booking;
-        if (reservationData.adminActionUsedAt) {
-          throw new Error('ADMIN_TOKEN_USED');
-        }
-        if (reservationData.status === 'cancelled') {
-          throw new Error('RESERVATION_ALREADY_CANCELLED');
-        }
-        if (isAdminTokenExpiredDoc(reservationData)) {
-          throw new Error('ADMIN_TOKEN_EXPIRED');
-        }
-        if (!doesAdminTokenMatchDoc(reservationData, hashedAdminToken)) {
+
+      if (!response.ok) {
+        if ([403, 404, 409].includes(response.status)) {
           throw new Error('ADMIN_TOKEN_INVALID');
         }
-
-        const update: Record<string, any> = {
-          status: nextStatus,
-          adminActionHandledAt: serverTimestamp(),
-          adminActionUsedAt: serverTimestamp(),
-          adminActionSource: 'email',
-        };
-
-        if (nextStatus === 'cancelled') {
-          update.cancelledBy = 'admin';
-        }
-
-        transaction.update(reservationRef, update);
-      });
+        throw new Error('ADMIN_ACTION_FAILED');
+      }
       await writeDecisionLog(nextStatus);
 
       // !!! nincs FE email küldés, backend intézi !!!
 
-      setBooking(prev => (prev ? { ...prev, status: nextStatus } : null));
+      setBooking(prev =>
+        prev
+          ? {
+              ...prev,
+              status: nextStatus,
+              adminActionUsedAtMs: Date.now(),
+            }
+          : null
+      );
       setActionMessage(
         decision === 'approve' ? t.reservationApproved : t.reservationRejected
       );
@@ -334,12 +313,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       console.error('Error handling admin decision:', actionErr);
       if (actionErr instanceof Error) {
         const errorType = actionErr.message;
-        if (
-          errorType === 'ADMIN_TOKEN_USED' ||
-          errorType === 'RESERVATION_ALREADY_CANCELLED' ||
-          errorType === 'ADMIN_TOKEN_EXPIRED' ||
-          errorType === 'ADMIN_TOKEN_INVALID'
-        ) {
+        if (errorType === 'ADMIN_TOKEN_INVALID') {
           setActionError(t.invalidAdminToken);
           return;
         }

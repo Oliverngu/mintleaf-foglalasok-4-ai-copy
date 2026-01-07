@@ -545,6 +545,128 @@ export const guestGetReservation = onRequest(
   }
 );
 
+export const adminHandleReservationAction = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set([
+        'unitId',
+        'reservationId',
+        'adminToken',
+        'action',
+      ]);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, adminToken, action } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof adminToken !== 'string' ||
+        (action !== 'approve' && action !== 'reject')
+      ) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const docRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+
+      await db.runTransaction(async transaction => {
+        const snap = await transaction.get(docRef);
+        if (!snap.exists) {
+          throw new Error('NOT_FOUND');
+        }
+        const booking = snap.data() || {};
+        const tokenHash = hashAdminActionToken(adminToken);
+        const expiresAt = booking.adminActionExpiresAt?.toDate
+          ? booking.adminActionExpiresAt.toDate()
+          : booking.adminActionExpiresAt instanceof Date
+          ? booking.adminActionExpiresAt
+          : null;
+        const usedAt = booking.adminActionUsedAt?.toDate
+          ? booking.adminActionUsedAt.toDate()
+          : booking.adminActionUsedAt instanceof Date
+          ? booking.adminActionUsedAt
+          : null;
+
+        if (booking.status && booking.status !== 'pending') {
+          throw new Error('ALREADY_HANDLED');
+        }
+
+        if (
+          !booking.adminActionTokenHash ||
+          booking.adminActionTokenHash !== tokenHash
+        ) {
+          throw new Error('INVALID_TOKEN');
+        }
+
+        if (expiresAt && expiresAt.getTime() < Date.now()) {
+          throw new Error('TOKEN_EXPIRED');
+        }
+
+        if (usedAt) {
+          throw new Error('TOKEN_USED');
+        }
+
+        const status = action === 'approve' ? 'confirmed' : 'cancelled';
+        const update: Record<string, any> = {
+          status,
+          adminActionUsedAt: FieldValue.serverTimestamp(),
+          adminActionHandledAt: FieldValue.serverTimestamp(),
+          adminActionSource: 'email',
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (status === 'cancelled') {
+          update.cancelledBy = 'admin';
+          update.cancelledAt = FieldValue.serverTimestamp();
+        }
+
+        transaction.update(docRef, update);
+      });
+
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message === 'NOT_FOUND') {
+          res.status(404).json({ error: 'Foglalás nem található' });
+          return;
+        }
+        if (
+          err.message === 'INVALID_TOKEN' ||
+          err.message === 'TOKEN_EXPIRED' ||
+          err.message === 'TOKEN_USED'
+        ) {
+          res.status(403).json({ error: 'Érvénytelen token' });
+          return;
+        }
+        if (err.message === 'ALREADY_HANDLED') {
+          res.status(409).json({ error: 'A foglalás már feldolgozva.' });
+          return;
+        }
+      }
+      logger.error('adminHandleReservationAction error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
 export const adminOverrideDailyCapacity = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
