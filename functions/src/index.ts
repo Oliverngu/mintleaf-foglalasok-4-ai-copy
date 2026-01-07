@@ -35,6 +35,54 @@ const generateManageToken = () => randomBytes(24).toString("base64url");
 const hashManageToken = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
+const RATE_LIMIT_MAX = 15;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
+const getClientIp = (req: any) => {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp) return cfIp;
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return forwarded[0];
+  }
+  return req.ip || 'unknown';
+};
+
+const enforceRateLimit = async (unitId: string, req: any) => {
+  const ip = getClientIp(req);
+  const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+  const docId = `${unitId}_${ipHash}`;
+  const ref = db.collection('guest_rate_limits').doc(docId);
+
+  await db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    const now = Date.now();
+    const data = snap.exists ? snap.data() || {} : {};
+    const windowStartMs =
+      typeof data.windowStartMs === 'number' ? data.windowStartMs : now;
+    const count = typeof data.count === 'number' ? data.count : 0;
+    const withinWindow = now - windowStartMs < RATE_LIMIT_WINDOW_MS;
+
+    if (withinWindow && count >= RATE_LIMIT_MAX) {
+      throw new Error('RATE_LIMIT');
+    }
+
+    if (!withinWindow) {
+      transaction.set(ref, { windowStartMs: now, count: 1 }, { merge: true });
+      return;
+    }
+
+    transaction.set(
+      ref,
+      { windowStartMs, count: count + 1 },
+      { merge: true }
+    );
+  });
+};
+
 export const guestUpdateReservation = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
@@ -44,11 +92,44 @@ export const guestUpdateReservation = onRequest(
         return;
       }
 
-      const { unitId, manageToken, reservationId, action, reason } = req.body || {};
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set([
+        'unitId',
+        'reservationId',
+        'manageToken',
+        'action',
+        'reason',
+      ]);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
 
-      if (!unitId || !action || !manageToken || !reservationId) {
+      const { unitId, manageToken, reservationId, action, reason } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof manageToken !== 'string' ||
+        action !== 'cancel' ||
+        (typeof reason !== 'undefined' && typeof reason !== 'string')
+      ) {
         res.status(400).json({ error: 'unitId, reservationId, action és token kötelező' });
         return;
+      }
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
       }
 
       const docRef = db
@@ -143,15 +224,6 @@ export const guestUpdateReservation = onRequest(
         });
 
         res.status(200).json({ ok: true, alreadyCancelled: result.alreadyCancelled });
-        return;
-      }
-
-      // Ha később lesz "edit" action (pl. headcount módosítás)
-      if (action === 'edit') {
-        // itt valami ilyesmi:
-        // const { headcount, notes } = req.body;
-        // validálod, majd docRef.update({ headcount, notes, updatedAt: Timestamp.now() });
-        res.status(501).json({ error: 'EDIT még nincs implementálva' });
         return;
       }
 
@@ -372,10 +444,36 @@ export const guestGetReservation = onRequest(
         return;
       }
 
-      const { unitId, reservationId, manageToken } = req.body || {};
-      if (!unitId || !reservationId || !manageToken) {
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set(['unitId', 'reservationId', 'manageToken']);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, manageToken } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof manageToken !== 'string'
+      ) {
         res.status(400).json({ error: 'unitId, reservationId és token kötelező' });
         return;
+      }
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
       }
 
       const docRef = db
