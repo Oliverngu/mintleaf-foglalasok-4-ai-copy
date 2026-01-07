@@ -482,6 +482,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             unitId: unit.id,
             type: 'cancelled',
             createdAt: serverTimestamp(),
+            // createdByUserId intentionally omitted: guest log must remain unauthenticated
             createdByName: booking.name,
             source: 'guest',
             message: 'Vendég lemondta a foglalást a vendégportálon.',

@@ -166,6 +166,7 @@ const writeGuestLog = async (
       type,
       createdAt: serverTimestamp(),
       source: 'guest',
+      // createdByUserId intentionally omitted: public guest log must stay unauthenticated
       createdByName: booking.name,
       message,
     });
