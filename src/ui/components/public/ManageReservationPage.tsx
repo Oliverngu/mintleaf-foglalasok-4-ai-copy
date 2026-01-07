@@ -287,7 +287,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         type: status === 'confirmed' ? 'updated' : 'cancelled',
         createdAt: serverTimestamp(),
         createdByName: 'Email jóváhagyás',
-        source: 'system',
+        source: 'internal',
         message:
           status === 'confirmed'
             ? 'Foglalás jóváhagyva e-mailből'
@@ -480,7 +480,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           await addDoc(logsRef, {
             bookingId: booking.id,
             unitId: unit.id,
-            type: 'cancelled',
+            type: 'guest_cancelled',
             createdAt: serverTimestamp(),
             // createdByUserId intentionally omitted: guest log must remain unauthenticated
             createdByName: booking.name,

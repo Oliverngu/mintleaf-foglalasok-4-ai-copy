@@ -153,7 +153,20 @@ service cloud.firestore {
       match /reservation_logs/{logId} {
         allow read: if canViewUnit(unitId);
 
-        function logFieldsAllowed() {
+        function logFieldsAllowedGuest() {
+          return request.resource.data.keys().hasOnly([
+            'bookingId',
+            'unitId',
+            'type',
+            'createdAt',
+            'createdByName',
+            'source',
+            'message',
+            'date',
+          ]);
+        }
+
+        function logFieldsAllowedSignedIn() {
           return request.resource.data.keys().hasOnly([
             'bookingId',
             'unitId',
@@ -174,30 +187,37 @@ service cloud.firestore {
         function logTypeAllowedGuest() {
           return request.resource.data.type in [
             'guest_created',
-            'guest_cancelled',
-            'updated',
-            'cancelled'
+            'guest_cancelled'
           ];
         }
 
-        function logCreatorSignedInValid() {
-          return 'createdByUserId' in request.resource.data
-            && request.resource.data.createdByUserId == request.auth.uid;
+        function logTypeAllowedSignedIn() {
+          return request.resource.data.type in [
+            'created',
+            'updated',
+            'cancelled',
+            'guest_created',
+            'guest_cancelled'
+          ];
         }
 
-        function logCreatorGuestValid() {
-          return !('createdByUserId' in request.resource.data)
-            && request.resource.data.source in ['guest', 'system']
-            && logTypeAllowedGuest();
-        }
-
-        allow create: if logFieldsAllowed()
-          && logUnitMatches()
+        allow create: if logUnitMatches()
           && (
-            (isSignedIn()
+            (
+              !isSignedIn()
+              && logFieldsAllowedGuest()
+              && request.resource.data.source == 'guest'
+              && logTypeAllowedGuest()
+              && !('createdByUserId' in request.resource.data)
+            )
+            || (
+              isSignedIn()
               && canViewUnit(unitId)
-              && logCreatorSignedInValid())
-            || (!isSignedIn() && logCreatorGuestValid())
+              && logFieldsAllowedSignedIn()
+              && request.resource.data.source == 'internal'
+              && request.resource.data.createdByUserId == request.auth.uid
+              && logTypeAllowedSignedIn()
+            )
           );
         allow update, delete: if canManageUnit(unitId);
       }
