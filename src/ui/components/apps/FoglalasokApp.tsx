@@ -249,13 +249,13 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
       <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
         {logs.map(log => {
           const created =
-            log.createdAt?.toDate().toLocaleString('hu-HU', {
+            log.createdAt?.toDate?.()?.toLocaleString('hu-HU', {
               year: 'numeric',
               month: '2-digit',
               day: '2-digit',
               hour: '2-digit',
               minute: '2-digit',
-            }) ?? 'ismeretlen időpont';
+            }) ?? '—';
 
           const dotClass = getDotClass(log);
 
