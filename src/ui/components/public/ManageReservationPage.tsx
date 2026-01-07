@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, addDoc, collection, runTransaction } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
@@ -12,6 +12,16 @@ import PublicReservationLayout from './PublicReservationLayout';
 
 type Locale = 'hu' | 'en';
 
+const toDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getCapacityRef = (unitId: string, dateKey: string) =>
+  doc(db, 'units', unitId, 'reservation_capacity', dateKey);
+
 const PlayfulBubbles = () => (
   <>
     <div className="pointer-events-none absolute w-64 h-64 bg-white/40 blur-3xl rounded-full -top-10 -left-10" />
@@ -21,11 +31,13 @@ const PlayfulBubbles = () => (
 );
 
 interface ManageReservationPageProps {
+  unitId: string;
   token: string;
   allUnits: Unit[];
 }
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
+  unitId,
   token,
   allUnits,
 }) => {
@@ -43,6 +55,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [hashedAdminToken, setHashedAdminToken] = useState<string | null>(null);
+  const [isHashingAdminToken, setIsHashingAdminToken] = useState(false);
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || null, settings?.uiTheme),
@@ -64,30 +78,132 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, []);
 
   useEffect(() => {
+    const resolvedUnit =
+      allUnits.find((currentUnit) => currentUnit.id === unitId) || null;
+    if (resolvedUnit) {
+      setUnit(resolvedUnit);
+    }
+  }, [allUnits, unitId]);
+
+  useEffect(() => {
+    const fetchUnit = async () => {
+      if (unit || !unitId) return;
+      try {
+        const unitRef = doc(db, 'units', unitId);
+        const unitSnap = await getDoc(unitRef);
+        if (unitSnap.exists()) {
+          setUnit({ id: unitSnap.id, ...unitSnap.data() } as Unit);
+        } else {
+          setError('A megadott egység nem található.');
+        }
+      } catch (unitErr) {
+        console.error('Error fetching unit', unitErr);
+        setError('Hiba az egység betöltésekor.');
+      }
+    };
+
+    fetchUnit();
+  }, [unit, unitId]);
+
+  useEffect(() => {
+    const hashToken = async () => {
+      if (!adminToken) {
+        setHashedAdminToken(null);
+        return;
+      }
+      setIsHashingAdminToken(true);
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(adminToken);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
+        setHashedAdminToken(hashHex);
+      } catch (hashErr) {
+        console.error('Failed to hash admin token', hashErr);
+        setHashedAdminToken(null);
+      } finally {
+        setIsHashingAdminToken(false);
+      }
+    };
+
+    hashToken();
+  }, [adminToken]);
+
+  const isAdminTokenMatch = (
+    bookingRecord: Booking | null,
+    tokenValue: string | null,
+    tokenHash: string | null
+  ) => {
+    if (!bookingRecord || !tokenValue) return false;
+    if (bookingRecord.adminActionTokenHash) {
+      return !!tokenHash && bookingRecord.adminActionTokenHash === tokenHash;
+    }
+    return bookingRecord.adminActionToken === tokenValue;
+  };
+
+  const isAdminTokenExpired = (bookingRecord: Booking | null) => {
+    if (!bookingRecord?.adminActionExpiresAt) return false;
+    return bookingRecord.adminActionExpiresAt.toMillis() < Date.now();
+  };
+
+  const isAdminTokenExpiredDoc = (reservationData: Booking) => {
+    if (!reservationData.adminActionExpiresAt) return false;
+    return reservationData.adminActionExpiresAt.toMillis() < Date.now();
+  };
+
+  const doesAdminTokenMatchDoc = (
+    reservationData: Booking,
+    tokenValue: string,
+    tokenHash: string | null
+  ) => {
+    if (reservationData.adminActionTokenHash) {
+      return !!tokenHash && reservationData.adminActionTokenHash === tokenHash;
+    }
+    return reservationData.adminActionToken === tokenValue;
+  };
+
+  const isAdminTokenUsed = (bookingRecord: Booking | null) =>
+    !!bookingRecord?.adminActionUsedAt;
+
+  const isAdminTokenValid = isAdminTokenMatch(booking, adminToken, hashedAdminToken);
+  const isAdminTokenInvalid =
+    !!adminToken &&
+    (!isAdminTokenValid || isAdminTokenExpired(booking) || isAdminTokenUsed(booking));
+
+  const buildCapacityUpdate = (
+    dateKey: string,
+    nextCount: number,
+    limit?: number
+  ) => {
+    const update: Record<string, any> = {
+      date: dateKey,
+      count: nextCount,
+      updatedAt: serverTimestamp(),
+    };
+    if (typeof limit === 'number') {
+      update.limit = limit;
+    }
+    return update;
+  };
+
+  useEffect(() => {
     const fetchBooking = async () => {
       setLoading(true);
       try {
-        let foundBooking: Booking | null = null;
-        let foundUnit: Unit | null = null;
+        const bookingRef = doc(db, 'units', unitId, 'reservations', token);
+        const bookingSnap = await getDoc(bookingRef);
 
-        for (const unit of allUnits) {
-          const bookingRef = doc(db, 'units', unit.id, 'reservations', token);
-          const bookingSnap = await getDoc(bookingRef);
-          if (bookingSnap.exists()) {
-            foundBooking = {
-              id: bookingSnap.id,
-              ...bookingSnap.data(),
-            } as Booking;
-            foundUnit = unit;
-            break;
-          }
-        }
-
-        if (!foundBooking) {
+        if (!bookingSnap.exists()) {
           setError('A foglalás nem található.');
         } else {
+          const foundBooking = {
+            id: bookingSnap.id,
+            ...bookingSnap.data(),
+          } as Booking;
           setBooking(foundBooking);
-          setUnit(foundUnit);
 
           const urlParams = new URLSearchParams(window.location.search);
           const langOverride = urlParams.get('lang');
@@ -107,10 +223,21 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       }
     };
 
-    if (allUnits.length > 0) {
+    if (unitId && token) {
       fetchBooking();
+    } else {
+      if (!unitId) {
+        setError(
+          'Hiányzik az egység azonosítója. Kérjük, használd a teljes foglalási linket.'
+        );
+      } else {
+        setError(
+          'Hiányzik a foglalási azonosító. Kérjük, használd a teljes foglalási linket.'
+        );
+      }
+      setLoading(false);
     }
-  }, [token, allUnits]);
+  }, [token, unitId]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -174,7 +301,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const handleAdminDecision = async (decision: 'approve' | 'reject') => {
     if (!booking || !unit) return;
-    if (!adminToken || booking.adminActionToken !== adminToken) {
+    if (!adminToken || isAdminTokenExpired(booking) || isAdminTokenUsed(booking)) {
+      setActionError(t.invalidAdminToken);
+      return;
+    }
+    if (!isAdminTokenValid) {
       setActionError(t.invalidAdminToken);
       return;
     }
@@ -189,15 +320,71 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         'reservations',
         booking.id
       );
-      const update: Record<string, any> = {
-        status: nextStatus,
-        adminActionHandledAt: serverTimestamp(),
-        adminActionSource: 'email',
-      };
-      if (nextStatus === 'cancelled') {
-        update.cancelledBy = 'admin';
-      }
-      await updateDoc(reservationRef, update);
+      await runTransaction(db, async (transaction) => {
+        const reservationSnap = await transaction.get(reservationRef);
+        if (!reservationSnap.exists()) {
+          throw new Error('RESERVATION_NOT_FOUND');
+        }
+        const reservationData = reservationSnap.data() as Booking;
+        if (reservationData.adminActionUsedAt) {
+          throw new Error('ADMIN_TOKEN_USED');
+        }
+        if (reservationData.status === 'cancelled') {
+          throw new Error('RESERVATION_ALREADY_CANCELLED');
+        }
+        if (isAdminTokenExpiredDoc(reservationData)) {
+          throw new Error('ADMIN_TOKEN_EXPIRED');
+        }
+        if (!doesAdminTokenMatchDoc(reservationData, adminToken, hashedAdminToken)) {
+          throw new Error('ADMIN_TOKEN_INVALID');
+        }
+
+        const update: Record<string, any> = {
+          status: nextStatus,
+          adminActionHandledAt: serverTimestamp(),
+          adminActionUsedAt: serverTimestamp(),
+          adminActionSource: 'email',
+        };
+
+        if (nextStatus === 'cancelled') {
+          update.cancelledBy = 'admin';
+          if (
+            reservationData.status !== 'cancelled' &&
+            reservationData.startTime &&
+            reservationData.headcount > 0
+          ) {
+            const dateKey = toDateKey(reservationData.startTime.toDate());
+            const capacityRef = getCapacityRef(unit.id, dateKey);
+            const capacitySnap = await transaction.get(capacityRef);
+            const currentCount = capacitySnap.exists()
+              ? (capacitySnap.data().count as number) || 0
+              : 0;
+            const nextCount = Math.max(0, currentCount - reservationData.headcount);
+            const capacityExists = capacitySnap.exists();
+            const limitFromDoc = capacityExists
+              ? (capacitySnap.data().limit as number | undefined)
+              : undefined;
+            const fallbackLimit =
+              settings?.dailyCapacity && settings.dailyCapacity > 0
+                ? settings.dailyCapacity
+                : undefined;
+            const shouldWriteLimit =
+              (!capacityExists || limitFromDoc == null) &&
+              typeof fallbackLimit === 'number';
+            transaction.set(
+              capacityRef,
+              buildCapacityUpdate(
+                dateKey,
+                nextCount,
+                shouldWriteLimit ? fallbackLimit : undefined
+              ),
+              { merge: true }
+            );
+          }
+        }
+
+        transaction.update(reservationRef, update);
+      });
       await writeDecisionLog(nextStatus);
 
       // !!! nincs FE email küldés, backend intézi !!!
@@ -208,6 +395,18 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
     } catch (actionErr) {
       console.error('Error handling admin decision:', actionErr);
+      if (actionErr instanceof Error) {
+        const errorType = actionErr.message;
+        if (
+          errorType === 'ADMIN_TOKEN_USED' ||
+          errorType === 'RESERVATION_ALREADY_CANCELLED' ||
+          errorType === 'ADMIN_TOKEN_EXPIRED' ||
+          errorType === 'ADMIN_TOKEN_INVALID'
+        ) {
+          setActionError(t.invalidAdminToken);
+          return;
+        }
+      }
       setActionError(t.actionFailed);
     } finally {
       setIsProcessingAction(false);
@@ -224,24 +423,72 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         'reservations',
         booking.id
       );
-      await updateDoc(reservationRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: 'guest',
+      const { didCancel } = await runTransaction(db, async (transaction) => {
+        const reservationSnap = await transaction.get(reservationRef);
+        if (!reservationSnap.exists()) {
+          throw new Error('RESERVATION_NOT_FOUND');
+        }
+        const reservationData = reservationSnap.data() as Booking;
+        if (reservationData.status === 'cancelled') {
+          return { didCancel: false };
+        }
+
+        if (
+          reservationData.startTime &&
+          reservationData.headcount > 0 &&
+          (reservationData.status === 'pending' || reservationData.status === 'confirmed')
+        ) {
+          const dateKey = toDateKey(reservationData.startTime.toDate());
+          const capacityRef = getCapacityRef(unit.id, dateKey);
+          const capacitySnap = await transaction.get(capacityRef);
+          const currentCount = capacitySnap.exists()
+            ? (capacitySnap.data().count as number) || 0
+            : 0;
+          const nextCount = Math.max(0, currentCount - reservationData.headcount);
+          const capacityExists = capacitySnap.exists();
+          const limitFromDoc = capacityExists
+            ? (capacitySnap.data().limit as number | undefined)
+            : undefined;
+          const fallbackLimit =
+            settings?.dailyCapacity && settings.dailyCapacity > 0
+              ? settings.dailyCapacity
+              : undefined;
+          const shouldWriteLimit =
+            (!capacityExists || limitFromDoc == null) &&
+            typeof fallbackLimit === 'number';
+          transaction.set(
+            capacityRef,
+            buildCapacityUpdate(
+              dateKey,
+              nextCount,
+              shouldWriteLimit ? fallbackLimit : undefined
+            ),
+            { merge: true }
+          );
+        }
+
+        transaction.update(reservationRef, {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelledBy: 'guest',
+        });
+        return { didCancel: true };
       });
 
       try {
-        const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
-        await addDoc(logsRef, {
-          bookingId: booking.id,
-          unitId: unit.id,
-          type: 'cancelled',
-          createdAt: serverTimestamp(),
-          createdByUserId: null,
-          createdByName: booking.name,
-          source: 'guest',
-          message: 'Vendég lemondta a foglalást a vendégportálon.',
-        });
+        if (didCancel) {
+          const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
+          await addDoc(logsRef, {
+            bookingId: booking.id,
+            unitId: unit.id,
+            type: 'cancelled',
+            createdAt: serverTimestamp(),
+            createdByUserId: null,
+            createdByName: booking.name,
+            source: 'guest',
+            message: 'Vendég lemondta a foglalást a vendégportálon.',
+          });
+        }
       } catch (logErr) {
         console.error('Failed to log guest cancellation', logErr);
       }
@@ -284,12 +531,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       booking.status === 'pending' &&
       adminAction &&
       adminToken &&
-      booking.adminActionToken === adminToken
+      isAdminTokenValid &&
+      !isAdminTokenExpired(booking) &&
+      !isAdminTokenUsed(booking)
     ) {
       handleAdminDecision(adminAction);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking, adminAction, adminToken]);
+  }, [booking, adminAction, adminToken, isAdminTokenValid]);
 
   if (loading)
     return (
@@ -454,7 +703,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
       {booking.status === 'pending' &&
         adminToken &&
-        booking.adminActionToken !== adminToken && (
+        !isHashingAdminToken &&
+        isAdminTokenInvalid && (
           <div
             className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
             style={{
@@ -469,7 +719,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
       {booking.status === 'pending' &&
         adminToken &&
-        booking.adminActionToken === adminToken && (
+        !isHashingAdminToken &&
+        isAdminTokenValid &&
+        !isAdminTokenExpired(booking) &&
+        !isAdminTokenUsed(booking) && (
           <div
             className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
             style={{

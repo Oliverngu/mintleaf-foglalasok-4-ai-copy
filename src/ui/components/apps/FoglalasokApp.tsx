@@ -729,6 +729,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {isSettingsOpen && activeUnitId && (
         <ReservationSettingsModal
           unitId={activeUnitId}
+          currentUser={currentUser}
           onClose={() => setIsSettingsOpen(false)}
         />
       )}

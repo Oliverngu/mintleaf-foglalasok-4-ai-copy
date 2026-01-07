@@ -12,11 +12,11 @@ import {
   doc,
   getDoc,
   collection,
-  setDoc,
   query,
   where,
   getDocs,
   addDoc,
+  runTransaction,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -109,6 +109,16 @@ const resolveHeaderLogoUrl = (
 
 const generateAdminActionToken = () =>
   `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+
+const DEFAULT_DAILY_CAPACITY_LIMIT = 9999;
+
+const hashAdminActionToken = async (token: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
 
 // ===== GUEST LOG HELPER =====
 const writeGuestLog = async (
@@ -478,37 +488,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         );
       }
 
-      if (settings.dailyCapacity && settings.dailyCapacity > 0) {
-        const dayStart = new Date(selectedDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(selectedDate);
-        dayEnd.setHours(23, 59, 59, 999);
-
-        const q = query(
-          collection(db, 'units', unitId, 'reservations'),
-          where('startTime', '>=', Timestamp.fromDate(dayStart)),
-          where('startTime', '<=', Timestamp.fromDate(dayEnd)),
-          where('status', 'in', ['pending', 'confirmed'])
-        );
-
-        const querySnapshot = await getDocs(q);
-        const currentHeadcount = querySnapshot.docs.reduce(
-          (sum, docSnap) => sum + (docSnap.data().headcount || 0),
-          0
-        );
-
-        if (currentHeadcount >= settings.dailyCapacity)
-          throw new Error(t.errorCapacityFull);
-        if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-          throw new Error(
-            t.errorCapacityLimited.replace(
-              '{count}',
-              String(settings.dailyCapacity - currentHeadcount)
-            )
-          );
-        }
-      }
-
       startDateTime = new Date(
         `${toDateKey(selectedDate)}T${formData.startTime}`
       );
@@ -528,6 +507,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       const adminActionToken =
         settings.reservationMode === 'request'
           ? generateAdminActionToken()
+          : null;
+      const adminActionTokenHash =
+        typeof adminActionToken === 'string' && adminActionToken
+          ? await hashAdminActionToken(adminActionToken)
+          : null;
+      const adminActionExpiresAt =
+        typeof adminActionToken === 'string' && adminActionToken
+          ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
           : null;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
@@ -554,7 +541,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
       const adminActionFields =
         typeof adminActionToken === 'string' && adminActionToken
-          ? { adminActionToken }
+          ? {
+              adminActionToken,
+              adminActionTokenHash: adminActionTokenHash ?? undefined,
+              adminActionExpiresAt: adminActionExpiresAt ?? undefined,
+              adminActionUsedAt: null,
+            }
           : {};
 
       newReservation = {
@@ -562,7 +554,45 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         ...adminActionFields,
       };
 
-      await setDoc(newReservationRef, newReservation);
+      const dateKey = toDateKey(selectedDate);
+      const capacityRef = doc(
+        db,
+        'units',
+        unitId,
+        'reservation_capacity',
+        dateKey
+      );
+      const configuredLimit =
+        settings.dailyCapacity && settings.dailyCapacity > 0
+          ? settings.dailyCapacity
+          : DEFAULT_DAILY_CAPACITY_LIMIT;
+
+      await runTransaction(db, async (transaction) => {
+        const capacitySnap = await transaction.get(capacityRef);
+        const currentCount = capacitySnap.exists()
+          ? (capacitySnap.data().count as number) || 0
+          : 0;
+        const existingLimit = capacitySnap.exists()
+          ? (capacitySnap.data().limit as number) || configuredLimit
+          : configuredLimit;
+        const nextCount = currentCount + requestedHeadcount;
+
+        if (nextCount > existingLimit) {
+          throw new Error('DAILY_LIMIT_REACHED');
+        }
+
+        transaction.set(
+          capacityRef,
+          {
+            date: dateKey,
+            limit: existingLimit,
+            count: nextCount,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+        transaction.set(newReservationRef, newReservation);
+      });
 
       // ---- GUEST LOG: booking created ----
       await writeGuestLog(
@@ -584,7 +614,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
       if (err instanceof Error) {
-        setError(err.message);
+        if (err.message === 'DAILY_LIMIT_REACHED') {
+          setError(t.errorDailyLimitReached);
+        } else {
+          setError(err.message);
+        }
       } else {
         setError(t.genericError);
       }
@@ -1340,7 +1374,11 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       icsContent
     )}`;
 
-    const mLink = `${window.location.origin}/manage?token=${referenceCode}`;
+    const mLinkParams = new URLSearchParams({
+      token: referenceCode,
+      unitId: unit.id,
+    });
+    const mLink = `${window.location.origin}/manage?${mLinkParams.toString()}`;
 
     return { googleLink: gLink, icsLink: iLink, manageLink: mLink };
   }, [submittedData, unit.name, t]);

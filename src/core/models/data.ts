@@ -99,6 +99,9 @@ export interface Booking {
   customData?: Record<string, string>;
   reservationMode?: 'auto' | 'request';
   adminActionToken?: string;
+  adminActionTokenHash?: string;
+  adminActionExpiresAt?: Timestamp;
+  adminActionUsedAt?: Timestamp | null;
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';

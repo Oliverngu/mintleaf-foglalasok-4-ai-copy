@@ -60,6 +60,23 @@ service cloud.firestore {
       return isAdmin() || hasUnit(unitId);
     }
 
+    function capacityFieldsAllowed() {
+      return request.resource.data.keys().hasOnly(['date', 'count', 'limit', 'updatedAt']);
+    }
+
+    function capacityLimitTouched() {
+      return 'limit' in request.resource.data;
+    }
+
+    function capacityLimitChanged() {
+      return capacityLimitTouched()
+        && (
+          !exists(/databases/$(database)/documents/units/$(unitId)/reservation_capacity/$(dateKey))
+          || !('limit' in resource.data)
+          || request.resource.data.limit != resource.data.limit
+        );
+    }
+
     function isSelf(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -121,8 +138,38 @@ service cloud.firestore {
           || (isUnitLeader() && hasUnit(unitId));
       }
 
+      match /reservation_capacity/{dateKey} {
+        allow read: if canViewUnit(unitId);
+        allow create: if canViewUnit(unitId)
+          && capacityFieldsAllowed()
+          && (!capacityLimitTouched() || canManageUnit(unitId));
+        allow update: if capacityFieldsAllowed()
+          && (
+            (capacityLimitChanged() && canManageUnit(unitId))
+            || (!capacityLimitChanged() && canViewUnit(unitId))
+          );
+        allow delete: if canManageUnit(unitId);
+      }
+
       match /reservation_logs/{logId} {
-        allow read, create: if canViewUnit(unitId);
+        allow read: if canViewUnit(unitId);
+
+        function logUnitMatches() {
+          return 'unitId' in request.resource.data && request.resource.data.unitId == unitId;
+        }
+
+        function logCreatorValid() {
+          if (isSignedIn()) {
+            return !('createdByUserId' in request.resource.data)
+              || request.resource.data.createdByUserId == request.auth.uid;
+          }
+          return !('createdByUserId' in request.resource.data)
+            || request.resource.data.createdByUserId == null;
+        }
+
+        allow create: if canViewUnit(unitId)
+          && logUnitMatches()
+          && logCreatorValid();
         allow update, delete: if canManageUnit(unitId);
       }
 

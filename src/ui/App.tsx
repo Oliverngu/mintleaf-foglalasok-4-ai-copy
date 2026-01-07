@@ -16,7 +16,10 @@ import { loadBases, loadMode, saveBases, saveMode } from '../core/theme/storage'
 
 type AppState = 'login' | 'register' | 'dashboard' | 'loading' | 'public';
 type LoginMessage = { type: 'success' | 'error'; text: string };
-type PublicPage = { type: 'reserve'; unitId: string } | { type: 'manage'; token: string } | { type: 'error'; message: string };
+type PublicPage =
+  | { type: 'reserve'; unitId: string }
+  | { type: 'manage'; unitId: string; token: string }
+  | { type: 'error'; message: string };
 
 // --- 1. JAVÍTÁS: A Bridge Prop neveinek szinkronizálása a ThemeManagerrel ---
 const ThemeManagerBridge: React.FC<{
@@ -130,12 +133,9 @@ const App: React.FC = () => {
     const isManagePage = pathname.startsWith('/manage');
 
     if (isManagePage) {
-        const token = urlParams.get('token');
-        if (token) {
-            setPublicPage({ type: 'manage', token });
-        } else {
-            setPublicPage({ type: 'error', message: 'Nincs foglalási azonosító megadva.' });
-        }
+        const token = urlParams.get('token') || '';
+        const unitId = urlParams.get('unitId') || '';
+        setPublicPage({ type: 'manage', unitId, token });
     } else if (isReservePage) {
         const unitId = urlParams.get('unit');
         if (unitId) {
@@ -402,7 +402,7 @@ const App: React.FC = () => {
   switch (appState) {
     case 'public':
         if (publicPage?.type === 'reserve') return <ReservationPage unitId={publicPage.unitId} allUnits={allUnits} currentUser={currentUser} />;
-        if (publicPage?.type === 'manage') return <ManageReservationPage token={publicPage.token} allUnits={allUnits} />;
+        if (publicPage?.type === 'manage') return <ManageReservationPage unitId={publicPage.unitId} token={publicPage.token} allUnits={allUnits} />;
         return <div className="fixed inset-0 flex items-center justify-center">Hiba: {publicPage?.message}</div>;
     case 'loading':
       return <div className="fixed inset-0 flex items-center justify-center"><LoadingSpinner /></div>;
