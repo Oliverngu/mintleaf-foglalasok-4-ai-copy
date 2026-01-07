@@ -9,6 +9,7 @@ admin.initializeApp();
 // 🔹 Itt definiáljuk, és CSAK EZT használjuk mindenhol
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
+const FieldValue = admin.firestore.FieldValue;
 const REGION = "europe-west3";
 
 const EMAIL_GATEWAY_URL =
@@ -1441,7 +1442,7 @@ export const onReservationStatusChange = onDocumentUpdated(
             bookingId,
             unitId,
             type: after.status === 'confirmed' ? 'updated' : 'cancelled',
-            createdAt: Timestamp.now(),
+            createdAt: FieldValue.serverTimestamp(),
             createdByUserId: 'system',
             createdByName: 'Email jóváhagyás',
             source: 'internal',
