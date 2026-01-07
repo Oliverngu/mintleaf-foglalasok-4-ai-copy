@@ -98,10 +98,35 @@ export interface Booking {
   referenceCode?: string;
   customData?: Record<string, string>;
   reservationMode?: 'auto' | 'request';
-  adminActionToken?: string;
+  adminActionTokenHash?: string;
+  adminActionExpiresAt?: Timestamp;
+  adminActionUsedAt?: Timestamp | null;
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
+  manageTokenHash?: string;
+}
+
+export interface PublicBookingDTO {
+  id: string;
+  unitId: string;
+  unitName?: string;
+  name: string;
+  headcount: number;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  locale?: 'hu' | 'en';
+  occasion?: string;
+  source?: string;
+  referenceCode?: string;
+  contact?: {
+    phoneE164?: string;
+    email?: string;
+  };
+  adminActionTokenHash?: string | null;
+  adminActionExpiresAtMs?: number | null;
+  adminActionUsedAtMs?: number | null;
 }
 
 export interface ThemeSettings {
