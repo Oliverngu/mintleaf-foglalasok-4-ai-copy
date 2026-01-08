@@ -7,16 +7,14 @@ import {
   GuestFormSettings,
   CustomSelectField,
 } from '../../../core/models/data';
-import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
+import { db, Timestamp } from '../../../core/firebase/config';
 import {
   doc,
   getDoc,
   collection,
-  setDoc,
   query,
   where,
   getDocs,
-  addDoc,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -107,63 +105,9 @@ const resolveHeaderLogoUrl = (
   return null;
 };
 
-const generateAdminActionToken = () =>
-  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-
-// ===== GUEST LOG HELPER =====
-const writeGuestLog = async (
-  unitId: string,
-  booking: {
-    id: string;
-    name: string;
-    headcount?: number;
-    startTime?: Timestamp;
-  },
-  type: 'guest_created' | 'guest_cancelled',
-  extraMessage?: string
-) => {
-  try {
-    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
-
-    let dateStr = '';
-    if (booking.startTime && typeof booking.startTime.toDate === 'function') {
-      dateStr = booking.startTime.toDate().toLocaleString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
-
-    let baseMessage = '';
-    if (type === 'guest_created') {
-      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${
-        dateStr ? `, ${dateStr}` : ''
-      })`;
-    }
-    if (type === 'guest_cancelled') {
-      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${
-        dateStr ? ` (${dateStr})` : ''
-      }`;
-    }
-
-    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
-
-    await addDoc(logsRef, {
-      bookingId: booking.id,
-      unitId,
-      type,
-      createdAt: serverTimestamp(),
-      source: 'guest',
-      createdByUserId: null,
-      createdByName: booking.name,
-      message,
-    });
-  } catch (logErr) {
-    console.error('Failed to write reservation log from guest page:', logErr);
-  }
-};
+const FUNCTIONS_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
 
 const ProgressIndicator: React.FC<{
   currentStep: number;
@@ -460,12 +404,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
     let startDateTime: Date;
     let endDateTime: Date;
-    let newReservation: any;
-
     try {
       const requestedStartTime = formData.startTime;
-      const requestedHeadcount = parseInt(formData.headcount, 10);
-
       const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || {
         from: '00:00',
         to: '23:59',
@@ -476,37 +416,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             .replace('{start}', bookingStart)
             .replace('{end}', bookingEnd)
         );
-      }
-
-      if (settings.dailyCapacity && settings.dailyCapacity > 0) {
-        const dayStart = new Date(selectedDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(selectedDate);
-        dayEnd.setHours(23, 59, 59, 999);
-
-        const q = query(
-          collection(db, 'units', unitId, 'reservations'),
-          where('startTime', '>=', Timestamp.fromDate(dayStart)),
-          where('startTime', '<=', Timestamp.fromDate(dayEnd)),
-          where('status', 'in', ['pending', 'confirmed'])
-        );
-
-        const querySnapshot = await getDocs(q);
-        const currentHeadcount = querySnapshot.docs.reduce(
-          (sum, docSnap) => sum + (docSnap.data().headcount || 0),
-          0
-        );
-
-        if (currentHeadcount >= settings.dailyCapacity)
-          throw new Error(t.errorCapacityFull);
-        if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-          throw new Error(
-            t.errorCapacityLimited.replace(
-              '{count}',
-              String(settings.dailyCapacity - currentHeadcount)
-            )
-          );
-        }
       }
 
       startDateTime = new Date(
@@ -521,14 +430,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           endDateTime = potentialEndDateTime;
       }
 
-      const newReservationRef = doc(
-        collection(db, 'units', unitId, 'reservations')
-      );
-      const referenceCode = newReservationRef.id;
-      const adminActionToken =
-        settings.reservationMode === 'request'
-          ? generateAdminActionToken()
-          : null;
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -544,39 +445,50 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         },
         locale,
         status: reservationStatus,
-        createdAt: serverTimestamp(),
-        referenceCode,
         reservationMode: settings.reservationMode,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
         customData: formData.customData,
       };
+      const dateKey = toDateKey(selectedDate);
 
-      const adminActionFields =
-        typeof adminActionToken === 'string' && adminActionToken
-          ? { adminActionToken }
-          : {};
-
-      newReservation = {
-        ...baseReservation,
-        ...adminActionFields,
-      };
-
-      await setDoc(newReservationRef, newReservation);
-
-      // ---- GUEST LOG: booking created ----
-      await writeGuestLog(
-        unitId,
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/guestCreateReservation`,
         {
-          id: referenceCode,
-          name: newReservation.name,
-          headcount: newReservation.headcount,
-          startTime: newReservation.startTime,
-        },
-        'guest_created'
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId,
+            dateKey,
+            reservation: {
+              ...baseReservation,
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+            },
+          }),
+        }
       );
 
-      setSubmittedData({ ...newReservation, date: selectedDate });
+      if (!response.ok) {
+        if (response.status === 409) {
+          throw new Error('DAILY_LIMIT_REACHED');
+        }
+        throw new Error(t.genericError);
+      }
+
+      const payload = await response.json();
+      const referenceCode = payload.bookingId || payload.id;
+      const manageToken = payload.manageToken as string | undefined;
+      setSubmittedData({
+        ...baseReservation,
+        referenceCode,
+        manageToken,
+        startTime: Timestamp.fromDate(startDateTime),
+        endTime: Timestamp.fromDate(endDateTime),
+        date: selectedDate,
+      });
       setStep(3);
 
       // !!! FRONTEND NEM KÜLD EMAILT !!!
@@ -584,7 +496,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
       if (err instanceof Error) {
-        setError(err.message);
+        if (err.message === 'DAILY_LIMIT_REACHED') {
+          setError(t.errorDailyLimitReached);
+        } else {
+          setError(err.message);
+        }
       } else {
         setError(t.genericError);
       }
@@ -1308,7 +1224,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
     if (!submittedData)
       return { googleLink: '#', icsLink: '#', manageLink: '#' };
 
-    const { startTime, endTime, name, referenceCode } = submittedData;
+    const { startTime, endTime, name, referenceCode, manageToken } = submittedData;
     const startDate = startTime.toDate();
     const endDate = endTime.toDate();
 
@@ -1340,12 +1256,22 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       icsContent
     )}`;
 
-    const mLink = `${window.location.origin}/manage?token=${referenceCode}`;
+    if (!manageToken) {
+      return { googleLink: gLink, icsLink: iLink, manageLink: '#' };
+    }
+
+    const mLinkParams = new URLSearchParams({
+      reservationId: referenceCode,
+      unitId: unit.id,
+      token: manageToken,
+    });
+    const mLink = `${window.location.origin}/manage?${mLinkParams.toString()}`;
 
     return { googleLink: gLink, icsLink: iLink, manageLink: mLink };
   }, [submittedData, unit.name, t]);
 
   const handleCopy = () => {
+    if (manageLink === '#') return;
     navigator.clipboard.writeText(manageLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -1476,20 +1402,31 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
         >
           <input
             type="text"
-            value={manageLink}
+            value={manageLink === '#' ? '' : manageLink}
             readOnly
             className="w-full bg-transparent text-sm focus:outline-none placeholder:text-gray-600"
             style={inputTextStyle}
           />
           <button
             onClick={handleCopy}
+            disabled={manageLink === '#'}
             className={`${themeProps.radiusClass} font-semibold text-sm px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 ${theme.shadowClass}`}
-            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
+            style={{
+              backgroundColor:
+                manageLink === '#'
+                  ? themeProps.colors.textSecondary
+                  : themeProps.colors.primary,
+              color: '#fff',
+              opacity: manageLink === '#' ? 0.6 : 1,
+            }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
           </button>
         </div>
+        {manageLink === '#' && (
+          <p className="text-sm text-red-600">{t.invalidManageLink}</p>
+        )}
       </div>
 
       <div className="mt-6 space-y-3">

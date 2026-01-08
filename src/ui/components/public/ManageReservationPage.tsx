@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Booking, ReservationSetting } from '../../../core/models/data';
-import { db, serverTimestamp } from '../../../core/firebase/config';
-import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
+import { Unit, Booking, PublicBookingDTO, ReservationSetting } from '../../../core/models/data';
+import { db } from '../../../core/firebase/config';
+import { doc, getDoc } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
@@ -12,6 +12,10 @@ import PublicReservationLayout from './PublicReservationLayout';
 
 type Locale = 'hu' | 'en';
 
+const FUNCTIONS_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
+
 const PlayfulBubbles = () => (
   <>
     <div className="pointer-events-none absolute w-64 h-64 bg-white/40 blur-3xl rounded-full -top-10 -left-10" />
@@ -21,15 +25,19 @@ const PlayfulBubbles = () => (
 );
 
 interface ManageReservationPageProps {
-  token: string;
+  unitId: string;
+  reservationId: string;
+  manageToken: string;
   allUnits: Unit[];
 }
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
-  token,
+  unitId,
+  reservationId,
+  manageToken,
   allUnits,
 }) => {
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [booking, setBooking] = useState<PublicBookingDTO | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +51,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [hashedAdminToken, setHashedAdminToken] = useState<string | null>(null);
+  const [isHashingAdminToken, setIsHashingAdminToken] = useState(false);
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || null, settings?.uiTheme),
@@ -50,6 +60,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   );
 
   const isMinimalGlassTheme = settings?.theme?.id === 'minimal_glass';
+  const t = translations[locale];
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -64,53 +75,144 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, []);
 
   useEffect(() => {
+    const resolvedUnit =
+      allUnits.find((currentUnit) => currentUnit.id === unitId) || null;
+    if (resolvedUnit) {
+      setUnit(resolvedUnit);
+    }
+  }, [allUnits, unitId]);
+
+  useEffect(() => {
+    const hashToken = async () => {
+      if (!adminToken) {
+        setHashedAdminToken(null);
+        return;
+      }
+      setIsHashingAdminToken(true);
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(adminToken);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
+        setHashedAdminToken(hashHex);
+      } catch (hashErr) {
+        console.error('Failed to hash admin token', hashErr);
+        setHashedAdminToken(null);
+      } finally {
+        setIsHashingAdminToken(false);
+      }
+    };
+
+    hashToken();
+  }, [adminToken]);
+
+  const isAdminTokenMatch = (
+    bookingRecord: PublicBookingDTO | null,
+    tokenHash: string | null
+  ) => {
+    if (!bookingRecord) return false;
+    return !!tokenHash && bookingRecord.adminActionTokenHash === tokenHash;
+  };
+
+  const isAdminTokenExpired = (bookingRecord: PublicBookingDTO | null) => {
+    if (!bookingRecord?.adminActionExpiresAtMs) return false;
+    return bookingRecord.adminActionExpiresAtMs < Date.now();
+  };
+
+  const isAdminTokenUsed = (bookingRecord: PublicBookingDTO | null) =>
+    !!bookingRecord?.adminActionUsedAtMs;
+
+  const isAdminTokenValid = isAdminTokenMatch(booking, hashedAdminToken);
+  const isAdminTokenInvalid =
+    !!adminToken &&
+    (!isAdminTokenValid || isAdminTokenExpired(booking) || isAdminTokenUsed(booking));
+
+  useEffect(() => {
     const fetchBooking = async () => {
       setLoading(true);
       try {
-        let foundBooking: Booking | null = null;
-        let foundUnit: Unit | null = null;
-
-        for (const unit of allUnits) {
-          const bookingRef = doc(db, 'units', unit.id, 'reservations', token);
-          const bookingSnap = await getDoc(bookingRef);
-          if (bookingSnap.exists()) {
-            foundBooking = {
-              id: bookingSnap.id,
-              ...bookingSnap.data(),
-            } as Booking;
-            foundUnit = unit;
-            break;
+        const response = await fetch(
+          `${FUNCTIONS_BASE_URL}/guestGetReservation`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              unitId,
+              reservationId,
+              manageToken,
+            }),
           }
+        );
+
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 404) {
+            setError(t.invalidManageLink);
+            return;
+          }
+          throw new Error('FETCH_FAILED');
         }
 
-        if (!foundBooking) {
-          setError('A foglalás nem található.');
-        } else {
-          setBooking(foundBooking);
-          setUnit(foundUnit);
+        const payload = await response.json();
+        const foundBooking: PublicBookingDTO = {
+          id: payload.id,
+          unitId: payload.unitId,
+          unitName: payload.unitName,
+          name: payload.name,
+          headcount: payload.headcount,
+          startTimeMs: payload.startTimeMs ?? null,
+          endTimeMs: payload.endTimeMs ?? null,
+          status: payload.status,
+          occasion: payload.occasion || '',
+          source: payload.source || '',
+          locale: payload.locale || 'hu',
+          referenceCode: payload.referenceCode,
+          contact: payload.contact || { phoneE164: '', email: '' },
+          adminActionTokenHash: payload.adminActionTokenHash || null,
+          adminActionExpiresAtMs: payload.adminActionExpiresAtMs ?? null,
+          adminActionUsedAtMs: payload.adminActionUsedAtMs ?? null,
+        };
 
-          const urlParams = new URLSearchParams(window.location.search);
-          const langOverride = urlParams.get('lang');
-          if (langOverride === 'en' || langOverride === 'hu') {
-            setLocale(langOverride);
-          } else {
-            setLocale(foundBooking.locale || 'hu');
-          }
+        setBooking(foundBooking);
+        if (!unit) {
+          setUnit({
+            id: payload.unitId,
+            name: payload.unitName || 'MintLeaf',
+          } as Unit);
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const langOverride = urlParams.get('lang');
+        if (langOverride === 'en' || langOverride === 'hu') {
+          setLocale(langOverride);
+        } else {
+          setLocale(foundBooking.locale || 'hu');
         }
       } catch (err: any) {
         console.error('Error fetching reservation:', err);
-        setError(
-          'Hiba a foglalás betöltésekor. Ellenőrizze a linket, vagy próbálja meg később.'
-        );
+        setError(t.actionFailed);
       } finally {
         setLoading(false);
       }
     };
 
-    if (allUnits.length > 0) {
+    if (unitId && reservationId && manageToken) {
       fetchBooking();
+    } else {
+      if (!unitId) {
+        setError(
+          'Hiányzik az egység azonosítója. Kérjük, használd a teljes foglalási linket.'
+        );
+      } else {
+        setError(t.invalidManageLink);
+      }
+      setLoading(false);
     }
-  }, [token, allUnits]);
+  }, [manageToken, reservationId, t.actionFailed, t.invalidManageLink, unit, unitId]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -151,30 +253,17 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   }, [theme]);
 
   const writeDecisionLog = async (status: 'confirmed' | 'cancelled') => {
-    if (!booking || !unit) return;
-    try {
-      const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
-      await addDoc(logsRef, {
-        bookingId: booking.id,
-        unitId: unit.id,
-        type: status === 'confirmed' ? 'updated' : 'cancelled',
-        createdAt: serverTimestamp(),
-        createdByUserId: null,
-        createdByName: 'Email jóváhagyás',
-        source: 'internal',
-        message:
-          status === 'confirmed'
-            ? 'Foglalás jóváhagyva e-mailből'
-            : 'Foglalás elutasítva e-mailből',
-      });
-    } catch (logErr) {
-      console.error('Failed to write admin decision log', logErr);
-    }
+    // Decision logs are written by the backend after token validation.
+    void status;
   };
 
   const handleAdminDecision = async (decision: 'approve' | 'reject') => {
     if (!booking || !unit) return;
-    if (!adminToken || booking.adminActionToken !== adminToken) {
+    if (!adminToken || isAdminTokenExpired(booking) || isAdminTokenUsed(booking)) {
+      setActionError(t.invalidAdminToken);
+      return;
+    }
+    if (!isAdminTokenValid) {
       setActionError(t.invalidAdminToken);
       return;
     }
@@ -182,32 +271,53 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     setActionError('');
     try {
       const nextStatus = decision === 'approve' ? 'confirmed' : 'cancelled';
-      const reservationRef = doc(
-        db,
-        'units',
-        unit.id,
-        'reservations',
-        booking.id
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/adminHandleReservationAction`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId: unit.id,
+            reservationId: booking.id,
+            adminToken,
+            action: decision,
+          }),
+        }
       );
-      const update: Record<string, any> = {
-        status: nextStatus,
-        adminActionHandledAt: serverTimestamp(),
-        adminActionSource: 'email',
-      };
-      if (nextStatus === 'cancelled') {
-        update.cancelledBy = 'admin';
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('ADMIN_TOKEN_INVALID');
+        }
+        throw new Error('ADMIN_ACTION_FAILED');
       }
-      await updateDoc(reservationRef, update);
       await writeDecisionLog(nextStatus);
 
       // !!! nincs FE email küldés, backend intézi !!!
 
-      setBooking(prev => (prev ? { ...prev, status: nextStatus } : null));
+      setBooking(prev =>
+        prev
+          ? {
+              ...prev,
+              status: nextStatus,
+              adminActionUsedAtMs: Date.now(),
+            }
+          : null
+      );
       setActionMessage(
         decision === 'approve' ? t.reservationApproved : t.reservationRejected
       );
     } catch (actionErr) {
       console.error('Error handling admin decision:', actionErr);
+      if (actionErr instanceof Error) {
+        const errorType = actionErr.message;
+        if (errorType === 'ADMIN_TOKEN_INVALID') {
+          setActionError(t.invalidAdminToken);
+          return;
+        }
+      }
       setActionError(t.actionFailed);
     } finally {
       setIsProcessingAction(false);
@@ -216,34 +326,34 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const handleCancelReservation = async () => {
     if (!booking || !unit) return;
+    if (!manageToken) {
+      setError(t.invalidManageLink);
+      return;
+    }
     try {
-      const reservationRef = doc(
-        db,
-        'units',
-        unit.id,
-        'reservations',
-        booking.id
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/guestUpdateReservation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId: unit.id,
+            reservationId: booking.id,
+            manageToken,
+            action: 'cancel',
+            reason: '',
+          }),
+        }
       );
-      await updateDoc(reservationRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: 'guest',
-      });
 
-      try {
-        const logsRef = collection(db, 'units', unit.id, 'reservation_logs');
-        await addDoc(logsRef, {
-          bookingId: booking.id,
-          unitId: unit.id,
-          type: 'cancelled',
-          createdAt: serverTimestamp(),
-          createdByUserId: null,
-          createdByName: booking.name,
-          source: 'guest',
-          message: 'Vendég lemondta a foglalást a vendégportálon.',
-        });
-      } catch (logErr) {
-        console.error('Failed to log guest cancellation', logErr);
+      if (!response.ok) {
+        if (response.status === 403 || response.status === 404) {
+          setError(t.invalidManageLink);
+          return;
+        }
+        throw new Error('CANCEL_FAILED');
       }
 
       // !!! nincs FE email küldés, backend intézi !!!
@@ -254,11 +364,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       setIsCancelModalOpen(false);
     } catch (err) {
       console.error('Error cancelling reservation:', err);
-      setError('Hiba a lemondás során.');
+      setError(t.cancelFailed);
     }
   };
 
-  const t = translations[locale];
   const baseButtonClasses = useMemo(
     () => ({
       primary: theme.styles.primaryButton,
@@ -284,12 +393,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       booking.status === 'pending' &&
       adminAction &&
       adminToken &&
-      booking.adminActionToken === adminToken
+      isAdminTokenValid &&
+      !isAdminTokenExpired(booking) &&
+      !isAdminTokenUsed(booking)
     ) {
       handleAdminDecision(adminAction);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking, adminAction, adminToken]);
+  }, [booking, adminAction, adminToken, isAdminTokenValid]);
 
   if (loading)
     return (
@@ -355,6 +466,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     return phoneE164.slice(0, -7) + '••• •' + last4;
   };
 
+  const getStartDate = () =>
+    booking?.startTimeMs ? new Date(booking.startTimeMs) : null;
+  const getEndDate = () =>
+    booking?.endTimeMs ? new Date(booking.endTimeMs) : null;
+
   const headerSection = (
     <>
       <h1
@@ -410,20 +526,32 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         </p>
         <p>
           <strong>{t.date}:</strong>{' '}
-          {booking.startTime
-            .toDate()
-            .toLocaleDateString(locale, {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
+          {getStartDate()
+            ? getStartDate()!.toLocaleDateString(locale, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })
+            : '—'}
         </p>
         <p>
           <strong>{t.startTime}:</strong>{' '}
-          {booking.startTime
-            .toDate()
-            .toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+          {getStartDate()
+            ? getStartDate()!.toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—'}
+        </p>
+        <p>
+          <strong>{t.endTime}:</strong>{' '}
+          {getEndDate()
+            ? getEndDate()!.toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—'}
         </p>
         <p>
           <strong>{t.email}:</strong> {booking.contact?.email}
@@ -454,7 +582,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
       {booking.status === 'pending' &&
         adminToken &&
-        booking.adminActionToken !== adminToken && (
+        !isHashingAdminToken &&
+        isAdminTokenInvalid && (
           <div
             className={`mt-4 p-3 border ${theme.radiusClass} text-sm`}
             style={{
@@ -469,7 +598,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
       {booking.status === 'pending' &&
         adminToken &&
-        booking.adminActionToken === adminToken && (
+        !isHashingAdminToken &&
+        isAdminTokenValid &&
+        !isAdminTokenExpired(booking) &&
+        !isAdminTokenUsed(booking) && (
           <div
             className={`mt-6 p-4 border ${theme.radiusClass} space-y-3`}
             style={{
