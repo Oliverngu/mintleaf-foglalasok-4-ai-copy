@@ -18,15 +18,18 @@ service cloud.firestore {
       return d.role;
     }
 
-    // unitIds + unitIDs (legacy) egyesítése
+    // unitIds + unitIDs (legacy) + unitId (single) támogatása
     function userUnits() {
       let d = userData();
       let u1 = d.unitIds;
       let u2 = d.unitIDs;
+      let u3 = d.unitId;
 
-      return u1 != null
+      return u1 != null && u1.size() > 0
         ? u1
-        : (u2 != null ? u2 : []);
+        : (u2 != null && u2.size() > 0
+            ? u2
+            : (u3 != null ? [u3] : []));
     }
 
     // <<< ITT VOLT A HIBA
@@ -126,8 +129,8 @@ service cloud.firestore {
     // --- units + subcollections ---
 
     match /units/{unitId} {
-      // egységek meta – minden belépett user láthatja (selectorhez)
-      allow read: if isSignedIn();
+      // egységek meta – csak olyan user lássa, aki érintett az egységben (userData.unitIds/unitIDs/unitId alapján)
+      allow read: if canViewUnit(unitId);
       allow write: if canManageUnit(unitId);
 
       match /reservations/{reservationId} {
@@ -139,6 +142,26 @@ service cloud.firestore {
       }
 
       match /floorplans/{floorplanId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /seating_settings/{docId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /zones/{zoneId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /tables/{tableId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /table_combinations/{comboId} {
         allow read: if canManageUnit(unitId);
         allow create, update, delete: if canManageUnit(unitId);
       }
