@@ -182,7 +182,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       ) ?? [];
     try {
       const { activeFloorplanId, ...restSettings } = settings;
-      const payload = {
+      const payload: SeatingSettings = {
         ...restSettings,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
@@ -190,10 +190,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           activeRule: settings.emergencyZones?.activeRule ?? 'always',
           weekdays: settings.emergencyZones?.weekdays ?? [],
         },
-      } as SeatingSettings;
-      if (activeFloorplanId !== undefined) {
-        payload.activeFloorplanId = activeFloorplanId;
-      }
+        // Persist only explicit activeFloorplanId; resolvedActiveFloorplanId is UI fallback only.
+        ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
+      };
       await updateSeatingSettings(unitId, payload);
       setSuccess('Beállítások mentve.');
     } catch (err) {
