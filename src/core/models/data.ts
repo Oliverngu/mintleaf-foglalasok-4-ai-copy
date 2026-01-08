@@ -107,6 +107,9 @@ export interface Booking {
   manageTokenHash?: string;
   zoneId?: string;
   assignedTableIds?: string[];
+  seatingSource?: 'auto' | 'manual';
+  isVip?: boolean;
+  noShowAt?: Timestamp;
 }
 
 export interface Zone {
@@ -114,6 +117,7 @@ export interface Zone {
   name: string;
   priority: number;
   isActive: boolean;
+  isEmergency?: boolean;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -122,14 +126,40 @@ export interface Table {
   id: string;
   name: string;
   zoneId: string;
-  capacity: number;
+  capacityMax: number;
+  minCapacity: number;
   isActive: boolean;
   x?: number;
   y?: number;
   rot?: number;
+  canSeatSolo?: boolean;
   canCombine?: boolean;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+}
+
+export interface TableCombination {
+  id: string;
+  tableIds: string[];
+  isActive: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface SeatingSettings {
+  bufferMinutes?: number;
+  defaultDurationMinutes?: number;
+  allowGuestDurationEdit?: boolean;
+  holdTableMinutesOnLate?: number;
+  maxCombineCount?: number;
+  vipEnabled?: boolean;
+  soloAllowedTableIds?: string[];
+  emergencyZones?: {
+    enabled?: boolean;
+    zoneIds?: string[];
+    activeRule?: 'always' | 'byWeekday';
+    weekdays?: number[];
+  };
 }
 
 export interface PublicBookingDTO {
