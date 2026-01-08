@@ -106,13 +106,13 @@ export const suggestSeating = async (
   const endWithBuffer = new Date(input.endTime.getTime() + bufferMillis);
 
   const monthStart = new Date(input.startTime.getFullYear(), input.startTime.getMonth(), 1);
-  const monthEnd = new Date(input.startTime.getFullYear(), input.startTime.getMonth() + 1, 0);
+  const nextMonthStart = new Date(input.startTime.getFullYear(), input.startTime.getMonth() + 1, 1);
 
   const reservationSnapshot = await getDocs(
     query(
       collection(db, 'units', input.unitId, 'reservations'),
       where('startTime', '>=', Timestamp.fromDate(monthStart)),
-      where('startTime', '<=', Timestamp.fromDate(monthEnd))
+      where('startTime', '<', Timestamp.fromDate(nextMonthStart))
     )
   );
 

@@ -244,25 +244,24 @@ const BookingSeatingEditor: React.FC<{
             </p>
           )}
           {selectedZoneId &&
-            availableTables.map(table => (
-              (() => {
-                const minCapacity = table.minCapacity ?? 1;
-                const maxCapacity = table.capacityMax ?? 2;
-                return (
-              <label key={table.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedTableIds.includes(table.id)}
-                  onChange={() => toggleTable(table.id)}
-                  className="h-4 w-4"
-                />
-                <span>
-                  {table.name} (min {minCapacity} – max {maxCapacity} fő)
-                </span>
-              </label>
-                );
-              })()
-            ))}
+            availableTables.map(table => {
+              const minCapacity = table.minCapacity ?? 1;
+              const maxCapacity = table.capacityMax ?? 2;
+
+              return (
+                <label key={table.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedTableIds.includes(table.id)}
+                    onChange={() => toggleTable(table.id)}
+                    className="h-4 w-4"
+                  />
+                  <span>
+                    {table.name} (min {minCapacity} – max {maxCapacity} fő)
+                  </span>
+                </label>
+              );
+            })}
         </div>
       </div>
       <div className="flex items-center gap-3">
