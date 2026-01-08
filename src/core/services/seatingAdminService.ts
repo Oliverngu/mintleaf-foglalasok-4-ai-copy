@@ -1,3 +1,4 @@
+import { FirebaseError } from 'firebase/app';
 import {
   addDoc,
   collection,
@@ -55,22 +56,43 @@ const sortCombos = (combos: TableCombination[]) =>
 const sortFloorplans = (floorplans: Floorplan[]) =>
   [...floorplans].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
 
+const isPermissionDenied = (error: unknown): error is FirebaseError =>
+  error instanceof FirebaseError && error.code === 'permission-denied';
+
+const logPermissionDenied = (error: unknown, action: string, path: string) => {
+  if (isPermissionDenied(error)) {
+    console.error(`[seatingAdminService] permission-denied on ${action} ${path}`, error);
+  }
+};
+
 export const getSeatingSettings = async (
   unitId: string,
   options: { createIfMissing?: boolean } = {}
 ): Promise<SeatingSettings> => {
+  const settingsPath = `units/${unitId}/seating_settings/default`;
   const settingsRef = doc(db, 'units', unitId, 'seating_settings', 'default');
-  const snapshot = await getDoc(settingsRef);
+  let snapshot;
+  try {
+    snapshot = await getDoc(settingsRef);
+  } catch (error) {
+    logPermissionDenied(error, 'get', settingsPath);
+    throw error;
+  }
   if (!snapshot.exists()) {
     if (options.createIfMissing === false) {
       return seatingSettingsDefaults;
     }
     const settings = seatingSettingsDefaults;
-    await setDoc(settingsRef, {
-      ...settings,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    try {
+      await setDoc(settingsRef, {
+        ...settings,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      logPermissionDenied(error, 'create', settingsPath);
+      throw error;
+    }
     return settings;
   }
   return {
@@ -84,86 +106,152 @@ export const updateSeatingSettings = async (
   patch: SeatingSettings
 ): Promise<void> => {
   const settingsRef = doc(db, 'units', unitId, 'seating_settings', 'default');
-  await setDoc(
-    settingsRef,
-    {
-      ...patch,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const settingsPath = `units/${unitId}/seating_settings/default`;
+  try {
+    await setDoc(
+      settingsRef,
+      {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    logPermissionDenied(error, 'update', settingsPath);
+    throw error;
+  }
 };
 
 export const listZones = async (unitId: string): Promise<Zone[]> => {
-  const snapshot = await getDocs(collection(db, 'units', unitId, 'zones'));
-  return sortZones(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Zone)));
+  const zonesPath = `units/${unitId}/zones`;
+  try {
+    const snapshot = await getDocs(collection(db, 'units', unitId, 'zones'));
+    return sortZones(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Zone)));
+  } catch (error) {
+    logPermissionDenied(error, 'list', zonesPath);
+    throw error;
+  }
 };
 
 export const createZone = async (unitId: string, zone: Omit<Zone, 'id'>): Promise<void> => {
-  await addDoc(collection(db, 'units', unitId, 'zones'), {
-    ...zone,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const zonesPath = `units/${unitId}/zones`;
+  try {
+    await addDoc(collection(db, 'units', unitId, 'zones'), {
+      ...zone,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'create', zonesPath);
+    throw error;
+  }
 };
 
 export const updateZone = async (unitId: string, zoneId: string, zone: Partial<Zone>): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
-    ...zone,
-    updatedAt: serverTimestamp(),
-  });
+  const zonePath = `units/${unitId}/zones/${zoneId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
+      ...zone,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'update', zonePath);
+    throw error;
+  }
 };
 
 export const deleteZone = async (unitId: string, zoneId: string): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
-    isActive: false,
-    updatedAt: serverTimestamp(),
-  });
+  const zonePath = `units/${unitId}/zones/${zoneId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
+      isActive: false,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'delete', zonePath);
+    throw error;
+  }
 };
 
 export const listTables = async (unitId: string): Promise<Table[]> => {
-  const snapshot = await getDocs(collection(db, 'units', unitId, 'tables'));
-  return sortTables(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Table)));
+  const tablesPath = `units/${unitId}/tables`;
+  try {
+    const snapshot = await getDocs(collection(db, 'units', unitId, 'tables'));
+    return sortTables(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Table)));
+  } catch (error) {
+    logPermissionDenied(error, 'list', tablesPath);
+    throw error;
+  }
 };
 
 export const createTable = async (unitId: string, table: Omit<Table, 'id'>): Promise<void> => {
-  await addDoc(collection(db, 'units', unitId, 'tables'), {
-    ...table,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const tablesPath = `units/${unitId}/tables`;
+  try {
+    await addDoc(collection(db, 'units', unitId, 'tables'), {
+      ...table,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'create', tablesPath);
+    throw error;
+  }
 };
 
 export const updateTable = async (unitId: string, tableId: string, table: Partial<Table>): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
-    ...table,
-    updatedAt: serverTimestamp(),
-  });
+  const tablePath = `units/${unitId}/tables/${tableId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
+      ...table,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'update', tablePath);
+    throw error;
+  }
 };
 
 export const deleteTable = async (unitId: string, tableId: string): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
-    isActive: false,
-    updatedAt: serverTimestamp(),
-  });
+  const tablePath = `units/${unitId}/tables/${tableId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
+      isActive: false,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'delete', tablePath);
+    throw error;
+  }
 };
 
 export const listCombinations = async (unitId: string): Promise<TableCombination[]> => {
-  const snapshot = await getDocs(collection(db, 'units', unitId, 'table_combinations'));
-  return sortCombos(
-    snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
-  );
+  const combosPath = `units/${unitId}/table_combinations`;
+  try {
+    const snapshot = await getDocs(collection(db, 'units', unitId, 'table_combinations'));
+    return sortCombos(
+      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
+    );
+  } catch (error) {
+    logPermissionDenied(error, 'list', combosPath);
+    throw error;
+  }
 };
 
 export const createCombination = async (
   unitId: string,
   combo: Omit<TableCombination, 'id'>
 ): Promise<void> => {
-  await addDoc(collection(db, 'units', unitId, 'table_combinations'), {
-    ...combo,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const combosPath = `units/${unitId}/table_combinations`;
+  try {
+    await addDoc(collection(db, 'units', unitId, 'table_combinations'), {
+      ...combo,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'create', combosPath);
+    throw error;
+  }
 };
 
 export const updateCombination = async (
@@ -171,35 +259,59 @@ export const updateCombination = async (
   comboId: string,
   combo: Partial<TableCombination>
 ): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'table_combinations', comboId), {
-    ...combo,
-    updatedAt: serverTimestamp(),
-  });
+  const comboPath = `units/${unitId}/table_combinations/${comboId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'table_combinations', comboId), {
+      ...combo,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'update', comboPath);
+    throw error;
+  }
 };
 
 export const deleteCombination = async (unitId: string, comboId: string): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'table_combinations', comboId), {
-    isActive: false,
-    updatedAt: serverTimestamp(),
-  });
+  const comboPath = `units/${unitId}/table_combinations/${comboId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'table_combinations', comboId), {
+      isActive: false,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'delete', comboPath);
+    throw error;
+  }
 };
 
 export const listFloorplans = async (unitId: string): Promise<Floorplan[]> => {
-  const snapshot = await getDocs(collection(db, 'units', unitId, 'floorplans'));
-  return sortFloorplans(
-    snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
-  );
+  const floorplansPath = `units/${unitId}/floorplans`;
+  try {
+    const snapshot = await getDocs(collection(db, 'units', unitId, 'floorplans'));
+    return sortFloorplans(
+      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+    );
+  } catch (error) {
+    logPermissionDenied(error, 'list', floorplansPath);
+    throw error;
+  }
 };
 
 export const createFloorplan = async (
   unitId: string,
   floorplan: Omit<Floorplan, 'id'>
 ): Promise<void> => {
-  await addDoc(collection(db, 'units', unitId, 'floorplans'), {
-    ...floorplan,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const floorplansPath = `units/${unitId}/floorplans`;
+  try {
+    await addDoc(collection(db, 'units', unitId, 'floorplans'), {
+      ...floorplan,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'create', floorplansPath);
+    throw error;
+  }
 };
 
 export const updateFloorplan = async (
@@ -207,17 +319,29 @@ export const updateFloorplan = async (
   floorplanId: string,
   floorplan: Partial<Floorplan>
 ): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
-    ...floorplan,
-    updatedAt: serverTimestamp(),
-  });
+  const floorplanPath = `units/${unitId}/floorplans/${floorplanId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
+      ...floorplan,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'update', floorplanPath);
+    throw error;
+  }
 };
 
 export const deleteFloorplan = async (unitId: string, floorplanId: string): Promise<void> => {
-  await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
-    isActive: false,
-    updatedAt: serverTimestamp(),
-  });
+  const floorplanPath = `units/${unitId}/floorplans/${floorplanId}`;
+  try {
+    await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
+      isActive: false,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'delete', floorplanPath);
+    throw error;
+  }
 };
 
 export const ensureDefaultFloorplan = async (unitId: string): Promise<Floorplan> => {
@@ -233,10 +357,17 @@ export const ensureDefaultFloorplan = async (unitId: string): Promise<Floorplan>
     height: 600,
     gridSize: 20,
   };
-  const ref = await addDoc(collection(db, 'units', unitId, 'floorplans'), {
-    ...payload,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const floorplansPath = `units/${unitId}/floorplans`;
+  let ref;
+  try {
+    ref = await addDoc(collection(db, 'units', unitId, 'floorplans'), {
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    logPermissionDenied(error, 'create', floorplansPath);
+    throw error;
+  }
   return { id: ref.id, ...payload };
 };

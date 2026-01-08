@@ -1,4 +1,7 @@
+import { FirebaseError } from 'firebase/app';
+import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
+import { auth, db } from '../../../core/firebase/config';
 import {
   Floorplan,
   SeatingSettings,
@@ -52,6 +55,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const isPermissionDenied = (err: unknown): err is FirebaseError => {
+    const code = (err as { code?: string } | null)?.code;
+    const name = (err as { name?: string } | null)?.name;
+    return name === 'FirebaseError' && code === 'permission-denied';
+  };
+
+  const isAbortError = (err: unknown) => (err as { name?: string } | null)?.name === 'AbortError';
+  const normalizeOptionalString = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+  const isDev = process.env.NODE_ENV !== 'production';
+  const [probeSummary, setProbeSummary] = useState<string | null>(null);
+  const [probeRunning, setProbeRunning] = useState(false);
 
   const [zoneForm, setZoneForm] = useState<{
     id?: string;
@@ -113,19 +131,103 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     let isMounted = true;
     const loadData = async () => {
+      let permissionDeniedShown = false;
+      const safeSetError = (msg: string) => {
+        if (isMounted) {
+          setError(msg);
+        }
+      };
+      const runPermissionProbe = async () => {
+        if (!isDev) {
+          return;
+        }
+        const user = auth.currentUser;
+        console.debug('[seating-debug] init', {
+          uid: user?.uid ?? 'unknown',
+          unitId,
+        });
+        const summary: string[] = [];
+        if (user?.uid) {
+          try {
+            const userSnap = await getDoc(doc(db, 'users', user.uid));
+            if (userSnap.exists()) {
+              const data = userSnap.data() as { role?: string; unitIds?: string[]; unitIDs?: string[] };
+              const unitIds = data.unitIds ?? data.unitIDs ?? [];
+              summary.push(`user role=${data.role ?? 'unknown'}, unitIds=${Array.isArray(unitIds) ? unitIds.length : 0}`);
+              console.debug('[seating-debug] user permissions', {
+                role: data.role ?? 'unknown',
+                unitIdsCount: Array.isArray(unitIds) ? unitIds.length : 0,
+              });
+            }
+          } catch (err) {
+            if (!isAbortError(err)) {
+              console.debug('[seating-debug] failed to read user profile', err);
+            }
+          }
+        }
+        try {
+          await getDoc(doc(db, 'units', unitId));
+          summary.push('units/{unitId}: ok');
+        } catch (err) {
+          if (isPermissionDenied(err)) {
+            summary.push('units/{unitId}: permission-denied');
+            console.warn(
+              `[seating-debug] permission-denied on units/${unitId} (project mismatch or missing unit permission).`
+            );
+          }
+        }
+        try {
+          await getDoc(doc(db, 'units', unitId, 'seating_settings', 'default'));
+          summary.push('seating_settings/default: ok');
+        } catch (err) {
+          if (isPermissionDenied(err)) {
+            summary.push('seating_settings/default: permission-denied');
+            console.warn(
+              `[seating-debug] permission-denied on units/${unitId}/seating_settings/default (project mismatch or missing unit permission).`
+            );
+          }
+        }
+        setProbeSummary(summary.join(' | '));
+      };
       try {
+        void runPermissionProbe();
         try {
           await ensureDefaultFloorplan(unitId);
         } catch (err) {
+          if (isAbortError(err)) {
+            return;
+          }
+          if (isPermissionDenied(err)) {
+            permissionDeniedShown = true;
+            safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
+            return;
+          }
           console.error('Error ensuring default floorplan:', err);
         }
-        const [settingsData, zonesData, tablesData, combosData, floorplansData] = await Promise.all([
-          getSeatingSettings(unitId),
-          listZones(unitId),
-          listTables(unitId),
-          listCombinations(unitId),
-          listFloorplans(unitId),
-        ]);
+        let settingsData;
+        let zonesData;
+        let tablesData;
+        let combosData;
+        let floorplansData;
+        try {
+          [settingsData, zonesData, tablesData, combosData, floorplansData] = await Promise.all([
+            getSeatingSettings(unitId),
+            listZones(unitId),
+            listTables(unitId),
+            listCombinations(unitId),
+            listFloorplans(unitId),
+          ]);
+        } catch (err) {
+          if (isAbortError(err)) {
+            return;
+          }
+          if (isPermissionDenied(err)) {
+            permissionDeniedShown = true;
+            safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
+            return;
+          }
+          throw err;
+        }
         if (!isMounted) return;
         setSettings(settingsData);
         setZones(zonesData);
@@ -133,8 +235,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setCombos(combosData);
         setFloorplans(floorplansData);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Error loading seating settings:', err);
-        if (isMounted) {
+        if (isMounted && !permissionDeniedShown) {
           setError('Nem sikerült betölteni az ültetési beállításokat.');
         }
       } finally {
@@ -201,6 +306,55 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const runSeatingSmokeTest = async () => {
+    if (!isDev) {
+      return;
+    }
+    setProbeRunning(true);
+    const summary: string[] = [];
+    const recordResult = (label: string, status: 'ok' | 'permission-denied' | 'error') => {
+      summary.push(`${label}: ${status}`);
+    };
+    try {
+      try {
+        await getDoc(doc(db, 'units', unitId));
+        recordResult('units/{unitId}', 'ok');
+      } catch (err) {
+        recordResult('units/{unitId}', isPermissionDenied(err) ? 'permission-denied' : 'error');
+      }
+      try {
+        await getDoc(doc(db, 'units', unitId, 'seating_settings', 'default'));
+        recordResult('seating_settings/default', 'ok');
+      } catch (err) {
+        recordResult(
+          'seating_settings/default',
+          isPermissionDenied(err) ? 'permission-denied' : 'error'
+        );
+      }
+      try {
+        await getDocs(collection(db, 'units', unitId, 'zones'));
+        recordResult('zones', 'ok');
+      } catch (err) {
+        recordResult('zones', isPermissionDenied(err) ? 'permission-denied' : 'error');
+      }
+      try {
+        await getDocs(collection(db, 'units', unitId, 'tables'));
+        recordResult('tables', 'ok');
+      } catch (err) {
+        recordResult('tables', isPermissionDenied(err) ? 'permission-denied' : 'error');
+      }
+      try {
+        await getDocs(collection(db, 'units', unitId, 'floorplans'));
+        recordResult('floorplans', 'ok');
+      } catch (err) {
+        recordResult('floorplans', isPermissionDenied(err) ? 'permission-denied' : 'error');
+      }
+      setProbeSummary(summary.join(' | '));
+    } finally {
+      setProbeRunning(false);
+    }
+  };
+
   const handleFloorplanSubmit = async () => {
     setError(null);
     setSuccess(null);
@@ -213,12 +367,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     try {
+      const backgroundImageUrl = normalizeOptionalString(floorplanForm.backgroundImageUrl);
       const payload = {
         name: floorplanForm.name.trim(),
         width: floorplanForm.width,
         height: floorplanForm.height,
         gridSize: floorplanForm.gridSize,
-        backgroundImageUrl: floorplanForm.backgroundImageUrl || undefined,
+        ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
         isActive: floorplanForm.isActive,
       };
       if (floorplanForm.id) {
@@ -327,6 +482,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     try {
+      const floorplanId = normalizeOptionalString(tableForm.floorplanId);
+      const isRect = tableForm.shape === 'rect';
+      const isCircle = tableForm.shape === 'circle';
+      const width = tableForm.w;
+      const height = tableForm.h;
+      const radius = tableForm.radius;
       const payload = {
         name: tableForm.name.trim(),
         zoneId: tableForm.zoneId,
@@ -334,11 +495,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         capacityMax: tableForm.capacityMax,
         isActive: tableForm.isActive,
         canSeatSolo: tableForm.canSeatSolo,
-        floorplanId: tableForm.floorplanId || undefined,
+        ...(floorplanId ? { floorplanId } : {}),
         shape: tableForm.shape,
-        w: tableForm.shape === 'rect' ? tableForm.w : undefined,
-        h: tableForm.shape === 'rect' ? tableForm.h : undefined,
-        radius: tableForm.shape === 'circle' ? tableForm.radius : undefined,
+        ...(isRect && Number.isFinite(width) ? { w: width } : {}),
+        ...(isRect && Number.isFinite(height) ? { h: height } : {}),
+        ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
         snapToGrid: tableForm.snapToGrid,
         locked: tableForm.locked,
       };
@@ -429,6 +590,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
+        {isDev && (
+          <div className="text-xs text-slate-500 space-y-1">
+            <button
+              type="button"
+              onClick={runSeatingSmokeTest}
+              className="underline"
+              disabled={probeRunning}
+            >
+              Seating permission smoke test
+            </button>
+            {probeSummary && <div>{probeSummary}</div>}
+          </div>
+        )}
 
         <section className="space-y-3 border rounded-lg p-4">
           <h3 className="font-semibold">Alaprajzok</h3>
