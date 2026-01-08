@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Unit,
   ReservationSetting,
+  ReservationCapacity,
+  User,
   ThemeSettings,
   GuestFormSettings,
   CustomSelectField,
@@ -26,6 +28,7 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
+import { fetchFloorplanData, FloorplanData, getCachedFloorplanData } from './floorplanCache';
 
 type Locale = 'hu' | 'en';
 
@@ -39,6 +42,7 @@ const PlayfulBubbles = () => (
 
 interface ReservationPageProps {
   unitId: string;
+  currentUser?: User | null;
 }
 
 const toDateKey = (date: Date): string => {
@@ -216,13 +220,25 @@ const buildPublicUnit = (
   };
 };
 
-const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
+type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+const canReadFloorplan = (user: User | null | undefined, unitId: string) => {
+  if (!user || !unitId) return false;
+  if (user.role === 'Admin') return true;
+  if (user.role === 'Unit Admin') {
+    return Array.isArray(user.unitIds) && user.unitIds.includes(unitId);
+  }
+  return false;
+};
+
+const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, currentUser }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [locale, setLocale] = useState<Locale>('hu');
+  const [floorplanData, setFloorplanData] = useState<FloorplanData | null>(null);
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [formData, setFormData] = useState({
@@ -232,6 +248,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
     endTime: '',
     phone: '',
     email: '',
+    preferredTimeSlot: null as string | null,
+    seatingPreference: 'any' as SeatingPreference,
     customData: {} as Record<string, string>,
   });
   const [submittedData, setSubmittedData] = useState<any>(null);
@@ -242,6 +260,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
     new Map()
   );
+  const [capacityByDate, setCapacityByDate] = useState<
+    Map<string, ReservationCapacity>
+  >(new Map());
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
@@ -319,6 +340,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   useEffect(() => {
     if (!unitId || !settings) {
       setDailyHeadcounts(new Map());
+      setCapacityByDate(new Map());
       return;
     }
 
@@ -349,13 +371,25 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       try {
         const querySnapshot = await getDocs(q);
         const headcounts = new Map<string, number>();
+        const capacityMap = new Map<string, ReservationCapacity>();
         querySnapshot.docs.forEach((docSnap) => {
-          const capacity = docSnap.data() as { date?: string; count?: number };
+          const capacity = docSnap.data() as ReservationCapacity;
           const dateKey = capacity.date || docSnap.id;
+          const baseCount =
+            typeof capacity.totalCount === 'number'
+              ? capacity.totalCount
+              : capacity.count || 0;
           const currentCount = headcounts.get(dateKey) || 0;
-          headcounts.set(dateKey, currentCount + (capacity.count || 0));
+          headcounts.set(dateKey, currentCount + baseCount);
+          capacityMap.set(dateKey, {
+            date: dateKey,
+            ...capacity,
+            count: capacity.count ?? baseCount,
+            totalCount: capacity.totalCount ?? baseCount,
+          });
         });
         setDailyHeadcounts(headcounts);
+        setCapacityByDate(capacityMap);
       } catch (err) {
         console.error('Error fetching headcounts:', err);
       }
@@ -363,6 +397,22 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
 
     fetchHeadcounts();
   }, [unitId, currentMonth, settings]);
+
+  useEffect(() => {
+    if (!unitId || !canReadFloorplan(currentUser, unitId)) {
+      return;
+    }
+
+    const cached = getCachedFloorplanData(unitId);
+    if (cached) {
+      setFloorplanData(cached);
+      return;
+    }
+
+    fetchFloorplanData(unitId)
+      .then(setFloorplanData)
+      .catch(() => {});
+  }, [currentUser, unitId]);
 
   useEffect(() => {
     syncThemeCssVariables(theme);
@@ -377,6 +427,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       endTime: '',
       phone: '',
       email: '',
+      preferredTimeSlot: null,
+      seatingPreference: 'any',
       customData: {},
     });
     setSubmittedData(null);
@@ -465,7 +517,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         reservationMode: settings.reservationMode,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
-        customData: formData.customData,
+        preferredTimeSlot: formData.preferredTimeSlot,
+        seatingPreference: formData.seatingPreference,
+        customData: {
+          ...formData.customData,
+          preferredTimeSlot: formData.preferredTimeSlot ?? '',
+          seatingPreference: formData.seatingPreference,
+        },
       };
       const dateKey = toDateKey(selectedDate);
 
@@ -505,6 +563,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         date: selectedDate,
+        floorplanData,
+        capacityByDate,
       });
       setStep(3);
 

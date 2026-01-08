@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Unit, Booking, PublicBookingDTO, ReservationSetting } from '../../../core/models/data';
+import { Unit, Booking, PublicBookingDTO, ReservationSetting, User } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
@@ -10,6 +10,7 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
+import { fetchFloorplanData, getCachedFloorplanData } from './floorplanCache';
 
 type Locale = 'hu' | 'en';
 
@@ -29,12 +30,14 @@ interface ManageReservationPageProps {
   unitId: string;
   reservationId: string;
   manageToken: string;
+  currentUser?: User | null;
 }
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   unitId,
   reservationId,
   manageToken,
+  currentUser,
 }) => {
   const [booking, setBooking] = useState<PublicBookingDTO | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -72,6 +75,15 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       setAdminAction(actionParam);
     }
   }, []);
+
+  const canReadFloorplan = (user: User | null | undefined, targetUnitId: string) => {
+    if (!user || !targetUnitId) return false;
+    if (user.role === 'Admin') return true;
+    if (user.role === 'Unit Admin') {
+      return Array.isArray(user.unitIds) && user.unitIds.includes(targetUnitId);
+    }
+    return false;
+  };
 
   const buildPublicUnit = (
     settingsValue: ReservationSetting | null,
@@ -138,6 +150,19 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
     fetchSettings();
   }, [unitId]);
+
+  useEffect(() => {
+    if (!unitId || !canReadFloorplan(currentUser, unitId)) {
+      return;
+    }
+
+    const cached = getCachedFloorplanData(unitId);
+    if (cached) {
+      return;
+    }
+
+    fetchFloorplanData(unitId).catch(() => {});
+  }, [currentUser, unitId]);
 
   useEffect(() => {
     const hashToken = async () => {

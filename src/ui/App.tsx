@@ -542,7 +542,7 @@ const App: React.FC = () => {
   switch (appState) {
     case 'public':
       if (publicPage?.type === 'reserve') {
-        return <ReservationPage unitId={publicPage.unitId} />;
+        return <ReservationPage unitId={publicPage.unitId} currentUser={currentUser} />;
       }
       if (publicPage?.type === 'manage') {
         return (
@@ -550,6 +550,7 @@ const App: React.FC = () => {
             unitId={publicPage.unitId}
             reservationId={publicPage.reservationId}
             manageToken={publicPage.manageToken}
+            currentUser={currentUser}
           />
         );
       }
