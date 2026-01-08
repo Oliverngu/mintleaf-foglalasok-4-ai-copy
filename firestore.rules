@@ -32,7 +32,6 @@ service cloud.firestore {
             : (u3 != null ? [u3] : []));
     }
 
-    // <<< ITT VOLT A HIBA
     function hasUnit(unitId) {
       return isSignedIn()
         && unitId != null
@@ -129,8 +128,8 @@ service cloud.firestore {
     // --- units + subcollections ---
 
     match /units/{unitId} {
-      // egységek meta – csak olyan user lássa, aki érintett az egységben (userData.unitIds/unitIDs/unitId alapján)
-      allow read: if canViewUnit(unitId);
+      // P0: unit meta kell app init/selector/theme-hoz
+      allow read: if isSignedIn();
       allow write: if canManageUnit(unitId);
 
       match /reservations/{reservationId} {
@@ -589,7 +588,7 @@ service cloud.firestore {
       allow delete: if resource.data.unitId != null
         && (
           canManageUnit(resource.data.unitId)
-          || (isUnitLeader() && hasUnit(resource.data.unitId))
+          || (isUnitLeader() && hasUnit(request.resource.data.unitId))
         );
     }
 
