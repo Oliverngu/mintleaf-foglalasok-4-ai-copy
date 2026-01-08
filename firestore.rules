@@ -18,19 +18,26 @@ service cloud.firestore {
       return d.role;
     }
 
-    // unitIds + unitIDs (legacy) + unitId (single) támogatása
-    function userUnits() {
-      let d = userData();
-      let u1 = d.unitIds;
-      let u2 = d.unitIDs;
-      let u3 = d.unitId;
+    // unitIds + unitIDs (legacy) + unitId (single) + string legacy támogatása
+function userUnits() {
+  let d = userData();
+  let u1 = d.unitIds;
+  let u2 = d.unitIDs;
+  let u3 = d.unitId;
 
-      return u1 != null && u1.size() > 0
-        ? u1
-        : (u2 != null && u2.size() > 0
-            ? u2
-            : (u3 != null ? [u3] : []));
-    }
+  // Prefer list fields
+  return (u1 is list && u1.size() > 0)
+    ? u1
+    : ((u2 is list && u2.size() > 0)
+        ? u2
+        : ((u1 is string && u1.size() > 0)
+            ? [u1]
+            : ((u2 is string && u2.size() > 0)
+                ? [u2]
+                : ((u3 is string && u3.size() > 0)
+                    ? [u3]
+                    : []))));
+}
 
     function hasUnit(unitId) {
       return isSignedIn()
@@ -128,9 +135,9 @@ service cloud.firestore {
     // --- units + subcollections ---
 
     match /units/{unitId} {
-      // P0: unit meta kell app init/selector/theme-hoz
-      allow read: if isSignedIn();
-      allow write: if canManageUnit(unitId);
+  // egységek meta – P0 stabil: minden belépett user láthatja (selector/theme miatt)
+  allow read: if isSignedIn();
+  allow write: if canManageUnit(unitId);
 
       match /reservations/{reservationId} {
         allow read: if canViewUnit(unitId);
