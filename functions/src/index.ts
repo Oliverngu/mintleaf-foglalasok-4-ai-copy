@@ -38,6 +38,84 @@ const hashManageToken = (token: string) =>
 const RATE_LIMIT_MAX = 15;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 
+type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+interface FloorplanZone {
+  id: string;
+  name?: string;
+  isActive?: boolean;
+}
+
+interface FloorplanTable {
+  id: string;
+  zoneId?: string;
+  isActive?: boolean;
+}
+
+interface AllocationIntent {
+  zoneId?: string | null;
+  tableGroup?: string | null;
+  timeSlot?: string | null;
+}
+
+const normalizePreferredTimeSlot = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 64);
+};
+
+const normalizeSeatingPreference = (value: unknown): SeatingPreference => {
+  if (value === 'bar' || value === 'table' || value === 'outdoor' || value === 'any') {
+    return value;
+  }
+  return 'any';
+};
+
+const buildAllocationIntent = (
+  preferredTimeSlot: string | null,
+  seatingPreference: SeatingPreference,
+  zones: FloorplanZone[],
+  tables: FloorplanTable[]
+): AllocationIntent => {
+  const timeSlot = preferredTimeSlot || null;
+  if (seatingPreference === 'any') {
+    return { timeSlot, zoneId: null, tableGroup: null };
+  }
+
+  const match = zones.find(zone => {
+    if (!zone?.name) return false;
+    const name = zone.name.toLowerCase();
+    if (seatingPreference === 'bar') return name.includes('bar');
+    if (seatingPreference === 'outdoor') return name.includes('outdoor') || name.includes('terasz');
+    if (seatingPreference === 'table') return name.includes('table');
+    return false;
+  });
+
+  const zoneId = match?.id || null;
+  void tables;
+
+  return { timeSlot, zoneId, tableGroup: null };
+};
+
+const fetchFloorplanContext = async (unitId: string) => {
+  const [zonesSnap, tablesSnap] = await Promise.all([
+    db.collection('units').doc(unitId).collection('zones').get(),
+    db.collection('units').doc(unitId).collection('tables').get(),
+  ]);
+
+  const zones = zonesSnap.docs.map(docSnap => ({
+    id: docSnap.id,
+    ...(docSnap.data() || {}),
+  })) as FloorplanZone[];
+  const tables = tablesSnap.docs.map(docSnap => ({
+    id: docSnap.id,
+    ...(docSnap.data() || {}),
+  })) as FloorplanTable[];
+
+  return { zones, tables };
+};
+
 const getClientIp = (req: any) => {
   const cfIp = req.headers['cf-connecting-ip'];
   if (typeof cfIp === 'string' && cfIp) return cfIp;
@@ -253,6 +331,8 @@ export const guestCreateReservation = onRequest(
       const startTime = reservation.startTime ? new Date(reservation.startTime) : null;
       const endTime = reservation.endTime ? new Date(reservation.endTime) : null;
       const headcount = Number(reservation.headcount || 0);
+      const preferredTimeSlot = normalizePreferredTimeSlot(reservation.preferredTimeSlot);
+      const seatingPreference = normalizeSeatingPreference(reservation.seatingPreference);
 
       if (!startTime || Number.isNaN(startTime.getTime())) {
         res.status(400).json({ error: 'startTime hiányzik vagy érvénytelen' });
@@ -277,6 +357,14 @@ export const guestCreateReservation = onRequest(
       const status = reservationMode === 'auto' ? 'confirmed' : 'pending';
 
       const effectiveDateKey = dateKey || toDateKey(startTime);
+      const { zones, tables } = await fetchFloorplanContext(unitId);
+      const allocationIntent = buildAllocationIntent(
+        preferredTimeSlot,
+        seatingPreference,
+        zones,
+        tables
+      );
+
       const capacityRef = db
         .collection('units')
         .doc(unitId)
@@ -300,11 +388,13 @@ export const guestCreateReservation = onRequest(
 
       const createResult = await db.runTransaction(async (transaction) => {
         const capacitySnap = await transaction.get(capacityRef);
-        const currentCount = capacitySnap.exists
-          ? (capacitySnap.data()?.count as number) || 0
-          : 0;
+        const capacityData = capacitySnap.exists ? capacitySnap.data() || {} : {};
+        const currentCount =
+          (capacityData.totalCount as number | undefined) ??
+          (capacityData.count as number | undefined) ??
+          0;
         const limitFromDoc = capacitySnap.exists
-          ? (capacitySnap.data()?.limit as number | undefined)
+          ? (capacityData.limit as number | undefined)
           : undefined;
         const limitFromSettings =
           settings.dailyCapacity && settings.dailyCapacity > 0
@@ -326,6 +416,9 @@ export const guestCreateReservation = onRequest(
           headcount,
           startTime: Timestamp.fromDate(startTime),
           endTime: Timestamp.fromDate(endTime),
+          preferredTimeSlot,
+          seatingPreference,
+          allocationIntent,
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -352,8 +445,40 @@ export const guestCreateReservation = onRequest(
         const capacityUpdate: Record<string, any> = {
           date: effectiveDateKey,
           count: nextCount,
+          totalCount: nextCount,
           updatedAt: FieldValue.serverTimestamp(),
         };
+        if (
+          capacityData.byTimeSlot &&
+          typeof capacityData.byTimeSlot === 'object' &&
+          allocationIntent.timeSlot
+        ) {
+          const byTimeSlot = { ...(capacityData.byTimeSlot as Record<string, number>) };
+          byTimeSlot[allocationIntent.timeSlot] =
+            (byTimeSlot[allocationIntent.timeSlot] || 0) + headcount;
+          capacityUpdate.byTimeSlot = byTimeSlot;
+        }
+        if (
+          capacityData.byZone &&
+          typeof capacityData.byZone === 'object' &&
+          allocationIntent.zoneId
+        ) {
+          const byZone = { ...(capacityData.byZone as Record<string, number>) };
+          byZone[allocationIntent.zoneId] = (byZone[allocationIntent.zoneId] || 0) + headcount;
+          capacityUpdate.byZone = byZone;
+        }
+        if (
+          capacityData.byTableGroup &&
+          typeof capacityData.byTableGroup === 'object' &&
+          allocationIntent.tableGroup
+        ) {
+          const byTableGroup = {
+            ...(capacityData.byTableGroup as Record<string, number>),
+          };
+          byTableGroup[allocationIntent.tableGroup] =
+            (byTableGroup[allocationIntent.tableGroup] || 0) + headcount;
+          capacityUpdate.byTableGroup = byTableGroup;
+        }
         if (limitFromDoc == null && typeof limitFromSettings === 'number') {
           capacityUpdate.limit = limitFromSettings;
         }
@@ -772,6 +897,9 @@ interface BookingRecord {
   name?: string;
   headcount?: number;
   occasion?: string;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: SeatingPreference;
+  allocationIntent?: AllocationIntent;
   startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';
