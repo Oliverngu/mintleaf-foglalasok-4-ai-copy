@@ -37,6 +37,127 @@ const hashManageToken = (token: string) =>
 
 const RATE_LIMIT_MAX = 15;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const MIN_HEADCOUNT = 1;
+const MAX_HEADCOUNT = 30;
+
+type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+interface FloorplanZone {
+  id: string;
+  name?: string;
+  isActive?: boolean;
+}
+
+interface FloorplanTable {
+  id: string;
+  zoneId?: string;
+  isActive?: boolean;
+}
+
+interface AllocationIntent {
+  zoneId?: string | null;
+  tableGroup?: string | null;
+  timeSlot?: string | null;
+}
+
+const normalizePreferredTimeSlot = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const capped = trimmed.slice(0, 64);
+  const safePattern = /^[a-zA-Z0-9:_\- ]+$/;
+  if (!safePattern.test(capped)) return null;
+  return capped;
+};
+
+const normalizeSeatingPreference = (value: unknown): SeatingPreference => {
+  if (value === 'bar' || value === 'table' || value === 'outdoor' || value === 'any') {
+    return value;
+  }
+  return 'any';
+};
+
+const buildAllocationIntent = (
+  preferredTimeSlot: string | null,
+  seatingPreference: SeatingPreference,
+  zones: FloorplanZone[],
+  tables: FloorplanTable[]
+): AllocationIntent => {
+  const timeSlot = preferredTimeSlot || null;
+  if (seatingPreference === 'any') {
+    return { timeSlot, zoneId: null, tableGroup: null };
+  }
+
+  const match = zones.find(zone => {
+    if (!zone?.name) return false;
+    const name = zone.name.toLowerCase();
+    if (seatingPreference === 'bar') return name.includes('bar');
+    if (seatingPreference === 'outdoor') return name.includes('outdoor') || name.includes('terasz');
+    if (seatingPreference === 'table') {
+      return name.includes('table') || name.includes('asztal');
+    }
+    return false;
+  });
+
+  const zoneId = match?.id || null;
+  void tables;
+
+  return { timeSlot, zoneId, tableGroup: null };
+};
+
+const fetchFloorplanContext = async (unitId: string) => {
+  const [zonesSnap, tablesSnap] = await Promise.all([
+    db.collection('units').doc(unitId).collection('zones').get(),
+    db.collection('units').doc(unitId).collection('tables').get(),
+  ]);
+
+  const zones = zonesSnap.docs
+    .map(docSnap => ({
+      id: docSnap.id,
+      ...(docSnap.data() || {}),
+    }))
+    .filter(zone => zone.isActive !== false) as FloorplanZone[];
+  const tables = tablesSnap.docs
+    .map(docSnap => ({
+      id: docSnap.id,
+      ...(docSnap.data() || {}),
+    }))
+    .filter(table => table.isActive !== false) as FloorplanTable[];
+
+  return { zones, tables };
+};
+
+const computeAllocationDiagnostics = (
+  preferredTimeSlot: string | null,
+  seatingPreference: SeatingPreference,
+  zones: FloorplanZone[],
+  tables: FloorplanTable[],
+  matchedZoneId: string | null
+) => {
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+
+  if (!zones.length) warnings.push('NO_ZONES');
+  if (!tables.length) warnings.push('NO_TABLES');
+
+  let intentQuality: 'none' | 'weak' | 'good' = 'none';
+
+  if (seatingPreference === 'any') {
+    if (preferredTimeSlot) intentQuality = 'weak';
+  } else if (!matchedZoneId) {
+    intentQuality = 'weak';
+    reasons.push('ZONE_NO_MATCH');
+  } else {
+    intentQuality = 'good';
+  }
+
+  return {
+    intentQuality,
+    matchedZoneId: matchedZoneId || null,
+    reasons,
+    warnings,
+  };
+};
 
 const getClientIp = (req: any) => {
   const cfIp = req.headers['cf-connecting-ip'];
@@ -253,6 +374,8 @@ export const guestCreateReservation = onRequest(
       const startTime = reservation.startTime ? new Date(reservation.startTime) : null;
       const endTime = reservation.endTime ? new Date(reservation.endTime) : null;
       const headcount = Number(reservation.headcount || 0);
+      const preferredTimeSlot = normalizePreferredTimeSlot(reservation.preferredTimeSlot);
+      const seatingPreference = normalizeSeatingPreference(reservation.seatingPreference);
 
       if (!startTime || Number.isNaN(startTime.getTime())) {
         res.status(400).json({ error: 'startTime hiányzik vagy érvénytelen' });
@@ -266,6 +389,10 @@ export const guestCreateReservation = onRequest(
         res.status(400).json({ error: 'Név és létszám kötelező' });
         return;
       }
+      if (headcount < MIN_HEADCOUNT || headcount > MAX_HEADCOUNT) {
+        res.status(400).json({ error: `Létszám ${MIN_HEADCOUNT}-${MAX_HEADCOUNT} között lehet` });
+        return;
+      }
       if (!reservation.contact?.email) {
         res.status(400).json({ error: 'E-mail kötelező' });
         return;
@@ -277,6 +404,41 @@ export const guestCreateReservation = onRequest(
       const status = reservationMode === 'auto' ? 'confirmed' : 'pending';
 
       const effectiveDateKey = dateKey || toDateKey(startTime);
+      let zones: FloorplanZone[] = [];
+      let tables: FloorplanTable[] = [];
+      let allocationIntent = {
+        timeSlot: preferredTimeSlot,
+        zoneId: null,
+        tableGroup: null,
+      } as AllocationIntent;
+      let allocationDiagnostics = {
+        intentQuality: 'none' as const,
+        matchedZoneId: null as string | null,
+        reasons: ['DIAG_FAILED'],
+        warnings: [] as string[],
+      };
+
+      try {
+        const context = await fetchFloorplanContext(unitId);
+        zones = context.zones;
+        tables = context.tables;
+        allocationIntent = buildAllocationIntent(
+          preferredTimeSlot,
+          seatingPreference,
+          zones,
+          tables
+        );
+        allocationDiagnostics = computeAllocationDiagnostics(
+          preferredTimeSlot,
+          seatingPreference,
+          zones,
+          tables,
+          allocationIntent.zoneId || null
+        );
+      } catch (err) {
+        logger.warn('Allocation diagnostics fallback', { unitId, err });
+      }
+
       const capacityRef = db
         .collection('units')
         .doc(unitId)
@@ -300,11 +462,13 @@ export const guestCreateReservation = onRequest(
 
       const createResult = await db.runTransaction(async (transaction) => {
         const capacitySnap = await transaction.get(capacityRef);
-        const currentCount = capacitySnap.exists
-          ? (capacitySnap.data()?.count as number) || 0
-          : 0;
+        const capacityData = capacitySnap.exists ? capacitySnap.data() || {} : {};
+        const currentCount =
+          (capacityData.totalCount as number | undefined) ??
+          (capacityData.count as number | undefined) ??
+          0;
         const limitFromDoc = capacitySnap.exists
-          ? (capacitySnap.data()?.limit as number | undefined)
+          ? (capacityData.limit as number | undefined)
           : undefined;
         const limitFromSettings =
           settings.dailyCapacity && settings.dailyCapacity > 0
@@ -320,12 +484,23 @@ export const guestCreateReservation = onRequest(
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
 
+        const allocationIntentData = {
+          ...allocationIntent,
+          timeSlot: allocationIntent.timeSlot ?? null,
+          zoneId: allocationIntent.zoneId ?? null,
+          tableGroup: allocationIntent.tableGroup ?? null,
+        };
+
         transaction.set(reservationRef, {
           unitId,
           name: reservation.name,
           headcount,
           startTime: Timestamp.fromDate(startTime),
           endTime: Timestamp.fromDate(endTime),
+          preferredTimeSlot,
+          seatingPreference,
+          allocationIntent: allocationIntentData,
+          allocationDiagnostics,
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -352,8 +527,35 @@ export const guestCreateReservation = onRequest(
         const capacityUpdate: Record<string, any> = {
           date: effectiveDateKey,
           count: nextCount,
+          totalCount: nextCount,
           updatedAt: FieldValue.serverTimestamp(),
         };
+        if (allocationIntent.timeSlot) {
+          const byTimeSlot = {
+            ...(capacityData.byTimeSlot as Record<string, number> | undefined),
+          };
+          byTimeSlot[allocationIntent.timeSlot] =
+            (byTimeSlot[allocationIntent.timeSlot] || 0) + headcount;
+          capacityUpdate.byTimeSlot = byTimeSlot;
+        }
+        if (allocationIntent.zoneId) {
+          const byZone = {
+            ...(capacityData.byZone as Record<string, number> | undefined),
+          };
+          byZone[allocationIntent.zoneId] = (byZone[allocationIntent.zoneId] || 0) + headcount;
+          capacityUpdate.byZone = byZone;
+        }
+        if (allocationIntent.tableGroup) {
+          const byTableGroup = {
+            ...(capacityData.byTableGroup as Record<string, number> | undefined),
+          };
+          byTableGroup[allocationIntent.tableGroup] =
+            (byTableGroup[allocationIntent.tableGroup] || 0) + headcount;
+          capacityUpdate.byTableGroup = byTableGroup;
+        }
+        if (allocationDiagnostics.warnings.length > 0) {
+          capacityUpdate.hasAllocationWarnings = true;
+        }
         if (limitFromDoc == null && typeof limitFromSettings === 'number') {
           capacityUpdate.limit = limitFromSettings;
         }
@@ -371,6 +573,13 @@ export const guestCreateReservation = onRequest(
           .doc(unitId)
           .collection('reservation_logs')
           .doc();
+        const diagnosticCodes = [
+          ...allocationDiagnostics.reasons,
+          ...allocationDiagnostics.warnings,
+        ].filter(Boolean);
+        const diagnosticSuffix = diagnosticCodes.length
+          ? ` [alloc:${diagnosticCodes.join(',')}]`
+          : '';
         transaction.set(logRef, {
           bookingId: referenceCode,
           unitId,
@@ -378,7 +587,7 @@ export const guestCreateReservation = onRequest(
           createdAt: FieldValue.serverTimestamp(),
           createdByName: reservation.name,
           source: 'guest',
-          message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})`,
+          message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
         });
 
         return { bookingId: referenceCode };
@@ -772,6 +981,9 @@ interface BookingRecord {
   name?: string;
   headcount?: number;
   occasion?: string;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: SeatingPreference;
+  allocationIntent?: AllocationIntent;
   startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';

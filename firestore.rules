@@ -89,6 +89,18 @@ function userUnits() {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // --- Public reservation reads ---
+
+    match /reservation_settings/{unitId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /units/{unitId}/reservation_capacity/{dateKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // --- users ---
 
     match /users/{userId} {
