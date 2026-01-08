@@ -268,18 +268,36 @@ const App: React.FC = () => {
 
 
   // --- DATA LISTENERS ---
-  useEffect(() => {
-    if (isDemoMode) return;
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User))));
-    const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => setAllUnits(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unit))));
-    const unsubPerms = onSnapshot(collection(db, 'permissions'), snapshot => {
-        const perms: RolePermissions = {};
-        snapshot.forEach(doc => { perms[doc.id as User['role']] = doc.data() as Partial<Permissions>; });
-        setPermissions(perms);
-    });
-    return () => { unsubUsers(); unsubUnits(); unsubPerms(); };
-  }, [isDemoMode]);
+useEffect(() => {
+  if (isDemoMode) return;
 
+  let unsubUsers: undefined | (() => void);
+  let unsubPerms: undefined | (() => void);
+
+  if (currentUser?.role === 'Admin') {
+    unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
+      setAllUsers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+    });
+
+    unsubPerms = onSnapshot(collection(db, 'permissions'), snapshot => {
+      const perms: RolePermissions = {};
+      snapshot.forEach(d => {
+        perms[d.id as User['role']] = d.data() as Partial<Permissions>;
+      });
+      setPermissions(perms);
+    });
+  }
+
+  const unsubUnits = onSnapshot(collection(db, 'units'), snapshot => {
+    setAllUnits(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Unit)));
+  });
+
+  return () => {
+    unsubUsers?.();
+    unsubPerms?.();
+    unsubUnits();
+  };
+}, [isDemoMode, currentUser?.role]);
   // Authenticated Data Listeners
   useEffect(() => {
     if (!currentUser || isDemoMode) return;
