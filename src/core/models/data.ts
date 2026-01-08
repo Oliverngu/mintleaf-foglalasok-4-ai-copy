@@ -252,6 +252,17 @@ export interface ReservationSetting {
     notificationEmails?: string[];
 }
 
+export interface ReservationCapacity {
+  date: string;
+  count?: number;
+  totalCount?: number;
+  byTimeSlot?: Record<string, number>;
+  byZone?: Record<string, number>;
+  byTableGroup?: Record<string, number>;
+  limit?: number;
+  updatedAt?: Timestamp;
+}
+
 
 export interface Shift {
   id: string;
