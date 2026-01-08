@@ -611,6 +611,13 @@ match /global_settings/{docId} {
   allow write: if isAdmin();
 }
 
+// --- nicknames (login/register helper) ---
+match /nicknames/{nick} {
+  allow read: if true;        // username availability check
+  allow create: if isSignedIn();
+  allow update, delete: if false;
+}
+
     // Catch-all
     match /{document=**} {
       allow read, write: if false;
