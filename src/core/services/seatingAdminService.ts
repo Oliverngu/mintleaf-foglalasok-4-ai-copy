@@ -52,10 +52,16 @@ const sortCombos = (combos: TableCombination[]) =>
     return a.id.localeCompare(b.id);
   });
 
-export const getSeatingSettings = async (unitId: string): Promise<SeatingSettings> => {
+export const getSeatingSettings = async (
+  unitId: string,
+  options: { createIfMissing?: boolean } = {}
+): Promise<SeatingSettings> => {
   const settingsRef = doc(db, 'units', unitId, 'seating_settings', 'default');
   const snapshot = await getDoc(settingsRef);
   if (!snapshot.exists()) {
+    if (options.createIfMissing === false) {
+      return seatingSettingsDefaults;
+    }
     const settings = seatingSettingsDefaults;
     await setDoc(settingsRef, {
       ...settings,

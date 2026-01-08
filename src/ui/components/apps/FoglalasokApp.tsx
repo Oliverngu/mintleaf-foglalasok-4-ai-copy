@@ -20,6 +20,7 @@ import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import { listTables, listZones, updateReservationSeating } from '../../../core/services/seatingService';
+import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import SeatingSettingsModal from './SeatingSettingsModal';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
@@ -133,8 +134,11 @@ const BookingSeatingEditor: React.FC<{
     booking.assignedTableIds ?? []
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [suggestSuccess, setSuggestSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedZoneId(booking.zoneId ?? '');
@@ -179,6 +183,33 @@ const BookingSeatingEditor: React.FC<{
       setSaveError('Nem sikerült menteni az ültetést.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSuggest = async () => {
+    setIsSuggesting(true);
+    setSuggestError(null);
+    setSuggestSuccess(null);
+    try {
+      const result = await suggestSeating({
+        unitId,
+        startTime: booking.startTime.toDate(),
+        endTime: booking.endTime.toDate(),
+        headcount: booking.headcount,
+        bookingId: booking.id,
+      });
+      if (result.tableIds.length) {
+        setSelectedZoneId(result.zoneId ?? '');
+        setSelectedTableIds(result.tableIds);
+        setSuggestSuccess('Javaslat betöltve.');
+      } else {
+        setSuggestError('Nincs megfelelő ültetés javaslat.');
+      }
+    } catch (err) {
+      console.error('Error suggesting seating:', err);
+      setSuggestError('Nem sikerült ültetést javasolni.');
+    } finally {
+      setIsSuggesting(false);
     }
   };
 
@@ -243,8 +274,18 @@ const BookingSeatingEditor: React.FC<{
         >
           {isSaving ? 'Mentés...' : 'Mentés'}
         </button>
+        <button
+          type="button"
+          onClick={handleSuggest}
+          disabled={isSuggesting}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-60"
+        >
+          {isSuggesting ? 'Javaslat...' : 'Javaslat'}
+        </button>
         {saveSuccess && <span className="text-xs text-green-600">{saveSuccess}</span>}
         {saveError && <span className="text-xs text-red-600">{saveError}</span>}
+        {suggestSuccess && <span className="text-xs text-green-600">{suggestSuccess}</span>}
+        {suggestError && <span className="text-xs text-red-600">{suggestError}</span>}
       </div>
     </div>
   );
