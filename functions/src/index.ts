@@ -93,7 +93,9 @@ const buildAllocationIntent = (
     const name = zone.name.toLowerCase();
     if (seatingPreference === 'bar') return name.includes('bar');
     if (seatingPreference === 'outdoor') return name.includes('outdoor') || name.includes('terasz');
-    if (seatingPreference === 'table') return name.includes('table');
+    if (seatingPreference === 'table') {
+      return name.includes('table') || name.includes('asztal');
+    }
     return false;
   });
 
