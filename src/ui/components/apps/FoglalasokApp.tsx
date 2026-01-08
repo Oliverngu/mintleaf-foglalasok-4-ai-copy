@@ -20,6 +20,7 @@ import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import { listTables, listZones, updateReservationSeating } from '../../../core/services/seatingService';
+import SeatingSettingsModal from './SeatingSettingsModal';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -484,6 +485,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
@@ -841,13 +843,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             </button>
           )}
           {isAdmin && activeUnitId && (
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
-              title="Foglalási beállítások"
-            >
-              <SettingsIcon className="h-6 w-6" />
-            </button>
+            <>
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
+                title="Foglalási beállítások"
+              >
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+              <button
+                onClick={() => setIsSeatingSettingsOpen(true)}
+                className="px-3 py-2 rounded-lg bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 text-sm font-semibold"
+              >
+                Ültetés beállítások
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -919,6 +929,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           unitId={activeUnitId}
           currentUser={currentUser}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+      {isSeatingSettingsOpen && activeUnitId && (
+        <SeatingSettingsModal
+          unitId={activeUnitId}
+          onClose={() => setIsSeatingSettingsOpen(false)}
         />
       )}
       {bookingToDelete && (
