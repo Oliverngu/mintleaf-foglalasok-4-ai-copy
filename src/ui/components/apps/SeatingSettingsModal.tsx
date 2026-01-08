@@ -182,7 +182,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     try {
       await updateSeatingSettings(unitId, {
         ...settings,
-        activeFloorplanId: settings.activeFloorplanId === '' ? '' : resolvedActiveFloorplanId,
+        activeFloorplanId: settings.activeFloorplanId === undefined
+          ? resolvedActiveFloorplanId
+          : settings.activeFloorplanId,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
@@ -261,11 +263,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   useEffect(() => {
-    if (
-      tableForm.floorplanId
-      || !resolvedActiveFloorplanId
-      || tableForm.floorplanId === resolvedActiveFloorplanId
-    ) {
+    if (tableForm.floorplanId || !resolvedActiveFloorplanId) {
       return;
     }
     setTableForm(current => ({ ...current, floorplanId: resolvedActiveFloorplanId }));
