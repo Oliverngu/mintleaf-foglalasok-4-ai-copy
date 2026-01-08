@@ -89,6 +89,7 @@ export const updateReservationSeating = async (
   await updateDoc(doc(db, 'units', unitId, 'reservations', reservationId), {
     zoneId: zoneId ?? null,
     assignedTableIds,
+    seatingSource: 'manual',
     updatedAt: serverTimestamp(),
   });
 

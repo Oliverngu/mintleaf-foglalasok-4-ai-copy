@@ -121,7 +121,12 @@ const BookingSeatingEditor: React.FC<{
   unitId: string;
   zones: Zone[];
   tables: Table[];
-}> = ({ booking, unitId, zones, tables }) => {
+  onSeatingSaved: (update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({ booking, unitId, zones, tables, onSeatingSaved }) => {
   const [selectedZoneId, setSelectedZoneId] = useState<string>(booking.zoneId ?? '');
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>(
     booking.assignedTableIds ?? []
@@ -161,6 +166,11 @@ const BookingSeatingEditor: React.FC<{
       await updateReservationSeating(unitId, booking.id, {
         zoneId: selectedZoneId || null,
         assignedTableIds: selectedTableIds,
+      });
+      onSeatingSaved({
+        zoneId: selectedZoneId || null,
+        assignedTableIds: selectedTableIds,
+        seatingSource: 'manual',
       });
       setSaveSuccess('Ültetés mentve.');
     } catch (err) {
@@ -203,6 +213,10 @@ const BookingSeatingEditor: React.FC<{
           )}
           {selectedZoneId &&
             availableTables.map(table => (
+              (() => {
+                const minCapacity = table.minCapacity ?? 1;
+                const maxCapacity = table.capacityMax ?? 2;
+                return (
               <label key={table.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -211,9 +225,11 @@ const BookingSeatingEditor: React.FC<{
                   className="h-4 w-4"
                 />
                 <span>
-                  {table.name} ({table.capacity} fő)
+                  {table.name} (min {minCapacity} – max {maxCapacity} fő)
                 </span>
               </label>
+                );
+              })()
             ))}
         </div>
       </div>
@@ -242,7 +258,12 @@ const BookingDetailsModal: React.FC<{
   unitId: string;
   zones: Zone[];
   tables: Table[];
-}> = ({ selectedDate, bookings, onClose, isAdmin, onDelete, unitId, zones, tables }) => {
+  onSeatingSaved: (bookingId: string, update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({ selectedDate, bookings, onClose, isAdmin, onDelete, unitId, zones, tables, onSeatingSaved }) => {
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -323,6 +344,7 @@ const BookingDetailsModal: React.FC<{
                       unitId={unitId}
                       zones={zones}
                       tables={tables}
+                      onSeatingSaved={update => onSeatingSaved(booking.id, update)}
                     />
                   )}
                   {isAdmin && (
@@ -868,6 +890,20 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           unitId={activeUnitId}
           zones={zones}
           tables={tables}
+          onSeatingSaved={(bookingId, update) => {
+            setBookings(current =>
+              current.map(booking =>
+                booking.id === bookingId
+                  ? {
+                      ...booking,
+                      zoneId: update.zoneId ?? undefined,
+                      assignedTableIds: update.assignedTableIds,
+                      seatingSource: update.seatingSource,
+                    }
+                  : booking
+              )
+            );
+          }}
         />
       )}
       {isAddModalOpen && (
