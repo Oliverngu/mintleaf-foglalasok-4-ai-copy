@@ -1,21 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Floorplan,
   SeatingSettings,
   Table,
   TableCombination,
   Zone,
 } from '../../../core/models/data';
 import {
+  createFloorplan,
   createCombination,
   createTable,
   createZone,
+  deleteFloorplan,
   deleteCombination,
   deleteTable,
   deleteZone,
+  ensureDefaultFloorplan,
   getSeatingSettings,
+  listFloorplans,
   listCombinations,
   listTables,
   listZones,
+  updateFloorplan,
   updateCombination,
   updateSeatingSettings,
   updateTable,
@@ -42,6 +48,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [zones, setZones] = useState<Zone[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [combos, setCombos] = useState<TableCombination[]>([]);
+  const [floorplans, setFloorplans] = useState<Floorplan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -62,6 +69,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     capacityMax: number;
     isActive: boolean;
     canSeatSolo: boolean;
+    floorplanId: string;
+    shape: 'rect' | 'circle';
+    w: number;
+    h: number;
+    radius: number;
+    snapToGrid: boolean;
+    locked: boolean;
   }>({
     name: '',
     zoneId: '',
@@ -69,25 +83,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     capacityMax: 2,
     isActive: true,
     canSeatSolo: false,
+    floorplanId: '',
+    shape: 'rect',
+    w: 80,
+    h: 60,
+    radius: 40,
+    snapToGrid: true,
+    locked: false,
   });
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
+  const [floorplanForm, setFloorplanForm] = useState<{
+    id?: string;
+    name: string;
+    width: number;
+    height: number;
+    gridSize: number;
+    backgroundImageUrl: string;
+    isActive: boolean;
+  }>({
+    name: '',
+    width: 1000,
+    height: 600,
+    gridSize: 20,
+    backgroundImageUrl: '',
+    isActive: true,
+  });
 
   useEffect(() => {
     let isMounted = true;
     const loadData = async () => {
       try {
-        const [settingsData, zonesData, tablesData, combosData] = await Promise.all([
+        await ensureDefaultFloorplan(unitId);
+        const [settingsData, zonesData, tablesData, combosData, floorplansData] = await Promise.all([
           getSeatingSettings(unitId),
           listZones(unitId),
           listTables(unitId),
           listCombinations(unitId),
+          listFloorplans(unitId),
         ]);
         if (!isMounted) return;
         setSettings(settingsData);
         setZones(zonesData);
         setTables(tablesData);
         setCombos(combosData);
+        setFloorplans(floorplansData);
       } catch (err) {
         console.error('Error loading seating settings:', err);
         if (isMounted) {
@@ -111,6 +151,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [zones]
   );
 
+  const activeFloorplanId = settings?.activeFloorplanId
+    ?? floorplans.find(plan => plan.isActive)?.id
+    ?? '';
+
   const handleSettingsSave = async () => {
     if (!settings) return;
     setError(null);
@@ -122,6 +166,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     try {
       await updateSeatingSettings(unitId, {
         ...settings,
+        activeFloorplanId: settings.activeFloorplanId ?? activeFloorplanId,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
@@ -133,6 +178,70 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } catch (err) {
       console.error('Error saving seating settings:', err);
       setError('Nem sikerült menteni a beállításokat.');
+    }
+  };
+
+  const handleFloorplanSubmit = async () => {
+    setError(null);
+    setSuccess(null);
+    if (!floorplanForm.name.trim()) {
+      setError('Az alaprajz neve kötelező.');
+      return;
+    }
+    if (floorplanForm.width < 1 || floorplanForm.height < 1) {
+      setError('A méreteknek legalább 1-nek kell lenniük.');
+      return;
+    }
+    try {
+      const payload = {
+        name: floorplanForm.name.trim(),
+        width: floorplanForm.width,
+        height: floorplanForm.height,
+        gridSize: floorplanForm.gridSize,
+        backgroundImageUrl: floorplanForm.backgroundImageUrl || undefined,
+        isActive: floorplanForm.isActive,
+      };
+      if (floorplanForm.id) {
+        await updateFloorplan(unitId, floorplanForm.id, payload);
+      } else {
+        await createFloorplan(unitId, payload);
+      }
+      const nextFloorplans = await listFloorplans(unitId);
+      setFloorplans(nextFloorplans);
+      setFloorplanForm({
+        name: '',
+        width: 1000,
+        height: 600,
+        gridSize: 20,
+        backgroundImageUrl: '',
+        isActive: true,
+      });
+      setSuccess('Alaprajz mentve.');
+    } catch (err) {
+      console.error('Error saving floorplan:', err);
+      setError('Nem sikerült menteni az alaprajzot.');
+    }
+  };
+
+  const handleActivateFloorplan = async (floorplanId: string) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      await Promise.all(
+        floorplans.map(plan =>
+          updateFloorplan(unitId, plan.id, { isActive: plan.id === floorplanId })
+        )
+      );
+      const nextFloorplans = await listFloorplans(unitId);
+      setFloorplans(nextFloorplans);
+      setSettings(current => ({
+        ...(current ?? {}),
+        activeFloorplanId: floorplanId,
+      }));
+      setSuccess('Alaprajz aktiválva.');
+    } catch (err) {
+      console.error('Error activating floorplan:', err);
+      setError('Nem sikerült aktiválni az alaprajzot.');
     }
   };
 
@@ -199,6 +308,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         capacityMax: tableForm.capacityMax,
         isActive: tableForm.isActive,
         canSeatSolo: tableForm.canSeatSolo,
+        floorplanId: tableForm.floorplanId || undefined,
+        shape: tableForm.shape,
+        w: tableForm.shape === 'rect' ? tableForm.w : undefined,
+        h: tableForm.shape === 'rect' ? tableForm.h : undefined,
+        radius: tableForm.shape === 'circle' ? tableForm.radius : undefined,
+        snapToGrid: tableForm.snapToGrid,
+        locked: tableForm.locked,
       };
       if (tableForm.id) {
         await updateTable(unitId, tableForm.id, payload);
@@ -213,6 +329,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         capacityMax: 2,
         isActive: true,
         canSeatSolo: false,
+        floorplanId: activeFloorplanId,
+        shape: 'rect',
+        w: 80,
+        h: 60,
+        radius: 40,
+        snapToGrid: true,
+        locked: false,
       });
       setSuccess('Asztal mentve.');
     } catch (err) {
@@ -282,6 +405,93 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         {success && <div className="text-sm text-green-600">{success}</div>}
 
         <section className="space-y-3 border rounded-lg p-4">
+          <h3 className="font-semibold">Alaprajzok</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <input
+              className="border rounded p-2"
+              placeholder="Alaprajz neve"
+              value={floorplanForm.name}
+              onChange={event =>
+                setFloorplanForm(current => ({ ...current, name: event.target.value }))
+              }
+            />
+            <input
+              type="number"
+              className="border rounded p-2"
+              placeholder="Szélesség"
+              value={floorplanForm.width}
+              onChange={event =>
+                setFloorplanForm(current => ({ ...current, width: Number(event.target.value) }))
+              }
+            />
+            <input
+              type="number"
+              className="border rounded p-2"
+              placeholder="Magasság"
+              value={floorplanForm.height}
+              onChange={event =>
+                setFloorplanForm(current => ({ ...current, height: Number(event.target.value) }))
+              }
+            />
+            <input
+              type="number"
+              className="border rounded p-2"
+              placeholder="Grid méret"
+              value={floorplanForm.gridSize}
+              onChange={event =>
+                setFloorplanForm(current => ({ ...current, gridSize: Number(event.target.value) }))
+              }
+            />
+            <input
+              className="border rounded p-2 col-span-2"
+              placeholder="Háttérkép URL (opcionális)"
+              value={floorplanForm.backgroundImageUrl}
+              onChange={event =>
+                setFloorplanForm(current => ({
+                  ...current,
+                  backgroundImageUrl: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleFloorplanSubmit}
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+          >
+            Mentés
+          </button>
+          <div className="space-y-2 text-sm">
+            {floorplans.map(plan => (
+              <div key={plan.id} className="flex items-center justify-between border rounded p-2">
+                <div>
+                  {plan.name} ({plan.width}×{plan.height})
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleActivateFloorplan(plan.id)}
+                    className="text-blue-600"
+                  >
+                    {activeFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await deleteFloorplan(unitId, plan.id);
+                      setFloorplans(await listFloorplans(unitId));
+                    }}
+                    className="text-red-600"
+                  >
+                    Törlés
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="space-y-3 border rounded-lg p-4">
           <h3 className="font-semibold">Alap beállítások</h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <label className="flex flex-col gap-1">
@@ -338,6 +548,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }
               />
               VIP engedélyezve
+            </label>
+            <label className="flex flex-col gap-1">
+              Aktív alaprajz
+              <select
+                className="border rounded p-2"
+                value={settings?.activeFloorplanId ?? activeFloorplanId}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    activeFloorplanId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Nincs kiválasztva</option>
+                {floorplans.map(plan => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <button
@@ -589,6 +819,91 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               />
               Solo asztal
             </label>
+            <label className="flex flex-col gap-1">
+              Alaprajz
+              <select
+                className="border rounded p-2"
+                value={tableForm.floorplanId}
+                onChange={event =>
+                  setTableForm(current => ({ ...current, floorplanId: event.target.value }))
+                }
+              >
+                <option value="">Nincs kiválasztva</option>
+                {floorplans.map(plan => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Forma
+              <select
+                className="border rounded p-2"
+                value={tableForm.shape}
+                onChange={event =>
+                  setTableForm(current => ({
+                    ...current,
+                    shape: event.target.value as 'rect' | 'circle',
+                  }))
+                }
+              >
+                <option value="rect">Téglalap</option>
+                <option value="circle">Kör</option>
+              </select>
+            </label>
+            {tableForm.shape === 'rect' ? (
+              <>
+                <input
+                  type="number"
+                  className="border rounded p-2"
+                  placeholder="Szélesség"
+                  value={tableForm.w}
+                  onChange={event =>
+                    setTableForm(current => ({ ...current, w: Number(event.target.value) }))
+                  }
+                />
+                <input
+                  type="number"
+                  className="border rounded p-2"
+                  placeholder="Magasság"
+                  value={tableForm.h}
+                  onChange={event =>
+                    setTableForm(current => ({ ...current, h: Number(event.target.value) }))
+                  }
+                />
+              </>
+            ) : (
+              <input
+                type="number"
+                className="border rounded p-2"
+                placeholder="Sugár"
+                value={tableForm.radius}
+                onChange={event =>
+                  setTableForm(current => ({ ...current, radius: Number(event.target.value) }))
+                }
+              />
+            )}
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={tableForm.snapToGrid}
+                onChange={event =>
+                  setTableForm(current => ({ ...current, snapToGrid: event.target.checked }))
+                }
+              />
+              Grid snap
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={tableForm.locked}
+                onChange={event =>
+                  setTableForm(current => ({ ...current, locked: event.target.checked }))
+                }
+              />
+              Zárolt
+            </label>
           </div>
           <button
             type="button"
@@ -615,6 +930,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         capacityMax: table.capacityMax,
                         isActive: table.isActive,
                         canSeatSolo: table.canSeatSolo ?? false,
+                        floorplanId: table.floorplanId ?? activeFloorplanId,
+                        shape: table.shape ?? 'rect',
+                        w: table.w ?? 80,
+                        h: table.h ?? 60,
+                        radius: table.radius ?? 40,
+                        snapToGrid: table.snapToGrid ?? true,
+                        locked: table.locked ?? false,
                       })
                     }
                     className="text-blue-600"

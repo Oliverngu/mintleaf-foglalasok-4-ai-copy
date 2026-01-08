@@ -129,11 +129,30 @@ export interface Table {
   capacityMax: number;
   minCapacity: number;
   isActive: boolean;
+  floorplanId?: string;
+  shape?: 'rect' | 'circle';
+  w?: number;
+  h?: number;
+  radius?: number;
+  snapToGrid?: boolean;
+  locked?: boolean;
   x?: number;
   y?: number;
   rot?: number;
   canSeatSolo?: boolean;
   canCombine?: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Floorplan {
+  id: string;
+  name: string;
+  isActive: boolean;
+  width: number;
+  height: number;
+  gridSize?: number;
+  backgroundImageUrl?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -153,6 +172,7 @@ export interface SeatingSettings {
   holdTableMinutesOnLate?: number;
   maxCombineCount?: number;
   vipEnabled?: boolean;
+  activeFloorplanId?: string;
   soloAllowedTableIds?: string[];
   emergencyZones?: {
     enabled?: boolean;

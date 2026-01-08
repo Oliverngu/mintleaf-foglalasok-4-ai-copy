@@ -9,7 +9,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { SeatingSettings, Table, TableCombination, Zone } from '../models/data';
+import { Floorplan, SeatingSettings, Table, TableCombination, Zone } from '../models/data';
 
 const seatingSettingsDefaults: SeatingSettings = {
   bufferMinutes: 15,
@@ -51,6 +51,9 @@ const sortCombos = (combos: TableCombination[]) =>
     }
     return a.id.localeCompare(b.id);
   });
+
+const sortFloorplans = (floorplans: Floorplan[]) =>
+  [...floorplans].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
 
 export const getSeatingSettings = async (
   unitId: string,
@@ -179,4 +182,61 @@ export const deleteCombination = async (unitId: string, comboId: string): Promis
     isActive: false,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const listFloorplans = async (unitId: string): Promise<Floorplan[]> => {
+  const snapshot = await getDocs(collection(db, 'units', unitId, 'floorplans'));
+  return sortFloorplans(
+    snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+  );
+};
+
+export const createFloorplan = async (
+  unitId: string,
+  floorplan: Omit<Floorplan, 'id'>
+): Promise<void> => {
+  await addDoc(collection(db, 'units', unitId, 'floorplans'), {
+    ...floorplan,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const updateFloorplan = async (
+  unitId: string,
+  floorplanId: string,
+  floorplan: Partial<Floorplan>
+): Promise<void> => {
+  await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
+    ...floorplan,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const deleteFloorplan = async (unitId: string, floorplanId: string): Promise<void> => {
+  await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
+    isActive: false,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const ensureDefaultFloorplan = async (unitId: string): Promise<Floorplan> => {
+  const floorplans = await listFloorplans(unitId);
+  const active = floorplans.find(plan => plan.isActive);
+  if (active) {
+    return active;
+  }
+  const payload = {
+    name: 'Alaprajz',
+    isActive: true,
+    width: 1000,
+    height: 600,
+    gridSize: 20,
+  };
+  const ref = await addDoc(collection(db, 'units', unitId, 'floorplans'), {
+    ...payload,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return { id: ref.id, ...payload };
 };

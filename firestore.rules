@@ -138,6 +138,11 @@ service cloud.firestore {
           || (isUnitLeader() && hasUnit(unitId));
       }
 
+      match /floorplans/{floorplanId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
       match /reservation_capacity/{dateKey} {
         allow read: if true;
         allow create, update, delete: if false;
