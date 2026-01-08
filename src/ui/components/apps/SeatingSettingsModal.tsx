@@ -182,9 +182,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     try {
       await updateSeatingSettings(unitId, {
         ...settings,
-        activeFloorplanId: settings.activeFloorplanId === undefined
-          ? resolvedActiveFloorplanId
-          : settings.activeFloorplanId,
+        activeFloorplanId: resolvedActiveFloorplanId,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
