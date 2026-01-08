@@ -160,6 +160,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans]
   );
 
+  // UI fallback when stored activeFloorplanId is missing or invalid; never persist this derived value.
   const resolvedActiveFloorplanId = useMemo(() => {
     const wanted = settings?.activeFloorplanId;
     if (wanted === '') {
@@ -180,16 +181,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
     try {
-      await updateSeatingSettings(unitId, {
-        ...settings,
-        activeFloorplanId: resolvedActiveFloorplanId,
+      const { activeFloorplanId, ...restSettings } = settings;
+      const payload = {
+        ...restSettings,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
           activeRule: settings.emergencyZones?.activeRule ?? 'always',
           weekdays: settings.emergencyZones?.weekdays ?? [],
         },
-      });
+      } as SeatingSettings;
+      if (activeFloorplanId !== undefined) {
+        payload.activeFloorplanId = activeFloorplanId;
+      }
+      await updateSeatingSettings(unitId, payload);
       setSuccess('Beállítások mentve.');
     } catch (err) {
       console.error('Error saving seating settings:', err);
