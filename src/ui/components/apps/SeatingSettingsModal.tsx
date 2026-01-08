@@ -160,10 +160,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans]
   );
 
-  const resolvedActiveFloorplanId = settings?.activeFloorplanId
-    && visibleFloorplans.some(plan => plan.id === settings.activeFloorplanId)
-    ? settings.activeFloorplanId
-    : visibleFloorplans[0]?.id ?? '';
+  const resolvedActiveFloorplanId = useMemo(() => {
+    const wanted = settings?.activeFloorplanId;
+    if (wanted === '') {
+      return '';
+    }
+    if (wanted && visibleFloorplans.some(plan => plan.id === wanted)) {
+      return wanted;
+    }
+    return visibleFloorplans[0]?.id ?? '';
+  }, [settings?.activeFloorplanId, visibleFloorplans]);
 
   const handleSettingsSave = async () => {
     if (!settings) return;
@@ -176,7 +182,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     try {
       await updateSeatingSettings(unitId, {
         ...settings,
-        activeFloorplanId: settings.activeFloorplanId ?? resolvedActiveFloorplanId,
+        activeFloorplanId: settings.activeFloorplanId === '' ? '' : resolvedActiveFloorplanId,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
@@ -237,6 +243,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setError(null);
     setSuccess(null);
     try {
+      if (floorplanId === resolvedActiveFloorplanId) {
+        return;
+      }
       await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
       const nextFloorplans = await listFloorplans(unitId);
       setFloorplans(nextFloorplans);
@@ -252,7 +261,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   useEffect(() => {
-    if (tableForm.floorplanId || !resolvedActiveFloorplanId) {
+    if (
+      tableForm.floorplanId
+      || !resolvedActiveFloorplanId
+      || tableForm.floorplanId === resolvedActiveFloorplanId
+    ) {
       return;
     }
     setTableForm(current => ({ ...current, floorplanId: resolvedActiveFloorplanId }));
@@ -496,11 +509,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
                       if (resolvedActiveFloorplanId === plan.id) {
                         const nextActiveId = nextVisible[0]?.id ?? '';
-                        await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
-                        setSettings(current => ({
-                          ...(current ?? {}),
-                          activeFloorplanId: nextActiveId,
-                        }));
+                        if (nextActiveId !== resolvedActiveFloorplanId) {
+                          await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
+                          setSettings(current => ({
+                            ...(current ?? {}),
+                            activeFloorplanId: nextActiveId,
+                          }));
+                        }
                       }
                       setFloorplans(nextFloorplans);
                     }}
