@@ -114,7 +114,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     let isMounted = true;
     const loadData = async () => {
       try {
-        await ensureDefaultFloorplan(unitId);
+        try {
+          await ensureDefaultFloorplan(unitId);
+        } catch (err) {
+          console.error('Error ensuring default floorplan:', err);
+        }
         const [settingsData, zonesData, tablesData, combosData, floorplansData] = await Promise.all([
           getSeatingSettings(unitId),
           listZones(unitId),
@@ -151,9 +155,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [zones]
   );
 
-  const activeFloorplanId = settings?.activeFloorplanId
-    ?? floorplans.find(plan => plan.isActive)?.id
-    ?? '';
+  const fallbackActiveFloorplanId = settings?.activeFloorplanId
+    ? floorplans.find(plan => plan.id === settings.activeFloorplanId)?.id
+    : floorplans.find(plan => plan.isActive)?.id;
+  const activeFloorplanId = settings?.activeFloorplanId ?? fallbackActiveFloorplanId ?? '';
 
   const handleSettingsSave = async () => {
     if (!settings) return;
@@ -227,11 +232,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setError(null);
     setSuccess(null);
     try {
-      await Promise.all(
-        floorplans.map(plan =>
-          updateFloorplan(unitId, plan.id, { isActive: plan.id === floorplanId })
-        )
-      );
+      await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
       const nextFloorplans = await listFloorplans(unitId);
       setFloorplans(nextFloorplans);
       setSettings(current => ({
@@ -244,6 +245,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('Nem sikerült aktiválni az alaprajzot.');
     }
   };
+
+  useEffect(() => {
+    if (tableForm.floorplanId || !activeFloorplanId) {
+      return;
+    }
+    setTableForm(current => ({ ...current, floorplanId: activeFloorplanId }));
+  }, [activeFloorplanId, tableForm.floorplanId]);
 
   const handleZoneSubmit = async () => {
     setError(null);
@@ -479,7 +487,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     type="button"
                     onClick={async () => {
                       await deleteFloorplan(unitId, plan.id);
-                      setFloorplans(await listFloorplans(unitId));
+                      const nextFloorplans = await listFloorplans(unitId);
+                      let nextActiveId = activeFloorplanId;
+                      if (activeFloorplanId === plan.id) {
+                        nextActiveId = nextFloorplans[0]?.id ?? '';
+                        await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
+                        setSettings(current => ({
+                          ...(current ?? {}),
+                          activeFloorplanId: nextActiveId,
+                        }));
+                      }
+                      setFloorplans(nextFloorplans);
                     }}
                     className="text-red-600"
                   >
