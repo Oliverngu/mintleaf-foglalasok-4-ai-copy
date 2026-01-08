@@ -90,18 +90,14 @@ const App: React.FC = () => {
   // --- 2. JAVÍTÁS: GLOBÁLIS TÉMA FIGYELÉSE FIRESTORE-BÓL ---
   // Ez biztosítja, hogy amit az Admin beállít és elment, azt mindenki megkapja.
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'global_settings', 'theme'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as ThemeBases;
-        setThemeBases(data);
-        saveBases(data); // Elmentjük lokálisan is cache gyanánt
-      }
-    }, (error) => {
-        // Ha nincs jogod olvasni (pl. kijelentkezve), vagy nem létezik, nem baj
-        console.warn("Theme load info:", error.message);
-    });
-    return () => unsub();
-  }, []);
+  if (!auth.currentUser) return; // login előtt ne kérdezz Firestore-t
+
+  const unsub = onSnapshot(doc(db, 'global_settings', 'theme'), (docSnap) => {
+    // ...
+  });
+
+  return () => unsub();
+}, []);
 
   // Theme Effects (Lokális mentések)
   useEffect(() => {
@@ -270,6 +266,7 @@ const App: React.FC = () => {
   // --- DATA LISTENERS ---
 useEffect(() => {
   if (isDemoMode) return;
+  if (!currentUser) return;
 
   let unsubUsers: undefined | (() => void);
   let unsubPerms: undefined | (() => void);
