@@ -605,6 +605,12 @@ function userUnits() {
       allow read, write: if isSelf(userId) || isAdmin();
     }
 
+    // --- global settings (theme, etc.) ---
+match /global_settings/{docId} {
+  allow read: if isSignedIn();
+  allow write: if isAdmin();
+}
+
     // Catch-all
     match /{document=**} {
       allow read, write: if false;
