@@ -155,10 +155,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [zones]
   );
 
-  const fallbackActiveFloorplanId = settings?.activeFloorplanId
-    ? floorplans.find(plan => plan.id === settings.activeFloorplanId)?.id
-    : floorplans.find(plan => plan.isActive)?.id;
-  const activeFloorplanId = settings?.activeFloorplanId ?? fallbackActiveFloorplanId ?? '';
+  const visibleFloorplans = useMemo(
+    () => floorplans.filter(plan => plan.isActive !== false),
+    [floorplans]
+  );
+
+  const resolvedActiveFloorplanId = settings?.activeFloorplanId
+    && visibleFloorplans.some(plan => plan.id === settings.activeFloorplanId)
+    ? settings.activeFloorplanId
+    : visibleFloorplans[0]?.id ?? '';
 
   const handleSettingsSave = async () => {
     if (!settings) return;
@@ -171,7 +176,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     try {
       await updateSeatingSettings(unitId, {
         ...settings,
-        activeFloorplanId: settings.activeFloorplanId ?? activeFloorplanId,
+        activeFloorplanId: settings.activeFloorplanId ?? resolvedActiveFloorplanId,
         emergencyZones: {
           enabled: settings.emergencyZones?.enabled ?? false,
           zoneIds: emergencyZoneIds,
@@ -247,11 +252,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   useEffect(() => {
-    if (tableForm.floorplanId || !activeFloorplanId) {
+    if (tableForm.floorplanId || !resolvedActiveFloorplanId) {
       return;
     }
-    setTableForm(current => ({ ...current, floorplanId: activeFloorplanId }));
-  }, [activeFloorplanId, tableForm.floorplanId]);
+    setTableForm(current => ({ ...current, floorplanId: resolvedActiveFloorplanId }));
+  }, [resolvedActiveFloorplanId, tableForm.floorplanId]);
 
   const handleZoneSubmit = async () => {
     setError(null);
@@ -470,7 +475,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Mentés
           </button>
           <div className="space-y-2 text-sm">
-            {floorplans.map(plan => (
+            {visibleFloorplans.map(plan => (
               <div key={plan.id} className="flex items-center justify-between border rounded p-2">
                 <div>
                   {plan.name} ({plan.width}×{plan.height})
@@ -481,16 +486,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     onClick={() => handleActivateFloorplan(plan.id)}
                     className="text-blue-600"
                   >
-                    {activeFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
+                    {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
                   </button>
                   <button
                     type="button"
                     onClick={async () => {
                       await deleteFloorplan(unitId, plan.id);
                       const nextFloorplans = await listFloorplans(unitId);
-                      let nextActiveId = activeFloorplanId;
-                      if (activeFloorplanId === plan.id) {
-                        nextActiveId = nextFloorplans[0]?.id ?? '';
+                      const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
+                      if (resolvedActiveFloorplanId === plan.id) {
+                        const nextActiveId = nextVisible[0]?.id ?? '';
                         await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
                         setSettings(current => ({
                           ...(current ?? {}),
@@ -571,7 +576,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               Aktív alaprajz
               <select
                 className="border rounded p-2"
-                value={settings?.activeFloorplanId ?? activeFloorplanId}
+                value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
                 onChange={event =>
                   setSettings(current => ({
                     ...(current ?? {}),
@@ -580,7 +585,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }
               >
                 <option value="">Nincs kiválasztva</option>
-                {floorplans.map(plan => (
+                {visibleFloorplans.map(plan => (
                   <option key={plan.id} value={plan.id}>
                     {plan.name}
                   </option>
@@ -847,7 +852,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }
               >
                 <option value="">Nincs kiválasztva</option>
-                {floorplans.map(plan => (
+                {visibleFloorplans.map(plan => (
                   <option key={plan.id} value={plan.id}>
                     {plan.name}
                   </option>
@@ -948,7 +953,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         capacityMax: table.capacityMax,
                         isActive: table.isActive,
                         canSeatSolo: table.canSeatSolo ?? false,
-                        floorplanId: table.floorplanId ?? activeFloorplanId,
+                        floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
                         shape: table.shape ?? 'rect',
                         w: table.w ?? 80,
                         h: table.h ?? 60,
