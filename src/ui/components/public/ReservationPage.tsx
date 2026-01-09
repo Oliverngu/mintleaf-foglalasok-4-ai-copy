@@ -1237,6 +1237,8 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
             <label className="block text-sm font-medium mb-1">{t.seatingPreferenceLabel}</label>
             <div
               className={`grid grid-cols-2 gap-2 ${themeProps.radiusClass}`}
+              role="radiogroup"
+              aria-label={t.seatingPreferenceLabel}
             >
               {[
                 { value: 'any', label: t.seatingPreferenceAny },
@@ -1251,6 +1253,8 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
                       ? 'bg-[var(--color-primary)] text-white border-transparent'
                       : ''
                   }`}
+                  aria-checked={formData.seatingPreference === option.value}
+                  role="radio"
                   style={{
                     borderColor:
                       formData.seatingPreference === option.value

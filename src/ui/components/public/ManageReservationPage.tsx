@@ -223,6 +223,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           headcount: payload.headcount,
           startTimeMs: payload.startTimeMs ?? null,
           endTimeMs: payload.endTimeMs ?? null,
+          preferredTimeSlot: payload.preferredTimeSlot ?? null,
+          seatingPreference: payload.seatingPreference ?? 'any',
           status: payload.status,
           occasion: payload.occasion || '',
           source: payload.source || '',
