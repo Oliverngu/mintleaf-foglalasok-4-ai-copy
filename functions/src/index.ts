@@ -88,6 +88,7 @@ interface AllocationFinal {
   zoneId?: string | null;
   tableGroup?: string | null;
   tableIds?: string[] | null;
+  locked?: boolean | null;
 }
 
 const normalizePreferredTimeSlot = (value: unknown) => {
@@ -283,6 +284,9 @@ const buildAllocationFinal = (
     tableIds: null,
   };
 };
+
+const isAllocationLocked = (reservationData: { allocationFinal?: AllocationFinal | null }) =>
+  Boolean(reservationData?.allocationFinal?.locked);
 
 const getClientIp = (req: any) => {
   const cfIp = req.headers['cf-connecting-ip'];
@@ -1219,15 +1223,29 @@ export const adminSetReservationAllocationOverride = onRequest(
           note,
         };
 
-        const allocationFinal = buildAllocationFinal(
-          allocationIntentData,
-          allocationOverride
-        );
+        const clearedOverride: AllocationOverride = {
+          enabled: false,
+          timeSlot: null,
+          zoneId: null,
+          tableGroup: null,
+          tableIds: null,
+          note: null,
+        };
+        const allocationFinal = enabled
+          ? {
+              ...buildAllocationFinal(allocationIntentData, allocationOverride),
+              locked: true,
+            }
+          : {
+              ...buildAllocationFinal(allocationIntentData, clearedOverride),
+              locked: false,
+            };
 
         transaction.update(reservationRef, {
           allocationOverride,
           allocationOverrideSetAt: FieldValue.serverTimestamp(),
           allocationOverrideSetByUid: decoded.uid,
+          // Admin action is authoritative: must be able to lock/unlock allocationFinal.
           allocationFinal,
           allocationFinalComputedAt: FieldValue.serverTimestamp(),
         });
@@ -1369,7 +1387,10 @@ export const adminRecalcReservationCapacityDay = onRequest(
         if (!headcount || Number.isNaN(headcount)) return;
         totalCount += headcount;
 
-        const allocationFinalData = data.allocationFinal || {};
+        // Respect admin lock: do not overwrite allocationFinal when locked.
+        const allocationFinalData = isAllocationLocked(data)
+          ? data.allocationFinal || {}
+          : data.allocationFinal || {};
         const allocationIntentData = data.allocationIntent || {};
         const timeSlot = allocationFinalData.timeSlot ?? allocationIntentData.timeSlot;
         const zoneId = allocationFinalData.zoneId ?? allocationIntentData.zoneId;

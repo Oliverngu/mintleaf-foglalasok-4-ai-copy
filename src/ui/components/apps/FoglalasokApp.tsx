@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Booking, Table, User, Unit, Zone } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
@@ -24,6 +24,7 @@ import { suggestSeating } from '../../../core/services/seatingSuggestionService'
 import SeatingSettingsModal from './SeatingSettingsModal';
 import { setReservationAllocationOverride } from '../../../core/services/adminAllocationApiService';
 import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
+import FloorplanViewer from './seating/FloorplanViewer';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -464,6 +465,11 @@ const AllocationOverrideEditor: React.FC<{
           Engedélyezve
         </label>
       </div>
+      {booking.allocationFinal?.locked && (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          Zárolva: rendszer nem írja felül az allokációt.
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
         <div>
           <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
@@ -600,6 +606,7 @@ const BookingDetailsModal: React.FC<{
   const [dayLogs, setDayLogs] = useState<BookingLog[]>([]);
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
   const [openOverrideId, setOpenOverrideId] = useState<string | null>(null);
+  const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -607,6 +614,17 @@ const BookingDetailsModal: React.FC<{
     const day = String(selectedDate.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }, [selectedDate]);
+
+  useEffect(() => {
+    setOpenOverrideId(null);
+    setOpenFloorplanBookingId(null);
+  }, [dateKey]);
+
+  const handleClose = useCallback(() => {
+    setOpenOverrideId(null);
+    setOpenFloorplanBookingId(null);
+    onClose();
+  }, [onClose]);
 
   const handleRecalcCapacity = async () => {
     if (!unitId || !dateKey) {
@@ -699,7 +717,7 @@ const BookingDetailsModal: React.FC<{
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
@@ -716,7 +734,7 @@ const BookingDetailsModal: React.FC<{
             })}
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 rounded-full hover:bg-gray-200"
             style={{ color: 'var(--color-text-secondary)' }}
           >
@@ -836,12 +854,18 @@ const BookingDetailsModal: React.FC<{
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
-              .map(booking => (
-                <div
-                  key={booking.id}
-                  className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
-                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-                >
+              .map(booking => {
+                const effective = resolveEffectiveAllocation(booking);
+                const highlightTableIds = effective.tableIds ?? [];
+                const highlightZoneId = effective.zoneId ?? null;
+                const isFloorplanOpen = openFloorplanBookingId === booking.id;
+
+                return (
+                  <div
+                    key={booking.id}
+                    className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                  >
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-bold text-[var(--color-text-main)]">
                       {booking.name} ({booking.headcount} fő)
@@ -855,6 +879,11 @@ const BookingDetailsModal: React.FC<{
                     >
                       {resolveAllocationBadge(booking)}
                     </span>
+                    {booking.allocationFinal?.locked && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+                        LOCKED
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
                     {booking.startTime
@@ -896,16 +925,11 @@ const BookingDetailsModal: React.FC<{
                       <span className="font-semibold text-[var(--color-text-main)]">
                         Allocation (effective):
                       </span>{' '}
-                      {(() => {
-                        const effective = resolveEffectiveAllocation(booking);
-                        return `source=${effective.source || '—'}, timeSlot=${
-                          effective.timeSlot || '—'
-                        }, zoneId=${effective.zoneId || '—'}, tableGroup=${
-                          effective.tableGroup || '—'
-                        }, tableIds=${
-                          effective.tableIds?.length ? effective.tableIds.join(', ') : '—'
-                        }`;
-                      })()}
+                      {`source=${effective.source || '—'}, timeSlot=${effective.timeSlot || '—'}, zoneId=${
+                        effective.zoneId || '—'
+                      }, tableGroup=${effective.tableGroup || '—'}, tableIds=${
+                        effective.tableIds?.length ? effective.tableIds.join(', ') : '—'
+                      }`}
                     </div>
                     <div>
                       <span className="font-semibold text-[var(--color-text-main)]">
@@ -950,6 +974,30 @@ const BookingDetailsModal: React.FC<{
                         : 'Nincs adat'}
                     </div>
                   </div>
+                  {isAdmin && (
+                    <div className="mt-3 rounded-lg border border-gray-200 bg-white/70">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenFloorplanBookingId(current =>
+                            current === booking.id ? null : booking.id
+                          )
+                        }
+                        className="w-full text-left px-3 py-2 text-sm font-semibold"
+                      >
+                        {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
+                      </button>
+                      {isFloorplanOpen && (
+                        <div className="px-3 pb-3">
+                          <FloorplanViewer
+                            unitId={unitId}
+                            highlightTableIds={highlightTableIds}
+                            highlightZoneId={highlightZoneId}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {isAdmin && (
                     <BookingSeatingEditor
                       booking={booking}
@@ -998,7 +1046,8 @@ const BookingDetailsModal: React.FC<{
                     </button>
                   )}
                 </div>
-              ))
+                );
+              })
           ) : (
             <p className="text-[var(--color-text-secondary)]">Erre a napra nincsenek foglalások.</p>
           )}
