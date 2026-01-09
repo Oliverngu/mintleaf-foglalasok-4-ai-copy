@@ -315,16 +315,6 @@ const resolveAllocationBadge = (booking: Booking) =>
   booking.allocationOverride?.enabled ? 'OVERRIDE' : 'SYSTEM';
 
 const resolveEffectiveAllocation = (booking: Booking) => {
-  if (booking.allocationFinal) {
-    return {
-      source: booking.allocationFinal.source || undefined,
-      timeSlot: booking.allocationFinal.timeSlot || null,
-      zoneId: booking.allocationFinal.zoneId || null,
-      tableGroup: booking.allocationFinal.tableGroup || null,
-      tableIds: booking.allocationFinal.tableIds || null,
-    };
-  }
-
   if (booking.allocationOverride?.enabled) {
     return {
       source: 'override',
@@ -332,6 +322,16 @@ const resolveEffectiveAllocation = (booking: Booking) => {
       zoneId: booking.allocationOverride.zoneId || null,
       tableGroup: booking.allocationOverride.tableGroup || null,
       tableIds: booking.allocationOverride.tableIds || null,
+    };
+  }
+
+  if (booking.allocationFinal) {
+    return {
+      source: booking.allocationFinal.source || undefined,
+      timeSlot: booking.allocationFinal.timeSlot || null,
+      zoneId: booking.allocationFinal.zoneId || null,
+      tableGroup: booking.allocationFinal.tableGroup || null,
+      tableIds: booking.allocationFinal.tableIds || null,
     };
   }
 
@@ -349,29 +349,41 @@ const AllocationOverrideEditor: React.FC<{
   unitId: string;
   zones: Zone[];
   tables: Table[];
-}> = ({ booking, unitId, zones, tables }) => {
-  const [enabled, setEnabled] = useState(Boolean(booking.allocationOverride?.enabled));
-  const [timeSlot, setTimeSlot] = useState<string>(booking.allocationOverride?.timeSlot || '');
-  const [zoneId, setZoneId] = useState<string>(booking.allocationOverride?.zoneId || '');
-  const [tableGroup, setTableGroup] = useState<string>(
-    booking.allocationOverride?.tableGroup || ''
-  );
-  const [tableIds, setTableIds] = useState<string[]>(
-    booking.allocationOverride?.tableIds || []
-  );
-  const [note, setNote] = useState<string>(booking.allocationOverride?.note || '');
+  onClose?: () => void;
+}> = ({ booking, unitId, zones, tables, onClose }) => {
+  const initFromBooking = useCallback(() => {
+    const override = booking.allocationOverride;
+    return {
+      enabled: Boolean(override?.enabled),
+      timeSlot: override?.timeSlot || '',
+      zoneId: override?.zoneId || '',
+      tableGroup: override?.tableGroup || '',
+      tableIds: override?.tableIds || [],
+      note: override?.note || '',
+    };
+  }, [booking]);
+
+  const [enabled, setEnabled] = useState(() => initFromBooking().enabled);
+  const [timeSlot, setTimeSlot] = useState<string>(() => initFromBooking().timeSlot);
+  const [zoneId, setZoneId] = useState<string>(() => initFromBooking().zoneId);
+  const [tableGroup, setTableGroup] = useState<string>(() => initFromBooking().tableGroup);
+  const [tableIds, setTableIds] = useState<string[]>(() => initFromBooking().tableIds);
+  const [note, setNote] = useState<string>(() => initFromBooking().note);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    setEnabled(Boolean(booking.allocationOverride?.enabled));
-    setTimeSlot(booking.allocationOverride?.timeSlot || '');
-    setZoneId(booking.allocationOverride?.zoneId || '');
-    setTableGroup(booking.allocationOverride?.tableGroup || '');
-    setTableIds(booking.allocationOverride?.tableIds || []);
-    setNote(booking.allocationOverride?.note || '');
-  }, [booking]);
+    const next = initFromBooking();
+    setEnabled(next.enabled);
+    setTimeSlot(next.timeSlot);
+    setZoneId(next.zoneId);
+    setTableGroup(next.tableGroup);
+    setTableIds(next.tableIds);
+    setNote(next.note);
+    setSaveError(null);
+    setSaveSuccess(null);
+  }, [booking.id, initFromBooking]);
 
   const availableTables = useMemo(
     () => tables.filter(table => table.zoneId === zoneId && table.isActive),
@@ -390,6 +402,9 @@ const AllocationOverrideEditor: React.FC<{
     Boolean(timeSlot) || Boolean(zoneId) || Boolean(tableGroup) || tableIds.length > 0 || Boolean(note);
 
   const handleClear = async () => {
+    if (isSaving) {
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
@@ -409,6 +424,7 @@ const AllocationOverrideEditor: React.FC<{
       setTableIds([]);
       setNote('');
       setSaveSuccess('Allocation override törölve.');
+      onClose?.();
     } catch (err) {
       console.error('Error clearing allocation override:', err);
       setSaveError('Nem sikerült törölni az allocation override-ot.');
@@ -418,6 +434,9 @@ const AllocationOverrideEditor: React.FC<{
   };
 
   const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
@@ -441,6 +460,7 @@ const AllocationOverrideEditor: React.FC<{
         note: note || null,
       });
       setSaveSuccess('Allocation override mentve.');
+      onClose?.();
     } catch (err) {
       console.error('Error saving allocation override:', err);
       setSaveError('Nem sikerült menteni az allocation override-ot.');
@@ -978,6 +998,7 @@ const BookingDetailsModal: React.FC<{
                           unitId={unitId}
                           zones={zones}
                           tables={tables}
+                          onClose={() => setOpenOverrideId(null)}
                         />
                       )}
                     </div>
