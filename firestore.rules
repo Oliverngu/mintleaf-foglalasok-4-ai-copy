@@ -190,7 +190,8 @@ function userUnits() {
       }
 
       match /reservation_logs/{logId} {
-        allow read: if canViewUnit(unitId);
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
         allow create, update, delete: if false;
       }
 
