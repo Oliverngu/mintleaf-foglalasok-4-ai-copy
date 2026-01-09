@@ -587,10 +587,8 @@ const BookingDetailsModal: React.FC<{
       });
 
     let unsub = () => {};
-    let usedFallback = false;
-    let isFallbackActive = false;
 
-    const fallbackQuery = query(
+    const qDayLogs = query(
       logsRef,
       where('createdAt', '>=', Timestamp.fromDate(start)),
       where('createdAt', '<=', Timestamp.fromDate(end)),
@@ -598,52 +596,14 @@ const BookingDetailsModal: React.FC<{
       limit(25)
     );
 
-    const preferredQuery = query(
-      logsRef,
-      where('date', '==', dateKey),
-      orderBy('createdAt', 'desc'),
-      limit(25)
-    );
-
-    const subscribeToFallback = () => {
-      if (isFallbackActive) {
-        return;
-      }
-      isFallbackActive = true;
-      setDayLogsLoading(true);
-      unsub = onSnapshot(
-        fallbackQuery,
-        snapshot => {
-          setDayLogs(mapLogs(snapshot));
-          setDayLogsLoading(false);
-        },
-        err => {
-          console.error('Error fetching day logs (fallback):', err);
-          setDayLogsLoading(false);
-        }
-      );
-    };
-
     unsub = onSnapshot(
-      preferredQuery,
+      qDayLogs,
       snapshot => {
-        if (snapshot.empty && !usedFallback) {
-          usedFallback = true;
-          unsub();
-          subscribeToFallback();
-          return;
-        }
         setDayLogs(mapLogs(snapshot));
         setDayLogsLoading(false);
       },
       err => {
         console.error('Error fetching day logs:', err);
-        if (!usedFallback) {
-          usedFallback = true;
-          unsub();
-          subscribeToFallback();
-          return;
-        }
         setDayLogsLoading(false);
       }
     );
