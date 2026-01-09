@@ -163,7 +163,6 @@ export interface Table {
   minCapacity: number;
   isActive: boolean;
   tableGroup?: string;
-  isCombinable?: boolean;
   tags?: string[];
   floorplanId?: string;
   shape?: 'rect' | 'circle';

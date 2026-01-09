@@ -56,7 +56,8 @@ interface FloorplanTable {
   zoneId?: string;
   isActive?: boolean;
   tableGroup?: string;
-  isCombinable?: boolean;
+  canCombine?: boolean;
+  tags?: string[];
 }
 
 interface AllocationIntent {
@@ -113,6 +114,51 @@ const normalizeAllocationText = (value: unknown, maxLength = 64) => {
   return trimmed.slice(0, maxLength);
 };
 
+const normalizeTags = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
+    .filter(Boolean);
+};
+
+const normalizeZone = (raw: unknown, idFallback?: string): FloorplanZone => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const type =
+    data.type === 'bar' || data.type === 'outdoor' || data.type === 'table' || data.type === 'other'
+      ? data.type
+      : undefined;
+  const priority =
+    typeof data.priority === 'number' && !Number.isNaN(data.priority)
+      ? data.priority
+      : undefined;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    name: typeof data.name === 'string' ? data.name : undefined,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    tags: normalizeTags(data.tags),
+    type,
+    priority,
+  };
+};
+
+const normalizeTable = (raw: unknown, idFallback?: string): FloorplanTable => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const canCombine =
+    typeof data.canCombine === 'boolean'
+      ? data.canCombine
+      : typeof data.isCombinable === 'boolean'
+      ? data.isCombinable
+      : false;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    zoneId: typeof data.zoneId === 'string' ? data.zoneId : undefined,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
+    canCombine,
+    tags: normalizeTags(data.tags),
+  };
+};
+
 const buildAllocationIntent = (
   preferredTimeSlot: string | null,
   seatingPreference: SeatingPreference,
@@ -124,16 +170,9 @@ const buildAllocationIntent = (
     return { timeSlot, zoneId: null, tableGroup: null };
   }
 
-  const normalizeTokens = (values: unknown): string[] => {
-    if (!Array.isArray(values)) return [];
-    return values
-      .map(value => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-      .filter(Boolean);
-  };
-
   const zoneMatchesPreference = (zone: FloorplanZone): number => {
     const type = zone.type?.toLowerCase() ?? '';
-    const tags = new Set(normalizeTokens(zone.tags));
+    const tags = new Set(normalizeTags(zone.tags));
     const name = zone.name?.toLowerCase() ?? '';
 
     const matchTag = (tag: string) => tags.has(tag);
@@ -181,16 +220,10 @@ const fetchFloorplanContext = async (unitId: string) => {
   ]);
 
   const zones = zonesSnap.docs
-    .map(docSnap => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<FloorplanZone, 'id'> | undefined),
-    }))
+    .map(docSnap => normalizeZone(docSnap.data(), docSnap.id))
     .filter(zone => zone.isActive !== false) as FloorplanZone[];
   const tables = tablesSnap.docs
-    .map(docSnap => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<FloorplanTable, 'id'> | undefined),
-    }))
+    .map(docSnap => normalizeTable(docSnap.data(), docSnap.id))
     .filter(table => table.isActive !== false) as FloorplanTable[];
 
   return { zones, tables };
