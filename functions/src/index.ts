@@ -735,6 +735,8 @@ export const guestGetReservation = onRequest(
         headcount: booking.headcount || 0,
         startTimeMs: startTime ? startTime.getTime() : null,
         endTimeMs: endTime ? endTime.getTime() : null,
+        preferredTimeSlot: booking.preferredTimeSlot ?? null,
+        seatingPreference: booking.seatingPreference ?? 'any',
         status: booking.status || 'pending',
         locale: booking.locale || 'hu',
         occasion: booking.occasion || '',

@@ -3,7 +3,6 @@ import {
   Unit,
   ReservationSetting,
   ReservationCapacity,
-  User,
   ThemeSettings,
   GuestFormSettings,
   CustomSelectField,
@@ -28,7 +27,6 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
-import { fetchFloorplanData, FloorplanData, getCachedFloorplanData } from './floorplanCache';
 
 type Locale = 'hu' | 'en';
 
@@ -42,7 +40,6 @@ const PlayfulBubbles = () => (
 
 interface ReservationPageProps {
   unitId: string;
-  currentUser?: User | null;
 }
 
 const toDateKey = (date: Date): string => {
@@ -222,23 +219,13 @@ const buildPublicUnit = (
 
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
 
-const canReadFloorplan = (user: User | null | undefined, unitId: string) => {
-  if (!user || !unitId) return false;
-  if (user.role === 'Admin') return true;
-  if (user.role === 'Unit Admin') {
-    return Array.isArray(user.unitIds) && user.unitIds.includes(unitId);
-  }
-  return false;
-};
-
-const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, currentUser }) => {
+const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [locale, setLocale] = useState<Locale>('hu');
-  const [floorplanData, setFloorplanData] = useState<FloorplanData | null>(null);
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [formData, setFormData] = useState({
@@ -399,22 +386,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, currentUser }
   }, [unitId, currentMonth, settings]);
 
   useEffect(() => {
-    if (!unitId || !canReadFloorplan(currentUser, unitId)) {
-      return;
-    }
-
-    const cached = getCachedFloorplanData(unitId);
-    if (cached) {
-      setFloorplanData(cached);
-      return;
-    }
-
-    fetchFloorplanData(unitId)
-      .then(setFloorplanData)
-      .catch(() => {});
-  }, [currentUser, unitId]);
-
-  useEffect(() => {
     syncThemeCssVariables(theme);
   }, [theme]);
 
@@ -563,7 +534,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId, currentUser }
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         date: selectedDate,
-        floorplanData,
         capacityByDate,
       });
       setStep(3);
@@ -1002,6 +972,15 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     email: '',
   });
 
+  const timeSlotOptions = [
+    '11:00-13:00',
+    '13:00-15:00',
+    '15:00-17:00',
+    '17:00-19:00',
+    '19:00-21:00',
+    '21:00-23:00',
+  ];
+
   const validateField = (name: string, value: string) => {
     if (!value.trim()) return t.errorRequired;
     if (name === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
@@ -1033,6 +1012,14 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     setFormData((prev: any) => ({
       ...prev,
       customData: { ...prev.customData, [name]: value },
+    }));
+  };
+
+  const handleTimeSlotChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const { value } = e.target;
+    setFormData((prev: any) => ({
+      ...prev,
+      preferredTimeSlot: value ? value : null,
     }));
   };
 
@@ -1226,6 +1213,71 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               style={inputTextStyle}
               min={formData.startTime}
             />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.preferredTimeSlotLabel}</label>
+            <select
+              name="preferredTimeSlot"
+              value={formData.preferredTimeSlot || ''}
+              onChange={handleTimeSlotChange}
+              className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
+            >
+              <option value="">{t.preferenceNotProvided}</option>
+              {timeSlotOptions.map((slot) => (
+                <option key={slot} value={slot}>
+                  {slot}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.seatingPreferenceLabel}</label>
+            <div
+              className={`grid grid-cols-2 gap-2 ${themeProps.radiusClass}`}
+            >
+              {[
+                { value: 'any', label: t.seatingPreferenceAny },
+                { value: 'bar', label: t.seatingPreferenceBar },
+                { value: 'table', label: t.seatingPreferenceTable },
+                { value: 'outdoor', label: t.seatingPreferenceOutdoor },
+              ].map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-center justify-center px-3 py-2 border text-sm font-medium cursor-pointer transition-colors ${themeProps.radiusClass} ${
+                    formData.seatingPreference === option.value
+                      ? 'bg-[var(--color-primary)] text-white border-transparent'
+                      : ''
+                  }`}
+                  style={{
+                    borderColor:
+                      formData.seatingPreference === option.value
+                        ? 'transparent'
+                        : themeProps.colors.surface,
+                    backgroundColor:
+                      formData.seatingPreference === option.value
+                        ? 'var(--color-primary)'
+                        : themeProps.colors.surface,
+                    color:
+                      formData.seatingPreference === option.value
+                        ? '#fff'
+                        : themeProps.colors.textPrimary,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="seatingPreference"
+                    value={option.value}
+                    checked={formData.seatingPreference === option.value}
+                    onChange={handleStandardChange}
+                    className="sr-only"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
@@ -1443,6 +1495,20 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
             {submittedData.contact?.phoneE164
               ? maskPhone(submittedData.contact.phoneE164)
               : 'N/A'}
+          </p>
+          <p>
+            <strong>{t.preferredTimeSlotLabel}:</strong>{' '}
+            {submittedData.preferredTimeSlot || t.preferenceNotProvided}
+          </p>
+          <p>
+            <strong>{t.seatingPreferenceLabel}:</strong>{' '}
+            {submittedData.seatingPreference && submittedData.seatingPreference !== 'any'
+              ? ({
+                  bar: t.seatingPreferenceBar,
+                  table: t.seatingPreferenceTable,
+                  outdoor: t.seatingPreferenceOutdoor,
+                } as Record<string, string>)[submittedData.seatingPreference] || t.preferenceNotProvided
+              : t.preferenceNotProvided}
           </p>
           {Object.entries(submittedData.customData || {}).map(([key, value]) => {
             const field = settings.guestForm?.customSelects?.find(

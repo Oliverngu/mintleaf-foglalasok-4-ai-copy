@@ -190,6 +190,8 @@ export interface PublicBookingDTO {
   headcount: number;
   startTimeMs: number | null;
   endTimeMs: number | null;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
   status: 'confirmed' | 'pending' | 'cancelled';
   locale?: 'hu' | 'en';
   occasion?: string;
