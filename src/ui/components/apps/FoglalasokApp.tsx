@@ -23,6 +23,7 @@ import { listTables, listZones, updateReservationSeating } from '../../../core/s
 import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import SeatingSettingsModal from './SeatingSettingsModal';
 import { setReservationAllocationOverride } from '../../../core/services/adminAllocationApiService';
+import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -33,7 +34,8 @@ type BookingLogType =
   | 'guest_cancelled'
   | 'capacity_override'
   | 'admin_seating_updated'
-  | 'allocation_override_set';
+  | 'allocation_override_set'
+  | 'capacity_recalc';
 
 interface BookingLog {
   id: string;
@@ -510,6 +512,32 @@ const BookingDetailsModal: React.FC<{
     seatingSource: 'manual';
   }) => void;
 }> = ({ selectedDate, bookings, onClose, isAdmin, onDelete, unitId, zones, tables, onSeatingSaved }) => {
+  const [isRecalcRunning, setIsRecalcRunning] = useState(false);
+  const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+
+  const dateKey = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedDate]);
+
+  const handleRecalcCapacity = async () => {
+    setIsRecalcRunning(true);
+    setRecalcMessage(null);
+    setRecalcError(null);
+    try {
+      await recalcReservationCapacityDay(unitId, dateKey);
+      setRecalcMessage('Napi kapacitás újraszámolva.');
+    } catch (err) {
+      console.error('Error recalculating capacity:', err);
+      setRecalcError('Nem sikerült újraszámolni a kapacitást.');
+    } finally {
+      setIsRecalcRunning(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -551,6 +579,22 @@ const BookingDetailsModal: React.FC<{
           </button>
         </div>
         <div className="p-6 overflow-y-auto space-y-4">
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleRecalcCapacity}
+                disabled={isRecalcRunning}
+                className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 disabled:opacity-60"
+              >
+                {isRecalcRunning ? 'Újraszámolás...' : 'Napi kapacitás újraszámolása'}
+              </button>
+              {recalcMessage && (
+                <span className="text-xs text-green-600">{recalcMessage}</span>
+              )}
+              {recalcError && <span className="text-xs text-red-600">{recalcError}</span>}
+            </div>
+          )}
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
@@ -711,6 +755,9 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
     }
     if (log.type === 'admin_seating_updated') {
       return 'bg-blue-500';
+    }
+    if (log.type === 'capacity_recalc') {
+      return 'bg-purple-500';
     }
     if (log.type === 'allocation_override_set') {
       return 'bg-purple-500';

@@ -74,8 +74,6 @@ interface AllocationOverride {
   tableGroup?: string | null;
   tableIds?: string[] | null;
   note?: string | null;
-  setByUid?: string;
-  setAt?: admin.firestore.Timestamp | FirebaseFirestore.Timestamp;
 }
 
 interface AllocationFinal {
@@ -84,7 +82,6 @@ interface AllocationFinal {
   zoneId?: string | null;
   tableGroup?: string | null;
   tableIds?: string[] | null;
-  computedAt?: admin.firestore.Timestamp | FirebaseFirestore.Timestamp;
 }
 
 const normalizePreferredTimeSlot = (value: unknown) => {
@@ -148,13 +145,13 @@ const fetchFloorplanContext = async (unitId: string) => {
   const zones = zonesSnap.docs
     .map(docSnap => ({
       id: docSnap.id,
-      ...(docSnap.data() || {}),
+      ...(docSnap.data() as Omit<FloorplanZone, 'id'> | undefined),
     }))
     .filter(zone => zone.isActive !== false) as FloorplanZone[];
   const tables = tablesSnap.docs
     .map(docSnap => ({
       id: docSnap.id,
-      ...(docSnap.data() || {}),
+      ...(docSnap.data() as Omit<FloorplanTable, 'id'> | undefined),
     }))
     .filter(table => table.isActive !== false) as FloorplanTable[];
 
@@ -204,7 +201,6 @@ const buildAllocationFinal = (
       zoneId: override.zoneId ?? null,
       tableGroup: override.tableGroup ?? null,
       tableIds: override.tableIds ?? null,
-      computedAt: FieldValue.serverTimestamp(),
     };
   }
 
@@ -214,7 +210,6 @@ const buildAllocationFinal = (
     zoneId: intent.zoneId ?? null,
     tableGroup: intent.tableGroup ?? null,
     tableIds: null,
-    computedAt: FieldValue.serverTimestamp(),
   };
 };
 
@@ -470,11 +465,11 @@ export const guestCreateReservation = onRequest(
         zoneId: null,
         tableGroup: null,
       } as AllocationIntent;
-      let allocationDiagnostics = {
-        intentQuality: 'none' as const,
-        matchedZoneId: null as string | null,
+      let allocationDiagnostics: AllocationDiagnostics = {
+        intentQuality: 'none',
+        matchedZoneId: null,
         reasons: ['DIAG_FAILED'],
-        warnings: [] as string[],
+        warnings: [],
       };
 
       try {
@@ -568,7 +563,9 @@ export const guestCreateReservation = onRequest(
           allocationIntent: allocationIntentData,
           allocationDiagnostics,
           allocationOverride,
+          allocationOverrideSetAt: null,
           allocationFinal,
+          allocationFinalComputedAt: FieldValue.serverTimestamp(),
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -1149,8 +1146,6 @@ export const adminSetReservationAllocationOverride = onRequest(
           tableGroup: tableGroup ?? null,
           tableIds,
           note,
-          setByUid: decoded.uid,
-          setAt: FieldValue.serverTimestamp(),
         };
 
         const allocationFinal = buildAllocationFinal(
@@ -1160,7 +1155,10 @@ export const adminSetReservationAllocationOverride = onRequest(
 
         transaction.update(reservationRef, {
           allocationOverride,
+          allocationOverrideSetAt: FieldValue.serverTimestamp(),
+          allocationOverrideSetByUid: decoded.uid,
           allocationFinal,
+          allocationFinalComputedAt: FieldValue.serverTimestamp(),
         });
 
         const logRef = db
@@ -1337,6 +1335,26 @@ export const adminRecalcReservationCapacityDay = onRequest(
         { merge: true }
       );
 
+      await db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_logs')
+        .add({
+          type: 'capacity_recalc',
+          unitId,
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUserId: decoded.uid,
+          createdByName:
+            userData.name ||
+            userData.fullName ||
+            decoded.name ||
+            decoded.email ||
+            'Ismeretlen felhasználó',
+          source: 'admin',
+          message: `Napi kapacitás újraszámolva (${dateKey}).`,
+          date: dateKey,
+        });
+
       res.status(200).json({ ok: true, totalCount });
     } catch (err) {
       logger.error('adminRecalcReservationCapacityDay error', err);
@@ -1350,6 +1368,7 @@ interface BookingRecord {
   name?: string;
   headcount?: number;
   occasion?: string;
+  source?: string;
   preferredTimeSlot?: string | null;
   seatingPreference?: SeatingPreference;
   allocationIntent?: AllocationIntent;
@@ -2723,6 +2742,7 @@ export const onReservationStatusChange = onDocumentUpdated(
                 ? 'Foglalás jóváhagyva e-mailből'
                 : 'Foglalás elutasítva e-mailből',
           })
+          .then(() => undefined)
           .catch(err =>
             logger.error("Failed to write admin decision log", { unitId, err })
           )

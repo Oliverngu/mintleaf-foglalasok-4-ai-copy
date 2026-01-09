@@ -130,17 +130,17 @@ export interface Booking {
     tableGroup?: string | null;
     tableIds?: string[] | null;
     note?: string | null;
-    setByUid?: string;
-    setAt?: Timestamp;
   };
+  allocationOverrideSetAt?: Timestamp | null;
+  allocationOverrideSetByUid?: string;
   allocationFinal?: {
     source?: 'intent' | 'override';
     timeSlot?: string | null;
     zoneId?: string | null;
     tableGroup?: string | null;
     tableIds?: string[] | null;
-    computedAt?: Timestamp;
   };
+  allocationFinalComputedAt?: Timestamp | null;
 }
 
 export interface Zone {
