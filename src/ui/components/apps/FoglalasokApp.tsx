@@ -39,7 +39,7 @@ type BookingLogType =
 
 interface BookingLog {
   id: string;
-  bookingId: string;
+  bookingId?: string;
   unitId: string;
   type: BookingLogType;
   createdAt: Timestamp | null;
@@ -524,6 +524,10 @@ const BookingDetailsModal: React.FC<{
   }, [selectedDate]);
 
   const handleRecalcCapacity = async () => {
+    if (!unitId || !dateKey) {
+      setRecalcError('Hiányzó egység vagy dátum.');
+      return;
+    }
     setIsRecalcRunning(true);
     setRecalcMessage(null);
     setRecalcError(null);
