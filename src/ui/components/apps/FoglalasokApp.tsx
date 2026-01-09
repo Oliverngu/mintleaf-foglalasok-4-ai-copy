@@ -515,6 +515,8 @@ const BookingDetailsModal: React.FC<{
   const [isRecalcRunning, setIsRecalcRunning] = useState(false);
   const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
   const [recalcError, setRecalcError] = useState<string | null>(null);
+  const [dayLogs, setDayLogs] = useState<BookingLog[]>([]);
+  const [dayLogsLoading, setDayLogsLoading] = useState(true);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -541,6 +543,115 @@ const BookingDetailsModal: React.FC<{
       setIsRecalcRunning(false);
     }
   };
+
+  useEffect(() => {
+    if (!unitId) {
+      setDayLogs([]);
+      setDayLogsLoading(false);
+      return;
+    }
+
+    setDayLogsLoading(true);
+    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
+    const allowedTypes: BookingLogType[] = [
+      'created',
+      'cancelled',
+      'updated',
+      'guest_created',
+      'guest_cancelled',
+      'capacity_override',
+      'admin_seating_updated',
+      'allocation_override_set',
+      'capacity_recalc',
+    ];
+
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(selectedDate);
+    end.setHours(23, 59, 59, 999);
+
+    const mapLogs = (snapshot: { docs: { id: string; data: () => any }[] }) =>
+      snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          bookingId: typeof data.bookingId === 'string' ? data.bookingId : undefined,
+          unitId: typeof data.unitId === 'string' ? data.unitId : unitId,
+          type: allowedTypes.includes(data.type) ? data.type : 'updated',
+          createdAt: data.createdAt ?? null,
+          createdByUserId: data.createdByUserId ?? null,
+          createdByName: data.createdByName ?? null,
+          source: data.source,
+          message: typeof data.message === 'string' ? data.message : '',
+        } as BookingLog;
+      });
+
+    let unsub = () => {};
+    let usedFallback = false;
+    let isFallbackActive = false;
+
+    const fallbackQuery = query(
+      logsRef,
+      where('createdAt', '>=', Timestamp.fromDate(start)),
+      where('createdAt', '<=', Timestamp.fromDate(end)),
+      orderBy('createdAt', 'desc'),
+      limit(25)
+    );
+
+    const preferredQuery = query(
+      logsRef,
+      where('date', '==', dateKey),
+      orderBy('createdAt', 'desc'),
+      limit(25)
+    );
+
+    const subscribeToFallback = () => {
+      if (isFallbackActive) {
+        return;
+      }
+      isFallbackActive = true;
+      setDayLogsLoading(true);
+      unsub = onSnapshot(
+        fallbackQuery,
+        snapshot => {
+          setDayLogs(mapLogs(snapshot));
+          setDayLogsLoading(false);
+        },
+        err => {
+          console.error('Error fetching day logs (fallback):', err);
+          setDayLogsLoading(false);
+        }
+      );
+    };
+
+    unsub = onSnapshot(
+      preferredQuery,
+      snapshot => {
+        if (snapshot.empty && !usedFallback) {
+          usedFallback = true;
+          unsub();
+          subscribeToFallback();
+          return;
+        }
+        setDayLogs(mapLogs(snapshot));
+        setDayLogsLoading(false);
+      },
+      err => {
+        console.error('Error fetching day logs:', err);
+        if (!usedFallback) {
+          usedFallback = true;
+          unsub();
+          subscribeToFallback();
+          return;
+        }
+        setDayLogsLoading(false);
+      }
+    );
+
+    return () => {
+      unsub();
+    };
+  }, [dateKey, selectedDate, unitId]);
 
   return (
     <div
@@ -599,6 +710,86 @@ const BookingDetailsModal: React.FC<{
               {recalcError && <span className="text-xs text-red-600">{recalcError}</span>}
             </div>
           )}
+          <div
+            className="rounded-xl border border-gray-100 p-3"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+          >
+            <h3 className="text-sm font-semibold text-[var(--color-text-main)] mb-2">
+              Napi napló
+            </h3>
+            {dayLogsLoading ? (
+              <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
+            ) : dayLogs.length ? (
+              <div className="space-y-2 text-xs max-h-40 overflow-y-auto">
+                {dayLogs.map(log => {
+                  const createdDate =
+                    typeof log.createdAt?.toDate === 'function'
+                      ? log.createdAt.toDate()
+                      : log.createdAt instanceof Date
+                      ? log.createdAt
+                      : null;
+                  const created = createdDate
+                    ? createdDate.toLocaleString('hu-HU', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '—';
+
+                  const dotClass =
+                    log.type === 'cancelled' || log.type === 'guest_cancelled'
+                      ? 'bg-red-500'
+                      : log.type === 'guest_created'
+                      ? 'bg-green-500'
+                      : log.type === 'capacity_override'
+                      ? 'bg-blue-500'
+                      : log.type === 'admin_seating_updated'
+                      ? 'bg-blue-500'
+                      : log.type === 'capacity_recalc'
+                      ? 'bg-purple-500'
+                      : log.type === 'allocation_override_set'
+                      ? 'bg-purple-500'
+                      : 'bg-blue-500';
+
+                  const message =
+                    log.message ||
+                    (log.type === 'capacity_override'
+                      ? 'Napi limit módosítva.'
+                      : 'Ismeretlen naplóbejegyzés');
+
+                  return (
+                    <div
+                      key={log.id}
+                      className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full mt-1 ${dotClass}`}
+                        />
+                        <div className="space-y-0.5">
+                          <div className="text-[var(--color-text-main)]">{message}</div>
+                          {log.createdByName && (
+                            <div className="text-[11px] text-[var(--color-text-secondary)]">
+                              {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
+                        {created}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-xs text-[var(--color-text-secondary)]">
+                Nincsenek naplóbejegyzések erre a napra.
+              </div>
+            )}
+          </div>
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
@@ -950,9 +1141,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const unsubLogs = onSnapshot(
       qLogs,
       snapshot => {
-        const fetchedLogs = snapshot.docs.map(
-          d => ({ id: d.id, ...d.data() } as BookingLog)
-        );
+        const fetchedLogs = snapshot.docs.map(d => {
+          const data = d.data();
+          const allowedTypes: BookingLogType[] = [
+            'created',
+            'cancelled',
+            'updated',
+            'guest_created',
+            'guest_cancelled',
+            'capacity_override',
+            'admin_seating_updated',
+            'allocation_override_set',
+            'capacity_recalc',
+          ];
+          return {
+            id: d.id,
+            bookingId: typeof data.bookingId === 'string' ? data.bookingId : undefined,
+            unitId: typeof data.unitId === 'string' ? data.unitId : activeUnitId,
+            type: allowedTypes.includes(data.type) ? data.type : 'updated',
+            createdAt: data.createdAt ?? null,
+            createdByUserId: data.createdByUserId ?? null,
+            createdByName: data.createdByName ?? null,
+            source: data.source,
+            message: typeof data.message === 'string' ? data.message : '',
+          } as BookingLog;
+        });
         setLogs(fetchedLogs);
         setLogsLoading(false);
       },

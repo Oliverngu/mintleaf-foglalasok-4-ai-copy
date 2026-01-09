@@ -1,11 +1,11 @@
 {
   "indexes": [
     {
-      "collectionGroup": "polls",
+      "collectionGroup": "reservation_logs",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
-          "fieldPath": "unitId",
+          "fieldPath": "date",
           "order": "ASCENDING"
         },
         {
@@ -15,46 +15,12 @@
       ]
     },
     {
-      "collectionGroup": "polls",
+      "collectionGroup": "reservation_logs",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "createdAt",
           "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "feedback",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        {
-          "fieldPath": "unitId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "createdAt",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "feedback",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        {
-          "fieldPath": "createdAt",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "reservations",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        {
-          "fieldPath": "referenceCode",
-          "order": "ASCENDING"
         }
       ]
     }
