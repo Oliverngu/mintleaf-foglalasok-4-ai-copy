@@ -60,6 +60,33 @@ interface AllocationIntent {
   timeSlot?: string | null;
 }
 
+interface AllocationDiagnostics {
+  intentQuality: 'none' | 'weak' | 'good';
+  reasons: string[];
+  warnings: string[];
+  matchedZoneId?: string | null;
+}
+
+interface AllocationOverride {
+  enabled: boolean;
+  timeSlot?: string | null;
+  zoneId?: string | null;
+  tableGroup?: string | null;
+  tableIds?: string[] | null;
+  note?: string | null;
+  setByUid?: string;
+  setAt?: admin.firestore.Timestamp | FirebaseFirestore.Timestamp;
+}
+
+interface AllocationFinal {
+  source: 'intent' | 'override';
+  timeSlot?: string | null;
+  zoneId?: string | null;
+  tableGroup?: string | null;
+  tableIds?: string[] | null;
+  computedAt?: admin.firestore.Timestamp | FirebaseFirestore.Timestamp;
+}
+
 const normalizePreferredTimeSlot = (value: unknown) => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -75,6 +102,13 @@ const normalizeSeatingPreference = (value: unknown): SeatingPreference => {
     return value;
   }
   return 'any';
+};
+
+const normalizeAllocationText = (value: unknown, maxLength = 64) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
 };
 
 const buildAllocationIntent = (
@@ -133,7 +167,7 @@ const computeAllocationDiagnostics = (
   zones: FloorplanZone[],
   tables: FloorplanTable[],
   matchedZoneId: string | null
-) => {
+): AllocationDiagnostics => {
   const reasons: string[] = [];
   const warnings: string[] = [];
 
@@ -156,6 +190,31 @@ const computeAllocationDiagnostics = (
     matchedZoneId: matchedZoneId || null,
     reasons,
     warnings,
+  };
+};
+
+const buildAllocationFinal = (
+  intent: AllocationIntent,
+  override: AllocationOverride | null
+): AllocationFinal => {
+  if (override?.enabled) {
+    return {
+      source: 'override',
+      timeSlot: override.timeSlot ?? null,
+      zoneId: override.zoneId ?? null,
+      tableGroup: override.tableGroup ?? null,
+      tableIds: override.tableIds ?? null,
+      computedAt: FieldValue.serverTimestamp(),
+    };
+  }
+
+  return {
+    source: 'intent',
+    timeSlot: intent.timeSlot ?? null,
+    zoneId: intent.zoneId ?? null,
+    tableGroup: intent.tableGroup ?? null,
+    tableIds: null,
+    computedAt: FieldValue.serverTimestamp(),
   };
 };
 
@@ -490,6 +549,13 @@ export const guestCreateReservation = onRequest(
           zoneId: allocationIntent.zoneId ?? null,
           tableGroup: allocationIntent.tableGroup ?? null,
         };
+        const allocationOverride: AllocationOverride = {
+          enabled: false,
+        };
+        const allocationFinal = buildAllocationFinal(
+          allocationIntentData,
+          allocationOverride
+        );
 
         transaction.set(reservationRef, {
           unitId,
@@ -501,6 +567,8 @@ export const guestCreateReservation = onRequest(
           seatingPreference,
           allocationIntent: allocationIntentData,
           allocationDiagnostics,
+          allocationOverride,
+          allocationFinal,
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -973,6 +1041,305 @@ export const adminOverrideDailyCapacity = onRequest(
       res.status(200).json(result);
     } catch (err) {
       logger.error('adminOverrideDailyCapacity error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminSetReservationAllocationOverride = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const decoded = await admin.auth().verifyIdToken(token);
+      const userSnap = await db.collection('users').doc(decoded.uid).get();
+      if (!userSnap.exists) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set(['unitId', 'reservationId', 'override']);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, override } = body;
+      if (!unitId || !reservationId || typeof override !== 'object' || !override) {
+        res.status(400).json({ error: 'unitId, reservationId és override kötelező' });
+        return;
+      }
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const enabled = Boolean((override as any).enabled);
+      const timeSlot = normalizePreferredTimeSlot((override as any).timeSlot);
+      const zoneId = normalizeAllocationText((override as any).zoneId, 128);
+      const tableGroup = normalizeAllocationText((override as any).tableGroup, 128);
+      const note = normalizeAllocationText((override as any).note, 512);
+      const tableIds = Array.isArray((override as any).tableIds)
+        ? Array.from(
+            new Set(
+              (override as any).tableIds
+                .map((tableId: unknown) => normalizeAllocationText(tableId, 128))
+                .filter(Boolean)
+            )
+          ) as string[]
+        : null;
+
+      const reservationRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+
+      await db.runTransaction(async transaction => {
+        const reservationSnap = await transaction.get(reservationRef);
+        if (!reservationSnap.exists) {
+          throw new Error('NOT_FOUND');
+        }
+
+        const reservationData = reservationSnap.data() || {};
+        const startTime = reservationData.startTime?.toDate
+          ? reservationData.startTime.toDate()
+          : reservationData.startTime instanceof Date
+          ? reservationData.startTime
+          : null;
+        if (!startTime) {
+          throw new Error('INVALID_DATE');
+        }
+
+        const allocationIntentData = {
+          ...(reservationData.allocationIntent || {}),
+          timeSlot: reservationData.allocationIntent?.timeSlot ?? null,
+          zoneId: reservationData.allocationIntent?.zoneId ?? null,
+          tableGroup: reservationData.allocationIntent?.tableGroup ?? null,
+        } as AllocationIntent;
+
+        const allocationOverride: AllocationOverride = {
+          enabled,
+          timeSlot: timeSlot ?? null,
+          zoneId: zoneId ?? null,
+          tableGroup: tableGroup ?? null,
+          tableIds,
+          note,
+          setByUid: decoded.uid,
+          setAt: FieldValue.serverTimestamp(),
+        };
+
+        const allocationFinal = buildAllocationFinal(
+          allocationIntentData,
+          allocationOverride
+        );
+
+        transaction.update(reservationRef, {
+          allocationOverride,
+          allocationFinal,
+        });
+
+        const logRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .doc();
+        transaction.set(logRef, {
+          bookingId: reservationId,
+          unitId,
+          type: 'allocation_override_set',
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUserId: decoded.uid,
+          createdByName:
+            userData.name ||
+            userData.fullName ||
+            decoded.name ||
+            decoded.email ||
+            'Ismeretlen felhasználó',
+          source: 'admin',
+          message: enabled
+            ? 'Allocation override beállítva.'
+            : 'Allocation override kikapcsolva.',
+          note: note || '',
+        });
+
+        const dateKey = toDateKey(startTime);
+        const capacityRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_capacity')
+          .doc(dateKey);
+        transaction.set(
+          capacityRef,
+          {
+            date: dateKey,
+            capacityNeedsRecalc: true,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+      });
+
+      res.status(200).json({ ok: true });
+    } catch (err: any) {
+      if (err instanceof Error && err.message === 'NOT_FOUND') {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+      if (err instanceof Error && err.message === 'INVALID_DATE') {
+        res.status(400).json({ error: 'Érvénytelen foglalási dátum' });
+        return;
+      }
+      logger.error('adminSetReservationAllocationOverride error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminRecalcReservationCapacityDay = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const decoded = await admin.auth().verifyIdToken(token);
+      const userSnap = await db.collection('users').doc(decoded.uid).get();
+      if (!userSnap.exists) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set(['unitId', 'dateKey']);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, dateKey } = body;
+      if (!unitId || !dateKey || typeof dateKey !== 'string') {
+        res.status(400).json({ error: 'unitId és dateKey kötelező' });
+        return;
+      }
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const dayStart = new Date(`${dateKey}T00:00:00`);
+      const dayEnd = new Date(`${dateKey}T23:59:59.999`);
+      if (Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime())) {
+        res.status(400).json({ error: 'Érvénytelen dateKey' });
+        return;
+      }
+
+      const bookingsSnap = await db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .where('startTime', '>=', Timestamp.fromDate(dayStart))
+        .where('startTime', '<=', Timestamp.fromDate(dayEnd))
+        .get();
+
+      let totalCount = 0;
+      const byTimeSlot: Record<string, number> = {};
+      const byZone: Record<string, number> = {};
+      const byTableGroup: Record<string, number> = {};
+
+      bookingsSnap.docs.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        if (data.status === 'cancelled') return;
+        const headcount = Number(data.headcount || 0);
+        if (!headcount || Number.isNaN(headcount)) return;
+        totalCount += headcount;
+
+        const allocationFinalData = data.allocationFinal || {};
+        const allocationIntentData = data.allocationIntent || {};
+        const timeSlot = allocationFinalData.timeSlot ?? allocationIntentData.timeSlot;
+        const zoneId = allocationFinalData.zoneId ?? allocationIntentData.zoneId;
+        const tableGroup = allocationFinalData.tableGroup ?? allocationIntentData.tableGroup;
+
+        if (timeSlot) {
+          byTimeSlot[timeSlot] = (byTimeSlot[timeSlot] || 0) + headcount;
+        }
+        if (zoneId) {
+          byZone[zoneId] = (byZone[zoneId] || 0) + headcount;
+        }
+        if (tableGroup) {
+          byTableGroup[tableGroup] = (byTableGroup[tableGroup] || 0) + headcount;
+        }
+      });
+
+      const capacityRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_capacity')
+        .doc(dateKey);
+
+      await capacityRef.set(
+        {
+          date: dateKey,
+          count: totalCount,
+          totalCount,
+          byTimeSlot,
+          byZone,
+          byTableGroup,
+          capacityNeedsRecalc: false,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      res.status(200).json({ ok: true, totalCount });
+    } catch (err) {
+      logger.error('adminRecalcReservationCapacityDay error', err);
       res.status(500).json({ error: 'Szerverhiba' });
     }
   }

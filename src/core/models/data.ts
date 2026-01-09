@@ -110,6 +110,37 @@ export interface Booking {
   seatingSource?: 'auto' | 'manual';
   isVip?: boolean;
   noShowAt?: Timestamp;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
+  allocationIntent?: {
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+  };
+  allocationDiagnostics?: {
+    intentQuality?: 'none' | 'weak' | 'good';
+    reasons?: string[];
+    warnings?: string[];
+    matchedZoneId?: string | null;
+  };
+  allocationOverride?: {
+    enabled?: boolean;
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+    note?: string | null;
+    setByUid?: string;
+    setAt?: Timestamp;
+  };
+  allocationFinal?: {
+    source?: 'intent' | 'override';
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+    computedAt?: Timestamp;
+  };
 }
 
 export interface Zone {
@@ -263,6 +294,8 @@ export interface ReservationCapacity {
   byTableGroup?: Record<string, number>;
   limit?: number;
   updatedAt?: Timestamp;
+  capacityNeedsRecalc?: boolean;
+  hasAllocationWarnings?: boolean;
 }
 
 
