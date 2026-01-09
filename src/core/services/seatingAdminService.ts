@@ -30,8 +30,10 @@ const seatingSettingsDefaults: SeatingSettings = {
 
 const sortZones = (zones: Zone[]) =>
   [...zones].sort((a, b) => {
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
+    const aPriority = a.priority ?? Number.POSITIVE_INFINITY;
+    const bPriority = b.priority ?? Number.POSITIVE_INFINITY;
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
     }
     return (a.name ?? '').localeCompare(b.name ?? '');
   });

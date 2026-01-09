@@ -46,12 +46,17 @@ interface FloorplanZone {
   id: string;
   name?: string;
   isActive?: boolean;
+  tags?: string[];
+  type?: 'bar' | 'outdoor' | 'table' | 'other';
+  priority?: number;
 }
 
 interface FloorplanTable {
   id: string;
   zoneId?: string;
   isActive?: boolean;
+  tableGroup?: string;
+  isCombinable?: boolean;
 }
 
 interface AllocationIntent {
@@ -119,18 +124,51 @@ const buildAllocationIntent = (
     return { timeSlot, zoneId: null, tableGroup: null };
   }
 
-  const match = zones.find(zone => {
-    if (!zone?.name) return false;
-    const name = zone.name.toLowerCase();
-    if (seatingPreference === 'bar') return name.includes('bar');
-    if (seatingPreference === 'outdoor') return name.includes('outdoor') || name.includes('terasz');
-    if (seatingPreference === 'table') {
-      return name.includes('table') || name.includes('asztal');
-    }
-    return false;
-  });
+  const normalizeTokens = (values: unknown): string[] => {
+    if (!Array.isArray(values)) return [];
+    return values
+      .map(value => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+      .filter(Boolean);
+  };
 
-  const zoneId = match?.id || null;
+  const zoneMatchesPreference = (zone: FloorplanZone): number => {
+    const type = zone.type?.toLowerCase() ?? '';
+    const tags = new Set(normalizeTokens(zone.tags));
+    const name = zone.name?.toLowerCase() ?? '';
+
+    const matchTag = (tag: string) => tags.has(tag);
+    const matchName = (needle: string) => name.includes(needle);
+
+    if (seatingPreference === 'bar') {
+      if (type === 'bar' || matchTag('bar')) return 3;
+      if (matchName('bar')) return 1;
+    }
+    if (seatingPreference === 'outdoor') {
+      if (type === 'outdoor' || matchTag('outdoor') || matchTag('terasz')) return 3;
+      if (matchName('outdoor') || matchName('terasz')) return 1;
+    }
+    if (seatingPreference === 'table') {
+      if (type === 'table' || matchTag('table') || matchTag('asztal')) return 3;
+      if (matchName('table') || matchName('asztal')) return 1;
+    }
+    return 0;
+  };
+
+  const candidates = zones
+    .map(zone => ({
+      zone,
+      score: zoneMatchesPreference(zone),
+      priority: zone.priority ?? Number.POSITIVE_INFINITY,
+      name: zone.name ?? '',
+    }))
+    .filter(candidate => candidate.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.name.localeCompare(b.name);
+    });
+
+  const zoneId = candidates[0]?.zone.id || null;
   void tables;
 
   return { timeSlot, zoneId, tableGroup: null };
