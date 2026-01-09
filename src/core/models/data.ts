@@ -139,6 +139,7 @@ export interface Booking {
     zoneId?: string | null;
     tableGroup?: string | null;
     tableIds?: string[] | null;
+    locked?: boolean | null;
   };
   allocationFinalComputedAt?: Timestamp | null;
 }
