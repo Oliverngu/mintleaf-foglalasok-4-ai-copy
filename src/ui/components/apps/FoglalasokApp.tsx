@@ -351,39 +351,19 @@ const AllocationOverrideEditor: React.FC<{
   tables: Table[];
   onClose?: () => void;
 }> = ({ booking, unitId, zones, tables, onClose }) => {
-  const initFromBooking = useCallback(() => {
-    const override = booking.allocationOverride;
-    return {
-      enabled: Boolean(override?.enabled),
-      timeSlot: override?.timeSlot || '',
-      zoneId: override?.zoneId || '',
-      tableGroup: override?.tableGroup || '',
-      tableIds: override?.tableIds || [],
-      note: override?.note || '',
-    };
-  }, [booking]);
-
-  const [enabled, setEnabled] = useState(() => initFromBooking().enabled);
-  const [timeSlot, setTimeSlot] = useState<string>(() => initFromBooking().timeSlot);
-  const [zoneId, setZoneId] = useState<string>(() => initFromBooking().zoneId);
-  const [tableGroup, setTableGroup] = useState<string>(() => initFromBooking().tableGroup);
-  const [tableIds, setTableIds] = useState<string[]>(() => initFromBooking().tableIds);
-  const [note, setNote] = useState<string>(() => initFromBooking().note);
+  const [enabled, setEnabled] = useState(Boolean(booking.allocationOverride?.enabled));
+  const [timeSlot, setTimeSlot] = useState<string>(booking.allocationOverride?.timeSlot || '');
+  const [zoneId, setZoneId] = useState<string>(booking.allocationOverride?.zoneId || '');
+  const [tableGroup, setTableGroup] = useState<string>(
+    booking.allocationOverride?.tableGroup || ''
+  );
+  const [tableIds, setTableIds] = useState<string[]>(
+    booking.allocationOverride?.tableIds || []
+  );
+  const [note, setNote] = useState<string>(booking.allocationOverride?.note || '');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-
-  useEffect(() => {
-    const next = initFromBooking();
-    setEnabled(next.enabled);
-    setTimeSlot(next.timeSlot);
-    setZoneId(next.zoneId);
-    setTableGroup(next.tableGroup);
-    setTableIds(next.tableIds);
-    setNote(next.note);
-    setSaveError(null);
-    setSaveSuccess(null);
-  }, [booking.id, initFromBooking]);
 
   const availableTables = useMemo(
     () => tables.filter(table => table.zoneId === zoneId && table.isActive),
