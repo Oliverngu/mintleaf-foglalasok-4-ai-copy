@@ -1,16 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "reservations",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        {
-          "fieldPath": "referenceCode",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "reservation_logs",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
