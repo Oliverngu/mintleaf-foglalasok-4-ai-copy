@@ -60,13 +60,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const isPermissionDenied = (err: unknown): err is FirebaseError => {
+  const isPermissionDenied = useCallback((err: unknown): err is FirebaseError => {
     const code = (err as { code?: string } | null)?.code;
     const name = (err as { name?: string } | null)?.name;
     return name === 'FirebaseError' && code === 'permission-denied';
-  };
+  }, []);
 
-  const isAbortError = (err: unknown) => (err as { name?: string } | null)?.name === 'AbortError';
+  const isAbortError = useCallback(
+    (err: unknown) => (err as { name?: string } | null)?.name === 'AbortError',
+    []
+  );
   const normalizeOptionalString = (value: string) => {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
@@ -330,7 +333,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return () => {
       isMounted = false;
     };
-  }, [unitId]);
+  }, [isAbortError, isDev, isPermissionDenied, unitId]);
 
   const emergencyZoneOptions = useMemo(
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
