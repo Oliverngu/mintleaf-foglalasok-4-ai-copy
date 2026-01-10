@@ -2,7 +2,7 @@ import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/fire
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { createHash, randomBytes } from "crypto";
-import { onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
 admin.initializeApp();
@@ -113,6 +113,12 @@ const normalizeAllocationText = (value: unknown, maxLength = 64) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, maxLength);
+};
+
+const normalizeOptionalText = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 };
 
 const normalizeTags = (value: unknown): string[] => {
@@ -1309,6 +1315,147 @@ export const adminSetReservationAllocationOverride = onRequest(
       }
       logger.error('adminSetReservationAllocationOverride error', err);
       res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminSetReservationOverride = onCall(
+  { region: REGION },
+  async request => {
+    try {
+      if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Unauthorized');
+      }
+
+      const data = request.data || {};
+      if (typeof data !== 'object' || Array.isArray(data)) {
+        throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+      }
+
+      const allowedKeys = new Set(['unitId', 'reservationId', 'payload']);
+      const keys = Object.keys(data);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+      }
+
+      const unitId = data.unitId;
+      const reservationId = data.reservationId;
+      const payload = data.payload;
+
+      if (typeof unitId !== 'string' || typeof reservationId !== 'string') {
+        throw new HttpsError(
+          'invalid-argument',
+          'unitId és reservationId kötelező'
+        );
+      }
+
+      if (typeof payload !== 'object' || Array.isArray(payload) || !payload) {
+        throw new HttpsError('invalid-argument', 'payload kötelező');
+      }
+
+      const userSnap = await db.collection('users').doc(request.auth.uid).get();
+      if (!userSnap.exists) {
+        throw new HttpsError('permission-denied', 'Forbidden');
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        throw new HttpsError('permission-denied', 'Forbidden');
+      }
+
+      const forcedZoneId = normalizeOptionalText((payload as any).forcedZoneId);
+      const note = normalizeOptionalText((payload as any).note);
+
+      let forcedTableIds: string[] | undefined;
+      if (Object.prototype.hasOwnProperty.call(payload, 'forcedTableIds')) {
+        const rawTableIds = (payload as any).forcedTableIds;
+        if (rawTableIds == null) {
+          forcedTableIds = undefined;
+        } else if (!Array.isArray(rawTableIds)) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedTableIds csak string tömb lehet'
+          );
+        } else if (rawTableIds.some(value => typeof value !== 'string')) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedTableIds csak string tömb lehet'
+          );
+        } else {
+          const uniqueIds = Array.from(
+            new Set(
+              rawTableIds.map(value => value.trim()).filter(Boolean)
+            )
+          );
+          if (uniqueIds.length > 20) {
+            throw new HttpsError(
+              'invalid-argument',
+              'forcedTableIds max 20 elem lehet'
+            );
+          }
+          forcedTableIds = uniqueIds.length ? uniqueIds : undefined;
+        }
+      }
+
+      const overrideRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_overrides')
+        .doc(reservationId);
+
+      const logRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_logs')
+        .doc();
+
+      const overrideData: Record<string, unknown> = {
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: request.auth.uid,
+        ...(forcedZoneId ? { forcedZoneId } : {}),
+        ...(forcedTableIds ? { forcedTableIds } : {}),
+        ...(note ? { note } : {}),
+      };
+
+      const meta: Record<string, unknown> = {};
+      if (forcedZoneId) meta.forcedZoneId = forcedZoneId;
+      if (forcedTableIds) meta.forcedTableIds = forcedTableIds;
+      if (note) meta.note = note;
+
+      const logData: Record<string, unknown> = {
+        bookingId: reservationId,
+        unitId,
+        type: 'allocation_override_set',
+        createdAt: FieldValue.serverTimestamp(),
+        createdByUserId: request.auth.uid,
+        createdByName:
+          userData.name ||
+          userData.fullName ||
+          request.auth.token?.name ||
+          request.auth.token?.email ||
+          'Ismeretlen felhasználó',
+        source: 'admin',
+        message: 'Allokáció felülírás mentve.',
+        ...(Object.keys(meta).length ? { meta } : {}),
+      };
+
+      const batch = db.batch();
+      batch.set(overrideRef, overrideData, { merge: true });
+      batch.set(logRef, logData);
+      await batch.commit();
+
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof HttpsError) {
+        throw err;
+      }
+      logger.error('adminSetReservationOverride error', err);
+      throw new HttpsError('internal', 'Szerverhiba');
     }
   }
 );
