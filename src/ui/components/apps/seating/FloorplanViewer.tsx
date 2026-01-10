@@ -13,12 +13,14 @@ type FloorplanViewerProps = {
 };
 
 const getTableDimensions = (table: Table) => {
+  const isNumber = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
   if (table.shape === 'circle') {
-    const radius = table.radius && table.radius > 0 ? table.radius : 28;
+    const radius = isNumber(table.radius) && table.radius > 0 ? table.radius : 28;
     return { width: radius * 2, height: radius * 2, radius };
   }
-  const width = table.w && table.w > 0 ? table.w : 80;
-  const height = table.h && table.h > 0 ? table.h : 50;
+  const width = isNumber(table.w) && table.w > 0 ? table.w : 80;
+  const height = isNumber(table.h) && table.h > 0 ? table.h : 50;
   return { width, height, radius: 0 };
 };
 
@@ -107,6 +109,17 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
     return tables.filter(table => !table.floorplanId || table.floorplanId === floorplan.id);
   }, [floorplan, tables]);
 
+  const floorplanWidth =
+    typeof floorplan?.width === 'number' && Number.isFinite(floorplan.width)
+      ? floorplan.width
+      : 800;
+  const floorplanHeight =
+    typeof floorplan?.height === 'number' && Number.isFinite(floorplan.height)
+      ? floorplan.height
+      : 500;
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), max);
+
   if (loading) {
     return <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>;
   }
@@ -139,7 +152,7 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
       <div className="overflow-auto">
         <div
           className="relative border border-gray-200 rounded-lg"
-          style={{ width: floorplan.width, height: floorplan.height }}
+          style={{ width: floorplanWidth, height: floorplanHeight }}
         >
           {floorplan.backgroundImageUrl && (
             <img
@@ -150,6 +163,16 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
           )}
           {visibleTables.map(table => {
             const { width, height, radius } = getTableDimensions(table);
+            const rawX =
+              typeof table.x === 'number' && Number.isFinite(table.x) ? table.x : 0;
+            const rawY =
+              typeof table.y === 'number' && Number.isFinite(table.y) ? table.y : 0;
+            const maxX = Math.max(0, floorplanWidth - width);
+            const maxY = Math.max(0, floorplanHeight - height);
+            const left = clamp(rawX, 0, maxX);
+            const top = clamp(rawY, 0, maxY);
+            const rotation =
+              typeof table.rot === 'number' && Number.isFinite(table.rot) ? table.rot : 0;
             const isStrongHighlight = highlightedTableIds.has(table.id);
             const isZoneHighlight = zoneHighlightTableIds.has(table.id);
             const baseColor = zoneColors.get(table.zoneId) ?? '#6b7280';
@@ -159,14 +182,14 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
                 key={table.id}
                 className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800"
                 style={{
-                  left: table.x ?? 0,
-                  top: table.y ?? 0,
+                  left,
+                  top,
                   width,
                   height,
                   borderRadius: table.shape === 'circle' ? radius : 8,
                   border: `2px solid ${baseColor}`,
                   backgroundColor: isZoneHighlight ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255,255,255,0.9)',
-                  transform: `rotate(${table.rot ?? 0}deg)`,
+                  transform: `rotate(${rotation}deg)`,
                   boxShadow: isStrongHighlight
                     ? '0 0 0 3px rgba(59, 130, 246, 0.7)'
                     : '0 1px 3px rgba(0,0,0,0.1)',

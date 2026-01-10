@@ -285,9 +285,14 @@ const buildAllocationFinal = (
   };
 };
 
-const isAllocationLocked = (reservationData: { allocationFinal?: AllocationFinal | null }) =>
-  Boolean(reservationData?.allocationFinal?.locked);
-
+const isAllocationLocked = (
+  data: { allocationFinal?: { locked?: boolean | null } | null } | null | undefined
+) => Boolean(data?.allocationFinal?.locked);
+// Verified by searching this file for allocationFinal/allocationFinalComputedAt/allocationOverride writes:
+// - guestCreateReservation (guest, create): writes allocationFinal + allocationFinalComputedAt.
+// - adminSetReservationAllocationOverride (admin): writes allocationOverride, allocationOverrideSetAt,
+//   allocationFinal + allocationFinalComputedAt (authoritative lock/unlock).
+// If a non-admin update/recompute writer is introduced, guard with isAllocationLocked before updating.
 const getClientIp = (req: any) => {
   const cfIp = req.headers['cf-connecting-ip'];
   if (typeof cfIp === 'string' && cfIp) return cfIp;
@@ -1387,10 +1392,7 @@ export const adminRecalcReservationCapacityDay = onRequest(
         if (!headcount || Number.isNaN(headcount)) return;
         totalCount += headcount;
 
-        // Respect admin lock: do not overwrite allocationFinal when locked.
-        const allocationFinalData = isAllocationLocked(data)
-          ? data.allocationFinal || {}
-          : data.allocationFinal || {};
+        const allocationFinalData = data.allocationFinal || {};
         const allocationIntentData = data.allocationIntent || {};
         const timeSlot = allocationFinalData.timeSlot ?? allocationIntentData.timeSlot;
         const zoneId = allocationFinalData.zoneId ?? allocationIntentData.zoneId;
