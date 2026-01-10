@@ -370,6 +370,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
     [zones]
   );
+  const activeZones = useMemo(() => zones.filter(zone => zone.isActive), [zones]);
 
   const visibleFloorplans = useMemo(
     () => floorplans.filter(plan => plan.isActive !== false),
@@ -640,6 +641,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
+    const zonePriority = Array.from(new Set(settings.zonePriority ?? []));
+    const overflowZones = settings.overflowZones ?? [];
+    const allowCrossZoneCombinations = settings.allowCrossZoneCombinations ?? false;
     const allocationEnabled = settings.allocationEnabled ?? false;
     const allocationMode = settings.allocationMode ?? 'capacity';
     const allocationStrategy = settings.allocationStrategy ?? 'bestFit';
@@ -656,6 +660,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           allocationEnabled,
           allocationMode,
           allocationStrategy,
+          zonePriority,
+          overflowZones,
+          allowCrossZoneCombinations,
           ...(defaultZoneId ? { defaultZoneId } : {}),
           emergencyZones: {
             enabled: settings.emergencyZones?.enabled ?? false,
@@ -1839,6 +1846,143 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </option>
                 ))}
               </select>
+            </label>
+            <div className="col-span-2 space-y-2">
+              <div className="text-sm font-semibold">Zóna prioritás</div>
+              <div className="flex flex-wrap gap-2 text-sm">
+                {(settings?.zonePriority ?? []).map((zoneId, index) => {
+                  const zone = zones.find(item => item.id === zoneId);
+                  if (!zone) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={zoneId}
+                      className="flex items-center gap-2 border rounded px-2 py-1"
+                    >
+                      <span>{zone.name}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 disabled:opacity-40"
+                          disabled={index === 0}
+                          onClick={() =>
+                            setSettings(current => {
+                              const list = [...(current?.zonePriority ?? [])];
+                              if (index <= 0) {
+                                return current;
+                              }
+                              [list[index - 1], list[index]] = [list[index], list[index - 1]];
+                              return { ...(current ?? {}), zonePriority: list };
+                            })
+                          }
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 disabled:opacity-40"
+                          disabled={index === (settings?.zonePriority ?? []).length - 1}
+                          onClick={() =>
+                            setSettings(current => {
+                              const list = [...(current?.zonePriority ?? [])];
+                              if (index >= list.length - 1) {
+                                return current;
+                              }
+                              [list[index], list[index + 1]] = [list[index + 1], list[index]];
+                              return { ...(current ?? {}), zonePriority: list };
+                            })
+                          }
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-red-600"
+                          onClick={() =>
+                            setSettings(current => ({
+                              ...(current ?? {}),
+                              zonePriority: (current?.zonePriority ?? []).filter(
+                                id => id !== zoneId
+                              ),
+                            }))
+                          }
+                        >
+                          törlés
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  className="border rounded p-2 text-sm"
+                  value=""
+                  onChange={event => {
+                    const nextZoneId = event.target.value;
+                    if (!nextZoneId) {
+                      return;
+                    }
+                    setSettings(current => {
+                      const currentList = current?.zonePriority ?? [];
+                      if (currentList.includes(nextZoneId)) {
+                        return current;
+                      }
+                      return {
+                        ...(current ?? {}),
+                        zonePriority: [...currentList, nextZoneId],
+                      };
+                    });
+                    event.target.value = '';
+                  }}
+                >
+                  <option value="">Zóna hozzáadása</option>
+                  {activeZones
+                    .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
+                    .map(zone => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="col-span-2 space-y-2">
+              <div className="text-sm font-semibold">Overflow zónák</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {activeZones.map(zone => (
+                  <label key={zone.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={(settings?.overflowZones ?? []).includes(zone.id)}
+                      onChange={event =>
+                        setSettings(current => {
+                          const currentList = current?.overflowZones ?? [];
+                          const nextList = event.target.checked
+                            ? Array.from(new Set([...currentList, zone.id]))
+                            : currentList.filter(id => id !== zone.id);
+                          return { ...(current ?? {}), overflowZones: nextList };
+                        })
+                      }
+                    />
+                    {zone.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm col-span-2">
+              <input
+                type="checkbox"
+                checked={settings?.allowCrossZoneCombinations ?? false}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allowCrossZoneCombinations: event.target.checked,
+                  }))
+                }
+              />
+              Kombinált asztalok engedélyezése zónák között
             </label>
           </div>
           <button
