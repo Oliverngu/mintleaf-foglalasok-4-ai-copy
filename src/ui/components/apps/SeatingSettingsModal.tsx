@@ -381,7 +381,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setDraftPositions({});
       setSavingById({});
       setLastSaved({});
-      lastSavedByIdRef.current = {};
       setDragState(null);
     }
     prevActiveFloorplanIdRef.current = next;
