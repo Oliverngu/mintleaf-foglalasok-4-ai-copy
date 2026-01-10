@@ -82,6 +82,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
+  const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
   const [dragState, setDragState] = useState<{
     tableId: string;
     pointerStartX: number;
@@ -96,6 +97,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     snapToGrid: boolean;
   } | null>(null);
   const rafId = useRef<number | null>(null);
+  const prevActiveFloorplanIdRef = useRef<string | null>(null);
 
   const [zoneForm, setZoneForm] = useState<{
     id?: string;
@@ -352,15 +354,38 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const applyGrid = (value: number, gridSize: number) =>
     gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
 
+  const setLastSaved = (
+    updater:
+      | Record<string, { x: number; y: number }>
+      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
+  ) => {
+    setLastSavedById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedByIdRef.current = next;
+      return next;
+    });
+  };
+
   useEffect(() => {
-    if (!activeFloorplan) {
+    const prev = prevActiveFloorplanIdRef.current;
+    const next = activeFloorplan?.id ?? null;
+    if (prev === null && next === null) {
+      return;
+    }
+    if (prev === null && next !== null) {
+      prevActiveFloorplanIdRef.current = next;
+      return;
+    }
+    if (prev !== next) {
       setSelectedTableId(null);
       setDraftPositions({});
       setSavingById({});
-      setLastSavedById({});
+      setLastSaved({});
+      lastSavedByIdRef.current = {};
       setDragState(null);
     }
-  }, [activeFloorplan]);
+    prevActiveFloorplanIdRef.current = next;
+  }, [activeFloorplan?.id]);
 
   useEffect(() => {
     return () => {
@@ -662,12 +687,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
       await updateTable(unitId, tableId, { x, y });
-      setLastSavedById(current => ({ ...current, [tableId]: { x, y } }));
+      setLastSaved(current => ({ ...current, [tableId]: { x, y } }));
     } catch (err) {
       console.error('Error updating table position:', err);
       setError('Nem sikerült menteni az asztal pozícióját.');
       setDraftPositions(current => {
-        const fallback = lastSavedById[tableId];
+        const fallback = lastSavedByIdRef.current[tableId];
         if (!fallback) {
           return current;
         }
@@ -701,7 +726,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       gridSize: editorGridSize,
       snapToGrid: table.snapToGrid ?? false,
     });
-    setLastSavedById(current =>
+    setLastSaved(current =>
       current[table.id] ? current : { ...current, [table.id]: position }
     );
   };
@@ -748,7 +773,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleTablePointerCancel = () => {
     if (!dragState) return;
     const tableId = dragState.tableId;
-    const fallback = lastSavedById[tableId];
+    const fallback = lastSavedByIdRef.current[tableId];
     if (fallback) {
       setDraftPositions(current => ({ ...current, [tableId]: fallback }));
     }
