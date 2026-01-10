@@ -1465,11 +1465,19 @@ export const adminSetReservationOverride = onCall(
       }
 
       if (hasSetAction && forcedTableIds) {
+        const zoneId = forcedZoneId;
+        if (!zoneId) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedTableIds esetén forcedZoneId kötelező'
+          );
+        }
+
         const zoneSnap = await db
           .collection('units')
           .doc(unitId)
           .collection('zones')
-          .doc(forcedZoneId)
+          .doc(zoneId)
           .get();
         if (!zoneSnap.exists) {
           throw new HttpsError(
@@ -1505,8 +1513,8 @@ export const adminSetReservationOverride = onCall(
           if (data.isActive === false) {
             return true;
           }
-          const zoneId = typeof data.zoneId === 'string' ? data.zoneId : '';
-          return zoneId !== forcedZoneId;
+          const tableZoneId = typeof data.zoneId === 'string' ? data.zoneId : '';
+          return tableZoneId !== zoneId;
         });
         if (mismatchedTable) {
           throw new HttpsError(
