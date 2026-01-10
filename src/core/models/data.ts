@@ -163,20 +163,20 @@ export interface Table {
   capacityMax: number;
   minCapacity: number;
   isActive: boolean;
-  tableGroup?: string;
+  tableGroup?: string | null;
   tags?: string[];
-  floorplanId?: string;
-  shape?: 'rect' | 'circle';
-  w?: number;
-  h?: number;
-  radius?: number;
+  floorplanId?: string | null;
+  shape?: 'rect' | 'circle' | string | null;
+  w?: number | null;
+  h?: number | null;
+  radius?: number | null;
   snapToGrid?: boolean;
-  locked?: boolean;
-  x?: number;
-  y?: number;
-  rot?: number;
+  locked?: boolean | null;
+  x?: number | null;
+  y?: number | null;
+  rot?: number | null;
   canSeatSolo?: boolean;
-  canCombine?: boolean;
+  canCombine?: boolean | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -184,11 +184,12 @@ export interface Table {
 export interface Floorplan {
   id: string;
   name: string;
-  isActive: boolean;
-  width: number;
-  height: number;
+  width?: number | null;
+  height?: number | null;
+  isActive?: boolean;
   gridSize?: number;
-  backgroundImageUrl?: string;
+  backgroundImageUrl?: string | null;
+  unitId?: string | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
