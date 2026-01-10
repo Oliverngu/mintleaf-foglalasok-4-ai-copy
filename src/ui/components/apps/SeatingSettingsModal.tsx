@@ -640,6 +640,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
+    const allocationEnabled = settings.allocationEnabled ?? false;
+    const allocationMode = settings.allocationMode ?? 'capacity';
+    const allocationStrategy = settings.allocationStrategy ?? 'bestFit';
+    const defaultZoneId = normalizeOptionalString(settings.defaultZoneId ?? '');
     await runAction({
       key: 'settings-save',
       errorMessage: 'Nem sikerült menteni a beállításokat.',
@@ -649,6 +653,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         const { activeFloorplanId, ...restSettings } = settings;
         const payload: SeatingSettings = {
           ...restSettings,
+          allocationEnabled,
+          allocationMode,
+          allocationStrategy,
+          ...(defaultZoneId ? { defaultZoneId } : {}),
           emergencyZones: {
             enabled: settings.emergencyZones?.enabled ?? false,
             zoneIds: emergencyZoneIds,
@@ -1758,6 +1766,76 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 {visibleFloorplans.map(plan => (
                   <option key={plan.id} value={plan.id}>
                     {plan.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm col-span-2">
+              <input
+                type="checkbox"
+                checked={settings?.allocationEnabled ?? false}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationEnabled: event.target.checked,
+                  }))
+                }
+              />
+              Seating allocation enabled
+            </label>
+            <label className="flex flex-col gap-1">
+              Allokáció mód
+              <select
+                className="border rounded p-2"
+                value={settings?.allocationMode ?? 'capacity'}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationMode: event.target.value as SeatingSettings['allocationMode'],
+                  }))
+                }
+              >
+                <option value="capacity">Kapacitás</option>
+                <option value="floorplan">Alaprajz</option>
+                <option value="hybrid">Hibrid</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Allokációs stratégia
+              <select
+                className="border rounded p-2"
+                value={settings?.allocationStrategy ?? 'bestFit'}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationStrategy: event.target.value as SeatingSettings['allocationStrategy'],
+                  }))
+                }
+              >
+                <option value="bestFit">Best fit</option>
+                <option value="minWaste">Min waste</option>
+                <option value="priorityZoneFirst">Zóna prioritás</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Alapértelmezett zóna
+              <select
+                className="border rounded p-2"
+                value={settings?.defaultZoneId ?? ''}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    defaultZoneId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Nincs beállítva</option>
+                {zones.map(zone => (
+                  <option key={zone.id} value={zone.id}>
+                    {zone.name}
                   </option>
                 ))}
               </select>

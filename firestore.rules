@@ -169,6 +169,10 @@ function userUnits() {
         allow create, update, delete: if canManageUnit(unitId);
       }
 
+      match /reservation_overrides/{reservationId} {
+        allow read, write: if canManageUnit(unitId);
+      }
+
       match /zones/{zoneId} {
         allow read: if canManageUnit(unitId);
         allow create, update, delete: if canManageUnit(unitId);
