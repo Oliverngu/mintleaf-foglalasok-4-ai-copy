@@ -1,17 +1,54 @@
 import { FirebaseError } from 'firebase/app';
-import { Timestamp, deleteDoc, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase/config';
+import { Timestamp, doc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '../../firebase/config';
 
 export interface ReservationOverridePayload {
-  forcedZoneId?: string;
-  forcedTableIds?: string[];
-  note?: string;
+  forcedZoneId?: string | null;
+  forcedTableIds?: string[] | null;
+  note?: string | null;
 }
 
 export interface ReservationOverride extends ReservationOverridePayload {
   updatedAt?: Timestamp;
   updatedBy?: string;
 }
+
+const buildCallablePayload = (payload: ReservationOverridePayload) => {
+  const callablePayload: ReservationOverridePayload = {};
+
+  if (payload.forcedZoneId === null) {
+    callablePayload.forcedZoneId = null;
+  } else if (typeof payload.forcedZoneId === 'string') {
+    const trimmed = payload.forcedZoneId.trim();
+    if (trimmed) {
+      callablePayload.forcedZoneId = trimmed;
+    }
+  }
+
+  if (payload.note === null) {
+    callablePayload.note = null;
+  } else if (typeof payload.note === 'string') {
+    const trimmed = payload.note.trim();
+    if (trimmed) {
+      callablePayload.note = trimmed;
+    }
+  }
+
+  if (payload.forcedTableIds === null) {
+    callablePayload.forcedTableIds = null;
+  } else if (Array.isArray(payload.forcedTableIds)) {
+    const ids = payload.forcedTableIds
+      .filter((value): value is string => typeof value === 'string')
+      .map(value => value.trim())
+      .filter(Boolean);
+    if (ids.length) {
+      callablePayload.forcedTableIds = ids;
+    }
+  }
+
+  return callablePayload;
+};
 
 export const getOverride = async (
   unitId: string,
@@ -41,17 +78,13 @@ export const setOverride = async (
   if (!user) {
     throw new Error('UNAUTHENTICATED');
   }
-  const ref = doc(db, 'units', unitId, 'reservation_overrides', reservationId);
   try {
-    await setDoc(
-      ref,
-      {
-        ...payload,
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid,
-      },
-      { merge: true }
-    );
+    const callable = httpsCallable(functions, 'adminSetReservationOverride');
+    await callable({
+      unitId,
+      reservationId,
+      payload: buildCallablePayload(payload),
+    });
   } catch (error) {
     if (error instanceof FirebaseError && error.code === 'permission-denied') {
       console.error('[reservationOverridesService] permission-denied on set', error);
@@ -68,9 +101,9 @@ export const clearOverride = async (
   if (!user) {
     throw new Error('UNAUTHENTICATED');
   }
-  const ref = doc(db, 'units', unitId, 'reservation_overrides', reservationId);
   try {
-    await deleteDoc(ref);
+    const callable = httpsCallable(functions, 'adminClearReservationOverride');
+    await callable({ unitId, reservationId });
   } catch (error) {
     if (error instanceof FirebaseError && error.code === 'permission-denied') {
       console.error('[reservationOverridesService] permission-denied on delete', error);
