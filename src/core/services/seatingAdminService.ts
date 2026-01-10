@@ -20,6 +20,13 @@ const seatingSettingsDefaults: SeatingSettings = {
   maxCombineCount: 2,
   vipEnabled: true,
   soloAllowedTableIds: [],
+  allocationEnabled: false,
+  allocationMode: 'capacity',
+  allocationStrategy: 'bestFit',
+  defaultZoneId: '',
+  zonePriority: [],
+  overflowZones: [],
+  allowCrossZoneCombinations: false,
   emergencyZones: {
     enabled: false,
     zoneIds: [],

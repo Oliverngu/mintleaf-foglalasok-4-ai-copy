@@ -14,6 +14,8 @@ type FloorplanViewerProps = {
   floorplanId?: string;
   highlightTableIds?: string[];
   highlightZoneId?: string | null;
+  onZoneClick?: (zoneId: string) => void;
+  onTableClick?: (table: Table) => void;
 };
 
 const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
@@ -21,6 +23,8 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
   floorplanId,
   highlightTableIds,
   highlightZoneId,
+  onZoneClick,
+  onTableClick,
 }) => {
   const [floorplan, setFloorplan] = useState<Floorplan | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
@@ -126,13 +130,18 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 text-[11px] text-[var(--color-text-secondary)]">
         {zones.map(zone => (
-          <div key={zone.id} className="flex items-center gap-2">
+          <button
+            type="button"
+            key={zone.id}
+            onClick={onZoneClick ? () => onZoneClick(zone.id) : undefined}
+            className={`flex items-center gap-2 ${onZoneClick ? 'cursor-pointer' : ''}`}
+          >
             <span
               className="inline-block w-2.5 h-2.5 rounded-full"
               style={{ backgroundColor: zoneColors.get(zone.id) }}
             />
             <span>{zone.name}</span>
-          </div>
+          </button>
         ))}
       </div>
       <div className="overflow-auto">
@@ -162,6 +171,7 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
               <div
                 key={table.id}
                 className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800"
+                onClick={onTableClick ? () => onTableClick(table) : undefined}
                 style={{
                   left,
                   top,
@@ -174,6 +184,7 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
                   boxShadow: isStrongHighlight
                     ? '0 0 0 3px rgba(59, 130, 246, 0.7)'
                     : '0 1px 3px rgba(0,0,0,0.1)',
+                  cursor: onTableClick ? 'pointer' : 'default',
                 }}
               >
                 <span>{table.name}</span>
