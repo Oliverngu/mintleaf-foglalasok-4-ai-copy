@@ -4,10 +4,10 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import { protect } from '../middleware/auth';
-import { ApiError } from '../utils/errors';
-import { hasUnitAccess } from '../middleware/auth';
-import { db } from '../services/db'; // Mock DB
+import { protect } from '../src/middleware/auth';
+import { ApiError } from '../src/utils/errors';
+import { hasUnitAccess } from '../src/middleware/auth';
+import { db } from '../src/services/db'; // Mock DB
 // FIX: __dirname is not available in ES modules. This creates it using import.meta.url.
 import { fileURLToPath } from 'url';
 

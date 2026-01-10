@@ -36,6 +36,9 @@ import {
   where,
   orderBy,
   documentId,
+  type DocumentData,
+  type Query,
+  type QuerySnapshot,
 } from 'firebase/firestore';
 
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -426,18 +429,19 @@ const App: React.FC = () => {
     }
 
     // shifts
-    const shiftsQueryRef =
+    const shiftsQueryRef: Query<DocumentData> =
       currentUser.role !== 'Admin' && currentUser.unitIds?.length
         ? query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds.slice(0, 10)))
         : collection(db, 'shifts');
     const unsubShifts = onSnapshot(
       shiftsQueryRef,
-      snap => setShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Shift))),
+      (snap: QuerySnapshot<DocumentData>) =>
+        setShifts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Shift))),
       onIndexOrPerms('shifts')
     );
 
     // requests
-    let requestsQueryRef;
+    let requestsQueryRef: Query<DocumentData>;
     if (isUnitAdmin) {
       requestsQueryRef = query(collection(db, 'requests'), where('unitId', 'in', currentUser.unitIds!.slice(0, 10)));
     } else if (!isSuperAdmin) {
@@ -447,7 +451,8 @@ const App: React.FC = () => {
     }
     const unsubRequests = onSnapshot(
       requestsQueryRef,
-      snap => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as Request))),
+      (snap: QuerySnapshot<DocumentData>) =>
+        setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as Request))),
       onIndexOrPerms('requests')
     );
 
@@ -455,7 +460,8 @@ const App: React.FC = () => {
     const timeEntriesQuery = query(collection(db, 'time_entries'), where('userId', '==', currentUser.id));
     const unsubTimeEntries = onSnapshot(
       timeEntriesQuery,
-      snap => setTimeEntries(snap.docs.map(d => ({ id: d.id, ...d.data() } as TimeEntry))),
+      (snap: QuerySnapshot<DocumentData>) =>
+        setTimeEntries(snap.docs.map(d => ({ id: d.id, ...d.data() } as TimeEntry))),
       onIndexOrPerms('time_entries')
     );
 
