@@ -1,6 +1,6 @@
 import { FirebaseError } from 'firebase/app';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../../../core/firebase/config';
 import {
   Floorplan,
@@ -409,12 +409,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       // ignore
     }
   }, []);
+  const releaseDragPointerCaptureRef = useRef(releaseDragPointerCapture);
 
   const abortDrag = useCallback(
     (drag: NonNullable<typeof dragState>, opts?: { skipRelease?: boolean }) => {
       const tableId = drag.tableId;
       if (!opts?.skipRelease) {
-        releaseDragPointerCapture(drag);
+        releaseDragPointerCaptureRef.current(drag);
       }
       if (drag.mode === 'rotate') {
         const fallbackRot = lastSavedRotByIdRef.current[tableId];
@@ -449,13 +450,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     [releaseDragPointerCapture]
   );
+  const abortDragRef = useRef(abortDrag);
+
+  useEffect(() => {
+    abortDragRef.current = abortDrag;
+  }, [abortDrag]);
+
+  useEffect(() => {
+    releaseDragPointerCaptureRef.current = releaseDragPointerCapture;
+  }, [releaseDragPointerCapture]);
 
   const handleLostPointerCapture = (event: React.PointerEvent<HTMLElement>) => {
     const drag = dragStateRef.current;
     if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
-    abortDrag(drag, { skipRelease: true });
+    abortDragRef.current(drag, { skipRelease: true });
   };
 
   useEffect(() => {
@@ -475,7 +485,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (prev !== next) {
       const drag = dragStateRef.current;
       if (drag) {
-        abortDrag(drag);
+        abortDragRef.current(drag);
       }
       setSelectedTableId(null);
       setDraftPositions({});
@@ -504,7 +514,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return () => {
       const drag = dragStateRef.current;
       if (drag) {
-        releaseDragPointerCapture(drag);
+        releaseDragPointerCaptureRef.current(drag);
       }
     };
   }, []);
@@ -513,7 +523,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const handleBlur = () => {
       const drag = dragStateRef.current;
       if (drag) {
-        abortDrag(drag);
+        abortDragRef.current(drag);
       }
     };
     const handleVisibilityChange = () => {
@@ -1010,14 +1020,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleTablePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!dragState) return;
     if (event.pointerId !== dragState.pointerId) return;
+    if (!floorplanRef.current) {
+      abortDragRef.current(dragState);
+      return;
+    }
     event.preventDefault();
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
     if (dragState.mode === 'rotate') {
-      if (!floorplanRef.current) {
-        abortDrag(dragState);
-        return;
-      }
       const pointer = getLocalPointerPosition(event);
       const currentAngle =
         Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
@@ -1042,52 +1052,54 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragState) return;
-    if (event.pointerId !== dragState.pointerId) return;
+    const drag = dragState;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    if (!floorplanRef.current) {
+      abortDragRef.current(drag);
+      return;
+    }
     event.preventDefault();
-    const tableId = dragState.tableId;
-    if (dragState.mode === 'rotate') {
-      if (!floorplanRef.current) {
-        abortDrag(dragState);
-        return;
-      }
+    const tableId = drag.tableId;
+    if (drag.mode === 'rotate') {
       const pointer = getLocalPointerPosition(event);
       const currentAngle =
-        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
+        Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
         (180 / Math.PI);
-      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
+      const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
+      const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
       const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
       const snappedRot = snapRotation(nextRot, step);
       updateDraftRotation(tableId, snappedRot);
-      const prevRot = dragState.tableStartRot;
-      releaseDragPointerCapture(dragState);
+      const prevRot = drag.tableStartRot;
+      releaseDragPointerCaptureRef.current(drag);
       setDragState(null);
       void finalizeRotation(tableId, snappedRot, prevRot);
       return;
     }
-    const deltaX = event.clientX - dragState.pointerStartX;
-    const deltaY = event.clientY - dragState.pointerStartY;
-    let nextX = dragState.tableStartX + deltaX;
-    let nextY = dragState.tableStartY + deltaY;
-    if (dragState.snapToGrid) {
-      nextX = applyGrid(nextX, dragState.gridSize);
-      nextY = applyGrid(nextY, dragState.gridSize);
+    const deltaX = event.clientX - drag.pointerStartX;
+    const deltaY = event.clientY - drag.pointerStartY;
+    let nextX = drag.tableStartX + deltaX;
+    let nextY = drag.tableStartY + deltaY;
+    if (drag.snapToGrid) {
+      nextX = applyGrid(nextX, drag.gridSize);
+      nextY = applyGrid(nextY, drag.gridSize);
     }
-    const maxX = Math.max(0, dragState.floorplanWidth - dragState.width);
-    const maxY = Math.max(0, dragState.floorplanHeight - dragState.height);
+    const maxX = Math.max(0, drag.floorplanWidth - drag.width);
+    const maxY = Math.max(0, drag.floorplanHeight - drag.height);
     nextX = clamp(nextX, 0, maxX);
     nextY = clamp(nextY, 0, maxY);
     updateDraftPosition(tableId, nextX, nextY);
-    releaseDragPointerCapture(dragState);
+    releaseDragPointerCaptureRef.current(drag);
     setDragState(null);
     void finalizeDrag(tableId, nextX, nextY);
   };
 
   const handleTablePointerCancel = (event: React.PointerEvent<Element>) => {
-    if (!dragState) return;
-    if (event.pointerId !== dragState.pointerId) return;
-    abortDrag(dragState);
+    const drag = dragState;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    abortDragRef.current(drag);
   };
 
   const handleComboSubmit = async () => {
