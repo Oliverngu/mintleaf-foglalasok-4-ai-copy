@@ -78,11 +78,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
+  const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
   const [savingById, setSavingById] = useState<Record<string, boolean>>({});
   const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
   const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
+  const [lastSavedRotById, setLastSavedRotById] = useState<Record<string, number>>({});
+  const lastSavedRotByIdRef = useRef<Record<string, number>>({});
   const [dragState, setDragState] = useState<{
     tableId: string;
     pointerStartX: number;
@@ -91,6 +94,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableStartY: number;
     width: number;
     height: number;
+    mode: 'move' | 'rotate';
+    tableStartRot: number;
     floorplanWidth: number;
     floorplanHeight: number;
     gridSize: number;
@@ -353,6 +358,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     Math.min(Math.max(value, min), max);
   const applyGrid = (value: number, gridSize: number) =>
     gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
+  const normalizeRotation = (value: number) => {
+    const wrapped = ((value % 360) + 360) % 360;
+    return wrapped > 180 ? wrapped - 360 : wrapped;
+  };
+  const snapRotation = (value: number, step = 5) => Math.round(value / step) * step;
 
   const setLastSaved = (
     updater:
@@ -362,6 +372,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setLastSavedById(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       lastSavedByIdRef.current = next;
+      return next;
+    });
+  };
+
+  const setLastSavedRot = (
+    updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)
+  ) => {
+    setLastSavedRotById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedRotByIdRef.current = next;
       return next;
     });
   };
@@ -379,8 +399,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (prev !== next) {
       setSelectedTableId(null);
       setDraftPositions({});
+      setDraftRotations({});
       setSavingById({});
       setLastSaved({});
+      setLastSavedRot({});
       setDragState(null);
     }
     prevActiveFloorplanIdRef.current = next;
@@ -682,6 +704,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const updateDraftRotation = (tableId: string, rot: number) => {
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+    }
+    rafId.current = requestAnimationFrame(() => {
+      setDraftRotations(current => ({
+        ...current,
+        [tableId]: rot,
+      }));
+      rafId.current = null;
+    });
+  };
+
   const finalizeDrag = async (tableId: string, x: number, y: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
@@ -702,16 +737,39 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const finalizeRotation = async (tableId: string, rot: number) => {
+    setSavingById(current => ({ ...current, [tableId]: true }));
+    try {
+      await updateTable(unitId, tableId, { rot });
+      setLastSavedRot(current => ({ ...current, [tableId]: rot }));
+    } catch (err) {
+      console.error('Error updating table rotation:', err);
+      setError('Nem sikerült menteni az asztal forgatását.');
+      setDraftRotations(current => {
+        const fallback = lastSavedRotByIdRef.current[tableId];
+        if (fallback === undefined) {
+          return current;
+        }
+        return { ...current, [tableId]: fallback };
+      });
+    } finally {
+      setSavingById(current => ({ ...current, [tableId]: false }));
+    }
+  };
+
   const handleTablePointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
     table: Table,
     geometry: ReturnType<typeof normalizeTableGeometry>
   ) => {
     if (!activeFloorplan) return;
+    if (table.locked) return;
     event.preventDefault();
     setSelectedTableId(table.id);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
+    const renderRot = draftRotations[table.id] ?? geometry.rot;
+    const mode = event.shiftKey ? 'rotate' : 'move';
     setDragState({
       tableId: table.id,
       pointerStartX: event.clientX,
@@ -720,6 +778,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       tableStartY: position.y,
       width: geometry.w,
       height: geometry.h,
+      mode,
+      tableStartRot: renderRot,
       floorplanWidth,
       floorplanHeight,
       gridSize: editorGridSize,
@@ -728,6 +788,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setLastSaved(current =>
       current[table.id] ? current : { ...current, [table.id]: position }
     );
+    setLastSavedRot(current =>
+      current[table.id] !== undefined ? current : { ...current, [table.id]: renderRot }
+    );
   };
 
   const handleTablePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -735,6 +798,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
+    if (dragState.mode === 'rotate') {
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
+      updateDraftRotation(dragState.tableId, snapRotation(nextRot));
+      return;
+    }
     let nextX = dragState.tableStartX + deltaX;
     let nextY = dragState.tableStartY + deltaY;
     if (dragState.snapToGrid) {
@@ -753,6 +821,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
+    const tableId = dragState.tableId;
+    if (dragState.mode === 'rotate') {
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
+      const snappedRot = snapRotation(nextRot);
+      updateDraftRotation(tableId, snappedRot);
+      setDragState(null);
+      void finalizeRotation(tableId, snappedRot);
+      return;
+    }
     let nextX = dragState.tableStartX + deltaX;
     let nextY = dragState.tableStartY + deltaY;
     if (dragState.snapToGrid) {
@@ -763,8 +840,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const maxY = Math.max(0, dragState.floorplanHeight - dragState.height);
     nextX = clamp(nextX, 0, maxX);
     nextY = clamp(nextY, 0, maxY);
-    updateDraftPosition(dragState.tableId, nextX, nextY);
-    const tableId = dragState.tableId;
+    updateDraftPosition(tableId, nextX, nextY);
     setDragState(null);
     void finalizeDrag(tableId, nextX, nextY);
   };
@@ -772,9 +848,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleTablePointerCancel = () => {
     if (!dragState) return;
     const tableId = dragState.tableId;
-    const fallback = lastSavedByIdRef.current[tableId];
-    if (fallback) {
-      setDraftPositions(current => ({ ...current, [tableId]: fallback }));
+    if (dragState.mode === 'rotate') {
+      const fallbackRot = lastSavedRotByIdRef.current[tableId];
+      if (fallbackRot !== undefined) {
+        setDraftRotations(current => ({ ...current, [tableId]: fallbackRot }));
+      }
+    } else {
+      const fallback = lastSavedByIdRef.current[tableId];
+      if (fallback) {
+        setDraftPositions(current => ({ ...current, [tableId]: fallback }));
+      }
     }
     setDragState(null);
   };
@@ -965,7 +1048,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ) : (
             <div className="space-y-2">
               <div className="text-xs text-[var(--color-text-secondary)]">
-                Grid: {editorGridSize}px
+                Grid: {editorGridSize}px • Shift + húzás = forgatás
               </div>
               <div className="overflow-auto">
                 <div
@@ -986,6 +1069,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       circleRadius: 40,
                     });
                     const position = getRenderPosition(table, geometry);
+                    const renderRot = draftRotations[table.id] ?? geometry.rot;
                     const isSelected = selectedTableId === table.id;
                     const isSaving = Boolean(savingById[table.id]);
 
@@ -1001,7 +1085,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
                           border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
                           backgroundColor: 'rgba(255,255,255,0.9)',
-                          transform: `rotate(${geometry.rot}deg)`,
+                          transform: `rotate(${renderRot}deg)`,
                           boxShadow: isSelected
                             ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
                             : '0 1px 3px rgba(0,0,0,0.1)',
@@ -1024,7 +1108,66 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           {isSaving && (
                             <span className="px-1 rounded bg-blue-100 text-[9px]">Saving...</span>
                           )}
+                          {isSelected && (
+                            <span className="px-1 rounded bg-gray-100 text-[9px]">
+                              {Math.round(renderRot)}°
+                            </span>
+                          )}
                         </div>
+                        {isSelected && !table.locked && (
+                          <div className="flex gap-1 mt-1">
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onClick={event => {
+                                event.stopPropagation();
+                                const nextRot = normalizeRotation(renderRot - 5);
+                                updateDraftRotation(table.id, nextRot);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, nextRot);
+                              }}
+                            >
+                              ↺
+                            </button>
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onClick={event => {
+                                event.stopPropagation();
+                                const nextRot = normalizeRotation(renderRot + 5);
+                                updateDraftRotation(table.id, nextRot);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, nextRot);
+                              }}
+                            >
+                              ↻
+                            </button>
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onClick={event => {
+                                event.stopPropagation();
+                                updateDraftRotation(table.id, 0);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, 0);
+                              }}
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
