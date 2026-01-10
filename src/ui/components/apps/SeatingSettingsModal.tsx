@@ -59,6 +59,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
+  const actionSavingRef = useRef<Record<string, boolean>>({});
 
   const isPermissionDenied = useCallback((err: unknown): err is FirebaseError => {
     const code = (err as { code?: string } | null)?.code;
@@ -122,6 +124,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ts: number;
   }>(null);
   const prevActiveFloorplanIdRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
 
   const [zoneForm, setZoneForm] = useState<{
     id?: string;
@@ -185,6 +188,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     backgroundImageUrl: '',
     isActive: true,
   });
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -267,7 +277,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             );
           }
         }
-        setProbeSummary(summary.join(' | '));
+        if (isMounted) {
+          setProbeSummary(summary.join(' | '));
+        }
       };
       try {
         void runPermissionProbe();
@@ -280,6 +292,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           if (isPermissionDenied(err)) {
             permissionDeniedShown = true;
             safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
+            if (isMounted) {
+              setSettings(null);
+              setZones([]);
+              setTables([]);
+              setCombos([]);
+              setFloorplans([]);
+            }
             return;
           }
           console.error('Error ensuring default floorplan:', err);
@@ -304,6 +323,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           if (isPermissionDenied(err)) {
             permissionDeniedShown = true;
             safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
+            if (isMounted) {
+              setSettings(null);
+              setZones([]);
+              setTables([]);
+              setCombos([]);
+              setFloorplans([]);
+            }
             return;
           }
           throw err;
@@ -321,6 +347,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         console.error('Error loading seating settings:', err);
         if (isMounted && !permissionDeniedShown) {
           setError('Nem sikerült betölteni az ültetési beállításokat.');
+          setSettings(null);
+          setZones([]);
+          setTables([]);
+          setCombos([]);
+          setFloorplans([]);
         }
       } finally {
         if (isMounted) {
@@ -403,6 +434,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       lastSavedRotByIdRef.current = next;
       return next;
     });
+  };
+
+  const setActionSavingFlag = (key: string, value: boolean) => {
+    actionSavingRef.current[key] = value;
+    if (!value) {
+      delete actionSavingRef.current[key];
+    }
+    if (isMountedRef.current) {
+      setActionSaving(current => ({ ...current, [key]: value }));
+    }
+  };
+
+  const runAction = async ({
+    key,
+    action,
+    successMessage,
+    errorMessage,
+    errorContext,
+  }: {
+    key: string;
+    action: () => Promise<void>;
+    successMessage?: string;
+    errorMessage: string;
+    errorContext: string;
+  }) => {
+    if (actionSavingRef.current[key]) {
+      return;
+    }
+    setActionSavingFlag(key, true);
+    if (isMountedRef.current) {
+      setError(null);
+      setSuccess(null);
+    }
+    try {
+      await action();
+      if (successMessage && isMountedRef.current) {
+        setSuccess(successMessage);
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        if (isPermissionDenied(err)) {
+          setError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
+        } else {
+          setError(errorMessage);
+        }
+      }
+      console.error(errorContext, err);
+    } finally {
+      setActionSavingFlag(key, false);
+    }
   };
 
   const releaseDragPointerCapture = useCallback((drag: NonNullable<typeof dragState>) => {
@@ -494,10 +575,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setDraftPositions({});
       setDraftRotations({});
       setSavingById({});
+      actionSavingRef.current = {};
+      setActionSaving({});
       setLastSaved({});
       setLastSavedRot({});
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
+      setTableForm(current => ({
+        ...current,
+        floorplanId: next ?? '',
+        id: undefined,
+      }));
+      setError(null);
+      setSuccess(null);
     }
     prevActiveFloorplanIdRef.current = next;
   }, [activeFloorplan?.id]);
@@ -546,35 +636,38 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSettingsSave = async () => {
     if (!settings) return;
-    setError(null);
-    setSuccess(null);
     const emergencyZoneIds =
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
-    try {
-      const { activeFloorplanId, ...restSettings } = settings;
-      const payload: SeatingSettings = {
-        ...restSettings,
-        emergencyZones: {
-          enabled: settings.emergencyZones?.enabled ?? false,
-          zoneIds: emergencyZoneIds,
-          activeRule: settings.emergencyZones?.activeRule ?? 'always',
-          weekdays: settings.emergencyZones?.weekdays ?? [],
-        },
-        // Persist only explicit activeFloorplanId; resolvedActiveFloorplanId is UI fallback only.
-        ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
-      };
-      await updateSeatingSettings(unitId, payload);
-      setSuccess('Beállítások mentve.');
-    } catch (err) {
-      console.error('Error saving seating settings:', err);
-      setError('Nem sikerült menteni a beállításokat.');
-    }
+    await runAction({
+      key: 'settings-save',
+      errorMessage: 'Nem sikerült menteni a beállításokat.',
+      errorContext: 'Error saving seating settings:',
+      successMessage: 'Beállítások mentve.',
+      action: async () => {
+        const { activeFloorplanId, ...restSettings } = settings;
+        const payload: SeatingSettings = {
+          ...restSettings,
+          emergencyZones: {
+            enabled: settings.emergencyZones?.enabled ?? false,
+            zoneIds: emergencyZoneIds,
+            activeRule: settings.emergencyZones?.activeRule ?? 'always',
+            weekdays: settings.emergencyZones?.weekdays ?? [],
+          },
+          // Persist only explicit activeFloorplanId; resolvedActiveFloorplanId is UI fallback only.
+          ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
+        };
+        await updateSeatingSettings(unitId, payload);
+      },
+    });
   };
 
   const runSeatingSmokeTest = async () => {
     if (!isDev) {
+      return;
+    }
+    if (!isMountedRef.current) {
       return;
     }
     setProbeRunning(true);
@@ -616,15 +709,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } catch (err) {
         recordResult('floorplans', isPermissionDenied(err) ? 'permission-denied' : 'error');
       }
-      setProbeSummary(summary.join(' | '));
+      if (isMountedRef.current) {
+        setProbeSummary(summary.join(' | '));
+      }
     } finally {
-      setProbeRunning(false);
+      if (isMountedRef.current) {
+        setProbeRunning(false);
+      }
     }
   };
 
   const handleFloorplanSubmit = async () => {
-    setError(null);
-    setSuccess(null);
     if (!floorplanForm.name.trim()) {
       setError('Az alaprajz neve kötelező.');
       return;
@@ -633,57 +728,87 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('A méreteknek legalább 1-nek kell lenniük.');
       return;
     }
-    try {
-      const backgroundImageUrl = normalizeOptionalString(floorplanForm.backgroundImageUrl);
-      const payload = {
-        name: floorplanForm.name.trim(),
-        width: floorplanForm.width,
-        height: floorplanForm.height,
-        gridSize: floorplanForm.gridSize,
-        ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
-        isActive: floorplanForm.isActive,
-      };
-      if (floorplanForm.id) {
-        await updateFloorplan(unitId, floorplanForm.id, payload);
-      } else {
-        await createFloorplan(unitId, payload);
-      }
-      const nextFloorplans = await listFloorplans(unitId);
-      setFloorplans(nextFloorplans);
-      setFloorplanForm({
-        name: '',
-        width: 1000,
-        height: 600,
-        gridSize: 20,
-        backgroundImageUrl: '',
-        isActive: true,
-      });
-      setSuccess('Alaprajz mentve.');
-    } catch (err) {
-      console.error('Error saving floorplan:', err);
-      setError('Nem sikerült menteni az alaprajzot.');
-    }
+    await runAction({
+      key: 'floorplan-submit',
+      errorMessage: 'Nem sikerült menteni az alaprajzot.',
+      errorContext: 'Error saving floorplan:',
+      successMessage: 'Alaprajz mentve.',
+      action: async () => {
+        const backgroundImageUrl = normalizeOptionalString(floorplanForm.backgroundImageUrl);
+        const payload = {
+          name: floorplanForm.name.trim(),
+          width: floorplanForm.width,
+          height: floorplanForm.height,
+          gridSize: floorplanForm.gridSize,
+          ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
+          isActive: floorplanForm.isActive,
+        };
+        if (floorplanForm.id) {
+          await updateFloorplan(unitId, floorplanForm.id, payload);
+        } else {
+          await createFloorplan(unitId, payload);
+        }
+        const nextFloorplans = await listFloorplans(unitId);
+        setFloorplans(nextFloorplans);
+        setFloorplanForm({
+          name: '',
+          width: 1000,
+          height: 600,
+          gridSize: 20,
+          backgroundImageUrl: '',
+          isActive: true,
+        });
+      },
+    });
   };
 
   const handleActivateFloorplan = async (floorplanId: string) => {
-    setError(null);
-    setSuccess(null);
-    try {
-      if (floorplanId === resolvedActiveFloorplanId) {
-        return;
-      }
-      await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
-      const nextFloorplans = await listFloorplans(unitId);
-      setFloorplans(nextFloorplans);
-      setSettings(current => ({
-        ...(current ?? {}),
-        activeFloorplanId: floorplanId,
-      }));
-      setSuccess('Alaprajz aktiválva.');
-    } catch (err) {
-      console.error('Error activating floorplan:', err);
-      setError('Nem sikerült aktiválni az alaprajzot.');
+    if (floorplanId === resolvedActiveFloorplanId) {
+      return;
     }
+    await runAction({
+      key: `floorplan-activate-${floorplanId}`,
+      errorMessage: 'Nem sikerült aktiválni az alaprajzot.',
+      errorContext: 'Error activating floorplan:',
+      successMessage: 'Alaprajz aktiválva.',
+      action: async () => {
+        await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
+        const nextFloorplans = await listFloorplans(unitId);
+        setFloorplans(nextFloorplans);
+        setSettings(current => ({
+          ...(current ?? {}),
+          activeFloorplanId: floorplanId,
+        }));
+      },
+    });
+  };
+
+  const handleDeleteFloorplan = async (floorplanId: string) => {
+    await runAction({
+      key: `floorplan-delete-${floorplanId}`,
+      errorMessage: 'Nem sikerült törölni az alaprajzot.',
+      errorContext: 'Error deleting floorplan:',
+      successMessage: 'Alaprajz törölve.',
+      action: async () => {
+        await deleteFloorplan(unitId, floorplanId);
+        const nextFloorplans = await listFloorplans(unitId);
+        const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
+        const currentActiveId = settings?.activeFloorplanId ?? resolvedActiveFloorplanId;
+        if (currentActiveId === floorplanId) {
+          const nextActiveId = nextVisible[0]?.id ?? '';
+          if (nextActiveId !== currentActiveId) {
+            await updateSeatingSettings(unitId, {
+              activeFloorplanId: nextActiveId,
+            });
+            setSettings(current => ({
+              ...(current ?? {}),
+              activeFloorplanId: nextActiveId,
+            }));
+          }
+        }
+        setFloorplans(nextFloorplans);
+      },
+    });
   };
 
   useEffect(() => {
@@ -694,40 +819,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [resolvedActiveFloorplanId, tableForm.floorplanId]);
 
   const handleZoneSubmit = async () => {
-    setError(null);
-    setSuccess(null);
     if (!zoneForm.name.trim()) {
       setError('A zóna neve kötelező.');
       return;
     }
-    try {
-      if (zoneForm.id) {
-        await updateZone(unitId, zoneForm.id, {
-          name: zoneForm.name.trim(),
-          priority: zoneForm.priority,
-          isActive: zoneForm.isActive,
-          isEmergency: zoneForm.isEmergency,
-        });
-      } else {
-        await createZone(unitId, {
-          name: zoneForm.name.trim(),
-          priority: zoneForm.priority,
-          isActive: zoneForm.isActive,
-          isEmergency: zoneForm.isEmergency,
-        });
-      }
-      setZones(await listZones(unitId));
-      setZoneForm({ name: '', priority: 1, isActive: true, isEmergency: false });
-      setSuccess('Zóna mentve.');
-    } catch (err) {
-      console.error('Error saving zone:', err);
-      setError('Nem sikerült menteni a zónát.');
-    }
+    await runAction({
+      key: 'zone-submit',
+      errorMessage: 'Nem sikerült menteni a zónát.',
+      errorContext: 'Error saving zone:',
+      successMessage: 'Zóna mentve.',
+      action: async () => {
+        if (zoneForm.id) {
+          await updateZone(unitId, zoneForm.id, {
+            name: zoneForm.name.trim(),
+            priority: zoneForm.priority,
+            isActive: zoneForm.isActive,
+            isEmergency: zoneForm.isEmergency,
+          });
+        } else {
+          await createZone(unitId, {
+            name: zoneForm.name.trim(),
+            priority: zoneForm.priority,
+            isActive: zoneForm.isActive,
+            isEmergency: zoneForm.isEmergency,
+          });
+        }
+        setZones(await listZones(unitId));
+        setZoneForm({ name: '', priority: 1, isActive: true, isEmergency: false });
+      },
+    });
+  };
+
+  const handleDeleteZone = async (zoneId: string) => {
+    await runAction({
+      key: `zone-delete-${zoneId}`,
+      errorMessage: 'Nem sikerült törölni a zónát.',
+      errorContext: 'Error deleting zone:',
+      successMessage: 'Zóna törölve.',
+      action: async () => {
+        await deleteZone(unitId, zoneId);
+        setZones(await listZones(unitId));
+      },
+    });
   };
 
   const handleTableSubmit = async () => {
-    setError(null);
-    setSuccess(null);
     if (!tableForm.name.trim()) {
       setError('Az asztal neve kötelező.');
       return;
@@ -748,63 +884,78 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('A kiválasztott zóna nem létezik.');
       return;
     }
-    try {
-      const floorplanId = normalizeOptionalString(tableForm.floorplanId);
-      const isRect = tableForm.shape === 'rect';
-      const isCircle = tableForm.shape === 'circle';
-      const width = tableForm.w;
-      const height = tableForm.h;
-      const radius = tableForm.radius;
-      const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
-      const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
-      const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
-      const payload = {
-        name: tableForm.name.trim(),
-        zoneId: tableForm.zoneId,
-        minCapacity: tableForm.minCapacity,
-        capacityMax: tableForm.capacityMax,
-        isActive: tableForm.isActive,
-        canSeatSolo: tableForm.canSeatSolo,
-        ...(floorplanId ? { floorplanId } : {}),
-        shape: tableForm.shape,
-        ...(isRect && Number.isFinite(width) ? { w: width } : {}),
-        ...(isRect && Number.isFinite(height) ? { h: height } : {}),
-        ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
-        x,
-        y,
-        rot,
-        snapToGrid: tableForm.snapToGrid,
-        locked: tableForm.locked,
-      };
-      if (tableForm.id) {
-        await updateTable(unitId, tableForm.id, payload);
-      } else {
-        await createTable(unitId, payload);
-      }
-      setTables(await listTables(unitId));
-      setTableForm({
-        name: '',
-        zoneId: '',
-        minCapacity: 1,
-        capacityMax: 2,
-        isActive: true,
-        canSeatSolo: false,
-        floorplanId: resolvedActiveFloorplanId,
-        shape: 'rect',
-        w: 80,
-        h: 60,
-        radius: 40,
-        x: 0,
-        y: 0,
-        rot: 0,
-        snapToGrid: true,
-        locked: false,
-      });
-      setSuccess('Asztal mentve.');
-    } catch (err) {
-      console.error('Error saving table:', err);
-      setError('Nem sikerült menteni az asztalt.');
-    }
+    await runAction({
+      key: 'table-submit',
+      errorMessage: 'Nem sikerült menteni az asztalt.',
+      errorContext: 'Error saving table:',
+      successMessage: 'Asztal mentve.',
+      action: async () => {
+        const floorplanId = normalizeOptionalString(tableForm.floorplanId);
+        const isRect = tableForm.shape === 'rect';
+        const isCircle = tableForm.shape === 'circle';
+        const width = tableForm.w;
+        const height = tableForm.h;
+        const radius = tableForm.radius;
+        const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
+        const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
+        const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
+        const payload = {
+          name: tableForm.name.trim(),
+          zoneId: tableForm.zoneId,
+          minCapacity: tableForm.minCapacity,
+          capacityMax: tableForm.capacityMax,
+          isActive: tableForm.isActive,
+          canSeatSolo: tableForm.canSeatSolo,
+          ...(floorplanId ? { floorplanId } : {}),
+          shape: tableForm.shape,
+          ...(isRect && Number.isFinite(width) ? { w: width } : {}),
+          ...(isRect && Number.isFinite(height) ? { h: height } : {}),
+          ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
+          x,
+          y,
+          rot,
+          snapToGrid: tableForm.snapToGrid,
+          locked: tableForm.locked,
+        };
+        if (tableForm.id) {
+          await updateTable(unitId, tableForm.id, payload);
+        } else {
+          await createTable(unitId, payload);
+        }
+        setTables(await listTables(unitId));
+        setTableForm({
+          name: '',
+          zoneId: '',
+          minCapacity: 1,
+          capacityMax: 2,
+          isActive: true,
+          canSeatSolo: false,
+          floorplanId: resolvedActiveFloorplanId,
+          shape: 'rect',
+          w: 80,
+          h: 60,
+          radius: 40,
+          x: 0,
+          y: 0,
+          rot: 0,
+          snapToGrid: true,
+          locked: false,
+        });
+      },
+    });
+  };
+
+  const handleDeleteTable = async (tableId: string) => {
+    await runAction({
+      key: `table-delete-${tableId}`,
+      errorMessage: 'Nem sikerült törölni az asztalt.',
+      errorContext: 'Error deleting table:',
+      successMessage: 'Asztal törölve.',
+      action: async () => {
+        await deleteTable(unitId, tableId);
+        setTables(await listTables(unitId));
+      },
+    });
   };
 
   const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) => {
@@ -1106,8 +1257,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleComboSubmit = async () => {
-    setError(null);
-    setSuccess(null);
     const uniqueSelection = Array.from(new Set<string>(comboSelection));
     if (uniqueSelection.length < 2 || uniqueSelection.length > 3) {
       setError('A kombináció 2-3 asztalból állhat.');
@@ -1120,25 +1269,67 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('Csak létező asztalok választhatók.');
       return;
     }
-    try {
-      await createCombination(unitId, {
-        tableIds: uniqueSelection,
-        isActive: true,
-      });
-      setCombos(await listCombinations(unitId));
-      setComboSelection([]);
-      setSuccess('Kombináció mentve.');
-    } catch (err) {
-      console.error('Error saving combination:', err);
-      setError('Nem sikerült menteni a kombinációt.');
-    }
+    await runAction({
+      key: 'combo-submit',
+      errorMessage: 'Nem sikerült menteni a kombinációt.',
+      errorContext: 'Error saving combination:',
+      successMessage: 'Kombináció mentve.',
+      action: async () => {
+        await createCombination(unitId, {
+          tableIds: uniqueSelection,
+          isActive: true,
+        });
+        setCombos(await listCombinations(unitId));
+        setComboSelection([]);
+      },
+    });
   };
+
+  const handleToggleCombo = async (combo: TableCombination) => {
+    await runAction({
+      key: `combo-toggle-${combo.id}`,
+      errorMessage: 'Nem sikerült frissíteni a kombinációt.',
+      errorContext: 'Error updating combination:',
+      successMessage: combo.isActive ? 'Kombináció kikapcsolva.' : 'Kombináció aktiválva.',
+      action: async () => {
+        await updateCombination(unitId, combo.id, { isActive: !combo.isActive });
+        setCombos(await listCombinations(unitId));
+      },
+    });
+  };
+
+  const handleDeleteCombo = async (comboId: string) => {
+    await runAction({
+      key: `combo-delete-${comboId}`,
+      errorMessage: 'Nem sikerült törölni a kombinációt.',
+      errorContext: 'Error deleting combination:',
+      successMessage: 'Kombináció törölve.',
+      action: async () => {
+        await deleteCombination(unitId, comboId);
+        setCombos(await listCombinations(unitId));
+      },
+    });
+  };
+
+  const handleClose = useCallback(() => {
+    const drag = dragStateRef.current;
+    if (drag) {
+      abortDragRef.current(drag);
+    }
+    setSelectedTableId(null);
+    setDraftPositions({});
+    setDraftRotations({});
+    setSavingById({});
+    actionSavingRef.current = {};
+    setActionSaving({});
+    onClose();
+  }, [onClose]);
 
   if (loading) {
     return (
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
-        onClick={onClose}
+        onClick={handleClose}
       >
         <div className="rounded-2xl shadow-xl w-full max-w-3xl p-6 bg-white">
           Betöltés...
@@ -1150,7 +1341,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 space-y-6"
@@ -1158,7 +1349,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">Ültetés beállítások</h2>
-          <button onClick={onClose} className="text-sm text-gray-500">
+          <button onClick={handleClose} className="text-sm text-gray-500">
             Bezárás
           </button>
         </div>
@@ -1231,13 +1422,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <button
             type="button"
             onClick={handleFloorplanSubmit}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['floorplan-submit']}
           >
-            Mentés
+            {actionSaving['floorplan-submit'] ? 'Mentés...' : 'Mentés'}
           </button>
           <div className="space-y-2 text-sm">
             {visibleFloorplans.map(plan => {
               const { width, height } = normalizeFloorplanDimensions(plan);
+              const isActivating = actionSaving[`floorplan-activate-${plan.id}`];
+              const isDeleting = actionSaving[`floorplan-delete-${plan.id}`];
               return (
                 <div key={plan.id} className="flex items-center justify-between border rounded p-2">
                   <div>
@@ -1247,33 +1441,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <button
                       type="button"
                       onClick={() => handleActivateFloorplan(plan.id)}
-                      className="text-blue-600"
+                      className="text-blue-600 disabled:opacity-50"
+                      disabled={isActivating || isDeleting}
                     >
-                      {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
+                      {resolvedActiveFloorplanId === plan.id
+                        ? 'Aktív'
+                        : isActivating
+                        ? 'Aktiválás...'
+                        : 'Aktivál'}
                     </button>
                     <button
                       type="button"
-                      onClick={async () => {
-                        await deleteFloorplan(unitId, plan.id);
-                        const nextFloorplans = await listFloorplans(unitId);
-                        const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
-                        if (resolvedActiveFloorplanId === plan.id) {
-                          const nextActiveId = nextVisible[0]?.id ?? '';
-                          if (nextActiveId !== resolvedActiveFloorplanId) {
-                            await updateSeatingSettings(unitId, {
-                              activeFloorplanId: nextActiveId,
-                            });
-                            setSettings(current => ({
-                              ...(current ?? {}),
-                              activeFloorplanId: nextActiveId,
-                            }));
-                          }
-                        }
-                        setFloorplans(nextFloorplans);
-                      }}
-                      className="text-red-600"
+                      onClick={() => handleDeleteFloorplan(plan.id)}
+                      className="text-red-600 disabled:opacity-50"
+                      disabled={isDeleting || isActivating}
                     >
-                      Törlés
+                      {isDeleting ? 'Törlés...' : 'Törlés'}
                     </button>
                   </div>
                 </div>
@@ -1583,9 +1766,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <button
             type="button"
             onClick={handleSettingsSave}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['settings-save']}
           >
-            Mentés
+            {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
           </button>
         </section>
 
@@ -1723,45 +1907,48 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <button
             type="button"
             onClick={handleZoneSubmit}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['zone-submit']}
           >
-            Mentés
+            {actionSaving['zone-submit'] ? 'Mentés...' : 'Mentés'}
           </button>
           <div className="space-y-2 text-sm">
-            {zones.map(zone => (
-              <div key={zone.id} className="flex items-center justify-between border rounded p-2">
-                <div>
-                  {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
+            {zones.map(zone => {
+              const isDeleting = actionSaving[`zone-delete-${zone.id}`];
+              return (
+                <div key={zone.id} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setZoneForm({
+                          id: zone.id,
+                          name: zone.name,
+                          priority: zone.priority,
+                          isActive: zone.isActive,
+                          isEmergency: zone.isEmergency ?? false,
+                        })
+                      }
+                      className="text-blue-600 disabled:opacity-50"
+                      disabled={isDeleting}
+                    >
+                      Szerkeszt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteZone(zone.id)}
+                      className="text-red-600 disabled:opacity-50"
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? 'Törlés...' : 'Törlés'}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setZoneForm({
-                        id: zone.id,
-                        name: zone.name,
-                        priority: zone.priority,
-                        isActive: zone.isActive,
-                        isEmergency: zone.isEmergency ?? false,
-                      })
-                    }
-                    className="text-blue-600"
-                  >
-                    Szerkeszt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await deleteZone(unitId, zone.id);
-                      setZones(await listZones(unitId));
-                    }}
-                    className="text-red-600"
-                  >
-                    Törlés
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -1921,64 +2108,67 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <button
             type="button"
             onClick={handleTableSubmit}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['table-submit']}
           >
-            Mentés
+            {actionSaving['table-submit'] ? 'Mentés...' : 'Mentés'}
           </button>
           <div className="space-y-2 text-sm">
-            {tables.map(table => (
-              <div key={table.id} className="flex items-center justify-between border rounded p-2">
-                <div>
-                  {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
+            {tables.map(table => {
+              const isDeleting = actionSaving[`table-delete-${table.id}`];
+              return (
+                <div key={table.id} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        (() => {
+                          const geometry = normalizeTableGeometry(table, {
+                            rectWidth: 80,
+                            rectHeight: 60,
+                            circleRadius: 40,
+                          });
+                          setTableForm({
+                            id: table.id,
+                            name: table.name,
+                            zoneId: table.zoneId,
+                            minCapacity: table.minCapacity,
+                            capacityMax: table.capacityMax,
+                            isActive: table.isActive,
+                            canSeatSolo: table.canSeatSolo ?? false,
+                            floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
+                            shape: geometry.shape,
+                            w: geometry.w,
+                            h: geometry.h,
+                            radius: geometry.radius,
+                            x: geometry.x,
+                            y: geometry.y,
+                            rot: geometry.rot,
+                            snapToGrid: table.snapToGrid ?? true,
+                            locked: table.locked ?? false,
+                          });
+                        })()
+                      }
+                      className="text-blue-600 disabled:opacity-50"
+                      disabled={isDeleting}
+                    >
+                      Szerkeszt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTable(table.id)}
+                      className="text-red-600 disabled:opacity-50"
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? 'Törlés...' : 'Törlés'}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      (() => {
-                        const geometry = normalizeTableGeometry(table, {
-                          rectWidth: 80,
-                          rectHeight: 60,
-                          circleRadius: 40,
-                        });
-                        setTableForm({
-                          id: table.id,
-                          name: table.name,
-                          zoneId: table.zoneId,
-                          minCapacity: table.minCapacity,
-                          capacityMax: table.capacityMax,
-                          isActive: table.isActive,
-                          canSeatSolo: table.canSeatSolo ?? false,
-                          floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
-                          shape: geometry.shape,
-                          w: geometry.w,
-                          h: geometry.h,
-                          radius: geometry.radius,
-                          x: geometry.x,
-                          y: geometry.y,
-                          rot: geometry.rot,
-                          snapToGrid: table.snapToGrid ?? true,
-                          locked: table.locked ?? false,
-                        });
-                      })()
-                    }
-                    className="text-blue-600"
-                  >
-                    Szerkeszt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await deleteTable(unitId, table.id);
-                      setTables(await listTables(unitId));
-                    }}
-                    className="text-red-600"
-                  >
-                    Törlés
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -2006,40 +2196,47 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <button
               type="button"
               onClick={handleComboSubmit}
-              className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+              className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+              disabled={actionSaving['combo-submit']}
             >
-              Mentés
+              {actionSaving['combo-submit'] ? 'Mentés...' : 'Mentés'}
             </button>
             <div className="space-y-2">
-              {combos.map(combo => (
-                <div key={combo.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
+              {combos.map(combo => {
+                const isToggling = actionSaving[`combo-toggle-${combo.id}`];
+                const isDeleting = actionSaving[`combo-delete-${combo.id}`];
+                return (
+                  <div key={combo.id} className="flex items-center justify-between border rounded p-2">
+                    <div>
+                      {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCombo(combo)}
+                        className="text-blue-600 disabled:opacity-50"
+                        disabled={isToggling || isDeleting}
+                      >
+                        {combo.isActive
+                          ? isToggling
+                            ? 'Kikapcsolás...'
+                            : 'Kikapcsol'
+                          : isToggling
+                          ? 'Aktiválás...'
+                          : 'Aktivál'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCombo(combo.id)}
+                        className="text-red-600 disabled:opacity-50"
+                        disabled={isDeleting || isToggling}
+                      >
+                        {isDeleting ? 'Törlés...' : 'Törlés'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await updateCombination(unitId, combo.id, { isActive: !combo.isActive });
-                        setCombos(await listCombinations(unitId));
-                      }}
-                      className="text-blue-600"
-                    >
-                      {combo.isActive ? 'Kikapcsol' : 'Aktivál'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await deleteCombination(unitId, combo.id);
-                        setCombos(await listCombinations(unitId));
-                      }}
-                      className="text-red-600"
-                    >
-                      Törlés
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>
