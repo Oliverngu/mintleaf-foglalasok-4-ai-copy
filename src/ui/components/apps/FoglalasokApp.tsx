@@ -49,7 +49,8 @@ type BookingLogType =
   | 'guest_cancelled'
   | 'capacity_override'
   | 'admin_seating_updated'
-  | 'capacity_recalc';
+  | 'capacity_recalc'
+  | 'allocation_override_set';
 
 interface BookingLog {
   id: string;
@@ -910,6 +911,7 @@ const BookingDetailsModal: React.FC<{
       'capacity_override',
       'admin_seating_updated',
       'capacity_recalc',
+      'allocation_override_set',
     ];
 
     const start = new Date(selectedDate);
@@ -1315,6 +1317,9 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
     if (log.type === 'capacity_recalc') {
       return 'bg-purple-500';
     }
+    if (log.type === 'allocation_override_set') {
+      return 'bg-purple-500';
+    }
     // kék – admin / belső
     return 'bg-blue-500';
   };
@@ -1520,6 +1525,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             'capacity_override',
             'admin_seating_updated',
             'capacity_recalc',
+            'allocation_override_set',
           ];
           return {
             id: d.id,
