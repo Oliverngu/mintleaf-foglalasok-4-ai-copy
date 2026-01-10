@@ -35,6 +35,9 @@ const defaultSettings: SeatingSettings = {
   maxCombineCount: 2,
   vipEnabled: true,
   soloAllowedTableIds: [],
+  zonePriority: [],
+  overflowZones: [],
+  allowCrossZoneCombinations: false,
   emergencyZones: {
     enabled: false,
     zoneIds: [],

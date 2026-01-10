@@ -24,6 +24,9 @@ const seatingSettingsDefaults: SeatingSettings = {
   allocationMode: 'capacity',
   allocationStrategy: 'bestFit',
   defaultZoneId: '',
+  zonePriority: [],
+  overflowZones: [],
+  allowCrossZoneCombinations: false,
   emergencyZones: {
     enabled: false,
     zoneIds: [],

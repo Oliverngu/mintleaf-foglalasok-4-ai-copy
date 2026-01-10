@@ -9,6 +9,10 @@ export interface SuggestAllocationInput {
   zones: Zone[];
   tables: Table[];
   tableCombinations?: TableCombination[];
+  override?: {
+    forcedZoneId?: string;
+    forcedTableIds?: string[];
+  };
 }
 
 export interface SuggestAllocationResult {
@@ -149,7 +153,7 @@ const calculateConfidence = (partySize: number, candidate: Candidate) => {
 export const suggestAllocation = (
   input: SuggestAllocationInput
 ): SuggestAllocationResult => {
-  const { partySize, seatingSettings, zones } = input;
+  const { partySize, seatingSettings, zones, override } = input;
   if (partySize <= 0) {
     return { tableIds: [], reason: 'INVALID_PARTY_SIZE', confidence: 0 };
   }
@@ -159,6 +163,16 @@ export const suggestAllocation = (
   const allocationStrategy: AllocationStrategy =
     seatingSettings.allocationStrategy ?? 'bestFit';
   const defaultZoneId = seatingSettings.defaultZoneId ?? '';
+
+  if (override?.forcedTableIds?.length && override.forcedZoneId) {
+    return {
+      zoneId: override.forcedZoneId,
+      tableIds: override.forcedTableIds,
+      reason: 'OVERRIDE_TABLES',
+      confidence: 1,
+    };
+  }
+
   const candidates = buildCandidates(input);
 
   if (!candidates.length) {
@@ -169,29 +183,67 @@ export const suggestAllocation = (
     zones.map(zone => [zone.id, zone.priority ?? Number.POSITIVE_INFINITY])
   );
 
+  const priorityOrder = (seatingSettings.zonePriority ?? []).filter(Boolean);
+  if (priorityOrder.length) {
+    priorityOrder.forEach((zoneId, index) => {
+      zonePriority.set(zoneId, index);
+    });
+  }
+
+  const overflowZoneIds = new Set(seatingSettings.overflowZones ?? []);
+  const activeZoneIds = zones.filter(zone => zone.isActive).map(zone => zone.id);
+  const orderedZoneIds = priorityOrder.length
+    ? [
+        ...priorityOrder.filter(zoneId => activeZoneIds.includes(zoneId)),
+        ...activeZoneIds.filter(zoneId => !priorityOrder.includes(zoneId)),
+      ]
+    : [...activeZoneIds].sort((a, b) => {
+        if (a === defaultZoneId) return -1;
+        if (b === defaultZoneId) return 1;
+        const priorityA = zonePriority.get(a) ?? Number.POSITIVE_INFINITY;
+        const priorityB = zonePriority.get(b) ?? Number.POSITIVE_INFINITY;
+        return priorityA - priorityB;
+      });
+
+  const primaryZoneIds = orderedZoneIds.filter(zoneId => !overflowZoneIds.has(zoneId));
+  const fallbackZoneIds = orderedZoneIds.filter(zoneId => overflowZoneIds.has(zoneId));
+
   const pickBest = (items: Candidate[]) =>
     [...items].sort(compareCandidates(allocationStrategy, zonePriority, partySize))[0];
 
   if (allocationMode === 'floorplan' || allocationMode === 'hybrid') {
-    const zoneOrder = [...zones]
-      .filter(zone => zone.isActive)
-      .sort((a, b) => {
-        if (a.id === defaultZoneId) return -1;
-        if (b.id === defaultZoneId) return 1;
-        return (a.priority ?? 0) - (b.priority ?? 0);
-      });
-
-    for (const zone of zoneOrder) {
-      const zoneCandidates = candidates.filter(candidate => candidate.zoneId === zone.id);
-      if (zoneCandidates.length) {
-        const best = pickBest(zoneCandidates);
-        return {
-          zoneId: best.zoneId,
-          tableIds: best.tableIds,
-          reason: 'ZONE_FIRST',
-          confidence: calculateConfidence(partySize, best),
-        };
+    const evaluateZones = (zoneIds: string[], reason: string) => {
+      for (const zoneId of zoneIds) {
+        const zoneCandidates = candidates.filter(candidate => candidate.zoneId === zoneId);
+        if (zoneCandidates.length) {
+          const best = pickBest(zoneCandidates);
+          return {
+            zoneId: best.zoneId,
+            tableIds: best.tableIds,
+            reason,
+            confidence: calculateConfidence(partySize, best),
+          };
+        }
       }
+      return null;
+    };
+
+    const overrideZoneId = override?.forcedZoneId ?? '';
+    if (overrideZoneId) {
+      const overrideResult = evaluateZones([overrideZoneId], 'OVERRIDE_ZONE');
+      if (overrideResult) {
+        return overrideResult;
+      }
+    }
+
+    const primaryResult = evaluateZones(primaryZoneIds, 'ZONE_FIRST');
+    if (primaryResult) {
+      return primaryResult;
+    }
+
+    const fallbackResult = evaluateZones(fallbackZoneIds, 'ZONE_OVERFLOW');
+    if (fallbackResult) {
+      return fallbackResult;
     }
 
     if (allocationMode === 'floorplan') {

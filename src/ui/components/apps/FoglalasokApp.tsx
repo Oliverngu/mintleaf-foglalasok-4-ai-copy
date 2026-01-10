@@ -420,6 +420,7 @@ const AllocationPanel: React.FC<{
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [confirmSaveOnConflict, setConfirmSaveOnConflict] = useState(false);
+  const [isFloorplanOverride, setIsFloorplanOverride] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -483,8 +484,12 @@ const AllocationPanel: React.FC<{
         zones,
         tables,
         tableCombinations: combinations,
+        override: {
+          forcedZoneId: zoneId || undefined,
+          forcedTableIds: tableIds.length ? tableIds : undefined,
+        },
       }),
-    [booking.headcount, seatingSettings, zones, tables, combinations]
+    [booking.headcount, seatingSettings, zones, tables, combinations, zoneId, tableIds]
   );
   const bufferMinutes = seatingSettings.bufferMinutes ?? 15;
   const suggestionConflicts = useMemo(
@@ -524,6 +529,43 @@ const AllocationPanel: React.FC<{
       current.includes(tableId)
         ? current.filter(id => id !== tableId)
         : [...current, tableId]
+    );
+  };
+
+  const handleZonePick = (nextZoneId: string) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    setZoneId(nextZoneId);
+    if (!nextZoneId) {
+      setTableIds([]);
+      return;
+    }
+    const allowedTableIds = tableIdsByZone.get(nextZoneId) ?? new Set();
+    setTableIds(current => current.filter(tableId => allowedTableIds.has(tableId)));
+  };
+
+  const handleTablePick = (table: Table) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    if (!table.isActive) {
+      return;
+    }
+    if (zoneId && table.zoneId !== zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    if (!zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    setTableIds(current =>
+      current.includes(table.id)
+        ? current.filter(id => id !== table.id)
+        : [...current, table.id]
     );
   };
 
@@ -668,12 +710,32 @@ const AllocationPanel: React.FC<{
               setSaveError('Nincs alkalmazható javaslat.');
               return;
             }
-            setZoneId(suggestion.zoneId);
+            handleZonePick(suggestion.zoneId);
             setTableIds(filteredTableIds);
           }}
         >
           Javaslat alkalmazása
         </button>
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-white/70">
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs font-semibold"
+          onClick={() => setIsFloorplanOverride(current => !current)}
+        >
+          {isFloorplanOverride ? 'Térképes kijelölés bezárása' : 'Térképes kijelölés'}
+        </button>
+        {isFloorplanOverride && (
+          <div className="px-3 pb-3">
+            <FloorplanViewer
+              unitId={unitId}
+              highlightTableIds={tableIds}
+              highlightZoneId={zoneId || null}
+              onZoneClick={handleZonePick}
+              onTableClick={handleTablePick}
+            />
+          </div>
+        )}
       </div>
       {selectionConflicts.length > 0 && (
         <div className="text-xs text-amber-600 space-y-1">
@@ -706,14 +768,7 @@ const AllocationPanel: React.FC<{
               setSaveError(null);
               setSaveSuccess(null);
               setConfirmSaveOnConflict(false);
-              const nextZoneId = event.target.value;
-              setZoneId(nextZoneId);
-              if (!nextZoneId) {
-                setTableIds([]);
-                return;
-              }
-              const allowedTableIds = tableIdsByZone.get(nextZoneId) ?? new Set();
-              setTableIds(current => current.filter(tableId => allowedTableIds.has(tableId)));
+              handleZonePick(event.target.value);
             }}
             disabled={isLoading}
           >
