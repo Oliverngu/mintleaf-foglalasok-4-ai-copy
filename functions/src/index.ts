@@ -1465,6 +1465,26 @@ export const adminSetReservationOverride = onCall(
       }
 
       if (hasSetAction && forcedTableIds) {
+        const zoneSnap = await db
+          .collection('units')
+          .doc(unitId)
+          .collection('zones')
+          .doc(forcedZoneId)
+          .get();
+        if (!zoneSnap.exists) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedZoneId ismeretlen'
+          );
+        }
+        const zoneData = zoneSnap.data() || {};
+        if (zoneData.isActive === false) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedZoneId nem aktív'
+          );
+        }
+
         const tableRefs = forcedTableIds.map(tableId =>
           db
             .collection('units')
