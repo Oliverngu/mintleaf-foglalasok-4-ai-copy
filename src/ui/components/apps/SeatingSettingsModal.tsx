@@ -30,6 +30,10 @@ import {
   updateTable,
   updateZone,
 } from '../../../core/services/seatingAdminService';
+import {
+  normalizeFloorplanDimensions,
+  normalizeTableGeometry,
+} from '../../../core/utils/seatingNormalize';
 
 interface SeatingSettingsModalProps {
   unitId: string;
@@ -92,6 +96,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     w: number;
     h: number;
     radius: number;
+    x: number;
+    y: number;
+    rot: number;
     snapToGrid: boolean;
     locked: boolean;
   }>({
@@ -106,6 +113,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     w: 80,
     h: 60,
     radius: 40,
+    x: 0,
+    y: 0,
+    rot: 0,
     snapToGrid: true,
     locked: false,
   });
@@ -127,6 +137,27 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     backgroundImageUrl: '',
     isActive: true,
   });
+
+  useEffect(() => {
+    if (!isDev) return;
+    if (floorplans.length === 0 && tables.length === 0) return;
+    const normalizedFloorplans = floorplans.map(plan => ({
+      id: plan.id,
+      ...normalizeFloorplanDimensions(plan),
+    }));
+    const normalizedTables = tables.slice(0, 3).map(table => ({
+      id: table.id,
+      ...normalizeTableGeometry(table, {
+        rectWidth: 80,
+        rectHeight: 60,
+        circleRadius: 40,
+      }),
+    }));
+    console.debug('[seating] normalized geometry snapshot', {
+      floorplans: normalizedFloorplans,
+      tables: normalizedTables,
+    });
+  }, [floorplans, isDev, tables]);
 
   useEffect(() => {
     let isMounted = true;
@@ -488,6 +519,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const width = tableForm.w;
       const height = tableForm.h;
       const radius = tableForm.radius;
+      const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
+      const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
+      const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
       const payload = {
         name: tableForm.name.trim(),
         zoneId: tableForm.zoneId,
@@ -500,6 +534,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         ...(isRect && Number.isFinite(width) ? { w: width } : {}),
         ...(isRect && Number.isFinite(height) ? { h: height } : {}),
         ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
+        x,
+        y,
+        rot,
         snapToGrid: tableForm.snapToGrid,
         locked: tableForm.locked,
       };
@@ -521,6 +558,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         w: 80,
         h: 60,
         radius: 40,
+        x: 0,
+        y: 0,
+        rot: 0,
         snapToGrid: true,
         locked: false,
       });
@@ -662,44 +702,49 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Mentés
           </button>
           <div className="space-y-2 text-sm">
-            {visibleFloorplans.map(plan => (
-              <div key={plan.id} className="flex items-center justify-between border rounded p-2">
-                <div>
-                  {plan.name} ({plan.width}×{plan.height})
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleActivateFloorplan(plan.id)}
-                    className="text-blue-600"
-                  >
-                    {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await deleteFloorplan(unitId, plan.id);
-                      const nextFloorplans = await listFloorplans(unitId);
-                      const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
-                      if (resolvedActiveFloorplanId === plan.id) {
-                        const nextActiveId = nextVisible[0]?.id ?? '';
-                        if (nextActiveId !== resolvedActiveFloorplanId) {
-                          await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
-                          setSettings(current => ({
-                            ...(current ?? {}),
-                            activeFloorplanId: nextActiveId,
-                          }));
+            {visibleFloorplans.map(plan => {
+              const { width, height } = normalizeFloorplanDimensions(plan);
+              return (
+                <div key={plan.id} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    {plan.name} ({width}×{height})
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleActivateFloorplan(plan.id)}
+                      className="text-blue-600"
+                    >
+                      {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await deleteFloorplan(unitId, plan.id);
+                        const nextFloorplans = await listFloorplans(unitId);
+                        const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
+                        if (resolvedActiveFloorplanId === plan.id) {
+                          const nextActiveId = nextVisible[0]?.id ?? '';
+                          if (nextActiveId !== resolvedActiveFloorplanId) {
+                            await updateSeatingSettings(unitId, {
+                              activeFloorplanId: nextActiveId,
+                            });
+                            setSettings(current => ({
+                              ...(current ?? {}),
+                              activeFloorplanId: nextActiveId,
+                            }));
+                          }
                         }
-                      }
-                      setFloorplans(nextFloorplans);
-                    }}
-                    className="text-red-600"
-                  >
-                    Törlés
-                  </button>
+                        setFloorplans(nextFloorplans);
+                      }}
+                      className="text-red-600"
+                    >
+                      Törlés
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -1134,22 +1179,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <button
                     type="button"
                     onClick={() =>
-                      setTableForm({
-                        id: table.id,
-                        name: table.name,
-                        zoneId: table.zoneId,
-                        minCapacity: table.minCapacity,
-                        capacityMax: table.capacityMax,
-                        isActive: table.isActive,
-                        canSeatSolo: table.canSeatSolo ?? false,
-                        floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
-                        shape: table.shape ?? 'rect',
-                        w: table.w ?? 80,
-                        h: table.h ?? 60,
-                        radius: table.radius ?? 40,
-                        snapToGrid: table.snapToGrid ?? true,
-                        locked: table.locked ?? false,
-                      })
+                      (() => {
+                        const geometry = normalizeTableGeometry(table, {
+                          rectWidth: 80,
+                          rectHeight: 60,
+                          circleRadius: 40,
+                        });
+                        setTableForm({
+                          id: table.id,
+                          name: table.name,
+                          zoneId: table.zoneId,
+                          minCapacity: table.minCapacity,
+                          capacityMax: table.capacityMax,
+                          isActive: table.isActive,
+                          canSeatSolo: table.canSeatSolo ?? false,
+                          floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
+                          shape: geometry.shape,
+                          w: geometry.w,
+                          h: geometry.h,
+                          radius: geometry.radius,
+                          x: geometry.x,
+                          y: geometry.y,
+                          rot: geometry.rot,
+                          snapToGrid: table.snapToGrid ?? true,
+                          locked: table.locked ?? false,
+                        });
+                      })()
                     }
                     className="text-blue-600"
                   >
