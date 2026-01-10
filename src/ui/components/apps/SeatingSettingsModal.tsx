@@ -915,6 +915,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const deltaY = event.clientY - dragState.pointerStartY;
     if (dragState.mode === 'rotate') {
       if (!floorplanRef.current) {
+        handleTablePointerCancel();
         return;
       }
       const pointer = getLocalPointerPosition(event);
@@ -946,6 +947,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const tableId = dragState.tableId;
     if (dragState.mode === 'rotate') {
       if (!floorplanRef.current) {
+        handleTablePointerCancel();
         return;
       }
       const pointer = getLocalPointerPosition(event);
