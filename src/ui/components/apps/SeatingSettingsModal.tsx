@@ -789,7 +789,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         capacityMax: 2,
         isActive: true,
         canSeatSolo: false,
-        floorplanId: activeFloorplanId,
+        floorplanId: resolvedActiveFloorplanId,
         shape: 'rect',
         w: 80,
         h: 60,
@@ -1098,7 +1098,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     void finalizeDrag(tableId, nextX, nextY);
   };
 
-  const handleTablePointerCancel = (event: React.PointerEvent<Element>) => {
+  const handleTablePointerCancel = (event: React.PointerEvent<HTMLElement>) => {
     const drag = dragState;
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
@@ -1108,7 +1108,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleComboSubmit = async () => {
     setError(null);
     setSuccess(null);
-    const uniqueSelection = Array.from(new Set(comboSelection));
+    const uniqueSelection = Array.from(new Set<string>(comboSelection));
     if (uniqueSelection.length < 2 || uniqueSelection.length > 3) {
       setError('A kombináció 2-3 asztalból állhat.');
       return;
@@ -1615,7 +1615,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 className="border rounded p-2 w-full"
                 value={settings?.emergencyZones?.zoneIds ?? []}
                 onChange={event => {
-                  const values = Array.from(event.target.selectedOptions).map(option => option.value);
+                  const values = Array.from(
+                    event.currentTarget.selectedOptions,
+                    option => option.value
+                  );
                   setSettings(current => ({
                     ...(current ?? {}),
                     emergencyZones: {
