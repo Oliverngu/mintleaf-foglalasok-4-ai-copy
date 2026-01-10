@@ -1368,14 +1368,43 @@ export const adminSetReservationOverride = onCall(
         throw new HttpsError('permission-denied', 'Forbidden');
       }
 
-      const forcedZoneId = normalizeOptionalText((payload as any).forcedZoneId);
-      const note = normalizeOptionalText((payload as any).note);
+      const hasForcedZoneId = Object.prototype.hasOwnProperty.call(
+        payload,
+        'forcedZoneId'
+      );
+      const hasForcedTableIds = Object.prototype.hasOwnProperty.call(
+        payload,
+        'forcedTableIds'
+      );
+      const hasNote = Object.prototype.hasOwnProperty.call(payload, 'note');
+
+      const rawForcedZoneId = (payload as any).forcedZoneId;
+      const rawNote = (payload as any).note;
+
+      if (
+        (hasForcedZoneId &&
+          rawForcedZoneId !== null &&
+          typeof rawForcedZoneId !== 'string') ||
+        (hasNote && rawNote !== null && typeof rawNote !== 'string')
+      ) {
+        throw new HttpsError(
+          'invalid-argument',
+          'forcedZoneId és note csak string lehet'
+        );
+      }
+
+      const forcedZoneId =
+        rawForcedZoneId === null
+          ? null
+          : normalizeOptionalText(rawForcedZoneId);
+      const note = rawNote === null ? null : normalizeOptionalText(rawNote);
 
       let forcedTableIds: string[] | undefined;
-      if (Object.prototype.hasOwnProperty.call(payload, 'forcedTableIds')) {
+      let forcedTableIdsShouldDelete = false;
+      if (hasForcedTableIds) {
         const rawTableIds = (payload as any).forcedTableIds;
-        if (rawTableIds == null) {
-          forcedTableIds = undefined;
+        if (rawTableIds === null) {
+          forcedTableIdsShouldDelete = true;
         } else if (!Array.isArray(rawTableIds)) {
           throw new HttpsError(
             'invalid-argument',
@@ -1402,6 +1431,15 @@ export const adminSetReservationOverride = onCall(
         }
       }
 
+      const hasClearAction =
+        (hasForcedZoneId && rawForcedZoneId === null) ||
+        (hasNote && rawNote === null) ||
+        (hasForcedTableIds && forcedTableIdsShouldDelete);
+      const hasSetAction =
+        (hasForcedZoneId && forcedZoneId) ||
+        (hasNote && note) ||
+        (hasForcedTableIds && !!forcedTableIds);
+
       const overrideRef = db
         .collection('units')
         .doc(unitId)
@@ -1421,6 +1459,15 @@ export const adminSetReservationOverride = onCall(
         ...(forcedTableIds ? { forcedTableIds } : {}),
         ...(note ? { note } : {}),
       };
+      if (hasForcedZoneId && forcedZoneId === null) {
+        overrideData.forcedZoneId = FieldValue.delete();
+      }
+      if (hasNote && note === null) {
+        overrideData.note = FieldValue.delete();
+      }
+      if (hasForcedTableIds && forcedTableIdsShouldDelete) {
+        overrideData.forcedTableIds = FieldValue.delete();
+      }
 
       const meta: Record<string, unknown> = {};
       if (forcedZoneId) meta.forcedZoneId = forcedZoneId;
@@ -1440,7 +1487,9 @@ export const adminSetReservationOverride = onCall(
           request.auth.token?.email ||
           'Ismeretlen felhasználó',
         source: 'admin',
-        message: 'Allokáció felülírás mentve.',
+        message: hasClearAction && !hasSetAction
+          ? 'Allokáció felülírás mezők törölve.'
+          : 'Allokáció felülírás mentve.',
         ...(Object.keys(meta).length ? { meta } : {}),
       };
 
@@ -1455,6 +1504,94 @@ export const adminSetReservationOverride = onCall(
         throw err;
       }
       logger.error('adminSetReservationOverride error', err);
+      throw new HttpsError('internal', 'Szerverhiba');
+    }
+  }
+);
+
+export const adminClearReservationOverride = onCall(
+  { region: REGION },
+  async request => {
+    try {
+      if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Unauthorized');
+      }
+
+      const data = request.data || {};
+      if (typeof data !== 'object' || Array.isArray(data)) {
+        throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+      }
+
+      const allowedKeys = new Set(['unitId', 'reservationId']);
+      const keys = Object.keys(data);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+      }
+
+      const unitId = data.unitId;
+      const reservationId = data.reservationId;
+
+      if (typeof unitId !== 'string' || typeof reservationId !== 'string') {
+        throw new HttpsError(
+          'invalid-argument',
+          'unitId és reservationId kötelező'
+        );
+      }
+
+      const userSnap = await db.collection('users').doc(request.auth.uid).get();
+      if (!userSnap.exists) {
+        throw new HttpsError('permission-denied', 'Forbidden');
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        throw new HttpsError('permission-denied', 'Forbidden');
+      }
+
+      const overrideRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_overrides')
+        .doc(reservationId);
+
+      const logRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_logs')
+        .doc();
+
+      const logData: Record<string, unknown> = {
+        bookingId: reservationId,
+        unitId,
+        type: 'allocation_override_set',
+        createdAt: FieldValue.serverTimestamp(),
+        createdByUserId: request.auth.uid,
+        createdByName:
+          userData.name ||
+          userData.fullName ||
+          request.auth.token?.name ||
+          request.auth.token?.email ||
+          'Ismeretlen felhasználó',
+        source: 'admin',
+        message: 'Allokáció felülírás törölve.',
+      };
+
+      const batch = db.batch();
+      batch.delete(overrideRef);
+      batch.set(logRef, logData);
+      await batch.commit();
+
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof HttpsError) {
+        throw err;
+      }
+      logger.error('adminClearReservationOverride error', err);
       throw new HttpsError('internal', 'Szerverhiba');
     }
   }
