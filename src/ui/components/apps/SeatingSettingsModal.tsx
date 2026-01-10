@@ -96,6 +96,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     height: number;
     mode: 'move' | 'rotate';
     tableStartRot: number;
+    rotStartAngleDeg: number;
+    rotCenterX: number;
+    rotCenterY: number;
     floorplanWidth: number;
     floorplanHeight: number;
     gridSize: number;
@@ -104,6 +107,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
+  const floorplanRef = useRef<HTMLDivElement | null>(null);
   const lastActionRef = useRef<null | {
     tableId: string;
     kind: 'move' | 'rotate';
@@ -731,6 +735,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const getLocalPointerPosition = (event: React.PointerEvent<HTMLElement>) => {
+    const rect = floorplanRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: event.clientX, y: event.clientY };
+    }
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
     if (!action) return;
@@ -866,6 +878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
     const mode = event.shiftKey ? 'rotate' : 'move';
+    const centerX = position.x + geometry.w / 2;
+    const centerY = position.y + geometry.h / 2;
+    const pointer = getLocalPointerPosition(event);
+    const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
     setDragState({
       tableId: table.id,
       pointerStartX: event.clientX,
@@ -876,6 +892,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       height: geometry.h,
       mode,
       tableStartRot: renderRot,
+      rotStartAngleDeg: startAngle,
+      rotCenterX: centerX,
+      rotCenterY: centerY,
       floorplanWidth,
       floorplanHeight,
       gridSize: editorGridSize,
@@ -895,8 +914,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
     if (dragState.mode === 'rotate') {
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
-      updateDraftRotation(dragState.tableId, snapRotation(nextRot));
+      const pointer = getLocalPointerPosition(event);
+      const currentAngle =
+        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = currentAngle - dragState.rotStartAngleDeg;
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
+      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
+      updateDraftRotation(dragState.tableId, snapRotation(nextRot, step));
       return;
     }
     let nextX = dragState.tableStartX + deltaX;
@@ -915,18 +940,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!dragState) return;
     event.preventDefault();
-    const deltaX = event.clientX - dragState.pointerStartX;
-    const deltaY = event.clientY - dragState.pointerStartY;
     const tableId = dragState.tableId;
     if (dragState.mode === 'rotate') {
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
-      const snappedRot = snapRotation(nextRot);
+      const pointer = getLocalPointerPosition(event);
+      const currentAngle =
+        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = currentAngle - dragState.rotStartAngleDeg;
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
+      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
+      const snappedRot = snapRotation(nextRot, step);
       updateDraftRotation(tableId, snappedRot);
       const prevRot = dragState.tableStartRot;
       setDragState(null);
       void finalizeRotation(tableId, snappedRot, prevRot);
       return;
     }
+    const deltaX = event.clientX - dragState.pointerStartX;
+    const deltaY = event.clientY - dragState.pointerStartY;
     let nextX = dragState.tableStartX + deltaX;
     let nextY = dragState.tableStartY + deltaY;
     if (dragState.snapToGrid) {
@@ -1145,7 +1176,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ) : (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-                <span>Grid: {editorGridSize}px • Shift + húzás = forgatás</span>
+                <span>
+                  Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
+                </span>
                 <button
                   type="button"
                   className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
@@ -1159,6 +1192,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 <div
                   className="relative border border-gray-200 rounded-lg"
                   style={{ width: floorplanWidth, height: floorplanHeight }}
+                  ref={floorplanRef}
                 >
                   {activeFloorplan.backgroundImageUrl && (
                     <img
@@ -1218,6 +1252,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 event.stopPropagation();
                                 setSelectedTableId(table.id);
                                 event.currentTarget.setPointerCapture?.(event.pointerId);
+                                const centerX = position.x + geometry.w / 2;
+                                const centerY = position.y + geometry.h / 2;
+                                const pointer = getLocalPointerPosition(event);
+                                const startAngle =
+                                  Math.atan2(pointer.y - centerY, pointer.x - centerX) *
+                                  (180 / Math.PI);
                                 setDragState({
                                   tableId: table.id,
                                   pointerStartX: event.clientX,
@@ -1228,6 +1268,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   height: geometry.h,
                                   mode: 'rotate',
                                   tableStartRot: renderRot,
+                                  rotStartAngleDeg: startAngle,
+                                  rotCenterX: centerX,
+                                  rotCenterY: centerY,
                                   floorplanWidth,
                                   floorplanHeight,
                                   gridSize: editorGridSize,
