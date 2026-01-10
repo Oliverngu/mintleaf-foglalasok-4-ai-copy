@@ -1,5 +1,13 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Booking, Table, User, Unit, Zone } from '../../../core/models/data';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import {
+  Booking,
+  SeatingSettings,
+  Table,
+  TableCombination,
+  User,
+  Unit,
+  Zone,
+} from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
@@ -20,11 +28,17 @@ import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import { listTables, listZones, updateReservationSeating } from '../../../core/services/seatingService';
+import { getSeatingSettings, listCombinations } from '../../../core/services/seatingAdminService';
+import { suggestAllocation } from '../../../core/services/allocation/tableAllocation';
 import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import SeatingSettingsModal from './SeatingSettingsModal';
-import { setReservationAllocationOverride } from '../../../core/services/adminAllocationApiService';
 import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
 import FloorplanViewer from './seating/FloorplanViewer';
+import {
+  clearOverride,
+  getOverride,
+  setOverride,
+} from '../../../core/services/seating/reservationOverridesService';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -35,8 +49,8 @@ type BookingLogType =
   | 'guest_cancelled'
   | 'capacity_override'
   | 'admin_seating_updated'
-  | 'allocation_override_set'
-  | 'capacity_recalc';
+  | 'capacity_recalc'
+  | 'allocation_override_set';
 
 interface BookingLog {
   id: string;
@@ -295,15 +309,6 @@ const BookingSeatingEditor: React.FC<{
   );
 };
 
-const timeSlotOptions = [
-  '11:00-13:00',
-  '13:00-15:00',
-  '15:00-17:00',
-  '17:00-19:00',
-  '19:00-21:00',
-  '21:00-23:00',
-];
-
 const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => {
   if (!value || value === 'any') return 'Nincs megadva';
   if (value === 'bar') return 'Bár';
@@ -312,66 +317,214 @@ const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => 
   return 'Nincs megadva';
 };
 
-const resolveAllocationBadge = (booking: Booking) =>
-  booking.allocationOverride?.enabled ? 'OVERRIDE' : 'SYSTEM';
-
-const resolveEffectiveAllocation = (booking: Booking) => {
-  if (booking.allocationOverride?.enabled) {
-    return {
-      source: 'override',
-      timeSlot: booking.allocationOverride.timeSlot || null,
-      zoneId: booking.allocationOverride.zoneId || null,
-      tableGroup: booking.allocationOverride.tableGroup || null,
-      tableIds: booking.allocationOverride.tableIds || null,
-    };
-  }
-
-  if (booking.allocationFinal) {
-    return {
-      source: booking.allocationFinal.source || undefined,
-      timeSlot: booking.allocationFinal.timeSlot || null,
-      zoneId: booking.allocationFinal.zoneId || null,
-      tableGroup: booking.allocationFinal.tableGroup || null,
-      tableIds: booking.allocationFinal.tableIds || null,
-    };
-  }
-
-  return {
-    source: 'intent',
-    timeSlot: booking.allocationIntent?.timeSlot || null,
-    zoneId: booking.allocationIntent?.zoneId || null,
-    tableGroup: booking.allocationIntent?.tableGroup || null,
-    tableIds: null,
-  };
+type AllocationConflict = {
+  bookingId: string;
+  bookingName: string;
+  overlapLabel: string;
+  tableIds: string[];
 };
 
-const AllocationOverrideEditor: React.FC<{
+const computeAllocationConflicts = (
+  targetBooking: Booking,
+  candidateTableIds: string[],
+  dayBookings: Booking[],
+  bufferMinutes: number
+): AllocationConflict[] => {
+  if (!candidateTableIds.length) {
+    return [];
+  }
+
+  const targetStart = targetBooking.startTime?.toDate?.() ?? null;
+  const targetEnd = targetBooking.endTime?.toDate?.() ?? null;
+  if (!targetStart || !targetEnd) {
+    return [];
+  }
+
+  const bufferMs = bufferMinutes * 60 * 1000;
+  const candidateSet = new Set(candidateTableIds);
+  const conflicts: Array<AllocationConflict & { sortTime: number }> = [];
+
+  dayBookings.forEach(other => {
+    if (other.id === targetBooking.id) {
+      return;
+    }
+    const otherTableIds = other.assignedTableIds ?? [];
+    if (!otherTableIds.length) {
+      return;
+    }
+    const otherStart = other.startTime?.toDate?.() ?? null;
+    const otherEnd = other.endTime?.toDate?.() ?? null;
+    if (!otherStart || !otherEnd) {
+      return;
+    }
+    const otherStartAdj = new Date(otherStart.getTime() - bufferMs);
+    const otherEndAdj = new Date(otherEnd.getTime() + bufferMs);
+    if (!(targetStart < otherEndAdj && targetEnd > otherStartAdj)) {
+      return;
+    }
+    const overlapTables = otherTableIds.filter(tableId => candidateSet.has(tableId));
+    if (!overlapTables.length) {
+      return;
+    }
+    const overlapLabel = `${otherStart.toLocaleTimeString('hu-HU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}–${otherEnd.toLocaleTimeString('hu-HU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    conflicts.push({
+      bookingId: other.id,
+      bookingName: other.name,
+      overlapLabel,
+      tableIds: overlapTables,
+      sortTime: otherStart.getTime(),
+    });
+  });
+
+  return conflicts
+    .sort((a, b) => {
+      if (a.sortTime !== b.sortTime) {
+        return a.sortTime - b.sortTime;
+      }
+      return a.bookingName.localeCompare(b.bookingName);
+    })
+    .map(({ sortTime, ...rest }) => rest);
+};
+
+
+const AllocationPanel: React.FC<{
   booking: Booking;
   unitId: string;
   zones: Zone[];
   tables: Table[];
+  combinations: TableCombination[];
+  seatingSettings: SeatingSettings;
+  dayBookings: Booking[];
   onClose?: () => void;
-}> = ({ booking, unitId, zones, tables, onClose }) => {
-  const [enabled, setEnabled] = useState(Boolean(booking.allocationOverride?.enabled));
-  const [timeSlot, setTimeSlot] = useState<string>(booking.allocationOverride?.timeSlot || '');
-  const [zoneId, setZoneId] = useState<string>(booking.allocationOverride?.zoneId || '');
-  const [tableGroup, setTableGroup] = useState<string>(
-    booking.allocationOverride?.tableGroup || ''
-  );
-  const [tableIds, setTableIds] = useState<string[]>(
-    booking.allocationOverride?.tableIds || []
-  );
-  const [note, setNote] = useState<string>(booking.allocationOverride?.note || '');
+}> = ({
+  booking,
+  unitId,
+  zones,
+  tables,
+  combinations,
+  seatingSettings,
+  dayBookings,
+  onClose,
+}) => {
+  const [zoneId, setZoneId] = useState<string>('');
+  const [tableIds, setTableIds] = useState<string[]>([]);
+  const [note, setNote] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [confirmSaveOnConflict, setConfirmSaveOnConflict] = useState(false);
+  const [isFloorplanOverride, setIsFloorplanOverride] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    setSaveError(null);
+    getOverride(unitId, booking.id)
+      .then(data => {
+        if (!isMounted) return;
+        setZoneId(data?.forcedZoneId ?? '');
+        setTableIds(data?.forcedTableIds ?? []);
+        setNote(data?.note ?? '');
+      })
+      .catch(err => {
+        console.error('Error loading allocation override:', err);
+        if (isMounted) {
+          setSaveError('Nem sikerült betölteni az override adatokat.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [booking.id, unitId]);
 
   const availableTables = useMemo(
     () => tables.filter(table => table.zoneId === zoneId && table.isActive),
     [tables, zoneId]
   );
+  const tableIdsByZone = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    tables.forEach(table => {
+      if (!table.isActive) {
+        return;
+      }
+      if (!map.has(table.zoneId)) {
+        map.set(table.zoneId, new Set());
+      }
+      map.get(table.zoneId)!.add(table.id);
+    });
+    return map;
+  }, [tables]);
+
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name ?? table.id])),
+    [tables]
+  );
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name ?? zone.id])),
+    [zones]
+  );
+
+  const suggestion = useMemo(
+    () =>
+      suggestAllocation({
+        partySize: booking.headcount,
+        seatingSettings,
+        zones,
+        tables,
+        tableCombinations: combinations,
+        override: {
+          forcedZoneId: zoneId || undefined,
+          forcedTableIds: tableIds.length ? tableIds : undefined,
+        },
+      }),
+    [booking.headcount, seatingSettings, zones, tables, combinations, zoneId, tableIds]
+  );
+  const bufferMinutes = seatingSettings.bufferMinutes ?? 15;
+  const suggestionConflicts = useMemo(
+    () =>
+      suggestion.tableIds.length
+        ? computeAllocationConflicts(booking, suggestion.tableIds, dayBookings, bufferMinutes)
+        : [],
+    [
+      booking.id,
+      booking.startTime,
+      booking.endTime,
+      suggestion.tableIds,
+      dayBookings,
+      bufferMinutes,
+    ]
+  );
+  const selectionConflicts = useMemo(
+    () =>
+      tableIds.length
+        ? computeAllocationConflicts(booking, tableIds, dayBookings, bufferMinutes)
+        : [],
+    [
+      booking.id,
+      booking.startTime,
+      booking.endTime,
+      tableIds,
+      dayBookings,
+      bufferMinutes,
+    ]
+  );
 
   const toggleTable = (tableId: string) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
     setTableIds(current =>
       current.includes(tableId)
         ? current.filter(id => id !== tableId)
@@ -379,8 +532,42 @@ const AllocationOverrideEditor: React.FC<{
     );
   };
 
-  const hasAnyOverrideValue =
-    Boolean(timeSlot) || Boolean(zoneId) || Boolean(tableGroup) || tableIds.length > 0 || Boolean(note);
+  const handleZonePick = (nextZoneId: string) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    setZoneId(nextZoneId);
+    if (!nextZoneId) {
+      setTableIds([]);
+      return;
+    }
+    const allowedTableIds = tableIdsByZone.get(nextZoneId) ?? new Set();
+    setTableIds(current => current.filter(tableId => allowedTableIds.has(tableId)));
+  };
+
+  const handleTablePick = (table: Table) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    if (!table.isActive) {
+      return;
+    }
+    if (zoneId && table.zoneId !== zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    if (!zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    setTableIds(current =>
+      current.includes(table.id)
+        ? current.filter(id => id !== table.id)
+        : [...current, table.id]
+    );
+  };
 
   const handleClear = async () => {
     if (isSaving) {
@@ -389,19 +576,10 @@ const AllocationOverrideEditor: React.FC<{
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
     try {
-      await setReservationAllocationOverride(unitId, booking.id, {
-        enabled: false,
-        timeSlot: null,
-        zoneId: null,
-        tableGroup: null,
-        tableIds: null,
-        note: null,
-      });
-      setEnabled(false);
-      setTimeSlot('');
+      await clearOverride(unitId, booking.id);
       setZoneId('');
-      setTableGroup('');
       setTableIds([]);
       setNote('');
       setSaveSuccess('Allocation override törölve.');
@@ -414,7 +592,7 @@ const AllocationOverrideEditor: React.FC<{
     }
   };
 
-  const handleSave = async () => {
+  const handleForceSave = async () => {
     if (isSaving) {
       return;
     }
@@ -424,23 +602,33 @@ const AllocationOverrideEditor: React.FC<{
     if (tableIds.length > 0 && !zoneId) {
       setIsSaving(false);
       setSaveError('Asztalokhoz zóna megadása kötelező.');
+      setConfirmSaveOnConflict(false);
       return;
     }
-    if (enabled && !hasAnyOverrideValue) {
+    if (zoneId && tableIds.length > 0) {
+      const allowedTableIds = tableIdsByZone.get(zoneId) ?? new Set();
+      const invalidTableIds = tableIds.filter(tableId => !allowedTableIds.has(tableId));
+      if (invalidTableIds.length > 0) {
+        setIsSaving(false);
+        setSaveError('A kiválasztott asztalok nem tartoznak a megadott zónához.');
+        setConfirmSaveOnConflict(false);
+        return;
+      }
+    }
+    if (!zoneId && tableIds.length === 0 && !note.trim()) {
       setIsSaving(false);
       setSaveError('Adj meg legalább egy mezőt az override-hoz.');
+      setConfirmSaveOnConflict(false);
       return;
     }
     try {
-      await setReservationAllocationOverride(unitId, booking.id, {
-        enabled,
-        timeSlot: timeSlot || null,
-        zoneId: zoneId || null,
-        tableGroup: tableGroup || null,
-        tableIds: tableIds.length ? tableIds : null,
-        note: note || null,
+      await setOverride(unitId, booking.id, {
+        forcedZoneId: zoneId || undefined,
+        forcedTableIds: tableIds.length ? tableIds : undefined,
+        note: note.trim() || undefined,
       });
       setSaveSuccess('Allocation override mentve.');
+      setConfirmSaveOnConflict(false);
       onClose?.();
     } catch (err) {
       console.error('Error saving allocation override:', err);
@@ -450,44 +638,125 @@ const AllocationOverrideEditor: React.FC<{
     }
   };
 
+  const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
+    if (selectionConflicts.length > 0 && !confirmSaveOnConflict) {
+      setConfirmSaveOnConflict(true);
+      return;
+    }
+    await handleForceSave();
+  };
+
+  const suggestionZoneLabel = suggestion.zoneId
+    ? zoneNameById.get(suggestion.zoneId) ?? suggestion.zoneId
+    : '—';
+  const suggestionTableLabels =
+    suggestion.tableIds.length > 0
+      ? suggestion.tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
+
   return (
     <div className="mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-          Allocation override
-        </label>
-        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={event => setEnabled(event.target.checked)}
-          />
-          Engedélyezve
-        </label>
+      <div className="text-xs text-[var(--color-text-secondary)] space-y-1">
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">Javaslat:</span>{' '}
+          {suggestionZoneLabel} • {suggestionTableLabels}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">Indoklás:</span>{' '}
+          {suggestion.reason} • {Math.round(suggestion.confidence * 100)}%
+        </div>
+        {suggestionConflicts.length > 0 && (
+          <div className="text-amber-600 space-y-1">
+            <div className="font-semibold">⚠️ Javaslat ütközik</div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {suggestionConflicts.map(conflict => (
+                <li
+                  key={`${conflict.bookingId}-${conflict.overlapLabel}-${conflict.tableIds.join(
+                    ','
+                  )}`}
+                >
+                  {conflict.bookingName} ({conflict.overlapLabel}) –{' '}
+                  {conflict.tableIds
+                    .map(tableId => tableNameById.get(tableId) ?? tableId)
+                    .join(', ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <button
+          type="button"
+          className="text-xs font-semibold text-blue-600 hover:underline"
+          onClick={() => {
+            setSaveError(null);
+            setSaveSuccess(null);
+            setConfirmSaveOnConflict(false);
+            if (!suggestion.zoneId) {
+              if (suggestion.tableIds.length > 0) {
+                setSaveError('A javaslat nem tartalmaz zónát.');
+                return;
+              }
+              setSaveError('Nincs alkalmazható javaslat.');
+              return;
+            }
+            const allowedTableIds = tableIdsByZone.get(suggestion.zoneId) ?? new Set();
+            const filteredTableIds = suggestion.tableIds.filter(tableId =>
+              allowedTableIds.has(tableId)
+            );
+            if (!filteredTableIds.length) {
+              setSaveError('Nincs alkalmazható javaslat.');
+              return;
+            }
+            handleZonePick(suggestion.zoneId);
+            setTableIds(filteredTableIds);
+          }}
+        >
+          Javaslat alkalmazása
+        </button>
       </div>
-      {booking.allocationFinal?.locked && (
-        <div className="text-xs text-[var(--color-text-secondary)]">
-          Zárolva: rendszer nem írja felül az allokációt.
+      <div className="rounded-lg border border-gray-200 bg-white/70">
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs font-semibold"
+          onClick={() => setIsFloorplanOverride(current => !current)}
+        >
+          {isFloorplanOverride ? 'Térképes kijelölés bezárása' : 'Térképes kijelölés'}
+        </button>
+        {isFloorplanOverride && (
+          <div className="px-3 pb-3">
+            <FloorplanViewer
+              unitId={unitId}
+              highlightTableIds={tableIds}
+              highlightZoneId={zoneId || null}
+              onZoneClick={handleZonePick}
+              onTableClick={handleTablePick}
+            />
+          </div>
+        )}
+      </div>
+      {selectionConflicts.length > 0 && (
+        <div className="text-xs text-amber-600 space-y-1">
+          <div className="font-semibold">⚠️ Kiválasztott asztalok ütköznek</div>
+          <ul className="list-disc list-inside space-y-0.5">
+            {selectionConflicts.map(conflict => (
+              <li
+                key={`${conflict.bookingId}-${conflict.overlapLabel}-${conflict.tableIds.join(
+                  ','
+                )}`}
+              >
+                {conflict.bookingName} ({conflict.overlapLabel}) –{' '}
+                {conflict.tableIds
+                  .map(tableId => tableNameById.get(tableId) ?? tableId)
+                  .join(', ')}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-            Idősáv
-          </label>
-          <select
-            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
-            value={timeSlot}
-            onChange={event => setTimeSlot(event.target.value)}
-          >
-            <option value="">Nincs beállítva</option>
-            {timeSlotOptions.map(slot => (
-              <option key={slot} value={slot}>
-                {slot}
-              </option>
-            ))}
-          </select>
-        </div>
         <div>
           <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
             Zóna
@@ -496,9 +765,12 @@ const AllocationOverrideEditor: React.FC<{
             className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
             value={zoneId}
             onChange={event => {
-              setZoneId(event.target.value);
-              setTableIds([]);
+              setSaveError(null);
+              setSaveSuccess(null);
+              setConfirmSaveOnConflict(false);
+              handleZonePick(event.target.value);
             }}
+            disabled={isLoading}
           >
             <option value="">Nincs beállítva</option>
             {zones.map(zone => (
@@ -510,76 +782,93 @@ const AllocationOverrideEditor: React.FC<{
         </div>
         <div>
           <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-            Table group
+            Megjegyzés
           </label>
           <input
             className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
-            value={tableGroup}
-            onChange={event => setTableGroup(event.target.value)}
-            placeholder="Pl. 4-es zóna"
+            value={note}
+            onChange={event => {
+              setSaveError(null);
+              setSaveSuccess(null);
+              setConfirmSaveOnConflict(false);
+              setNote(event.target.value);
+            }}
+            placeholder="Override megjegyzés"
+            disabled={isLoading}
           />
         </div>
       </div>
       <div>
-        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Asztalok</label>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+          Asztalok
+        </label>
         <div className="mt-2 space-y-2">
           {!zoneId && (
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Válassz zónát az asztalokhoz.
+              Előbb válassz zónát.
             </p>
           )}
           {zoneId && availableTables.length === 0 && (
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Nincs aktív asztal ebben a zónában.
+              Ebben a zónában nincs aktív asztal.
             </p>
           )}
           {zoneId &&
             availableTables.map(table => (
-              <label
-                key={table.id}
-                className="flex items-center gap-2 text-xs text-[var(--color-text-main)]"
-              >
+              <label key={table.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={tableIds.includes(table.id)}
                   onChange={() => toggleTable(table.id)}
+                  disabled={isLoading}
                 />
                 <span>{table.name}</span>
               </label>
             ))}
         </div>
       </div>
-      <div>
-        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-          Megjegyzés
-        </label>
-        <textarea
-          className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
-          rows={2}
-          value={note}
-          onChange={event => setNote(event.target.value)}
-          placeholder="Opcionális admin megjegyzés"
-        />
-      </div>
-      <div className="flex items-center gap-3">
+      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+      {saveSuccess && <p className="text-xs text-green-600">{saveSuccess}</p>}
+      {confirmSaveOnConflict && (
+        <div className="text-xs text-amber-600 space-y-2">
+          <div className="font-semibold">⚠️ Ütközés van. Biztosan mented?</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-amber-500 text-white disabled:opacity-50"
+              onClick={() => void handleForceSave()}
+              disabled={isSaving || isLoading}
+            >
+              Mentés mégis
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-50"
+              onClick={() => setConfirmSaveOnConflict(false)}
+              disabled={isSaving || isLoading}
+            >
+              Mégse
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2">
         <button
           type="button"
           onClick={handleSave}
-          disabled={isSaving}
-          className="px-3 py-2 rounded-lg text-sm font-semibold bg-[var(--color-primary)] text-white disabled:opacity-60"
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white disabled:opacity-50"
+          disabled={isSaving || isLoading}
         >
           {isSaving ? 'Mentés...' : 'Mentés'}
         </button>
         <button
           type="button"
           onClick={handleClear}
-          disabled={isSaving}
-          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-60"
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-50"
+          disabled={isSaving || isLoading}
         >
           Törlés
         </button>
-        {saveSuccess && <span className="text-xs text-green-600">{saveSuccess}</span>}
-        {saveError && <span className="text-xs text-red-600">{saveError}</span>}
       </div>
     </div>
   );
@@ -594,18 +883,32 @@ const BookingDetailsModal: React.FC<{
   unitId: string;
   zones: Zone[];
   tables: Table[];
+  combinations: TableCombination[];
+  seatingSettings: SeatingSettings | null;
   onSeatingSaved: (bookingId: string, update: {
     zoneId: string | null;
     assignedTableIds: string[];
     seatingSource: 'manual';
   }) => void;
-}> = ({ selectedDate, bookings, onClose, isAdmin, onDelete, unitId, zones, tables, onSeatingSaved }) => {
+}> = ({
+  selectedDate,
+  bookings,
+  onClose,
+  isAdmin,
+  onDelete,
+  unitId,
+  zones,
+  tables,
+  combinations,
+  seatingSettings,
+  onSeatingSaved,
+}) => {
   const [isRecalcRunning, setIsRecalcRunning] = useState(false);
   const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
   const [recalcError, setRecalcError] = useState<string | null>(null);
   const [dayLogs, setDayLogs] = useState<BookingLog[]>([]);
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
-  const [openOverrideId, setOpenOverrideId] = useState<string | null>(null);
+  const [openAllocationId, setOpenAllocationId] = useState<string | null>(null);
   const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
 
   const dateKey = useMemo(() => {
@@ -616,12 +919,12 @@ const BookingDetailsModal: React.FC<{
   }, [selectedDate]);
 
   useEffect(() => {
-    setOpenOverrideId(null);
+    setOpenAllocationId(null);
     setOpenFloorplanBookingId(null);
   }, [dateKey]);
 
   const handleClose = useCallback(() => {
-    setOpenOverrideId(null);
+    setOpenAllocationId(null);
     setOpenFloorplanBookingId(null);
     onClose();
   }, [onClose]);
@@ -662,8 +965,8 @@ const BookingDetailsModal: React.FC<{
       'guest_cancelled',
       'capacity_override',
       'admin_seating_updated',
-      'allocation_override_set',
       'capacity_recalc',
+      'allocation_override_set',
     ];
 
     const start = new Date(selectedDate);
@@ -810,8 +1113,6 @@ const BookingDetailsModal: React.FC<{
                       ? 'bg-blue-500'
                       : log.type === 'capacity_recalc'
                       ? 'bg-purple-500'
-                      : log.type === 'allocation_override_set'
-                      ? 'bg-purple-500'
                       : 'bg-blue-500';
 
                   const message =
@@ -855,9 +1156,8 @@ const BookingDetailsModal: React.FC<{
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
               .map(booking => {
-                const effective = resolveEffectiveAllocation(booking);
-                const highlightTableIds = effective.tableIds ?? [];
-                const highlightZoneId = effective.zoneId ?? null;
+                const highlightTableIds = booking.assignedTableIds ?? [];
+                const highlightZoneId = booking.zoneId ?? null;
                 const isFloorplanOpen = openFloorplanBookingId === booking.id;
 
                 return (
@@ -870,15 +1170,6 @@ const BookingDetailsModal: React.FC<{
                     <p className="font-bold text-[var(--color-text-main)]">
                       {booking.name} ({booking.headcount} fő)
                     </p>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
-                        booking.allocationOverride?.enabled
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {resolveAllocationBadge(booking)}
-                    </span>
                     {booking.allocationFinal?.locked && (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
                         LOCKED
@@ -921,16 +1212,6 @@ const BookingDetailsModal: React.FC<{
                     </p>
                   </div>
                   <div className="mt-3 grid gap-2 text-xs text-[var(--color-text-secondary)]">
-                    <div>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Allocation (effective):
-                      </span>{' '}
-                      {`source=${effective.source || '—'}, timeSlot=${effective.timeSlot || '—'}, zoneId=${
-                        effective.zoneId || '—'
-                      }, tableGroup=${effective.tableGroup || '—'}, tableIds=${
-                        effective.tableIds?.length ? effective.tableIds.join(', ') : '—'
-                      }`}
-                    </div>
                     <div>
                       <span className="font-semibold text-[var(--color-text-main)]">
                         Allocation intent:
@@ -1007,26 +1288,29 @@ const BookingDetailsModal: React.FC<{
                       onSeatingSaved={update => onSeatingSaved(booking.id, update)}
                     />
                   )}
-                  {isAdmin && (
+                  {isAdmin && seatingSettings?.allocationEnabled && (
                     <div className="mt-4">
                       <button
                         type="button"
                         onClick={() =>
-                          setOpenOverrideId(current =>
+                          setOpenAllocationId(current =>
                             current === booking.id ? null : booking.id
                           )
                         }
                         className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
                       >
-                        {openOverrideId === booking.id ? 'Felülírás bezárása' : 'Felülírás'}
+                        {openAllocationId === booking.id ? 'Allokáció bezárása' : 'Allokáció'}
                       </button>
-                      {openOverrideId === booking.id && (
-                        <AllocationOverrideEditor
+                      {openAllocationId === booking.id && seatingSettings && (
+                        <AllocationPanel
                           booking={booking}
                           unitId={unitId}
                           zones={zones}
                           tables={tables}
-                          onClose={() => setOpenOverrideId(null)}
+                          combinations={combinations}
+                          seatingSettings={seatingSettings}
+                          dayBookings={bookings}
+                          onClose={() => setOpenAllocationId(null)}
                         />
                       )}
                     </div>
@@ -1171,49 +1455,59 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [tableCombinations, setTableCombinations] = useState<TableCombination[]>([]);
+  const [seatingSettings, setSeatingSettings] = useState<SeatingSettings | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
 
-  useEffect(() => {
+  const reloadSeatingData = useCallback(async () => {
     if (!activeUnitId || !isAdmin) {
       setZones([]);
       setTables([]);
+      setTableCombinations([]);
+      setSeatingSettings(null);
       return;
     }
-
-    let isMounted = true;
-    const loadSeatingData = async () => {
-      try {
-        const [zonesData, tablesData] = await Promise.all([
-          listZones(activeUnitId),
-          listTables(activeUnitId),
-        ]);
-        if (isMounted) {
-          setZones(zonesData);
-          setTables(tablesData);
-        }
-      } catch (err) {
-        console.error('Error fetching seating data:', err);
-        if (isMounted) {
-          setZones([]);
-          setTables([]);
-        }
-      }
-    };
-
-    void loadSeatingData();
-    return () => {
-      isMounted = false;
-    };
+    try {
+      const [zonesData, tablesData, combinationsData, settingsData] = await Promise.all([
+        listZones(activeUnitId),
+        listTables(activeUnitId),
+        listCombinations(activeUnitId),
+        getSeatingSettings(activeUnitId, { createIfMissing: false }),
+      ]);
+      setZones(zonesData);
+      setTables(tablesData);
+      setTableCombinations(combinationsData);
+      setSeatingSettings(settingsData);
+    } catch (err) {
+      console.error('Error fetching seating data:', err);
+      setZones([]);
+      setTables([]);
+      setTableCombinations([]);
+      setSeatingSettings(null);
+    }
   }, [activeUnitId, isAdmin]);
+
+  useEffect(() => {
+    void reloadSeatingData();
+  }, [reloadSeatingData]);
+
+  useEffect(() => {
+    const wasOpen = prevSeatingSettingsOpenRef.current;
+    if (wasOpen && !isSeatingSettingsOpen) {
+      void reloadSeatingData();
+    }
+    prevSeatingSettingsOpenRef.current = isSeatingSettingsOpen;
+  }, [isSeatingSettingsOpen, reloadSeatingData]);
 
   useEffect(() => {
     if (!activeUnitId) {
@@ -1285,8 +1579,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             'guest_cancelled',
             'capacity_override',
             'admin_seating_updated',
-            'allocation_override_set',
             'capacity_recalc',
+            'allocation_override_set',
           ];
           return {
             id: d.id,
@@ -1612,6 +1906,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           unitId={activeUnitId}
           zones={zones}
           tables={tables}
+          combinations={tableCombinations}
+          seatingSettings={seatingSettings}
           onSeatingSaved={(bookingId, update) => {
             setBookings(current =>
               current.map(booking =>

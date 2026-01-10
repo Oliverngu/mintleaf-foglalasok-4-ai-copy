@@ -214,6 +214,13 @@ export interface SeatingSettings {
   vipEnabled?: boolean;
   activeFloorplanId?: string;
   soloAllowedTableIds?: string[];
+  allocationEnabled?: boolean;
+  allocationMode?: 'capacity' | 'floorplan' | 'hybrid';
+  allocationStrategy?: 'bestFit' | 'minWaste' | 'priorityZoneFirst';
+  defaultZoneId?: string;
+  zonePriority?: string[];
+  overflowZones?: string[];
+  allowCrossZoneCombinations?: boolean;
   emergencyZones?: {
     enabled?: boolean;
     zoneIds?: string[];

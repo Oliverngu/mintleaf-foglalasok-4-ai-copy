@@ -188,6 +188,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     backgroundImageUrl: '',
     isActive: true,
   });
+  const [zonePriorityAdd, setZonePriorityAdd] = useState('');
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -369,6 +370,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const emergencyZoneOptions = useMemo(
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
     [zones]
+  );
+  const activeZones = useMemo(() => zones.filter(zone => zone.isActive), [zones]);
+  const activeZoneIds = useMemo(
+    () => new Set(activeZones.map(zone => zone.id)),
+    [activeZones]
   );
 
   const visibleFloorplans = useMemo(
@@ -640,6 +646,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
+    const zonePriority = Array.from(
+      new Set((settings.zonePriority ?? []).filter(zoneId => activeZoneIds.has(zoneId)))
+    );
+    const overflowZones = Array.from(
+      new Set((settings.overflowZones ?? []).filter(zoneId => activeZoneIds.has(zoneId)))
+    );
+    const allowCrossZoneCombinations = settings.allowCrossZoneCombinations ?? false;
+    const allocationEnabled = settings.allocationEnabled ?? false;
+    const allocationMode = settings.allocationMode ?? 'capacity';
+    const allocationStrategy = settings.allocationStrategy ?? 'bestFit';
+    const defaultZoneId = normalizeOptionalString(settings.defaultZoneId ?? '');
     await runAction({
       key: 'settings-save',
       errorMessage: 'Nem sikerült menteni a beállításokat.',
@@ -649,6 +666,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         const { activeFloorplanId, ...restSettings } = settings;
         const payload: SeatingSettings = {
           ...restSettings,
+          allocationEnabled,
+          allocationMode,
+          allocationStrategy,
+          zonePriority,
+          overflowZones,
+          allowCrossZoneCombinations,
+          ...(defaultZoneId ? { defaultZoneId } : {}),
           emergencyZones: {
             enabled: settings.emergencyZones?.enabled ?? false,
             zoneIds: emergencyZoneIds,
@@ -1761,6 +1785,221 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm col-span-2">
+              <input
+                type="checkbox"
+                checked={settings?.allocationEnabled ?? false}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationEnabled: event.target.checked,
+                  }))
+                }
+              />
+              Seating allocation enabled
+            </label>
+            <label className="flex flex-col gap-1">
+              Allokáció mód
+              <select
+                className="border rounded p-2"
+                value={settings?.allocationMode ?? 'capacity'}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationMode: event.target.value as SeatingSettings['allocationMode'],
+                  }))
+                }
+              >
+                <option value="capacity">Kapacitás</option>
+                <option value="floorplan">Alaprajz</option>
+                <option value="hybrid">Hibrid</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Allokációs stratégia
+              <select
+                className="border rounded p-2"
+                value={settings?.allocationStrategy ?? 'bestFit'}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allocationStrategy: event.target.value as SeatingSettings['allocationStrategy'],
+                  }))
+                }
+              >
+                <option value="bestFit">Best fit</option>
+                <option value="minWaste">Min waste</option>
+                <option value="priorityZoneFirst">Zóna prioritás</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              Alapértelmezett zóna
+              <select
+                className="border rounded p-2"
+                value={settings?.defaultZoneId ?? ''}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    defaultZoneId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Nincs beállítva</option>
+                {zones.map(zone => (
+                  <option key={zone.id} value={zone.id}>
+                    {zone.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="col-span-2 space-y-2">
+              <div className="text-sm font-semibold">Zóna prioritás</div>
+              <div className="flex flex-wrap gap-2 text-sm">
+                {(settings?.zonePriority ?? []).map((zoneId, index) => {
+                  const zone = zones.find(item => item.id === zoneId);
+                  if (!zone) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={zoneId}
+                      className="flex items-center gap-2 border rounded px-2 py-1"
+                    >
+                      <span>{zone.name}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 disabled:opacity-40"
+                          disabled={!settings?.allocationEnabled || index === 0}
+                          onClick={() =>
+                            setSettings(current => {
+                              const list = [...(current?.zonePriority ?? [])];
+                              if (index <= 0) {
+                                return current;
+                              }
+                              [list[index - 1], list[index]] = [list[index], list[index - 1]];
+                              return { ...(current ?? {}), zonePriority: list };
+                            })
+                          }
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 disabled:opacity-40"
+                          disabled={
+                            !settings?.allocationEnabled ||
+                            index === (settings?.zonePriority ?? []).length - 1
+                          }
+                          onClick={() =>
+                            setSettings(current => {
+                              const list = [...(current?.zonePriority ?? [])];
+                              if (index >= list.length - 1) {
+                                return current;
+                              }
+                              [list[index], list[index + 1]] = [list[index + 1], list[index]];
+                              return { ...(current ?? {}), zonePriority: list };
+                            })
+                          }
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-red-600"
+                          disabled={!settings?.allocationEnabled}
+                          onClick={() =>
+                            setSettings(current => ({
+                              ...(current ?? {}),
+                              zonePriority: (current?.zonePriority ?? []).filter(
+                                id => id !== zoneId
+                              ),
+                            }))
+                          }
+                        >
+                          törlés
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  className="border rounded p-2 text-sm"
+                  value={zonePriorityAdd}
+                  disabled={!settings?.allocationEnabled}
+                  onChange={event => {
+                    const nextZoneId = event.target.value;
+                    setZonePriorityAdd(nextZoneId);
+                    if (!nextZoneId) {
+                      return;
+                    }
+                    setSettings(current => {
+                      const currentList = current?.zonePriority ?? [];
+                      if (currentList.includes(nextZoneId)) {
+                        return current;
+                      }
+                      return {
+                        ...(current ?? {}),
+                        zonePriority: [...currentList, nextZoneId],
+                      };
+                    });
+                    setZonePriorityAdd('');
+                  }}
+                >
+                  <option value="">Zóna hozzáadása</option>
+                  {activeZones
+                    .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
+                    .map(zone => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="col-span-2 space-y-2">
+              <div className="text-sm font-semibold">Overflow zónák</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {activeZones.map(zone => (
+                  <label key={zone.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={(settings?.overflowZones ?? []).includes(zone.id)}
+                      disabled={!settings?.allocationEnabled}
+                      onChange={event =>
+                        setSettings(current => {
+                          const currentList = current?.overflowZones ?? [];
+                          const nextList = event.target.checked
+                            ? Array.from(new Set([...currentList, zone.id]))
+                            : currentList.filter(id => id !== zone.id);
+                          return { ...(current ?? {}), overflowZones: nextList };
+                        })
+                      }
+                    />
+                    {zone.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm col-span-2">
+              <input
+                type="checkbox"
+                checked={settings?.allowCrossZoneCombinations ?? false}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(current => ({
+                    ...(current ?? {}),
+                    allowCrossZoneCombinations: event.target.checked,
+                  }))
+                }
+              />
+              Kombinált asztalok engedélyezése zónák között
             </label>
           </div>
           <button
