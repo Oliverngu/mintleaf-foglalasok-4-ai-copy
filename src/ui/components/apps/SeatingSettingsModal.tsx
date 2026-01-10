@@ -101,7 +101,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     gridSize: number;
     snapToGrid: boolean;
   } | null>(null);
-  const rafId = useRef<number | null>(null);
+  const rafPosId = useRef<number | null>(null);
+  const rafRotId = useRef<number | null>(null);
   const prevActiveFloorplanIdRef = useRef<string | null>(null);
 
   const [zoneForm, setZoneForm] = useState<{
@@ -410,8 +411,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   useEffect(() => {
     return () => {
-      if (rafId.current !== null) {
-        cancelAnimationFrame(rafId.current);
+      if (rafPosId.current !== null) {
+        cancelAnimationFrame(rafPosId.current);
+      }
+      if (rafRotId.current !== null) {
+        cancelAnimationFrame(rafRotId.current);
       }
     };
   }, []);
@@ -692,28 +696,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
-    if (rafId.current !== null) {
-      cancelAnimationFrame(rafId.current);
+    if (rafPosId.current !== null) {
+      cancelAnimationFrame(rafPosId.current);
     }
-    rafId.current = requestAnimationFrame(() => {
+    rafPosId.current = requestAnimationFrame(() => {
       setDraftPositions(current => ({
         ...current,
         [tableId]: { x, y },
       }));
-      rafId.current = null;
+      rafPosId.current = null;
     });
   };
 
   const updateDraftRotation = (tableId: string, rot: number) => {
-    if (rafId.current !== null) {
-      cancelAnimationFrame(rafId.current);
+    if (rafRotId.current !== null) {
+      cancelAnimationFrame(rafRotId.current);
     }
-    rafId.current = requestAnimationFrame(() => {
+    rafRotId.current = requestAnimationFrame(() => {
       setDraftRotations(current => ({
         ...current,
         [tableId]: rot,
       }));
-      rafId.current = null;
+      rafRotId.current = null;
     });
   };
 
@@ -1119,6 +1123,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             <button
                               type="button"
                               className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
                               onClick={event => {
                                 event.stopPropagation();
                                 const nextRot = normalizeRotation(renderRot - 5);
@@ -1136,6 +1144,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             <button
                               type="button"
                               className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
                               onClick={event => {
                                 event.stopPropagation();
                                 const nextRot = normalizeRotation(renderRot + 5);
@@ -1153,6 +1165,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             <button
                               type="button"
                               className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
                               onClick={event => {
                                 event.stopPropagation();
                                 updateDraftRotation(table.id, 0);
