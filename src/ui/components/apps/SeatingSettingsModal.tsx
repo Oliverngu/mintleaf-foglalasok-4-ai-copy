@@ -448,7 +448,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setDragState(null);
     },
-    [releaseDragPointerCapture]
+    []
   );
   const abortDragRef = useRef(abortDrag);
 
