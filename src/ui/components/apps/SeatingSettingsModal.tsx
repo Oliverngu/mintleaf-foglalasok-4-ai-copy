@@ -188,6 +188,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     backgroundImageUrl: '',
     isActive: true,
   });
+  const [zonePriorityAdd, setZonePriorityAdd] = useState('');
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -371,6 +372,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [zones]
   );
   const activeZones = useMemo(() => zones.filter(zone => zone.isActive), [zones]);
+  const activeZoneIds = useMemo(
+    () => new Set(activeZones.map(zone => zone.id)),
+    [activeZones]
+  );
 
   const visibleFloorplans = useMemo(
     () => floorplans.filter(plan => plan.isActive !== false),
@@ -641,8 +646,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
       ) ?? [];
-    const zonePriority = Array.from(new Set(settings.zonePriority ?? []));
-    const overflowZones = settings.overflowZones ?? [];
+    const zonePriority = Array.from(
+      new Set((settings.zonePriority ?? []).filter(zoneId => activeZoneIds.has(zoneId)))
+    );
+    const overflowZones = Array.from(
+      new Set((settings.overflowZones ?? []).filter(zoneId => activeZoneIds.has(zoneId)))
+    );
     const allowCrossZoneCombinations = settings.allowCrossZoneCombinations ?? false;
     const allocationEnabled = settings.allocationEnabled ?? false;
     const allocationMode = settings.allocationMode ?? 'capacity';
@@ -1865,7 +1874,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <button
                           type="button"
                           className="text-xs text-blue-600 disabled:opacity-40"
-                          disabled={index === 0}
+                          disabled={!settings?.allocationEnabled || index === 0}
                           onClick={() =>
                             setSettings(current => {
                               const list = [...(current?.zonePriority ?? [])];
@@ -1882,7 +1891,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <button
                           type="button"
                           className="text-xs text-blue-600 disabled:opacity-40"
-                          disabled={index === (settings?.zonePriority ?? []).length - 1}
+                          disabled={
+                            !settings?.allocationEnabled ||
+                            index === (settings?.zonePriority ?? []).length - 1
+                          }
                           onClick={() =>
                             setSettings(current => {
                               const list = [...(current?.zonePriority ?? [])];
@@ -1899,6 +1911,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <button
                           type="button"
                           className="text-xs text-red-600"
+                          disabled={!settings?.allocationEnabled}
                           onClick={() =>
                             setSettings(current => ({
                               ...(current ?? {}),
@@ -1918,9 +1931,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <div className="flex items-center gap-2">
                 <select
                   className="border rounded p-2 text-sm"
-                  value=""
+                  value={zonePriorityAdd}
+                  disabled={!settings?.allocationEnabled}
                   onChange={event => {
                     const nextZoneId = event.target.value;
+                    setZonePriorityAdd(nextZoneId);
                     if (!nextZoneId) {
                       return;
                     }
@@ -1934,7 +1949,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         zonePriority: [...currentList, nextZoneId],
                       };
                     });
-                    event.target.value = '';
+                    setZonePriorityAdd('');
                   }}
                 >
                   <option value="">Zóna hozzáadása</option>
@@ -1956,6 +1971,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <input
                       type="checkbox"
                       checked={(settings?.overflowZones ?? []).includes(zone.id)}
+                      disabled={!settings?.allocationEnabled}
                       onChange={event =>
                         setSettings(current => {
                           const currentList = current?.overflowZones ?? [];
@@ -1975,6 +1991,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <input
                 type="checkbox"
                 checked={settings?.allowCrossZoneCombinations ?? false}
+                disabled={!settings?.allocationEnabled}
                 onChange={event =>
                   setSettings(current => ({
                     ...(current ?? {}),
