@@ -1397,7 +1397,24 @@ export const adminSetReservationOverride = onCall(
         rawForcedZoneId === null
           ? null
           : normalizeOptionalText(rawForcedZoneId);
-      const note = rawNote === null ? null : normalizeOptionalText(rawNote);
+
+      let note: string | null | undefined;
+      if (rawNote === null) {
+        note = null;
+      } else if (typeof rawNote === 'string') {
+        const trimmedNote = rawNote.trim();
+        if (trimmedNote) {
+          if (trimmedNote.length > 280) {
+            throw new HttpsError(
+              'invalid-argument',
+              'note max 280 karakter lehet'
+            );
+          }
+          note = trimmedNote;
+        } else {
+          note = undefined;
+        }
+      }
 
       let forcedTableIds: string[] | undefined;
       let forcedTableIdsShouldDelete = false;
@@ -1440,6 +1457,67 @@ export const adminSetReservationOverride = onCall(
         (hasNote && note) ||
         (hasForcedTableIds && !!forcedTableIds);
 
+      if (forcedTableIds && !forcedZoneId) {
+        throw new HttpsError(
+          'invalid-argument',
+          'forcedTableIds esetén forcedZoneId kötelező'
+        );
+      }
+
+      if (hasSetAction && forcedTableIds) {
+        const tableRefs = forcedTableIds.map(tableId =>
+          db
+            .collection('units')
+            .doc(unitId)
+            .collection('tables')
+            .doc(tableId)
+        );
+        const tableSnaps = await db.getAll(...tableRefs);
+        const missingTable = tableSnaps.find(snapshot => !snapshot.exists);
+        if (missingTable) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedTableIds ismeretlen asztalt tartalmaz'
+          );
+        }
+        const mismatchedTable = tableSnaps.find(snapshot => {
+          const data = snapshot.data() || {};
+          if (data.isActive === false) {
+            return true;
+          }
+          const zoneId = typeof data.zoneId === 'string' ? data.zoneId : '';
+          return zoneId !== forcedZoneId;
+        });
+        if (mismatchedTable) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedTableIds nem a megadott zónához tartozik'
+          );
+        }
+      }
+
+      if (hasSetAction && forcedZoneId && !forcedTableIds) {
+        const zoneSnap = await db
+          .collection('units')
+          .doc(unitId)
+          .collection('zones')
+          .doc(forcedZoneId)
+          .get();
+        if (!zoneSnap.exists) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedZoneId ismeretlen'
+          );
+        }
+        const zoneData = zoneSnap.data() || {};
+        if (zoneData.isActive === false) {
+          throw new HttpsError(
+            'invalid-argument',
+            'forcedZoneId nem aktív'
+          );
+        }
+      }
+
       const overrideRef = db
         .collection('units')
         .doc(unitId)
@@ -1470,9 +1548,11 @@ export const adminSetReservationOverride = onCall(
       }
 
       const meta: Record<string, unknown> = {};
-      if (forcedZoneId) meta.forcedZoneId = forcedZoneId;
-      if (forcedTableIds) meta.forcedTableIds = forcedTableIds;
-      if (note) meta.note = note;
+      if (hasSetAction) {
+        if (forcedZoneId) meta.forcedZoneId = forcedZoneId;
+        if (forcedTableIds) meta.forcedTableIds = forcedTableIds;
+        if (note) meta.note = note;
+      }
 
       const logData: Record<string, unknown> = {
         bookingId: reservationId,
@@ -1490,7 +1570,7 @@ export const adminSetReservationOverride = onCall(
         message: hasClearAction && !hasSetAction
           ? 'Allokáció felülírás mezők törölve.'
           : 'Allokáció felülírás mentve.',
-        ...(Object.keys(meta).length ? { meta } : {}),
+        ...(hasSetAction && Object.keys(meta).length ? { meta } : {}),
       };
 
       const batch = db.batch();
