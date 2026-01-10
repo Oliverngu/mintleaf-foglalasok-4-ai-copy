@@ -914,11 +914,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
     if (dragState.mode === 'rotate') {
+      if (!floorplanRef.current) {
+        return;
+      }
       const pointer = getLocalPointerPosition(event);
       const currentAngle =
         Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
         (180 / Math.PI);
-      const deltaAngle = currentAngle - dragState.rotStartAngleDeg;
+      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
       const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
       const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
       updateDraftRotation(dragState.tableId, snapRotation(nextRot, step));
@@ -942,11 +945,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     const tableId = dragState.tableId;
     if (dragState.mode === 'rotate') {
+      if (!floorplanRef.current) {
+        return;
+      }
       const pointer = getLocalPointerPosition(event);
       const currentAngle =
         Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
         (180 / Math.PI);
-      const deltaAngle = currentAngle - dragState.rotStartAngleDeg;
+      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
       const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
       const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
       const snappedRot = snapRotation(nextRot, step);
