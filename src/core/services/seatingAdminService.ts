@@ -28,10 +28,206 @@ const seatingSettingsDefaults: SeatingSettings = {
   },
 };
 
+const normalizeTags = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
+    .filter(Boolean);
+};
+
+const normalizeZone = (raw: unknown, idFallback?: string): Zone => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const priorityValue =
+    typeof data.priority === 'number' && !Number.isNaN(data.priority)
+      ? data.priority
+      : 1000;
+  const type =
+    data.type === 'bar' || data.type === 'outdoor' || data.type === 'table' || data.type === 'other'
+      ? data.type
+      : undefined;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    name: typeof data.name === 'string' ? data.name : '',
+    priority: priorityValue,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    isEmergency: typeof data.isEmergency === 'boolean' ? data.isEmergency : false,
+    tags: normalizeTags(data.tags),
+    type,
+    createdAt: data.createdAt as Zone['createdAt'],
+    updatedAt: data.updatedAt as Zone['updatedAt'],
+  };
+};
+
+const normalizeTable = (raw: unknown, idFallback?: string): Table => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const canCombine =
+    typeof data.canCombine === 'boolean'
+      ? data.canCombine
+      : typeof data.isCombinable === 'boolean'
+      ? data.isCombinable
+      : false;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    name: typeof data.name === 'string' ? data.name : '',
+    zoneId: typeof data.zoneId === 'string' ? data.zoneId : '',
+    capacityMax: typeof data.capacityMax === 'number' ? data.capacityMax : 0,
+    minCapacity: typeof data.minCapacity === 'number' ? data.minCapacity : 0,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
+    tags: normalizeTags(data.tags),
+    floorplanId: typeof data.floorplanId === 'string' ? data.floorplanId : undefined,
+    shape: data.shape as Table['shape'],
+    w: data.w as Table['w'],
+    h: data.h as Table['h'],
+    radius: data.radius as Table['radius'],
+    snapToGrid: data.snapToGrid as Table['snapToGrid'],
+    locked: data.locked as Table['locked'],
+    x: data.x as Table['x'],
+    y: data.y as Table['y'],
+    rot: data.rot as Table['rot'],
+    canSeatSolo: data.canSeatSolo as Table['canSeatSolo'],
+    canCombine,
+    createdAt: data.createdAt as Table['createdAt'],
+    updatedAt: data.updatedAt as Table['updatedAt'],
+  };
+};
+
+const normalizeZoneCreateInput = (zone: Omit<Zone, 'id'>): Omit<Zone, 'id'> => {
+  const priorityValue =
+    typeof zone.priority === 'number' && !Number.isNaN(zone.priority)
+      ? zone.priority
+      : 1000;
+  const type =
+    zone.type === 'bar' || zone.type === 'outdoor' || zone.type === 'table' || zone.type === 'other'
+      ? zone.type
+      : undefined;
+  return {
+    ...zone,
+    priority: priorityValue,
+    tags: normalizeTags(zone.tags),
+    ...(type ? { type } : {}),
+  };
+};
+
+const normalizeZoneUpdatePatch = (zone: Partial<Zone>): Partial<Zone> => {
+  const payload: Partial<Zone> = {};
+  if ('name' in zone) {
+    payload.name = zone.name;
+  }
+  if ('isActive' in zone) {
+    payload.isActive = zone.isActive;
+  }
+  if ('isEmergency' in zone) {
+    payload.isEmergency = zone.isEmergency;
+  }
+  if ('priority' in zone) {
+    payload.priority =
+      typeof zone.priority === 'number' && !Number.isNaN(zone.priority)
+        ? zone.priority
+        : 1000;
+  }
+  if ('tags' in zone) {
+    payload.tags = normalizeTags(zone.tags);
+  }
+  if ('type' in zone) {
+    const type =
+      zone.type === 'bar' || zone.type === 'outdoor' || zone.type === 'table' || zone.type === 'other'
+        ? zone.type
+        : undefined;
+    if (type) {
+      payload.type = type;
+    }
+  }
+  return payload;
+};
+
+const normalizeTableCreateInput = (table: Omit<Table, 'id'>): Omit<Table, 'id'> => {
+  const canCombine =
+    typeof table.canCombine === 'boolean'
+      ? table.canCombine
+      : typeof (table as { isCombinable?: boolean }).isCombinable === 'boolean'
+      ? (table as { isCombinable?: boolean }).isCombinable
+      : false;
+  return {
+    ...table,
+    tags: normalizeTags(table.tags),
+    canCombine,
+  };
+};
+
+const normalizeTableUpdatePatch = (
+  table: Partial<Table> & { isCombinable?: boolean }
+): Partial<Table> => {
+  const payload: Partial<Table> = {};
+  if ('name' in table) {
+    payload.name = table.name;
+  }
+  if ('zoneId' in table) {
+    payload.zoneId = table.zoneId;
+  }
+  if ('capacityMax' in table) {
+    payload.capacityMax = table.capacityMax;
+  }
+  if ('minCapacity' in table) {
+    payload.minCapacity = table.minCapacity;
+  }
+  if ('isActive' in table) {
+    payload.isActive = table.isActive;
+  }
+  if ('tableGroup' in table) {
+    payload.tableGroup = table.tableGroup;
+  }
+  if ('tags' in table) {
+    payload.tags = normalizeTags(table.tags);
+  }
+  if ('floorplanId' in table) {
+    payload.floorplanId = table.floorplanId;
+  }
+  if ('shape' in table) {
+    payload.shape = table.shape;
+  }
+  if ('w' in table) {
+    payload.w = table.w;
+  }
+  if ('h' in table) {
+    payload.h = table.h;
+  }
+  if ('radius' in table) {
+    payload.radius = table.radius;
+  }
+  if ('snapToGrid' in table) {
+    payload.snapToGrid = table.snapToGrid;
+  }
+  if ('locked' in table) {
+    payload.locked = table.locked;
+  }
+  if ('x' in table) {
+    payload.x = table.x;
+  }
+  if ('y' in table) {
+    payload.y = table.y;
+  }
+  if ('rot' in table) {
+    payload.rot = table.rot;
+  }
+  if ('canSeatSolo' in table) {
+    payload.canSeatSolo = table.canSeatSolo;
+  }
+  if ('canCombine' in table) {
+    payload.canCombine = table.canCombine;
+  } else if ('isCombinable' in table) {
+    payload.canCombine =
+      typeof table.isCombinable === 'boolean' ? table.isCombinable : false;
+  }
+  return payload;
+};
+
 const sortZones = (zones: Zone[]) =>
   [...zones].sort((a, b) => {
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
+    const aPriority = a.priority ?? Number.POSITIVE_INFINITY;
+    const bPriority = b.priority ?? Number.POSITIVE_INFINITY;
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
     }
     return (a.name ?? '').localeCompare(b.name ?? '');
   });
@@ -126,7 +322,7 @@ export const listZones = async (unitId: string): Promise<Zone[]> => {
   const zonesPath = `units/${unitId}/zones`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'zones'));
-    return sortZones(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Zone)));
+    return sortZones(snapshot.docs.map(docSnap => normalizeZone(docSnap.data(), docSnap.id)));
   } catch (error) {
     logPermissionDenied(error, 'list', zonesPath);
     throw error;
@@ -136,8 +332,9 @@ export const listZones = async (unitId: string): Promise<Zone[]> => {
 export const createZone = async (unitId: string, zone: Omit<Zone, 'id'>): Promise<void> => {
   const zonesPath = `units/${unitId}/zones`;
   try {
+    const payload = normalizeZoneCreateInput(zone);
     await addDoc(collection(db, 'units', unitId, 'zones'), {
-      ...zone,
+      ...payload,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -150,8 +347,9 @@ export const createZone = async (unitId: string, zone: Omit<Zone, 'id'>): Promis
 export const updateZone = async (unitId: string, zoneId: string, zone: Partial<Zone>): Promise<void> => {
   const zonePath = `units/${unitId}/zones/${zoneId}`;
   try {
+    const payload = normalizeZoneUpdatePatch(zone);
     await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
-      ...zone,
+      ...payload,
       updatedAt: serverTimestamp(),
     });
   } catch (error) {
@@ -177,7 +375,7 @@ export const listTables = async (unitId: string): Promise<Table[]> => {
   const tablesPath = `units/${unitId}/tables`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'tables'));
-    return sortTables(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Table)));
+    return sortTables(snapshot.docs.map(docSnap => normalizeTable(docSnap.data(), docSnap.id)));
   } catch (error) {
     logPermissionDenied(error, 'list', tablesPath);
     throw error;
@@ -187,8 +385,9 @@ export const listTables = async (unitId: string): Promise<Table[]> => {
 export const createTable = async (unitId: string, table: Omit<Table, 'id'>): Promise<void> => {
   const tablesPath = `units/${unitId}/tables`;
   try {
+    const payload = normalizeTableCreateInput(table);
     await addDoc(collection(db, 'units', unitId, 'tables'), {
-      ...table,
+      ...payload,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -201,8 +400,9 @@ export const createTable = async (unitId: string, table: Omit<Table, 'id'>): Pro
 export const updateTable = async (unitId: string, tableId: string, table: Partial<Table>): Promise<void> => {
   const tablePath = `units/${unitId}/tables/${tableId}`;
   try {
+    const payload = normalizeTableUpdatePatch(table as Partial<Table> & { isCombinable?: boolean });
     await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
-      ...table,
+      ...payload,
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

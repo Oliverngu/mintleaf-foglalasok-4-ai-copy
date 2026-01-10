@@ -149,6 +149,8 @@ export interface Zone {
   priority: number;
   isActive: boolean;
   isEmergency?: boolean;
+  tags?: string[];
+  type?: 'bar' | 'outdoor' | 'table' | 'other';
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -160,6 +162,8 @@ export interface Table {
   capacityMax: number;
   minCapacity: number;
   isActive: boolean;
+  tableGroup?: string;
+  tags?: string[];
   floorplanId?: string;
   shape?: 'rect' | 'circle';
   w?: number;
@@ -192,6 +196,9 @@ export interface TableCombination {
   id: string;
   tableIds: string[];
   isActive: boolean;
+  groupId?: string;
+  resultingCapacity?: number;
+  constraints?: string[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }

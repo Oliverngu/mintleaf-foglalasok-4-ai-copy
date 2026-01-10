@@ -161,7 +161,7 @@ export const suggestSeating = async (
       zoneId,
       tableIds,
       slack: totalMax - headcount,
-      zonePriority: zone.priority,
+      zonePriority: zone.priority ?? Number.POSITIVE_INFINITY,
       label,
       isEmergency: emergencyZoneIds.has(zoneId),
     });

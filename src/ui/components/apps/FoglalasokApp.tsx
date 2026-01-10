@@ -311,12 +311,46 @@ const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => 
   return 'Nincs megadva';
 };
 
+const resolveAllocationBadge = (booking: Booking) =>
+  booking.allocationOverride?.enabled ? 'OVERRIDE' : 'SYSTEM';
+
+const resolveEffectiveAllocation = (booking: Booking) => {
+  if (booking.allocationOverride?.enabled) {
+    return {
+      source: 'override',
+      timeSlot: booking.allocationOverride.timeSlot || null,
+      zoneId: booking.allocationOverride.zoneId || null,
+      tableGroup: booking.allocationOverride.tableGroup || null,
+      tableIds: booking.allocationOverride.tableIds || null,
+    };
+  }
+
+  if (booking.allocationFinal) {
+    return {
+      source: booking.allocationFinal.source || undefined,
+      timeSlot: booking.allocationFinal.timeSlot || null,
+      zoneId: booking.allocationFinal.zoneId || null,
+      tableGroup: booking.allocationFinal.tableGroup || null,
+      tableIds: booking.allocationFinal.tableIds || null,
+    };
+  }
+
+  return {
+    source: 'intent',
+    timeSlot: booking.allocationIntent?.timeSlot || null,
+    zoneId: booking.allocationIntent?.zoneId || null,
+    tableGroup: booking.allocationIntent?.tableGroup || null,
+    tableIds: null,
+  };
+};
+
 const AllocationOverrideEditor: React.FC<{
   booking: Booking;
   unitId: string;
   zones: Zone[];
   tables: Table[];
-}> = ({ booking, unitId, zones, tables }) => {
+  onClose?: () => void;
+}> = ({ booking, unitId, zones, tables, onClose }) => {
   const [enabled, setEnabled] = useState(Boolean(booking.allocationOverride?.enabled));
   const [timeSlot, setTimeSlot] = useState<string>(booking.allocationOverride?.timeSlot || '');
   const [zoneId, setZoneId] = useState<string>(booking.allocationOverride?.zoneId || '');
@@ -331,15 +365,6 @@ const AllocationOverrideEditor: React.FC<{
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  useEffect(() => {
-    setEnabled(Boolean(booking.allocationOverride?.enabled));
-    setTimeSlot(booking.allocationOverride?.timeSlot || '');
-    setZoneId(booking.allocationOverride?.zoneId || '');
-    setTableGroup(booking.allocationOverride?.tableGroup || '');
-    setTableIds(booking.allocationOverride?.tableIds || []);
-    setNote(booking.allocationOverride?.note || '');
-  }, [booking]);
-
   const availableTables = useMemo(
     () => tables.filter(table => table.zoneId === zoneId && table.isActive),
     [tables, zoneId]
@@ -353,10 +378,58 @@ const AllocationOverrideEditor: React.FC<{
     );
   };
 
-  const handleSave = async () => {
+  const hasAnyOverrideValue =
+    Boolean(timeSlot) || Boolean(zoneId) || Boolean(tableGroup) || tableIds.length > 0 || Boolean(note);
+
+  const handleClear = async () => {
+    if (isSaving) {
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
+    try {
+      await setReservationAllocationOverride(unitId, booking.id, {
+        enabled: false,
+        timeSlot: null,
+        zoneId: null,
+        tableGroup: null,
+        tableIds: null,
+        note: null,
+      });
+      setEnabled(false);
+      setTimeSlot('');
+      setZoneId('');
+      setTableGroup('');
+      setTableIds([]);
+      setNote('');
+      setSaveSuccess('Allocation override törölve.');
+      onClose?.();
+    } catch (err) {
+      console.error('Error clearing allocation override:', err);
+      setSaveError('Nem sikerült törölni az allocation override-ot.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    if (tableIds.length > 0 && !zoneId) {
+      setIsSaving(false);
+      setSaveError('Asztalokhoz zóna megadása kötelező.');
+      return;
+    }
+    if (enabled && !hasAnyOverrideValue) {
+      setIsSaving(false);
+      setSaveError('Adj meg legalább egy mezőt az override-hoz.');
+      return;
+    }
     try {
       await setReservationAllocationOverride(unitId, booking.id, {
         enabled,
@@ -367,6 +440,7 @@ const AllocationOverrideEditor: React.FC<{
         note: note || null,
       });
       setSaveSuccess('Allocation override mentve.');
+      onClose?.();
     } catch (err) {
       console.error('Error saving allocation override:', err);
       setSaveError('Nem sikerült menteni az allocation override-ot.');
@@ -490,6 +564,14 @@ const AllocationOverrideEditor: React.FC<{
         >
           {isSaving ? 'Mentés...' : 'Mentés'}
         </button>
+        <button
+          type="button"
+          onClick={handleClear}
+          disabled={isSaving}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-60"
+        >
+          Törlés
+        </button>
         {saveSuccess && <span className="text-xs text-green-600">{saveSuccess}</span>}
         {saveError && <span className="text-xs text-red-600">{saveError}</span>}
       </div>
@@ -517,6 +599,7 @@ const BookingDetailsModal: React.FC<{
   const [recalcError, setRecalcError] = useState<string | null>(null);
   const [dayLogs, setDayLogs] = useState<BookingLog[]>([]);
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
+  const [openOverrideId, setOpenOverrideId] = useState<string | null>(null);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -587,10 +670,8 @@ const BookingDetailsModal: React.FC<{
       });
 
     let unsub = () => {};
-    let usedFallback = false;
-    let isFallbackActive = false;
 
-    const fallbackQuery = query(
+    const qDayLogs = query(
       logsRef,
       where('createdAt', '>=', Timestamp.fromDate(start)),
       where('createdAt', '<=', Timestamp.fromDate(end)),
@@ -598,52 +679,14 @@ const BookingDetailsModal: React.FC<{
       limit(25)
     );
 
-    const preferredQuery = query(
-      logsRef,
-      where('date', '==', dateKey),
-      orderBy('createdAt', 'desc'),
-      limit(25)
-    );
-
-    const subscribeToFallback = () => {
-      if (isFallbackActive) {
-        return;
-      }
-      isFallbackActive = true;
-      setDayLogsLoading(true);
-      unsub = onSnapshot(
-        fallbackQuery,
-        snapshot => {
-          setDayLogs(mapLogs(snapshot));
-          setDayLogsLoading(false);
-        },
-        err => {
-          console.error('Error fetching day logs (fallback):', err);
-          setDayLogsLoading(false);
-        }
-      );
-    };
-
     unsub = onSnapshot(
-      preferredQuery,
+      qDayLogs,
       snapshot => {
-        if (snapshot.empty && !usedFallback) {
-          usedFallback = true;
-          unsub();
-          subscribeToFallback();
-          return;
-        }
         setDayLogs(mapLogs(snapshot));
         setDayLogsLoading(false);
       },
       err => {
         console.error('Error fetching day logs:', err);
-        if (!usedFallback) {
-          usedFallback = true;
-          unsub();
-          subscribeToFallback();
-          return;
-        }
         setDayLogsLoading(false);
       }
     );
@@ -799,9 +842,20 @@ const BookingDetailsModal: React.FC<{
                   className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
                   style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                 >
-                  <p className="font-bold text-[var(--color-text-main)]">
-                    {booking.name} ({booking.headcount} fő)
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-bold text-[var(--color-text-main)]">
+                      {booking.name} ({booking.headcount} fő)
+                    </p>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                        booking.allocationOverride?.enabled
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {resolveAllocationBadge(booking)}
+                    </span>
+                  </div>
                   <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
                     {booking.startTime
                       .toDate()
@@ -838,6 +892,21 @@ const BookingDetailsModal: React.FC<{
                     </p>
                   </div>
                   <div className="mt-3 grid gap-2 text-xs text-[var(--color-text-secondary)]">
+                    <div>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Allocation (effective):
+                      </span>{' '}
+                      {(() => {
+                        const effective = resolveEffectiveAllocation(booking);
+                        return `source=${effective.source || '—'}, timeSlot=${
+                          effective.timeSlot || '—'
+                        }, zoneId=${effective.zoneId || '—'}, tableGroup=${
+                          effective.tableGroup || '—'
+                        }, tableIds=${
+                          effective.tableIds?.length ? effective.tableIds.join(', ') : '—'
+                        }`;
+                      })()}
+                    </div>
                     <div>
                       <span className="font-semibold text-[var(--color-text-main)]">
                         Allocation intent:
@@ -891,12 +960,28 @@ const BookingDetailsModal: React.FC<{
                     />
                   )}
                   {isAdmin && (
-                    <AllocationOverrideEditor
-                      booking={booking}
-                      unitId={unitId}
-                      zones={zones}
-                      tables={tables}
-                    />
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenOverrideId(current =>
+                            current === booking.id ? null : booking.id
+                          )
+                        }
+                        className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
+                      >
+                        {openOverrideId === booking.id ? 'Felülírás bezárása' : 'Felülírás'}
+                      </button>
+                      {openOverrideId === booking.id && (
+                        <AllocationOverrideEditor
+                          booking={booking}
+                          unitId={unitId}
+                          zones={zones}
+                          tables={tables}
+                          onClose={() => setOpenOverrideId(null)}
+                        />
+                      )}
+                    </div>
                   )}
                   {isAdmin && (
                     <button

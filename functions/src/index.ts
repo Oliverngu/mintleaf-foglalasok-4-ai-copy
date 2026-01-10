@@ -46,12 +46,18 @@ interface FloorplanZone {
   id: string;
   name?: string;
   isActive?: boolean;
+  tags?: string[];
+  type?: 'bar' | 'outdoor' | 'table' | 'other';
+  priority?: number;
 }
 
 interface FloorplanTable {
   id: string;
   zoneId?: string;
   isActive?: boolean;
+  tableGroup?: string;
+  canCombine?: boolean;
+  tags?: string[];
 }
 
 interface AllocationIntent {
@@ -108,6 +114,51 @@ const normalizeAllocationText = (value: unknown, maxLength = 64) => {
   return trimmed.slice(0, maxLength);
 };
 
+const normalizeTags = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
+    .filter(Boolean);
+};
+
+const normalizeZone = (raw: unknown, idFallback?: string): FloorplanZone => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const type =
+    data.type === 'bar' || data.type === 'outdoor' || data.type === 'table' || data.type === 'other'
+      ? data.type
+      : undefined;
+  const priority =
+    typeof data.priority === 'number' && !Number.isNaN(data.priority)
+      ? data.priority
+      : undefined;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    name: typeof data.name === 'string' ? data.name : undefined,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    tags: normalizeTags(data.tags),
+    type,
+    priority,
+  };
+};
+
+const normalizeTable = (raw: unknown, idFallback?: string): FloorplanTable => {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  const canCombine =
+    typeof data.canCombine === 'boolean'
+      ? data.canCombine
+      : typeof data.isCombinable === 'boolean'
+      ? data.isCombinable
+      : false;
+  return {
+    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    zoneId: typeof data.zoneId === 'string' ? data.zoneId : undefined,
+    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+    tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
+    canCombine,
+    tags: normalizeTags(data.tags),
+  };
+};
+
 const buildAllocationIntent = (
   preferredTimeSlot: string | null,
   seatingPreference: SeatingPreference,
@@ -119,18 +170,44 @@ const buildAllocationIntent = (
     return { timeSlot, zoneId: null, tableGroup: null };
   }
 
-  const match = zones.find(zone => {
-    if (!zone?.name) return false;
-    const name = zone.name.toLowerCase();
-    if (seatingPreference === 'bar') return name.includes('bar');
-    if (seatingPreference === 'outdoor') return name.includes('outdoor') || name.includes('terasz');
-    if (seatingPreference === 'table') {
-      return name.includes('table') || name.includes('asztal');
-    }
-    return false;
-  });
+  const zoneMatchesPreference = (zone: FloorplanZone): number => {
+    const type = zone.type?.toLowerCase() ?? '';
+    const tags = new Set(normalizeTags(zone.tags));
+    const name = zone.name?.toLowerCase() ?? '';
 
-  const zoneId = match?.id || null;
+    const matchTag = (tag: string) => tags.has(tag);
+    const matchName = (needle: string) => name.includes(needle);
+
+    if (seatingPreference === 'bar') {
+      if (type === 'bar' || matchTag('bar')) return 3;
+      if (matchName('bar')) return 1;
+    }
+    if (seatingPreference === 'outdoor') {
+      if (type === 'outdoor' || matchTag('outdoor') || matchTag('terasz')) return 3;
+      if (matchName('outdoor') || matchName('terasz')) return 1;
+    }
+    if (seatingPreference === 'table') {
+      if (type === 'table' || matchTag('table') || matchTag('asztal')) return 3;
+      if (matchName('table') || matchName('asztal')) return 1;
+    }
+    return 0;
+  };
+
+  const candidates = zones
+    .map(zone => ({
+      zone,
+      score: zoneMatchesPreference(zone),
+      priority: zone.priority ?? Number.POSITIVE_INFINITY,
+      name: zone.name ?? '',
+    }))
+    .filter(candidate => candidate.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.name.localeCompare(b.name);
+    });
+
+  const zoneId = candidates[0]?.zone.id || null;
   void tables;
 
   return { timeSlot, zoneId, tableGroup: null };
@@ -143,16 +220,10 @@ const fetchFloorplanContext = async (unitId: string) => {
   ]);
 
   const zones = zonesSnap.docs
-    .map(docSnap => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<FloorplanZone, 'id'> | undefined),
-    }))
+    .map(docSnap => normalizeZone(docSnap.data(), docSnap.id))
     .filter(zone => zone.isActive !== false) as FloorplanZone[];
   const tables = tablesSnap.docs
-    .map(docSnap => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<FloorplanTable, 'id'> | undefined),
-    }))
+    .map(docSnap => normalizeTable(docSnap.data(), docSnap.id))
     .filter(table => table.isActive !== false) as FloorplanTable[];
 
   return { zones, tables };
