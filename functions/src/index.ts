@@ -5,7 +5,6 @@ import { createHash, randomBytes } from "crypto";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import {
   computeAllocationDecisionForBooking,
-  seatingSettingsDefaults,
   writeAllocationDecisionLogForBooking,
 } from "./allocation";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
@@ -1864,6 +1863,22 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
   const partySize = data.partySize;
   const tableIds = data.tableIds;
   const algoVersion = data.algoVersion;
+  const reason =
+    typeof data.reason === 'string' && data.reason.trim() ? data.reason.trim() : 'UNKNOWN';
+  const selectedZoneId =
+    typeof data.zoneId === 'string' && data.zoneId.trim() ? data.zoneId.trim() : null;
+  const allocationMode =
+    data.allocationMode === 'capacity' ||
+    data.allocationMode === 'floorplan' ||
+    data.allocationMode === 'hybrid'
+      ? data.allocationMode
+      : null;
+  const allocationStrategy =
+    data.allocationStrategy === 'bestFit' ||
+    data.allocationStrategy === 'minWaste' ||
+    data.allocationStrategy === 'priorityZoneFirst'
+      ? data.allocationStrategy
+      : null;
 
   if (
     typeof unitId !== 'string' ||
@@ -1949,12 +1964,11 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
     startDate,
     endDate,
     partySize,
-    selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
+    selectedZoneId,
     selectedTableIds: tableIds,
-    reason: typeof data.reason === 'string' ? data.reason : null,
-    allocationMode: typeof data.allocationMode === 'string' ? data.allocationMode : null,
-    allocationStrategy:
-      typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
+    reason,
+    allocationMode,
+    allocationStrategy,
     snapshot: snapshotPayload,
     algoVersion,
     source: 'bookingSubmit',

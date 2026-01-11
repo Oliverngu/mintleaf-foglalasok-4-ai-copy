@@ -49,32 +49,43 @@ export const writeAllocationDecisionLogForBooking = async ({
   ].join('|');
   const eventId = createHash("sha256").update(eventIdSource).digest("hex");
 
-  await db
-    .collection('units')
-    .doc(unitId)
-    .collection('allocation_logs')
-    .doc(docId)
-    .set(
+  const ref = db.collection('units').doc(unitId).collection('allocation_logs').doc(docId);
+  const existing = await ref.get();
+  const basePayload = {
+    type: 'decision',
+    bookingId,
+    bookingStartTime: admin.firestore.Timestamp.fromDate(startDate),
+    bookingEndTime: admin.firestore.Timestamp.fromDate(endDate),
+    partySize,
+    selectedZoneId,
+    selectedTableIds,
+    reason,
+    allocationMode,
+    allocationStrategy,
+    snapshot,
+    algoVersion,
+    source,
+    eventId,
+  };
+
+  if (!existing.exists) {
+    await ref.set(
       {
-        type: 'decision',
+        ...basePayload,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        bookingId,
-        bookingStartTime: admin.firestore.Timestamp.fromDate(startDate),
-        bookingEndTime: admin.firestore.Timestamp.fromDate(endDate),
-        partySize,
-        selectedZoneId,
-        selectedTableIds,
-        reason,
-        allocationMode,
-        allocationStrategy,
-        snapshot,
-        algoVersion,
-        source,
-        eventId,
+      },
+      { merge: false }
+    );
+  } else {
+    await ref.set(
+      {
+        ...basePayload,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
+  }
 
   logger.info('writeAllocationDecisionLogForBooking ok', { unitId, bookingId, eventId });
 

@@ -65,10 +65,10 @@ export const fetchTakenTableIds = async ({
   const bufferMillis = getBufferMillis(bufferMinutes);
   const startWithBuffer = new Date(startDate.getTime() - bufferMillis);
   const endWithBuffer = new Date(endDate.getTime() + bufferMillis);
-  const windowStart = new Date(startWithBuffer.getTime() - 24 * 60 * 60 * 1000);
+  const windowStart = new Date(startWithBuffer.getTime() - 48 * 60 * 60 * 1000);
 
   // Firestore cannot query on endTime without composite indexes; constrain by startTime window
-  // and compute overlaps in-memory.
+  // and compute overlaps in-memory (assumes reservations rarely exceed this lookback).
   const reservationSnapshot = await db
     .collection('units')
     .doc(unitId)
