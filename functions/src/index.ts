@@ -39,6 +39,24 @@ const RATE_LIMIT_MAX = 15;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const MIN_HEADCOUNT = 1;
 const MAX_HEADCOUNT = 30;
+const seatingSettingsDefaults: SeatingSettingsDoc = {
+  bufferMinutes: 15,
+  maxCombineCount: 2,
+  soloAllowedTableIds: [],
+  allowCrossZoneCombinations: false,
+  allocationEnabled: false,
+  allocationMode: 'capacity',
+  allocationStrategy: 'bestFit',
+  zonePriority: [],
+  overflowZones: [],
+  defaultZoneId: '',
+  emergencyZones: {
+    enabled: false,
+    zoneIds: [],
+    activeRule: 'always',
+    weekdays: [],
+  },
+};
 
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
 
@@ -58,6 +76,9 @@ interface FloorplanTable {
   tableGroup?: string;
   canCombine?: boolean;
   tags?: string[];
+  minCapacity?: number;
+  capacityMax?: number;
+  canSeatSolo?: boolean;
 }
 
 interface AllocationIntent {
@@ -89,6 +110,31 @@ interface AllocationFinal {
   tableGroup?: string | null;
   tableIds?: string[] | null;
   locked?: boolean | null;
+}
+
+interface SeatingSettingsDoc {
+  bufferMinutes?: number;
+  maxCombineCount?: number;
+  soloAllowedTableIds?: string[];
+  allowCrossZoneCombinations?: boolean;
+  allocationEnabled?: boolean;
+  allocationMode?: 'capacity' | 'floorplan' | 'hybrid';
+  allocationStrategy?: 'bestFit' | 'minWaste' | 'priorityZoneFirst';
+  zonePriority?: string[];
+  overflowZones?: string[];
+  defaultZoneId?: string;
+  emergencyZones?: {
+    enabled?: boolean;
+    zoneIds?: string[];
+    activeRule?: 'always' | 'byWeekday';
+    weekdays?: number[];
+  };
+}
+
+interface TableCombinationDoc {
+  id: string;
+  tableIds: string[];
+  isActive?: boolean;
 }
 
 const normalizePreferredTimeSlot = (value: unknown) => {
@@ -138,6 +184,522 @@ const normalizeTags = (value: unknown): string[] => {
     .filter(Boolean);
 };
 
+const getBufferMillis = (bufferMinutes?: number) => (bufferMinutes ?? 15) * 60 * 1000;
+
+const overlaps = (startA: Date, endA: Date, startB: Date, endB: Date) =>
+  startA < endB && startB < endA;
+
+const getCapacityBounds = (table: FloorplanTable) => ({
+  minCapacity: typeof table.minCapacity === 'number' ? table.minCapacity : 1,
+  maxCapacity: typeof table.capacityMax === 'number' ? table.capacityMax : 2,
+});
+
+const canSeatSolo = (table: FloorplanTable, settings: SeatingSettingsDoc) =>
+  table.canSeatSolo === true || (settings.soloAllowedTableIds ?? []).includes(table.id);
+
+const isEmergencyZoneAllowed = (settings: SeatingSettingsDoc, bookingDate?: Date) => {
+  const emergency = settings.emergencyZones;
+  if (!emergency?.enabled) {
+    return false;
+  }
+  if (emergency.activeRule === 'byWeekday') {
+    if (!bookingDate) {
+      return false;
+    }
+    const weekdays = emergency.weekdays ?? [];
+    return weekdays.includes(bookingDate.getDay());
+  }
+  return true;
+};
+
+type AllocationCandidate = {
+  zoneId: string;
+  tableIds: string[];
+  totalMax: number;
+  totalMin: number;
+  label: string;
+};
+
+const compareCandidates = (
+  strategy: NonNullable<SeatingSettingsDoc['allocationStrategy']>,
+  zonePriority: Map<string, number>,
+  partySize: number
+) => (a: AllocationCandidate, b: AllocationCandidate) => {
+  const slackA = a.totalMax - partySize;
+  const slackB = b.totalMax - partySize;
+  const zonePriorityA = zonePriority.get(a.zoneId) ?? Number.POSITIVE_INFINITY;
+  const zonePriorityB = zonePriority.get(b.zoneId) ?? Number.POSITIVE_INFINITY;
+
+  if (strategy === 'priorityZoneFirst') {
+    if (zonePriorityA !== zonePriorityB) {
+      return zonePriorityA - zonePriorityB;
+    }
+    if (slackA !== slackB) {
+      return slackA - slackB;
+    }
+  } else {
+    if (slackA !== slackB) {
+      return slackA - slackB;
+    }
+    if (a.totalMax !== b.totalMax) {
+      return a.totalMax - b.totalMax;
+    }
+  }
+
+  return a.label.localeCompare(b.label);
+};
+
+const buildCandidates = ({
+  partySize,
+  seatingSettings,
+  zones,
+  tables,
+  tableCombinations,
+}: {
+  partySize: number;
+  seatingSettings: SeatingSettingsDoc;
+  zones: FloorplanZone[];
+  tables: FloorplanTable[];
+  tableCombinations: TableCombinationDoc[];
+}): AllocationCandidate[] => {
+  const activeZones = zones.filter(zone => zone.isActive);
+  const activeTables = tables.filter(table => table.isActive);
+  const activeCombos = tableCombinations.filter(combo => combo.isActive);
+  const zonesById = new Map(activeZones.map(zone => [zone.id, zone]));
+  const tablesById = new Map(activeTables.map(table => [table.id, table]));
+  const allowCrossZoneCombinations = seatingSettings.allowCrossZoneCombinations ?? false;
+  const maxCombineCount = seatingSettings.maxCombineCount ?? 2;
+
+  const candidates: AllocationCandidate[] = [];
+
+  activeTables.forEach(table => {
+    const { minCapacity, maxCapacity } = getCapacityBounds(table);
+    const soloOk = partySize === 1 && canSeatSolo(table, seatingSettings);
+    if (!soloOk && partySize < minCapacity) {
+      return;
+    }
+    if (partySize > maxCapacity) {
+      return;
+    }
+    if (!table.zoneId || !zonesById.has(table.zoneId)) {
+      return;
+    }
+    candidates.push({
+      zoneId: table.zoneId,
+      tableIds: [table.id],
+      totalMax: maxCapacity,
+      totalMin: minCapacity,
+      label: table.id,
+    });
+  });
+
+  if (maxCombineCount >= 2) {
+    activeCombos
+      .filter(combo => combo.tableIds.length <= maxCombineCount)
+      .forEach(combo => {
+        const comboTables = combo.tableIds
+          .map(tableId => tablesById.get(tableId))
+          .filter(Boolean) as FloorplanTable[];
+        if (comboTables.length !== combo.tableIds.length) {
+          return;
+        }
+        const zoneIds = new Set(
+          comboTables
+            .map(table => (typeof table.zoneId === 'string' ? table.zoneId.trim() : ''))
+            .filter(Boolean)
+        );
+        if (!zoneIds.size) {
+          return;
+        }
+        if (zoneIds.size !== 1 && !allowCrossZoneCombinations) {
+          return;
+        }
+        if (allowCrossZoneCombinations) {
+          for (const zoneId of zoneIds) {
+            if (!zonesById.has(zoneId)) {
+              return;
+            }
+          }
+        }
+        const firstTable = tablesById.get(combo.tableIds[0]);
+        if (!firstTable || typeof firstTable.zoneId !== 'string' || !firstTable.zoneId.trim()) {
+          return;
+        }
+        const anchorZoneId = firstTable.zoneId.trim();
+        if (!zonesById.has(anchorZoneId)) {
+          return;
+        }
+        const totalMax = comboTables.reduce(
+          (sum, table) => sum + getCapacityBounds(table).maxCapacity,
+          0
+        );
+        const totalMin = comboTables.reduce(
+          (sum, table) => sum + getCapacityBounds(table).minCapacity,
+          0
+        );
+        if (partySize < totalMin || partySize > totalMax) {
+          return;
+        }
+        candidates.push({
+          zoneId: anchorZoneId,
+          tableIds: combo.tableIds,
+          totalMax,
+          totalMin,
+          label: combo.tableIds.join(','),
+        });
+      });
+  }
+
+  return candidates;
+};
+
+const suggestAllocationDecision = ({
+  partySize,
+  bookingDate,
+  seatingSettings,
+  zones,
+  tables,
+  tableCombinations,
+}: {
+  partySize: number;
+  bookingDate: Date;
+  seatingSettings: SeatingSettingsDoc;
+  zones: FloorplanZone[];
+  tables: FloorplanTable[];
+  tableCombinations: TableCombinationDoc[];
+}) => {
+  if (partySize <= 0) {
+    return { tableIds: [], reason: 'INVALID_PARTY_SIZE' };
+  }
+
+  const allocationMode = seatingSettings.allocationMode ?? 'capacity';
+  const allocationStrategy = seatingSettings.allocationStrategy ?? 'bestFit';
+  const defaultZoneId = seatingSettings.defaultZoneId ?? '';
+
+  const candidates = buildCandidates({
+    partySize,
+    seatingSettings,
+    zones,
+    tables,
+    tableCombinations,
+  });
+
+  if (!candidates.length) {
+    return { tableIds: [], reason: 'NO_FIT' };
+  }
+
+  const zonePriority = new Map(
+    zones.map(zone => [zone.id, zone.priority ?? Number.POSITIVE_INFINITY])
+  );
+
+  const priorityOrder = (seatingSettings.zonePriority ?? []).filter(Boolean);
+  if (priorityOrder.length) {
+    priorityOrder.forEach((zoneId, index) => {
+      zonePriority.set(zoneId, index);
+    });
+  }
+
+  const activeZoneIds = zones.filter(zone => zone.isActive).map(zone => zone.id);
+  const overflowZoneIds = new Set(seatingSettings.overflowZones ?? []);
+  const emergencyAllowed = isEmergencyZoneAllowed(seatingSettings, bookingDate);
+  const emergencyZoneIdSet = new Set(
+    (seatingSettings.emergencyZones?.zoneIds ?? [])
+      .filter(Boolean)
+      .filter(zoneId => activeZoneIds.includes(zoneId))
+  );
+  const orderedZoneIds = priorityOrder.length
+    ? [
+        ...priorityOrder.filter(zoneId => activeZoneIds.includes(zoneId)),
+        ...activeZoneIds.filter(zoneId => !priorityOrder.includes(zoneId)),
+      ]
+    : [...activeZoneIds].sort((a, b) => {
+        if (a === defaultZoneId) return -1;
+        if (b === defaultZoneId) return 1;
+        const priorityA = zonePriority.get(a) ?? Number.POSITIVE_INFINITY;
+        const priorityB = zonePriority.get(b) ?? Number.POSITIVE_INFINITY;
+        return priorityA - priorityB;
+      });
+
+  const normalOrderedZoneIds = orderedZoneIds.filter(zoneId => !emergencyZoneIdSet.has(zoneId));
+  const primaryZoneIds = normalOrderedZoneIds.filter(zoneId => !overflowZoneIds.has(zoneId));
+  const fallbackZoneIds = normalOrderedZoneIds.filter(zoneId => overflowZoneIds.has(zoneId));
+  const emergencyZoneIdsOrdered = emergencyAllowed
+    ? orderedZoneIds.filter(zoneId => emergencyZoneIdSet.has(zoneId))
+    : [];
+
+  const pickBest = (items: AllocationCandidate[]) =>
+    [...items].sort(compareCandidates(allocationStrategy, zonePriority, partySize))[0];
+
+  if (allocationMode === 'floorplan' || allocationMode === 'hybrid') {
+    const evaluateZones = (zoneIds: string[], reason: string) => {
+      for (const zoneId of zoneIds) {
+        const zoneCandidates = candidates.filter(candidate => candidate.zoneId === zoneId);
+        if (zoneCandidates.length) {
+          const best = pickBest(zoneCandidates);
+          return {
+            zoneId: best.zoneId,
+            tableIds: best.tableIds,
+            reason,
+          };
+        }
+      }
+      return null;
+    };
+
+    const primaryResult = evaluateZones(primaryZoneIds, 'ZONE_FIRST');
+    if (primaryResult) {
+      return primaryResult;
+    }
+
+    const fallbackResult = evaluateZones(fallbackZoneIds, 'ZONE_OVERFLOW');
+    if (fallbackResult) {
+      return fallbackResult;
+    }
+
+    if (emergencyZoneIdsOrdered.length) {
+      const emergencyResult = evaluateZones(emergencyZoneIdsOrdered, 'EMERGENCY_ZONE');
+      if (emergencyResult) {
+        return emergencyResult;
+      }
+    }
+
+    if (allocationMode === 'floorplan') {
+      return { tableIds: [], reason: 'NO_FIT' };
+    }
+  }
+
+  const normalCandidates = candidates.filter(
+    candidate => !emergencyZoneIdSet.has(candidate.zoneId)
+  );
+  const emergencyCandidates = emergencyAllowed
+    ? candidates.filter(candidate => emergencyZoneIdSet.has(candidate.zoneId))
+    : [];
+  const usedEmergencyFallback =
+    emergencyAllowed && emergencyCandidates.length > 0 && normalCandidates.length === 0;
+  const selectedCandidates = normalCandidates.length
+    ? normalCandidates
+    : emergencyCandidates.length
+    ? emergencyCandidates
+    : candidates;
+  const best = pickBest(selectedCandidates);
+  return {
+    zoneId: best.zoneId,
+    tableIds: best.tableIds,
+    reason: usedEmergencyFallback
+      ? 'EMERGENCY_ZONE'
+      : allocationMode === 'hybrid'
+      ? 'FLOORPLAN_FALLBACK'
+      : 'BEST_FIT',
+  };
+};
+
+const fetchSeatingSettings = async (unitId: string): Promise<SeatingSettingsDoc> => {
+  const settingsSnap = await db
+    .collection('units')
+    .doc(unitId)
+    .collection('seating_settings')
+    .doc('default')
+    .get();
+  return {
+    ...seatingSettingsDefaults,
+    ...(settingsSnap.exists ? (settingsSnap.data() as SeatingSettingsDoc) : {}),
+  };
+};
+
+const fetchSeatingEntities = async (unitId: string) => {
+  const [zonesSnap, tablesSnap, combosSnap] = await Promise.all([
+    db.collection('units').doc(unitId).collection('zones').get(),
+    db.collection('units').doc(unitId).collection('tables').get(),
+    db.collection('units').doc(unitId).collection('table_combinations').get(),
+  ]);
+
+  const zones = zonesSnap.docs
+    .map(docSnap => normalizeZone(docSnap.data(), docSnap.id))
+    .filter(zone => zone.isActive !== false);
+  const tables = tablesSnap.docs
+    .map(docSnap => normalizeTable(docSnap.data(), docSnap.id))
+    .filter(table => table.isActive !== false);
+  const combos = combosSnap.docs
+    .map(
+      docSnap =>
+        ({
+          id: docSnap.id,
+          ...(docSnap.data() as Record<string, unknown>),
+        }) as TableCombinationDoc
+    )
+    .filter(combo => combo.isActive !== false && Array.isArray(combo.tableIds));
+
+  return { zones, tables, combos };
+};
+
+const computeAllocationDecisionForBooking = async ({
+  unitId,
+  bookingId,
+  startDate,
+  endDate,
+  partySize,
+}: {
+  unitId: string;
+  bookingId: string;
+  startDate: Date;
+  endDate: Date;
+  partySize: number;
+}) => {
+  const seatingSettings = await fetchSeatingSettings(unitId);
+  const snapshot = {
+    overflowZonesCount: seatingSettings.overflowZones?.length ?? 0,
+    zonePriorityCount: seatingSettings.zonePriority?.length ?? 0,
+    emergencyZonesCount: seatingSettings.emergencyZones?.zoneIds?.length ?? 0,
+  };
+
+  if (!seatingSettings.allocationEnabled) {
+    return {
+      zoneId: null,
+      tableIds: [],
+      reason: 'ALLOCATION_DISABLED',
+      allocationMode: seatingSettings.allocationMode ?? null,
+      allocationStrategy: seatingSettings.allocationStrategy ?? null,
+      snapshot,
+    };
+  }
+
+  const { zones, tables, combos } = await fetchSeatingEntities(unitId);
+  const bufferMillis = getBufferMillis(seatingSettings.bufferMinutes);
+  const startWithBuffer = new Date(startDate.getTime() - bufferMillis);
+  const endWithBuffer = new Date(endDate.getTime() + bufferMillis);
+  const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const nextMonthStart = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+
+  const reservationSnapshot = await db
+    .collection('units')
+    .doc(unitId)
+    .collection('reservations')
+    .where('startTime', '>=', Timestamp.fromDate(monthStart))
+    .where('startTime', '<', Timestamp.fromDate(nextMonthStart))
+    .get();
+
+  const takenTableIds = new Set<string>();
+  reservationSnapshot.docs.forEach(docSnap => {
+    if (docSnap.id === bookingId) {
+      return;
+    }
+    const data = docSnap.data() || {};
+    if (data.status === 'cancelled') {
+      return;
+    }
+    const start = data.startTime?.toDate?.();
+    const end = data.endTime?.toDate?.();
+    if (!start || !end) {
+      return;
+    }
+    if (overlaps(startWithBuffer, endWithBuffer, start, end)) {
+      const assigned = Array.isArray(data.assignedTableIds) ? data.assignedTableIds : [];
+      assigned.forEach((tableId: string) => takenTableIds.add(tableId));
+    }
+  });
+
+  const availableTables = tables.filter(table => !takenTableIds.has(table.id));
+  const availableTableIds = new Set(availableTables.map(table => table.id));
+  const availableCombos = combos.filter(combo =>
+    combo.tableIds.every(tableId => availableTableIds.has(tableId))
+  );
+
+  const suggestion = suggestAllocationDecision({
+    partySize,
+    bookingDate: startDate,
+    seatingSettings,
+    zones,
+    tables: availableTables,
+    tableCombinations: availableCombos,
+  });
+
+  return {
+    zoneId: suggestion.zoneId ?? null,
+    tableIds: suggestion.tableIds ?? [],
+    reason: suggestion.reason ?? 'NO_FIT',
+    allocationMode: seatingSettings.allocationMode ?? null,
+    allocationStrategy: seatingSettings.allocationStrategy ?? null,
+    snapshot,
+  };
+};
+
+const writeAllocationDecisionLogForBooking = async ({
+  unitId,
+  bookingId,
+  startDate,
+  endDate,
+  partySize,
+  selectedZoneId,
+  selectedTableIds,
+  reason,
+  allocationMode,
+  allocationStrategy,
+  snapshot,
+  algoVersion,
+  source,
+}: {
+  unitId: string;
+  bookingId: string;
+  startDate: Date;
+  endDate: Date;
+  partySize: number;
+  selectedZoneId: string | null;
+  selectedTableIds: string[];
+  reason: string;
+  allocationMode: SeatingSettingsDoc['allocationMode'] | null;
+  allocationStrategy: SeatingSettingsDoc['allocationStrategy'] | null;
+  snapshot: {
+    overflowZonesCount: number;
+    zonePriorityCount: number;
+    emergencyZonesCount: number;
+  } | null;
+  algoVersion: string;
+  source: string;
+}) => {
+  const eventIdSource = [
+    unitId,
+    bookingId,
+    startDate.toISOString(),
+    endDate.toISOString(),
+    String(partySize),
+    allocationMode ?? '',
+    allocationStrategy ?? '',
+    reason ?? '',
+    selectedZoneId ?? '',
+    selectedTableIds.join(','),
+    algoVersion,
+  ].join('|');
+  const eventId = createHash("sha256").update(eventIdSource).digest("hex");
+
+  await db
+    .collection('units')
+    .doc(unitId)
+    .collection('allocation_logs')
+    .doc(eventId)
+    .set(
+      {
+        type: 'decision',
+        createdAt: FieldValue.serverTimestamp(),
+        bookingId,
+        bookingStartTime: Timestamp.fromDate(startDate),
+        bookingEndTime: Timestamp.fromDate(endDate),
+        partySize,
+        selectedZoneId,
+        selectedTableIds,
+        reason,
+        allocationMode,
+        allocationStrategy,
+        snapshot,
+        algoVersion,
+        source,
+      },
+      { merge: true }
+    );
+
+  logger.info('writeAllocationDecisionLogForBooking ok', { unitId, bookingId, eventId });
+
+  return eventId;
+};
 const normalizeZone = (raw: unknown, idFallback?: string): FloorplanZone => {
   const data = (raw ?? {}) as Record<string, unknown>;
   const type =
@@ -173,6 +735,9 @@ const normalizeTable = (raw: unknown, idFallback?: string): FloorplanTable => {
     tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
     canCombine,
     tags: normalizeTags(data.tags),
+    minCapacity: typeof data.minCapacity === 'number' ? data.minCapacity : undefined,
+    capacityMax: typeof data.capacityMax === 'number' ? data.capacityMax : undefined,
+    canSeatSolo: typeof data.canSeatSolo === 'boolean' ? data.canSeatSolo : undefined,
   };
 };
 
@@ -774,6 +1339,37 @@ export const guestCreateReservation = onRequest(
         customData: reservation.customData || {},
         adminActionToken: adminActionToken || undefined,
       };
+
+      try {
+        const decision = await computeAllocationDecisionForBooking({
+          unitId,
+          bookingId: createResult.bookingId,
+          startDate: startTime,
+          endDate: endTime,
+          partySize: headcount,
+        });
+        await writeAllocationDecisionLogForBooking({
+          unitId,
+          bookingId: createResult.bookingId,
+          startDate: startTime,
+          endDate: endTime,
+          partySize: headcount,
+          selectedZoneId: decision.zoneId ?? null,
+          selectedTableIds: decision.tableIds,
+          reason: decision.reason,
+          allocationMode: decision.allocationMode ?? null,
+          allocationStrategy: decision.allocationStrategy ?? null,
+          snapshot: decision.snapshot ?? null,
+          algoVersion: 'alloc-v1',
+          source: 'bookingSubmit',
+        });
+      } catch (err) {
+        logger.warn('guestCreateReservation allocation log failed', {
+          unitId,
+          bookingId: createResult.bookingId,
+          err,
+        });
+      }
 
       const unitName = await getUnitName(unitId);
       await Promise.all([
