@@ -411,7 +411,7 @@ export const guestUpdateReservation = onRequest(
               {
                 date: dateKey,
                 count: nextCount,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
               },
               { merge: true }
             );
@@ -419,10 +419,10 @@ export const guestUpdateReservation = onRequest(
 
           transaction.update(docRef, {
             status: 'cancelled',
-            cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+            cancelledAt: FieldValue.serverTimestamp(),
             cancelReason: reason || '',
             cancelledBy: 'guest',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
 
           const logRef = db
@@ -434,7 +434,7 @@ export const guestUpdateReservation = onRequest(
             bookingId: docRef.id,
             unitId,
             type: 'guest_cancelled',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             createdByName: latest.name || 'Guest',
             source: 'guest',
             message: reason ? `Vendég lemondta: ${reason}` : 'Vendég lemondta',
@@ -557,7 +557,7 @@ export const guestCreateReservation = onRequest(
         ? hashAdminActionToken(adminActionToken)
         : null;
       const adminActionExpiresAt = adminActionToken
-        ? admin.firestore.Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
+        ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
         : null;
 
       const createResult = await db.runTransaction(async (transaction) => {
@@ -602,8 +602,8 @@ export const guestCreateReservation = onRequest(
           unitId,
           name: reservation.name,
           headcount,
-          startTime: admin.firestore.Timestamp.fromDate(startTime),
-          endTime: admin.firestore.Timestamp.fromDate(endTime),
+          startTime: Timestamp.fromDate(startTime),
+          endTime: Timestamp.fromDate(endTime),
           preferredTimeSlot,
           seatingPreference,
           allocationIntent: allocationIntentData,
@@ -611,14 +611,14 @@ export const guestCreateReservation = onRequest(
           allocationOverride,
           allocationOverrideSetAt: null,
           allocationFinal,
-          allocationFinalComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+          allocationFinalComputedAt: FieldValue.serverTimestamp(),
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
           },
           locale: reservation.locale || 'hu',
           status,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           referenceCode,
           reservationMode,
           occasion: reservation.occasion || '',
@@ -639,7 +639,7 @@ export const guestCreateReservation = onRequest(
           date: effectiveDateKey,
           count: nextCount,
           totalCount: nextCount,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         };
         if (allocationIntent.timeSlot) {
           const byTimeSlot = {
@@ -695,7 +695,7 @@ export const guestCreateReservation = onRequest(
           bookingId: referenceCode,
           unitId,
           type: 'guest_created',
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           createdByName: reservation.name,
           source: 'guest',
           message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
@@ -708,15 +708,15 @@ export const guestCreateReservation = onRequest(
         unitId,
         name: reservation.name,
         headcount,
-        startTime: admin.firestore.Timestamp.fromDate(startTime),
-        endTime: admin.firestore.Timestamp.fromDate(endTime),
+        startTime: Timestamp.fromDate(startTime),
+        endTime: Timestamp.fromDate(endTime),
         contact: {
           phoneE164: reservation.contact?.phoneE164 || '',
           email: String(reservation.contact?.email || '').toLowerCase(),
         },
         locale: reservation.locale || 'hu',
         status,
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: Timestamp.now(),
         referenceCode: createResult.bookingId,
         reservationMode,
         occasion: reservation.occasion || '',
@@ -991,14 +991,14 @@ export const adminHandleReservationAction = onRequest(
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
         const update: Record<string, any> = {
           status,
-          adminActionUsedAt: admin.firestore.FieldValue.serverTimestamp(),
-          adminActionHandledAt: admin.firestore.FieldValue.serverTimestamp(),
+          adminActionUsedAt: FieldValue.serverTimestamp(),
+          adminActionHandledAt: FieldValue.serverTimestamp(),
           adminActionSource: 'email',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         };
         if (status === 'cancelled') {
           update.cancelledBy = 'admin';
-          update.cancelledAt = admin.firestore.FieldValue.serverTimestamp();
+          update.cancelledAt = FieldValue.serverTimestamp();
         }
 
         transaction.update(docRef, update);
@@ -1073,14 +1073,14 @@ export const adminOverrideDailyCapacity = onRequest(
         if (capacitySnap.exists) {
           transaction.update(capacityRef, {
             limit: newLimit,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
         } else {
           transaction.set(capacityRef, {
             date: dateKey,
             count: 0,
             limit: newLimit,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
         }
 
@@ -1092,7 +1092,7 @@ export const adminOverrideDailyCapacity = onRequest(
         transaction.set(logRef, {
           type: 'capacity_override',
           unitId,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -1245,11 +1245,11 @@ export const adminSetReservationAllocationOverride = onRequest(
 
         transaction.update(reservationRef, {
           allocationOverride,
-          allocationOverrideSetAt: admin.firestore.FieldValue.serverTimestamp(),
+          allocationOverrideSetAt: FieldValue.serverTimestamp(),
           allocationOverrideSetByUid: decoded.uid,
           // Admin action is authoritative: must be able to lock/unlock allocationFinal.
           allocationFinal,
-          allocationFinalComputedAt: admin.firestore.FieldValue.serverTimestamp(),
+          allocationFinalComputedAt: FieldValue.serverTimestamp(),
         });
 
         const logRef = db
@@ -1261,7 +1261,7 @@ export const adminSetReservationAllocationOverride = onRequest(
           bookingId: reservationId,
           unitId,
           type: 'allocation_override_set',
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -1287,7 +1287,7 @@ export const adminSetReservationAllocationOverride = onRequest(
           {
             date: dateKey,
             capacityNeedsRecalc: true,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
@@ -1550,7 +1550,7 @@ export const adminSetReservationOverride = onCall(
         .doc();
 
       const overrideData: Record<string, unknown> = {
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         updatedBy: request.auth.uid,
         ...(forcedZoneId ? { forcedZoneId } : {}),
         ...(forcedTableIds ? { forcedTableIds } : {}),
@@ -1577,7 +1577,7 @@ export const adminSetReservationOverride = onCall(
         bookingId: reservationId,
         unitId,
         type: 'allocation_override_set',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         createdByUserId: request.auth.uid,
         createdByName:
           userData.name ||
@@ -1668,7 +1668,7 @@ export const adminClearReservationOverride = onCall(
         bookingId: reservationId,
         unitId,
         type: 'allocation_override_set',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         createdByUserId: request.auth.uid,
         createdByName:
           userData.name ||
@@ -1802,11 +1802,11 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
       : null;
 
   await db.collection('units').doc(unitId).collection('allocation_logs').add({
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
     createdByUserId: request.auth.uid,
     bookingId: typeof data.bookingId === 'string' ? data.bookingId : null,
-    bookingStartTime: admin.firestore.Timestamp.fromDate(startDate),
-    bookingEndTime: admin.firestore.Timestamp.fromDate(endDate),
+    bookingStartTime: Timestamp.fromDate(startDate),
+    bookingEndTime: Timestamp.fromDate(endDate),
     partySize,
     selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
     selectedTableIds: tableIds,
@@ -2043,8 +2043,8 @@ export const adminRecalcReservationCapacityDay = onRequest(
         .collection('units')
         .doc(unitId)
         .collection('reservations')
-        .where('startTime', '>=', admin.firestore.Timestamp.fromDate(dayStart))
-        .where('startTime', '<=', admin.firestore.Timestamp.fromDate(dayEnd))
+        .where('startTime', '>=', Timestamp.fromDate(dayStart))
+        .where('startTime', '<=', Timestamp.fromDate(dayEnd))
         .get();
 
       let totalCount = 0;
@@ -2091,7 +2091,7 @@ export const adminRecalcReservationCapacityDay = onRequest(
           byZone,
           byTableGroup,
           capacityNeedsRecalc: false,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -2103,7 +2103,7 @@ export const adminRecalcReservationCapacityDay = onRequest(
         .add({
           type: 'capacity_recalc',
           unitId,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -2133,10 +2133,10 @@ interface BookingRecord {
   preferredTimeSlot?: string | null;
   seatingPreference?: SeatingPreference;
   allocationIntent?: AllocationIntent;
-  startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
-  endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
+  startTime: FirebaseFirestore.Timestamp | Date;
+  endTime?: FirebaseFirestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';
-  createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  createdAt?: FirebaseFirestore.Timestamp | Date;
   notes?: string;
   phone?: string;
   email?: string;
@@ -2145,13 +2145,13 @@ interface BookingRecord {
     email?: string;
   };
   locale?: 'hu' | 'en';
-  cancelledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  cancelledAt?: FirebaseFirestore.Timestamp | Date;
   cancelReason?: string;
   referenceCode?: string;
   reservationMode?: 'auto' | 'request';
   adminActionToken?: string;
   adminActionTokenHash?: string;
-  adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  adminActionHandledAt?: FirebaseFirestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
   customData?: Record<string, any>;
@@ -2163,7 +2163,7 @@ interface QueuedEmail {
   typeId: string;
   unitId?: string | null;
   payload: Record<string, any>;
-  createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  createdAt?: FirebaseFirestore.Timestamp | Date;
   status: "pending" | "sent" | "error";
   errorMessage?: string;
 }
@@ -2814,7 +2814,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
       logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
       await ref.update({
         status: "sent",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentAt: FieldValue.serverTimestamp(),
       });
       return;
     }
@@ -2840,7 +2840,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
 
       await ref.update({
         status: "sent",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentAt: FieldValue.serverTimestamp(),
       });
     } catch (err: any) {
       logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
@@ -3495,7 +3495,7 @@ export const onReservationStatusChange = onDocumentUpdated(
             bookingId,
             unitId,
             type: after.status === 'confirmed' ? 'updated' : 'cancelled',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             createdByName: 'Email jóváhagyás',
             source: 'internal',
             message:
@@ -3523,7 +3523,7 @@ export const onReservationStatusChange = onDocumentUpdated(
         db
           .runTransaction(async transaction => {
             const startDate =
-              after.startTime instanceof admin.firestore.Timestamp
+              after.startTime instanceof Timestamp
                 ? after.startTime.toDate()
                 : after.startTime instanceof Date
                 ? after.startTime
@@ -3544,7 +3544,7 @@ export const onReservationStatusChange = onDocumentUpdated(
               {
                 date: dateKey,
                 count: nextCount,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
               },
               { merge: true }
             );
