@@ -2,7 +2,7 @@ import * as admin from 'firebase-admin';
 import { createHash } from 'crypto';
 import { logger } from 'firebase-functions/v2';
 import { AllocationSnapshot, SeatingSettingsDoc } from './types';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 
 export const writeAllocationDecisionLogForBooking = async ({
   unitId,
@@ -33,7 +33,7 @@ export const writeAllocationDecisionLogForBooking = async ({
   algoVersion: string;
   source: string;
 }) => {
-  const db = admin.firestore();
+  const db = getFirestore();
   const docId = bookingId;
   const normalizedReason = reason?.trim() ? reason.trim() : 'UNKNOWN';
   const eventIdSource = [
