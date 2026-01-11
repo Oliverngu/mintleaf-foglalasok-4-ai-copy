@@ -1705,6 +1705,115 @@ export const adminClearReservationOverride = onCall(
   }
 );
 
+export const logAllocationEvent = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const allowedKeys = new Set([
+    'unitId',
+    'bookingId',
+    'startTimeISO',
+    'endTimeISO',
+    'partySize',
+    'zoneId',
+    'tableIds',
+    'reason',
+    'allocationMode',
+    'allocationStrategy',
+    'snapshot',
+  ]);
+  const keys = Object.keys(data);
+  if (keys.some(key => !allowedKeys.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const unitId = data.unitId;
+  const startTimeISO = data.startTimeISO;
+  const endTimeISO = data.endTimeISO;
+  const partySize = data.partySize;
+  const tableIds = data.tableIds;
+
+  if (
+    typeof unitId !== 'string' ||
+    !unitId.trim() ||
+    typeof startTimeISO !== 'string' ||
+    typeof endTimeISO !== 'string'
+  ) {
+    throw new HttpsError('invalid-argument', 'unitId és időpontok kötelezőek');
+  }
+
+  const startDate = new Date(startTimeISO);
+  const endDate = new Date(endTimeISO);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen időpont');
+  }
+
+  if (typeof partySize !== 'number' || Number.isNaN(partySize) || partySize <= 0) {
+    throw new HttpsError('invalid-argument', 'partySize kötelező');
+  }
+
+  if (!Array.isArray(tableIds) || tableIds.some(id => typeof id !== 'string')) {
+    throw new HttpsError('invalid-argument', 'tableIds kötelező');
+  }
+
+  const userSnap = await db.collection('users').doc(request.auth.uid).get();
+  if (!userSnap.exists) {
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const userData = userSnap.data() || {};
+  const role = userData.role as string | undefined;
+  const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+  const canManage =
+    role === 'Admin' ||
+    ((role === 'Unit Admin' || role === 'Unit Leader') && unitIds.includes(unitId));
+  if (!canManage) {
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const snapshot = data.snapshot;
+  const snapshotPayload =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? {
+          overflowZonesCount:
+            typeof snapshot.overflowZonesCount === 'number'
+              ? snapshot.overflowZonesCount
+              : null,
+          zonePriorityCount:
+            typeof snapshot.zonePriorityCount === 'number' ? snapshot.zonePriorityCount : null,
+          emergencyZonesCount:
+            typeof snapshot.emergencyZonesCount === 'number'
+              ? snapshot.emergencyZonesCount
+              : null,
+        }
+      : null;
+
+  await db.collection('units').doc(unitId).collection('allocation_logs').add({
+    createdAt: FieldValue.serverTimestamp(),
+    createdByUserId: request.auth.uid,
+    bookingId: typeof data.bookingId === 'string' ? data.bookingId : null,
+    bookingStartTime: Timestamp.fromDate(startDate),
+    bookingEndTime: Timestamp.fromDate(endDate),
+    partySize,
+    selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
+    selectedTableIds: tableIds,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    allocationMode: typeof data.allocationMode === 'string' ? data.allocationMode : null,
+    allocationStrategy:
+      typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
+    snapshot: snapshotPayload,
+    source: 'seatingSuggestionService',
+  });
+
+  return { ok: true };
+});
+
 export const adminRecalcReservationCapacityDay = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {

@@ -1,5 +1,6 @@
-import { addDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
-import { Timestamp, db } from '../firebase/config';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { Timestamp, db, functions } from '../firebase/config';
 import { SeatingSettings } from '../models/data';
 import {
   getSeatingSettings as fetchSeatingSettings,
@@ -50,6 +51,10 @@ const overlaps = (startA: Date, endA: Date, startB: Date, endB: Date) =>
 
 const getBufferMillis = (bufferMinutes?: number) => (bufferMinutes ?? 15) * 60 * 1000;
 const isDev = process.env.NODE_ENV !== 'production';
+const debugSeating =
+  isDev ||
+  (typeof window !== 'undefined' &&
+    window.localStorage.getItem('mintleaf_debug_seating') === '1');
 
 const logEmergencyAllocation = async ({
   unitId,
@@ -68,14 +73,15 @@ const logEmergencyAllocation = async ({
   suggestion: { zoneId?: string; tableIds: string[]; reason?: string };
   settings: SeatingSettings;
 }) => {
-  await addDoc(collection(db, 'units', unitId, 'allocation_logs'), {
-    createdAt: serverTimestamp(),
+  const callable = httpsCallable(functions, 'logAllocationEvent');
+  await callable({
+    unitId,
     bookingId: bookingId ?? null,
-    bookingStartTime: Timestamp.fromDate(startTime),
-    bookingEndTime: Timestamp.fromDate(endTime),
+    startTimeISO: startTime.toISOString(),
+    endTimeISO: endTime.toISOString(),
     partySize: headcount,
-    selectedZoneId: suggestion.zoneId ?? null,
-    selectedTableIds: suggestion.tableIds,
+    zoneId: suggestion.zoneId ?? null,
+    tableIds: suggestion.tableIds,
     reason: suggestion.reason ?? null,
     allocationMode: settings.allocationMode ?? null,
     allocationStrategy: settings.allocationStrategy ?? null,
@@ -84,7 +90,6 @@ const logEmergencyAllocation = async ({
       zonePriorityCount: settings.zonePriority?.length ?? 0,
       emergencyZonesCount: settings.emergencyZones?.zoneIds?.length ?? 0,
     },
-    source: 'seatingSuggestionService',
   });
 };
 
@@ -157,7 +162,7 @@ export const suggestSeating = async (
     tableCombinations: availableCombos,
   });
 
-  if (isDev && suggestion.reason === 'EMERGENCY_ZONE') {
+  if (debugSeating && suggestion.reason === 'EMERGENCY_ZONE') {
     console.info('[seatingSuggestion] Emergency zone selected', {
       unitId: input.unitId,
       zoneId: suggestion.zoneId,
@@ -177,7 +182,7 @@ export const suggestSeating = async (
         settings,
       });
     } catch (error) {
-      if (isDev) {
+      if (debugSeating) {
         console.warn('[seatingSuggestion] Failed to log emergency allocation', error);
       }
     }

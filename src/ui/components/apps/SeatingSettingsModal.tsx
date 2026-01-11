@@ -77,6 +77,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return trimmed.length > 0 ? trimmed : undefined;
   };
   const isDev = process.env.NODE_ENV !== 'production';
+  const debugSeating =
+    isDev ||
+    (typeof window !== 'undefined' &&
+      window.localStorage.getItem('mintleaf_debug_seating') === '1');
+  const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -475,7 +480,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     errorContext: string;
   }) => {
     if (actionSavingRef.current[key]) {
-      if (isDev) {
+      if (debugSeating) {
         console.debug('[seating] action already running', { key, context: errorContext });
       }
       return;
@@ -492,8 +497,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
     } catch (err) {
       if (isAbortError(err)) {
-        if (isDev) {
+        if (debugSeating) {
           console.warn('[seating] action aborted', { key, context: errorContext });
+          if (isMountedRef.current) {
+            setSuccess('Művelet megszakadt (Abort).');
+          }
         }
         return;
       }
@@ -505,6 +513,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
       }
       console.error(errorContext, err);
+      if (debugSeating) {
+        console.warn('[seating] action failed', { key, context: errorContext, err });
+      }
     } finally {
       setActionSavingFlag(key, false);
     }
@@ -809,9 +820,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanId === resolvedActiveFloorplanId) {
       return;
     }
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] activate floorplan click', { floorplanId });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-activate-${floorplanId}`,
       errorMessage: 'Nem sikerült aktiválni az alaprajzot.',
@@ -827,12 +839,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] activate floorplan done', {
+        floorplanId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleDeleteFloorplan = async (floorplanId: string) => {
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] delete floorplan click', { floorplanId });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-delete-${floorplanId}`,
       errorMessage: 'Nem sikerült törölni az alaprajzot.',
@@ -858,6 +877,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setFloorplans(nextFloorplans);
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete floorplan done', {
+        floorplanId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   useEffect(() => {
@@ -900,9 +925,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleDeleteZone = async (zoneId: string) => {
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] delete zone click', { zoneId });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `zone-delete-${zoneId}`,
       errorMessage: 'Nem sikerült törölni a zónát.',
@@ -913,6 +939,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setZones(await listZones(unitId));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete zone done', {
+        zoneId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleTableSubmit = async () => {
@@ -998,9 +1030,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleDeleteTable = async (tableId: string) => {
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] delete table click', { tableId });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `table-delete-${tableId}`,
       errorMessage: 'Nem sikerült törölni az asztalt.',
@@ -1011,6 +1044,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setTables(await listTables(unitId));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete table done', {
+        tableId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) => {
@@ -1341,9 +1380,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleToggleCombo = async (combo: TableCombination) => {
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] toggle combo click', { comboId: combo.id });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-toggle-${combo.id}`,
       errorMessage: 'Nem sikerült frissíteni a kombinációt.',
@@ -1354,12 +1394,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setCombos(await listCombinations(unitId));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] toggle combo done', {
+        comboId: combo.id,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleDeleteCombo = async (comboId: string) => {
-    if (isDev) {
+    if (debugSeating) {
       console.debug('[seating] delete combo click', { comboId });
     }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-delete-${comboId}`,
       errorMessage: 'Nem sikerült törölni a kombinációt.',
@@ -1370,6 +1417,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setCombos(await listCombinations(unitId));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete combo done', {
+        comboId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleClose = useCallback(() => {
