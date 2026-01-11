@@ -1,6 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { createHash, randomBytes } from "crypto";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import {
@@ -14,9 +15,7 @@ import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 admin.initializeApp();
 
 // 🔹 Itt definiáljuk, és CSAK EZT használjuk mindenhol
-const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
+const db = getFirestore();
 const REGION = "europe-west3";
 
 const EMAIL_GATEWAY_URL =
