@@ -159,6 +159,14 @@ function userUnits() {
           || (isUnitLeader() && hasUnit(unitId));
       }
 
+      match /allocation_logs/{logId} {
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow create: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow update, delete: if false;
+      }
+
       match /floorplans/{floorplanId} {
         allow read: if canManageUnit(unitId);
         allow create, update, delete: if canManageUnit(unitId);
@@ -170,8 +178,11 @@ function userUnits() {
       }
 
       match /reservation_overrides/{reservationId} {
-        allow read: if canManageUnit(unitId);
-        allow create, update, delete: if false;
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow create, update: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow delete: if canManageUnit(unitId);
       }
 
       match /zones/{zoneId} {
