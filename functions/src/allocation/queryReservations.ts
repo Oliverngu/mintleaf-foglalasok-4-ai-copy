@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 import { FloorplanTable, FloorplanZone, SeatingSettingsDoc, TableCombinationDoc } from './types';
 import { normalizeTable, normalizeZone } from './normalize';
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { Timestamp, getFirestore } from 'firebase-admin/firestore';
 
 const getBufferMillis = (bufferMinutes?: number) => (bufferMinutes ?? 15) * 60 * 1000;
 
