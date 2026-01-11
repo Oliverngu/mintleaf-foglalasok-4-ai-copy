@@ -74,8 +74,8 @@ export const fetchTakenTableIds = async ({
     .collection('units')
     .doc(unitId)
     .collection('reservations')
-    .where('startTime', '>=', admin.firestore.Timestamp.fromDate(windowStart))
-    .where('startTime', '<=', admin.firestore.Timestamp.fromDate(endWithBuffer))
+    .where('startTime', '>=', Timestamp.fromDate(windowStart))
+    .where('startTime', '<=', Timestamp.fromDate(endWithBuffer))
     .get();
 
   const takenTableIds = new Set<string>();
