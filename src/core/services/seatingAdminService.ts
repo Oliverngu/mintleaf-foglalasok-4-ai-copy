@@ -12,6 +12,11 @@ import {
 import { db } from '../firebase/config';
 import { Floorplan, SeatingSettings, Table, TableCombination, Zone } from '../models/data';
 
+const debugSeating =
+  process.env.NODE_ENV !== 'production' ||
+  (typeof window !== 'undefined' &&
+    window.localStorage.getItem('mintleaf_debug_seating') === '1');
+
 const seatingSettingsDefaults: SeatingSettings = {
   bufferMinutes: 15,
   defaultDurationMinutes: 120,
@@ -329,7 +334,11 @@ export const listZones = async (unitId: string): Promise<Zone[]> => {
   const zonesPath = `units/${unitId}/zones`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'zones'));
-    return sortZones(snapshot.docs.map(docSnap => normalizeZone(docSnap.data(), docSnap.id)));
+    return sortZones(
+      snapshot.docs
+        .map(docSnap => normalizeZone(docSnap.data(), docSnap.id))
+        .filter(zone => zone.isActive !== false)
+    );
   } catch (error) {
     logPermissionDenied(error, 'list', zonesPath);
     throw error;
@@ -368,11 +377,27 @@ export const updateZone = async (unitId: string, zoneId: string, zone: Partial<Z
 export const deleteZone = async (unitId: string, zoneId: string): Promise<void> => {
   const zonePath = `units/${unitId}/zones/${zoneId}`;
   try {
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteZone start', { unitId, zoneId });
+    }
     await updateDoc(doc(db, 'units', unitId, 'zones', zoneId), {
       isActive: false,
       updatedAt: serverTimestamp(),
     });
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteZone done', { unitId, zoneId });
+    }
   } catch (error) {
+    if (debugSeating) {
+      const err = error as { name?: string; code?: string; message?: string } | null;
+      console.warn('[seatingAdminService] deleteZone failed', {
+        unitId,
+        zoneId,
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
+    }
     logPermissionDenied(error, 'delete', zonePath);
     throw error;
   }
@@ -382,7 +407,11 @@ export const listTables = async (unitId: string): Promise<Table[]> => {
   const tablesPath = `units/${unitId}/tables`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'tables'));
-    return sortTables(snapshot.docs.map(docSnap => normalizeTable(docSnap.data(), docSnap.id)));
+    return sortTables(
+      snapshot.docs
+        .map(docSnap => normalizeTable(docSnap.data(), docSnap.id))
+        .filter(table => table.isActive !== false)
+    );
   } catch (error) {
     logPermissionDenied(error, 'list', tablesPath);
     throw error;
@@ -421,11 +450,27 @@ export const updateTable = async (unitId: string, tableId: string, table: Partia
 export const deleteTable = async (unitId: string, tableId: string): Promise<void> => {
   const tablePath = `units/${unitId}/tables/${tableId}`;
   try {
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteTable start', { unitId, tableId });
+    }
     await updateDoc(doc(db, 'units', unitId, 'tables', tableId), {
       isActive: false,
       updatedAt: serverTimestamp(),
     });
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteTable done', { unitId, tableId });
+    }
   } catch (error) {
+    if (debugSeating) {
+      const err = error as { name?: string; code?: string; message?: string } | null;
+      console.warn('[seatingAdminService] deleteTable failed', {
+        unitId,
+        tableId,
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
+    }
     logPermissionDenied(error, 'delete', tablePath);
     throw error;
   }
@@ -436,7 +481,9 @@ export const listCombinations = async (unitId: string): Promise<TableCombination
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'table_combinations'));
     return sortCombos(
-      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
+      snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
+        .filter(combo => combo.isActive !== false)
     );
   } catch (error) {
     logPermissionDenied(error, 'list', combosPath);
@@ -481,11 +528,27 @@ export const updateCombination = async (
 export const deleteCombination = async (unitId: string, comboId: string): Promise<void> => {
   const comboPath = `units/${unitId}/table_combinations/${comboId}`;
   try {
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteCombination start', { unitId, comboId });
+    }
     await updateDoc(doc(db, 'units', unitId, 'table_combinations', comboId), {
       isActive: false,
       updatedAt: serverTimestamp(),
     });
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteCombination done', { unitId, comboId });
+    }
   } catch (error) {
+    if (debugSeating) {
+      const err = error as { name?: string; code?: string; message?: string } | null;
+      console.warn('[seatingAdminService] deleteCombination failed', {
+        unitId,
+        comboId,
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
+    }
     logPermissionDenied(error, 'delete', comboPath);
     throw error;
   }
@@ -496,7 +559,9 @@ export const listFloorplans = async (unitId: string): Promise<Floorplan[]> => {
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'floorplans'));
     return sortFloorplans(
-      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+      snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+        .filter(plan => plan.isActive !== false)
     );
   } catch (error) {
     logPermissionDenied(error, 'list', floorplansPath);
@@ -541,11 +606,27 @@ export const updateFloorplan = async (
 export const deleteFloorplan = async (unitId: string, floorplanId: string): Promise<void> => {
   const floorplanPath = `units/${unitId}/floorplans/${floorplanId}`;
   try {
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteFloorplan start', { unitId, floorplanId });
+    }
     await updateDoc(doc(db, 'units', unitId, 'floorplans', floorplanId), {
       isActive: false,
       updatedAt: serverTimestamp(),
     });
+    if (debugSeating) {
+      console.debug('[seatingAdminService] deleteFloorplan done', { unitId, floorplanId });
+    }
   } catch (error) {
+    if (debugSeating) {
+      const err = error as { name?: string; code?: string; message?: string } | null;
+      console.warn('[seatingAdminService] deleteFloorplan failed', {
+        unitId,
+        floorplanId,
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
+    }
     logPermissionDenied(error, 'delete', floorplanPath);
     throw error;
   }

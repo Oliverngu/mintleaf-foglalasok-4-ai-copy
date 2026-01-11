@@ -1,58 +1,20 @@
-import { SeatingSettings, Table, TableCombination, Zone } from '../../models/data';
+import {
+  AllocationStrategy,
+  FloorplanTable,
+  FloorplanZone,
+  SeatingSettingsDoc,
+  TableCombinationDoc,
+} from './types';
 
-export type AllocationMode = 'capacity' | 'floorplan' | 'hybrid';
-export type AllocationStrategy = 'bestFit' | 'minWaste' | 'priorityZoneFirst';
-
-export interface SuggestAllocationInput {
-  partySize: number;
-  bookingDate?: Date;
-  seatingSettings: SeatingSettings;
-  zones: Zone[];
-  tables: Table[];
-  tableCombinations?: TableCombination[];
-  override?: {
-    forcedZoneId?: string;
-    forcedTableIds?: string[];
-  };
-}
-
-export interface SuggestAllocationResult {
-  zoneId?: string;
-  tableIds: string[];
-  reason: string;
-  confidence: number;
-}
-
-export interface AllocationLogReplayInput {
-  partySize: number;
-  bookingDate?: Date;
-  seatingSettings: SeatingSettings;
-  zones: Zone[];
-  tables: Table[];
-  tableCombinations?: TableCombination[];
-  override?: {
-    forcedZoneId?: string;
-    forcedTableIds?: string[];
-  };
-}
-
-type Candidate = {
-  zoneId: string;
-  tableIds: string[];
-  totalMax: number;
-  totalMin: number;
-  label: string;
-};
-
-const getCapacityBounds = (table: Table) => ({
-  minCapacity: table.minCapacity ?? 1,
-  maxCapacity: table.capacityMax ?? 2,
+const getCapacityBounds = (table: FloorplanTable) => ({
+  minCapacity: typeof table.minCapacity === 'number' ? table.minCapacity : 1,
+  maxCapacity: typeof table.capacityMax === 'number' ? table.capacityMax : 2,
 });
 
-const canSeatSolo = (table: Table, settings: SeatingSettings) =>
+const canSeatSolo = (table: FloorplanTable, settings: SeatingSettingsDoc) =>
   table.canSeatSolo === true || (settings.soloAllowedTableIds ?? []).includes(table.id);
 
-const isEmergencyZoneAllowed = (settings: SeatingSettings, bookingDate?: Date) => {
+const isEmergencyZoneAllowed = (settings: SeatingSettingsDoc, bookingDate?: Date) => {
   const emergency = settings.emergencyZones;
   if (!emergency?.enabled) {
     return false;
@@ -67,11 +29,19 @@ const isEmergencyZoneAllowed = (settings: SeatingSettings, bookingDate?: Date) =
   return true;
 };
 
+type AllocationCandidate = {
+  zoneId: string;
+  tableIds: string[];
+  totalMax: number;
+  totalMin: number;
+  label: string;
+};
+
 const compareCandidates = (
   strategy: AllocationStrategy,
   zonePriority: Map<string, number>,
   partySize: number
-) => (a: Candidate, b: Candidate) => {
+) => (a: AllocationCandidate, b: AllocationCandidate) => {
   const slackA = a.totalMax - partySize;
   const slackB = b.totalMax - partySize;
   const zonePriorityA = zonePriority.get(a.zoneId) ?? Number.POSITIVE_INFINITY;
@@ -96,19 +66,28 @@ const compareCandidates = (
   return a.label.localeCompare(b.label);
 };
 
-const buildCandidates = (
-  input: SuggestAllocationInput
-): Candidate[] => {
-  const { partySize, seatingSettings, zones, tables, tableCombinations } = input;
+const buildCandidates = ({
+  partySize,
+  seatingSettings,
+  zones,
+  tables,
+  tableCombinations,
+}: {
+  partySize: number;
+  seatingSettings: SeatingSettingsDoc;
+  zones: FloorplanZone[];
+  tables: FloorplanTable[];
+  tableCombinations: TableCombinationDoc[];
+}): AllocationCandidate[] => {
   const activeZones = zones.filter(zone => zone.isActive);
   const activeTables = tables.filter(table => table.isActive);
-  const activeCombos = (tableCombinations ?? []).filter(combo => combo.isActive);
+  const activeCombos = tableCombinations.filter(combo => combo.isActive);
   const zonesById = new Map(activeZones.map(zone => [zone.id, zone]));
   const tablesById = new Map(activeTables.map(table => [table.id, table]));
   const allowCrossZoneCombinations = seatingSettings.allowCrossZoneCombinations ?? false;
   const maxCombineCount = seatingSettings.maxCombineCount ?? 2;
 
-  const candidates: Candidate[] = [];
+  const candidates: AllocationCandidate[] = [];
 
   activeTables.forEach(table => {
     const { minCapacity, maxCapacity } = getCapacityBounds(table);
@@ -119,7 +98,7 @@ const buildCandidates = (
     if (partySize > maxCapacity) {
       return;
     }
-    if (!zonesById.has(table.zoneId)) {
+    if (!table.zoneId || !zonesById.has(table.zoneId)) {
       return;
     }
     candidates.push({
@@ -127,7 +106,7 @@ const buildCandidates = (
       tableIds: [table.id],
       totalMax: maxCapacity,
       totalMin: minCapacity,
-      label: table.name ?? table.id,
+      label: table.id,
     });
   });
 
@@ -137,7 +116,7 @@ const buildCandidates = (
       .forEach(combo => {
         const comboTables = combo.tableIds
           .map(tableId => tablesById.get(tableId))
-          .filter(Boolean) as Table[];
+          .filter(Boolean) as FloorplanTable[];
         if (comboTables.length !== combo.tableIds.length) {
           return;
         }
@@ -191,62 +170,39 @@ const buildCandidates = (
   return candidates;
 };
 
-const calculateConfidence = (partySize: number, candidate: Candidate) => {
-  const slack = candidate.totalMax - partySize;
-  if (candidate.totalMax <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.min(1, 1 - slack / candidate.totalMax));
-};
-
-const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-
-const normalizeConfidence = (reason: string, confidence: number) => {
-  if (reason === 'NO_FIT' || reason === 'INVALID_PARTY_SIZE') {
-    return 0;
-  }
-  if (reason === 'EMERGENCY_ZONE') {
-    return clamp01(Math.min(0.4, Math.max(0.2, confidence)));
-  }
-  if (reason === 'FLOORPLAN_FALLBACK') {
-    return clamp01(Math.min(0.8, Math.max(0.5, confidence)));
-  }
-  if (reason === 'BEST_FIT') {
-    return clamp01(Math.max(0.8, confidence));
-  }
-  if (reason === 'OVERRIDE_TABLES') {
-    return 1;
-  }
-  return clamp01(confidence);
-};
-
-export const suggestAllocation = (
-  input: SuggestAllocationInput
-): SuggestAllocationResult => {
-  const { partySize, seatingSettings, zones, override, bookingDate } = input;
+export const suggestAllocationDecision = ({
+  partySize,
+  bookingDate,
+  seatingSettings,
+  zones,
+  tables,
+  tableCombinations,
+}: {
+  partySize: number;
+  bookingDate: Date;
+  seatingSettings: SeatingSettingsDoc;
+  zones: FloorplanZone[];
+  tables: FloorplanTable[];
+  tableCombinations: TableCombinationDoc[];
+}) => {
   if (partySize <= 0) {
-    return { tableIds: [], reason: 'INVALID_PARTY_SIZE', confidence: 0 };
+    return { zoneId: null, tableIds: [], reason: 'INVALID_PARTY_SIZE' };
   }
 
-  const allocationMode: AllocationMode =
-    seatingSettings.allocationMode ?? 'capacity';
-  const allocationStrategy: AllocationStrategy =
-    seatingSettings.allocationStrategy ?? 'bestFit';
+  const allocationMode = seatingSettings.allocationMode ?? 'capacity';
+  const allocationStrategy = seatingSettings.allocationStrategy ?? 'bestFit';
   const defaultZoneId = seatingSettings.defaultZoneId ?? '';
 
-  if (override?.forcedTableIds?.length && override.forcedZoneId) {
-    return {
-      zoneId: override.forcedZoneId,
-      tableIds: override.forcedTableIds,
-      reason: 'OVERRIDE_TABLES',
-      confidence: normalizeConfidence('OVERRIDE_TABLES', 1),
-    };
-  }
-
-  const candidates = buildCandidates(input);
+  const candidates = buildCandidates({
+    partySize,
+    seatingSettings,
+    zones,
+    tables,
+    tableCombinations,
+  });
 
   if (!candidates.length) {
-    return { tableIds: [], reason: 'NO_FIT', confidence: 0 };
+    return { zoneId: null, tableIds: [], reason: 'NO_FIT' };
   }
 
   const zonePriority = new Map(
@@ -288,7 +244,7 @@ export const suggestAllocation = (
     ? orderedZoneIds.filter(zoneId => emergencyZoneIdSet.has(zoneId))
     : [];
 
-  const pickBest = (items: Candidate[]) =>
+  const pickBest = (items: AllocationCandidate[]) =>
     [...items].sort(compareCandidates(allocationStrategy, zonePriority, partySize))[0];
 
   if (allocationMode === 'floorplan' || allocationMode === 'hybrid') {
@@ -297,25 +253,15 @@ export const suggestAllocation = (
         const zoneCandidates = candidates.filter(candidate => candidate.zoneId === zoneId);
         if (zoneCandidates.length) {
           const best = pickBest(zoneCandidates);
-          const confidence = calculateConfidence(partySize, best);
           return {
             zoneId: best.zoneId,
             tableIds: best.tableIds,
             reason,
-            confidence: normalizeConfidence(reason, confidence),
           };
         }
       }
       return null;
     };
-
-    const overrideZoneId = override?.forcedZoneId ?? '';
-    if (overrideZoneId) {
-      const overrideResult = evaluateZones([overrideZoneId], 'OVERRIDE_ZONE');
-      if (overrideResult) {
-        return overrideResult;
-      }
-    }
 
     const primaryResult = evaluateZones(primaryZoneIds, 'ZONE_FIRST');
     if (primaryResult) {
@@ -335,7 +281,7 @@ export const suggestAllocation = (
     }
 
     if (allocationMode === 'floorplan') {
-      return { tableIds: [], reason: 'NO_FIT', confidence: normalizeConfidence('NO_FIT', 0) };
+      return { zoneId: null, tableIds: [], reason: 'NO_FIT' };
     }
   }
 
@@ -353,21 +299,13 @@ export const suggestAllocation = (
     ? emergencyCandidates
     : candidates;
   const best = pickBest(selectedCandidates);
-  const reason = usedEmergencyFallback
-    ? 'EMERGENCY_ZONE'
-    : allocationMode === 'hybrid'
-    ? 'FLOORPLAN_FALLBACK'
-    : 'BEST_FIT';
-  const confidence = calculateConfidence(partySize, best);
   return {
     zoneId: best.zoneId,
     tableIds: best.tableIds,
-    reason,
-    confidence: normalizeConfidence(reason, confidence),
+    reason: usedEmergencyFallback
+      ? 'EMERGENCY_ZONE'
+      : allocationMode === 'hybrid'
+      ? 'FLOORPLAN_FALLBACK'
+      : 'BEST_FIT',
   };
-};
-
-export const replayAllocationDecision = (input: AllocationLogReplayInput) => {
-  const result = suggestAllocation(input);
-  return { zoneId: result.zoneId, tableIds: result.tableIds, reason: result.reason };
 };

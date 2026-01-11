@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, Timestamp, serverTimestamp } from "firebase/firestore";
+import { getFirestore, initializeFirestore, Timestamp, serverTimestamp } from "firebase/firestore";
 import { getFunctions } from "firebase/functions";
 import { getStorage } from "firebase/storage";
 
@@ -17,7 +17,11 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+const isDev = process.env.NODE_ENV !== "production";
+export const db = isDev
+  // Dev-only long polling helps CloudShell/proxy/mobile environments avoid transport aborts.
+  ? initializeFirestore(app, { experimentalForceLongPolling: true, useFetchStreams: false })
+  : getFirestore(app);
 export const functions = getFunctions(app, "europe-west3");
 
 // ✅ csak egyszer exportáld, explicit bucket URL-lel

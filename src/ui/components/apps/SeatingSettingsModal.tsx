@@ -1,7 +1,8 @@
 import { FirebaseError } from 'firebase/app';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { auth, db } from '../../../core/firebase/config';
+import { auth, db, functions } from '../../../core/firebase/config';
 import {
   Floorplan,
   SeatingSettings,
@@ -77,6 +78,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return trimmed.length > 0 ? trimmed : undefined;
   };
   const isDev = process.env.NODE_ENV !== 'production';
+  const debugSeating =
+    isDev ||
+    (typeof window !== 'undefined' &&
+      window.localStorage.getItem('mintleaf_debug_seating') === '1');
+  const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -189,6 +195,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     isActive: true,
   });
   const [zonePriorityAdd, setZonePriorityAdd] = useState('');
+  const handleDebugAllocationLog = useCallback(async () => {
+    if (!debugSeating) {
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    try {
+      const callable = httpsCallable(functions, 'logAllocationEvent');
+      await callable({
+        unitId,
+        bookingId: 'debug',
+        startTimeISO: new Date().toISOString(),
+        endTimeISO: new Date(Date.now() + 30 * 60000).toISOString(),
+        partySize: 2,
+        zoneId: null,
+        tableIds: [],
+        reason: 'DEBUG',
+        allocationMode: 'debug',
+        allocationStrategy: 'debug',
+        snapshot: {
+          overflowZonesCount: 0,
+          zonePriorityCount: 0,
+          emergencyZonesCount: 0,
+        },
+      });
+      if (isMountedRef.current) {
+        setSuccess('Debug allocation log létrehozva.');
+      }
+      console.debug('[seating] debug allocation log success', { unitId });
+    } catch (error) {
+      if (isMountedRef.current) {
+        setError('Nem sikerült létrehozni a debug allocation logot.');
+      }
+      console.warn('[seating] debug allocation log failed', error);
+    }
+  }, [debugSeating, unitId]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -452,6 +494,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const handleActionButtonClick = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    handler: () => void | Promise<void>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void handler();
+  };
+
   const runAction = async ({
     key,
     action,
@@ -466,6 +517,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     errorContext: string;
   }) => {
     if (actionSavingRef.current[key]) {
+      if (debugSeating) {
+        console.debug('[seating] action already running', { key, context: errorContext });
+      }
       return;
     }
     setActionSavingFlag(key, true);
@@ -479,6 +533,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setSuccess(successMessage);
       }
     } catch (err) {
+      if (isAbortError(err)) {
+        if (debugSeating) {
+          console.warn('[seating] action aborted', { key, context: errorContext });
+        }
+        if (isMountedRef.current) {
+          setError('Hálózati megszakítás (Abort). Próbáld újra.');
+        }
+        return;
+      }
       if (isMountedRef.current) {
         if (isPermissionDenied(err)) {
           setError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
@@ -487,6 +550,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
       }
       console.error(errorContext, err);
+      if (debugSeating) {
+        console.warn('[seating] action failed', { key, context: errorContext, err });
+      }
     } finally {
       setActionSavingFlag(key, false);
     }
@@ -620,6 +686,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   useEffect(() => {
     const handleBlur = () => {
+      // Only cancel drag operations; avoid aborting save/delete actions on mobile blur/visibility.
       const drag = dragStateRef.current;
       if (drag) {
         abortDragRef.current(drag);
@@ -790,6 +857,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanId === resolvedActiveFloorplanId) {
       return;
     }
+    if (debugSeating) {
+      console.debug('[seating] activate floorplan click', { floorplanId });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-activate-${floorplanId}`,
       errorMessage: 'Nem sikerült aktiválni az alaprajzot.',
@@ -805,22 +876,47 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] activate floorplan done', {
+        floorplanId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleDeleteFloorplan = async (floorplanId: string) => {
+    if (debugSeating) {
+      console.debug('[seating] delete floorplan click', { floorplanId });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-delete-${floorplanId}`,
       errorMessage: 'Nem sikerült törölni az alaprajzot.',
       errorContext: 'Error deleting floorplan:',
       successMessage: 'Alaprajz törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan call start', { floorplanId });
+        }
         await deleteFloorplan(unitId, floorplanId);
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan call done', { floorplanId });
+        }
         const nextFloorplans = await listFloorplans(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan refresh done', { floorplanId });
+        }
         const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
         const currentActiveId = settings?.activeFloorplanId ?? resolvedActiveFloorplanId;
         if (currentActiveId === floorplanId) {
           const nextActiveId = nextVisible[0]?.id ?? '';
           if (nextActiveId !== currentActiveId) {
+            if (debugSeating) {
+              console.debug('[seating] delete floorplan update active', {
+                from: currentActiveId,
+                to: nextActiveId,
+              });
+            }
             await updateSeatingSettings(unitId, {
               activeFloorplanId: nextActiveId,
             });
@@ -833,6 +929,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setFloorplans(nextFloorplans);
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete floorplan done', {
+        floorplanId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   useEffect(() => {
@@ -875,16 +977,36 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleDeleteZone = async (zoneId: string) => {
+    if (debugSeating) {
+      console.debug('[seating] delete zone click', { zoneId });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `zone-delete-${zoneId}`,
       errorMessage: 'Nem sikerült törölni a zónát.',
       errorContext: 'Error deleting zone:',
       successMessage: 'Zóna törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete zone call start', { zoneId });
+        }
         await deleteZone(unitId, zoneId);
-        setZones(await listZones(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete zone call done', { zoneId });
+        }
+        const nextZones = await listZones(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete zone refresh done', { zoneId });
+        }
+        setZones(nextZones);
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete zone done', {
+        zoneId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleTableSubmit = async () => {
@@ -970,16 +1092,36 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleDeleteTable = async (tableId: string) => {
+    if (debugSeating) {
+      console.debug('[seating] delete table click', { tableId });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `table-delete-${tableId}`,
       errorMessage: 'Nem sikerült törölni az asztalt.',
       errorContext: 'Error deleting table:',
       successMessage: 'Asztal törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete table call start', { tableId });
+        }
         await deleteTable(unitId, tableId);
-        setTables(await listTables(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete table call done', { tableId });
+        }
+        const nextTables = await listTables(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete table refresh done', { tableId });
+        }
+        setTables(nextTables);
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete table done', {
+        tableId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) => {
@@ -1310,6 +1452,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleToggleCombo = async (combo: TableCombination) => {
+    if (debugSeating) {
+      console.debug('[seating] toggle combo click', { comboId: combo.id });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-toggle-${combo.id}`,
       errorMessage: 'Nem sikerült frissíteni a kombinációt.',
@@ -1320,19 +1466,45 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setCombos(await listCombinations(unitId));
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] toggle combo done', {
+        comboId: combo.id,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleDeleteCombo = async (comboId: string) => {
+    if (debugSeating) {
+      console.debug('[seating] delete combo click', { comboId });
+    }
+    const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-delete-${comboId}`,
       errorMessage: 'Nem sikerült törölni a kombinációt.',
       errorContext: 'Error deleting combination:',
       successMessage: 'Kombináció törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete combo call start', { comboId });
+        }
         await deleteCombination(unitId, comboId);
-        setCombos(await listCombinations(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete combo call done', { comboId });
+        }
+        const nextCombos = await listCombinations(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete combo refresh done', { comboId });
+        }
+        setCombos(nextCombos);
       },
     });
+    if (debugSeating) {
+      console.debug('[seating] delete combo done', {
+        comboId,
+        durationMs: Math.round(getNow() - startedAt),
+      });
+    }
   };
 
   const handleClose = useCallback(() => {
@@ -1355,7 +1527,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
         onClick={handleClose}
       >
-        <div className="rounded-2xl shadow-xl w-full max-w-3xl p-6 bg-white">
+        <div
+          className="rounded-2xl shadow-xl w-full max-w-3xl p-6 bg-white"
+          onClick={event => event.stopPropagation()}
+        >
           Betöltés...
         </div>
       </div>
@@ -1390,6 +1565,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               Seating permission smoke test
             </button>
             {probeSummary && <div>{probeSummary}</div>}
+          </div>
+        )}
+        {debugSeating && (
+          <div className="text-xs text-slate-500 space-y-2">
+            <div className="font-semibold">Debug</div>
+            <button
+              type="button"
+              onClick={event => handleActionButtonClick(event, handleDebugAllocationLog)}
+              className="underline"
+            >
+              Test allocation log
+            </button>
           </div>
         )}
 
@@ -1445,7 +1632,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
           <button
             type="button"
-            onClick={handleFloorplanSubmit}
+            onClick={event => handleActionButtonClick(event, handleFloorplanSubmit)}
             className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
             disabled={actionSaving['floorplan-submit']}
           >
@@ -1464,7 +1651,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => handleActivateFloorplan(plan.id)}
+                      onClick={event =>
+                        handleActionButtonClick(event, () => handleActivateFloorplan(plan.id))
+                      }
                       className="text-blue-600 disabled:opacity-50"
                       disabled={isActivating || isDeleting}
                     >
@@ -1476,7 +1665,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteFloorplan(plan.id)}
+                      onClick={event => {
+                        if (debugSeating) {
+                          console.debug('[seating] delete floorplan button onClick fired', {
+                            floorplanId: plan.id,
+                          });
+                        }
+                        handleActionButtonClick(event, () => handleDeleteFloorplan(plan.id));
+                      }}
                       className="text-red-600 disabled:opacity-50"
                       disabled={isDeleting || isActivating}
                     >
@@ -2004,7 +2200,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
           <button
             type="button"
-            onClick={handleSettingsSave}
+            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
             className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
             disabled={actionSaving['settings-save']}
           >
@@ -2104,6 +2300,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </div>
             )}
           </div>
+          <button
+            type="button"
+            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['settings-save']}
+          >
+            {actionSaving['settings-save'] ? 'Mentés...' : 'Emergency beállítások mentése'}
+          </button>
         </section>
 
         <section className="space-y-3 border rounded-lg p-4">
@@ -2145,7 +2349,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
           <button
             type="button"
-            onClick={handleZoneSubmit}
+            onClick={event => handleActionButtonClick(event, handleZoneSubmit)}
             className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
             disabled={actionSaving['zone-submit']}
           >
@@ -2178,7 +2382,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteZone(zone.id)}
+                      onClick={event => {
+                        if (debugSeating) {
+                          console.debug('[seating] delete zone button onClick fired', {
+                            zoneId: zone.id,
+                          });
+                        }
+                        handleActionButtonClick(event, () => handleDeleteZone(zone.id));
+                      }}
                       className="text-red-600 disabled:opacity-50"
                       disabled={isDeleting}
                     >
@@ -2346,7 +2557,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
           <button
             type="button"
-            onClick={handleTableSubmit}
+            onClick={event => handleActionButtonClick(event, handleTableSubmit)}
             className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
             disabled={actionSaving['table-submit']}
           >
@@ -2398,7 +2609,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteTable(table.id)}
+                      onClick={event => {
+                        if (debugSeating) {
+                          console.debug('[seating] delete table button onClick fired', {
+                            tableId: table.id,
+                          });
+                        }
+                        handleActionButtonClick(event, () => handleDeleteTable(table.id));
+                      }}
                       className="text-red-600 disabled:opacity-50"
                       disabled={isDeleting}
                     >
@@ -2434,7 +2652,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             </div>
             <button
               type="button"
-              onClick={handleComboSubmit}
+              onClick={event => handleActionButtonClick(event, handleComboSubmit)}
               className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
               disabled={actionSaving['combo-submit']}
             >
@@ -2452,7 +2670,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => handleToggleCombo(combo)}
+                        onClick={event =>
+                          handleActionButtonClick(event, () => handleToggleCombo(combo))
+                        }
                         className="text-blue-600 disabled:opacity-50"
                         disabled={isToggling || isDeleting}
                       >
@@ -2466,7 +2686,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteCombo(combo.id)}
+                        onClick={event => {
+                          if (debugSeating) {
+                            console.debug('[seating] delete combo button onClick fired', {
+                              comboId: combo.id,
+                            });
+                          }
+                          handleActionButtonClick(event, () => handleDeleteCombo(combo.id));
+                        }}
                         className="text-red-600 disabled:opacity-50"
                         disabled={isDeleting || isToggling}
                       >

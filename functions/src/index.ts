@@ -3,6 +3,12 @@ import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { createHash, randomBytes } from "crypto";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import {
+  computeAllocationDecisionForBooking,
+  writeAllocationDecisionLogForBooking,
+} from "./allocation";
+import { normalizeTable, normalizeZone } from "./allocation/normalize";
+import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
 admin.initializeApp();
@@ -39,26 +45,7 @@ const RATE_LIMIT_MAX = 15;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const MIN_HEADCOUNT = 1;
 const MAX_HEADCOUNT = 30;
-
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
-
-interface FloorplanZone {
-  id: string;
-  name?: string;
-  isActive?: boolean;
-  tags?: string[];
-  type?: 'bar' | 'outdoor' | 'table' | 'other';
-  priority?: number;
-}
-
-interface FloorplanTable {
-  id: string;
-  zoneId?: string;
-  isActive?: boolean;
-  tableGroup?: string;
-  canCombine?: boolean;
-  tags?: string[];
-}
 
 interface AllocationIntent {
   zoneId?: string | null;
@@ -121,49 +108,21 @@ const normalizeOptionalText = (value: unknown) => {
   return trimmed ? trimmed : undefined;
 };
 
+const normalizeUnitIds = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value === 'string') {
+    return [value];
+  }
+  return [];
+};
+
 const normalizeTags = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value
     .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
     .filter(Boolean);
-};
-
-const normalizeZone = (raw: unknown, idFallback?: string): FloorplanZone => {
-  const data = (raw ?? {}) as Record<string, unknown>;
-  const type =
-    data.type === 'bar' || data.type === 'outdoor' || data.type === 'table' || data.type === 'other'
-      ? data.type
-      : undefined;
-  const priority =
-    typeof data.priority === 'number' && !Number.isNaN(data.priority)
-      ? data.priority
-      : undefined;
-  return {
-    id: typeof data.id === 'string' ? data.id : idFallback || '',
-    name: typeof data.name === 'string' ? data.name : undefined,
-    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
-    tags: normalizeTags(data.tags),
-    type,
-    priority,
-  };
-};
-
-const normalizeTable = (raw: unknown, idFallback?: string): FloorplanTable => {
-  const data = (raw ?? {}) as Record<string, unknown>;
-  const canCombine =
-    typeof data.canCombine === 'boolean'
-      ? data.canCombine
-      : typeof data.isCombinable === 'boolean'
-      ? data.isCombinable
-      : false;
-  return {
-    id: typeof data.id === 'string' ? data.id : idFallback || '',
-    zoneId: typeof data.zoneId === 'string' ? data.zoneId : undefined,
-    isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
-    tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
-    canCombine,
-    tags: normalizeTags(data.tags),
-  };
 };
 
 const buildAllocationIntent = (
@@ -499,6 +458,7 @@ export const guestUpdateReservation = onRequest(
 export const guestCreateReservation = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
+    console.log('>>> guestCreateReservation HANDLER ENTERED');
     try {
       if (req.method !== 'POST') {
         res.status(405).send('Only POST allowed');
@@ -764,6 +724,37 @@ export const guestCreateReservation = onRequest(
         customData: reservation.customData || {},
         adminActionToken: adminActionToken || undefined,
       };
+
+      try {
+        const decision = await computeAllocationDecisionForBooking({
+          unitId,
+          bookingId: createResult.bookingId,
+          startDate: startTime,
+          endDate: endTime,
+          partySize: headcount,
+        });
+        await writeAllocationDecisionLogForBooking({
+          unitId,
+          bookingId: createResult.bookingId,
+          startDate: startTime,
+          endDate: endTime,
+          partySize: headcount,
+          selectedZoneId: decision.zoneId ?? null,
+          selectedTableIds: decision.tableIds,
+          reason: decision.reason,
+          allocationMode: decision.allocationMode ?? null,
+          allocationStrategy: decision.allocationStrategy ?? null,
+          snapshot: decision.snapshot ?? null,
+          algoVersion: 'alloc-v1',
+          source: 'bookingSubmit',
+        });
+      } catch (err) {
+        logger.warn('guestCreateReservation allocation log failed', {
+          unitId,
+          bookingId: createResult.bookingId,
+          err,
+        });
+      }
 
       const unitName = await getUnitName(unitId);
       await Promise.all([
@@ -1705,6 +1696,290 @@ export const adminClearReservationOverride = onCall(
   }
 );
 
+export const logAllocationEvent = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    logger.warn('logAllocationEvent unauthenticated');
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const allowedKeys = new Set([
+    'unitId',
+    'bookingId',
+    'startTimeISO',
+    'endTimeISO',
+    'partySize',
+    'zoneId',
+    'tableIds',
+    'reason',
+    'allocationMode',
+    'allocationStrategy',
+    'snapshot',
+  ]);
+  const keys = Object.keys(data);
+  if (keys.some(key => !allowedKeys.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const unitId = data.unitId;
+  const startTimeISO = data.startTimeISO;
+  const endTimeISO = data.endTimeISO;
+  const partySize = data.partySize;
+  const tableIds = data.tableIds;
+
+  if (
+    typeof unitId !== 'string' ||
+    !unitId.trim() ||
+    typeof startTimeISO !== 'string' ||
+    typeof endTimeISO !== 'string'
+  ) {
+    throw new HttpsError('invalid-argument', 'unitId és időpontok kötelezőek');
+  }
+
+  const startDate = new Date(startTimeISO);
+  const endDate = new Date(endTimeISO);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen időpont');
+  }
+
+  if (typeof partySize !== 'number' || Number.isNaN(partySize) || partySize <= 0) {
+    throw new HttpsError('invalid-argument', 'partySize kötelező');
+  }
+
+  if (!Array.isArray(tableIds) || tableIds.some(id => typeof id !== 'string')) {
+    throw new HttpsError('invalid-argument', 'tableIds kötelező');
+  }
+
+  const userSnap = await db.collection('users').doc(request.auth.uid).get();
+  if (!userSnap.exists) {
+    logger.warn('logAllocationEvent missing user doc', { uid: request.auth.uid });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const userData = userSnap.data() || {};
+  const role = userData.role as string | undefined;
+  const normalizedUnits = Array.from(
+    new Set(
+      [
+        ...normalizeUnitIds(userData.unitIds),
+        ...normalizeUnitIds(userData.unitIDs),
+        ...normalizeUnitIds(userData.unitId),
+      ].filter(Boolean)
+    )
+  );
+  const canManage =
+    role === 'Admin' ||
+    ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
+  if (!canManage) {
+    logger.warn('logAllocationEvent permission denied', {
+      uid: request.auth.uid,
+      role,
+      unitId,
+      normalizedUnits,
+    });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const snapshot = data.snapshot;
+  const snapshotPayload =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? {
+          overflowZonesCount:
+            typeof snapshot.overflowZonesCount === 'number'
+              ? snapshot.overflowZonesCount
+              : null,
+          zonePriorityCount:
+            typeof snapshot.zonePriorityCount === 'number' ? snapshot.zonePriorityCount : null,
+          emergencyZonesCount:
+            typeof snapshot.emergencyZonesCount === 'number'
+              ? snapshot.emergencyZonesCount
+              : null,
+        }
+      : null;
+
+  await db.collection('units').doc(unitId).collection('allocation_logs').add({
+    createdAt: FieldValue.serverTimestamp(),
+    createdByUserId: request.auth.uid,
+    bookingId: typeof data.bookingId === 'string' ? data.bookingId : null,
+    bookingStartTime: Timestamp.fromDate(startDate),
+    bookingEndTime: Timestamp.fromDate(endDate),
+    partySize,
+    selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
+    selectedTableIds: tableIds,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    allocationMode: typeof data.allocationMode === 'string' ? data.allocationMode : null,
+    allocationStrategy:
+      typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
+    snapshot: snapshotPayload,
+    source: 'seatingSuggestionService',
+  });
+
+  logger.info('logAllocationEvent write ok', {
+    unitId,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    tableIdsCount: tableIds.length,
+  });
+
+  return { ok: true };
+});
+
+export const logAllocationDecisionForBooking = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    logger.warn('logAllocationDecisionForBooking unauthenticated');
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const allowedKeys = new Set([
+    'unitId',
+    'bookingId',
+    'startTimeISO',
+    'endTimeISO',
+    'partySize',
+    'zoneId',
+    'tableIds',
+    'reason',
+    'allocationMode',
+    'allocationStrategy',
+    'snapshot',
+    'algoVersion',
+  ]);
+  const keys = Object.keys(data);
+  if (keys.some(key => !allowedKeys.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const unitId = data.unitId;
+  const bookingId = data.bookingId;
+  const startTimeISO = data.startTimeISO;
+  const endTimeISO = data.endTimeISO;
+  const partySize = data.partySize;
+  const tableIds = data.tableIds;
+  const algoVersion = data.algoVersion;
+  const normalizedReason =
+    typeof data.reason === 'string' && data.reason.trim() ? data.reason.trim() : 'UNKNOWN';
+  const normalizedZoneId =
+    typeof data.zoneId === 'string' && data.zoneId.trim() ? data.zoneId.trim() : null;
+  const normalizedMode =
+    data.allocationMode === 'capacity' ||
+    data.allocationMode === 'floorplan' ||
+    data.allocationMode === 'hybrid'
+      ? data.allocationMode
+      : null;
+  const normalizedStrategy =
+    data.allocationStrategy === 'bestFit' ||
+    data.allocationStrategy === 'minWaste' ||
+    data.allocationStrategy === 'priorityZoneFirst'
+      ? data.allocationStrategy
+      : null;
+
+  if (
+    typeof unitId !== 'string' ||
+    !unitId.trim() ||
+    typeof bookingId !== 'string' ||
+    !bookingId.trim() ||
+    typeof startTimeISO !== 'string' ||
+    typeof endTimeISO !== 'string'
+  ) {
+    throw new HttpsError('invalid-argument', 'unitId, bookingId és időpontok kötelezőek');
+  }
+
+  const startDate = new Date(startTimeISO);
+  const endDate = new Date(endTimeISO);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen időpont');
+  }
+
+  if (typeof partySize !== 'number' || Number.isNaN(partySize) || partySize <= 0) {
+    throw new HttpsError('invalid-argument', 'partySize kötelező');
+  }
+
+  if (!Array.isArray(tableIds) || tableIds.some(id => typeof id !== 'string')) {
+    throw new HttpsError('invalid-argument', 'tableIds kötelező');
+  }
+
+  if (typeof algoVersion !== 'string' || !algoVersion.trim()) {
+    throw new HttpsError('invalid-argument', 'algoVersion kötelező');
+  }
+
+  const userSnap = await db.collection('users').doc(request.auth.uid).get();
+  if (!userSnap.exists) {
+    logger.warn('logAllocationDecisionForBooking missing user doc', {
+      uid: request.auth.uid,
+    });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const userData = userSnap.data() || {};
+  const role = userData.role as string | undefined;
+  const normalizedUnits = Array.from(
+    new Set(
+      [
+        ...normalizeUnitIds(userData.unitIds),
+        ...normalizeUnitIds(userData.unitIDs),
+        ...normalizeUnitIds(userData.unitId),
+      ].filter(Boolean)
+    )
+  );
+  const canManage =
+    role === 'Admin' ||
+    ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
+  if (!canManage) {
+    logger.warn('logAllocationDecisionForBooking permission denied', {
+      uid: request.auth.uid,
+      role,
+      unitId,
+      normalizedUnits,
+    });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const snapshot = data.snapshot;
+  const snapshotPayload =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? {
+          overflowZonesCount:
+            typeof snapshot.overflowZonesCount === 'number'
+              ? snapshot.overflowZonesCount
+              : null,
+          zonePriorityCount:
+            typeof snapshot.zonePriorityCount === 'number' ? snapshot.zonePriorityCount : null,
+          emergencyZonesCount:
+            typeof snapshot.emergencyZonesCount === 'number'
+              ? snapshot.emergencyZonesCount
+              : null,
+        }
+      : null;
+
+  const { docId, eventId } = await writeAllocationDecisionLogForBooking({
+    unitId,
+    bookingId,
+    startDate,
+    endDate,
+    partySize,
+    selectedZoneId: normalizedZoneId,
+    selectedTableIds: tableIds,
+    reason: normalizedReason,
+    allocationMode: normalizedMode,
+    allocationStrategy: normalizedStrategy,
+    snapshot: snapshotPayload,
+    algoVersion,
+    source: 'bookingSubmit',
+  });
+
+  logger.info('logAllocationDecisionForBooking write ok', { unitId, bookingId, docId, eventId });
+
+  return { ok: true, eventId };
+});
+
 export const adminRecalcReservationCapacityDay = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
@@ -1858,10 +2133,10 @@ interface BookingRecord {
   preferredTimeSlot?: string | null;
   seatingPreference?: SeatingPreference;
   allocationIntent?: AllocationIntent;
-  startTime: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
-  endTime?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null;
+  startTime: FirebaseFirestore.Timestamp | Date;
+  endTime?: FirebaseFirestore.Timestamp | Date | null;
   status: 'confirmed' | 'pending' | 'cancelled';
-  createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  createdAt?: FirebaseFirestore.Timestamp | Date;
   notes?: string;
   phone?: string;
   email?: string;
@@ -1870,13 +2145,13 @@ interface BookingRecord {
     email?: string;
   };
   locale?: 'hu' | 'en';
-  cancelledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  cancelledAt?: FirebaseFirestore.Timestamp | Date;
   cancelReason?: string;
   referenceCode?: string;
   reservationMode?: 'auto' | 'request';
   adminActionToken?: string;
   adminActionTokenHash?: string;
-  adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  adminActionHandledAt?: FirebaseFirestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
   customData?: Record<string, any>;
@@ -1888,7 +2163,7 @@ interface QueuedEmail {
   typeId: string;
   unitId?: string | null;
   payload: Record<string, any>;
-  createdAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
+  createdAt?: FirebaseFirestore.Timestamp | Date;
   status: "pending" | "sent" | "error";
   errorMessage?: string;
 }
@@ -2320,8 +2595,7 @@ const resolveQueuedEmailRecipients = async (
 };
 
 type TimestampLike =
-  | FirebaseFirestore.Timestamp
-  | admin.firestore.Timestamp;
+  | FirebaseFirestore.Timestamp;
 
 const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
   if (!v) return new Date(0);
@@ -2336,8 +2610,8 @@ const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
 };
 
 const buildTimeFields = (
-  start: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date,
-  end: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null | undefined,
+  start: FirebaseFirestore.Timestamp | Date,
+  end: FirebaseFirestore.Timestamp | Date | null | undefined,
   locale: 'hu' | 'en'
 ) => {
   const date = toJsDate(start);
@@ -2539,7 +2813,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
       logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
       await ref.update({
         status: "sent",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentAt: FieldValue.serverTimestamp(),
       });
       return;
     }
@@ -2565,7 +2839,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
 
       await ref.update({
         status: "sent",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentAt: FieldValue.serverTimestamp(),
       });
     } catch (err: any) {
       logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
@@ -3248,7 +3522,7 @@ export const onReservationStatusChange = onDocumentUpdated(
         db
           .runTransaction(async transaction => {
             const startDate =
-              after.startTime instanceof admin.firestore.Timestamp
+              after.startTime instanceof Timestamp
                 ? after.startTime.toDate()
                 : after.startTime instanceof Date
                 ? after.startTime
