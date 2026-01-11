@@ -6,7 +6,7 @@ import {
   fetchTakenTableIds,
 } from './queryReservations';
 
-export const seatingSettingsDefaults: SeatingSettingsDoc = {
+const seatingSettingsDefaults: SeatingSettingsDoc = {
   bufferMinutes: 15,
   maxCombineCount: 2,
   soloAllowedTableIds: [],
