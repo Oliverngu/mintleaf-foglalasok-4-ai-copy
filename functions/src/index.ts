@@ -556,7 +556,7 @@ export const guestCreateReservation = onRequest(
         ? hashAdminActionToken(adminActionToken)
         : null;
       const adminActionExpiresAt = adminActionToken
-        ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
+        ? admin.firestore.Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
         : null;
 
       const createResult = await db.runTransaction(async (transaction) => {
@@ -617,7 +617,7 @@ export const guestCreateReservation = onRequest(
           },
           locale: reservation.locale || 'hu',
           status,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
           referenceCode,
           reservationMode,
           occasion: reservation.occasion || '',
@@ -638,7 +638,7 @@ export const guestCreateReservation = onRequest(
           date: effectiveDateKey,
           count: nextCount,
           totalCount: nextCount,
-          updatedAt: FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         if (allocationIntent.timeSlot) {
           const byTimeSlot = {
@@ -694,7 +694,7 @@ export const guestCreateReservation = onRequest(
           bookingId: referenceCode,
           unitId,
           type: 'guest_created',
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
           createdByName: reservation.name,
           source: 'guest',
           message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
@@ -707,15 +707,15 @@ export const guestCreateReservation = onRequest(
         unitId,
         name: reservation.name,
         headcount,
-        startTime: Timestamp.fromDate(startTime),
-        endTime: Timestamp.fromDate(endTime),
+        startTime: admin.firestore.Timestamp.fromDate(startTime),
+        endTime: admin.firestore.Timestamp.fromDate(endTime),
         contact: {
           phoneE164: reservation.contact?.phoneE164 || '',
           email: String(reservation.contact?.email || '').toLowerCase(),
         },
         locale: reservation.locale || 'hu',
         status,
-        createdAt: Timestamp.now(),
+        createdAt: admin.firestore.Timestamp.now(),
         referenceCode: createResult.bookingId,
         reservationMode,
         occasion: reservation.occasion || '',
