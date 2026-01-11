@@ -2595,8 +2595,7 @@ const resolveQueuedEmailRecipients = async (
 };
 
 type TimestampLike =
-  | FirebaseFirestore.Timestamp
-  | admin.firestore.Timestamp;
+  | FirebaseFirestore.Timestamp;
 
 const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
   if (!v) return new Date(0);
@@ -2611,8 +2610,8 @@ const toJsDate = (v: TimestampLike | Date | null | undefined): Date => {
 };
 
 const buildTimeFields = (
-  start: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date,
-  end: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date | null | undefined,
+  start: FirebaseFirestore.Timestamp | Date,
+  end: FirebaseFirestore.Timestamp | Date | null | undefined,
   locale: 'hu' | 'en'
 ) => {
   const date = toJsDate(start);
