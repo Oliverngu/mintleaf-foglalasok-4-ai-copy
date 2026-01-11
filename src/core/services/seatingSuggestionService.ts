@@ -56,7 +56,7 @@ const debugSeating =
   (typeof window !== 'undefined' &&
     window.localStorage.getItem('mintleaf_debug_seating') === '1');
 
-const logEmergencyAllocation = async ({
+const logAllocationDecision = async ({
   unitId,
   bookingId,
   startTime,
@@ -170,27 +170,25 @@ export const suggestSeating = async (
       bookingDate: input.startTime,
     });
   }
-  if (suggestion.reason === 'EMERGENCY_ZONE' && suggestion.tableIds.length > 0) {
-    try {
-      await logEmergencyAllocation({
-        unitId: input.unitId,
-        bookingId: input.bookingId,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        headcount: input.headcount,
-        suggestion,
-        settings,
+  try {
+    await logAllocationDecision({
+      unitId: input.unitId,
+      bookingId: input.bookingId,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      headcount: input.headcount,
+      suggestion,
+      settings,
+    });
+  } catch (error) {
+    if (debugSeating) {
+      const err = error as { code?: string; message?: string; details?: unknown } | null;
+      console.warn('[seatingSuggestion] Failed to log allocation decision', {
+        error,
+        code: err?.code,
+        message: err?.message,
+        details: err?.details,
       });
-    } catch (error) {
-      if (debugSeating) {
-        const err = error as { code?: string; message?: string; details?: unknown } | null;
-        console.warn('[seatingSuggestion] Failed to log emergency allocation', {
-          error,
-          code: err?.code,
-          message: err?.message,
-          details: err?.details,
-        });
-      }
     }
   }
 

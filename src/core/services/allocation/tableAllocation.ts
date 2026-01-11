@@ -23,6 +23,19 @@ export interface SuggestAllocationResult {
   confidence: number;
 }
 
+export interface AllocationLogReplayInput {
+  partySize: number;
+  bookingDate?: Date;
+  seatingSettings: SeatingSettings;
+  zones: Zone[];
+  tables: Table[];
+  tableCombinations?: TableCombination[];
+  override?: {
+    forcedZoneId?: string;
+    forcedTableIds?: string[];
+  };
+}
+
 type Candidate = {
   zoneId: string;
   tableIds: string[];
@@ -186,6 +199,27 @@ const calculateConfidence = (partySize: number, candidate: Candidate) => {
   return Math.max(0, Math.min(1, 1 - slack / candidate.totalMax));
 };
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+const normalizeConfidence = (reason: string, confidence: number) => {
+  if (reason === 'NO_FIT' || reason === 'INVALID_PARTY_SIZE') {
+    return 0;
+  }
+  if (reason === 'EMERGENCY_ZONE') {
+    return clamp01(Math.min(0.4, Math.max(0.2, confidence)));
+  }
+  if (reason === 'FLOORPLAN_FALLBACK') {
+    return clamp01(Math.min(0.8, Math.max(0.5, confidence)));
+  }
+  if (reason === 'BEST_FIT') {
+    return clamp01(Math.max(0.8, confidence));
+  }
+  if (reason === 'OVERRIDE_TABLES') {
+    return 1;
+  }
+  return clamp01(confidence);
+};
+
 export const suggestAllocation = (
   input: SuggestAllocationInput
 ): SuggestAllocationResult => {
@@ -205,7 +239,7 @@ export const suggestAllocation = (
       zoneId: override.forcedZoneId,
       tableIds: override.forcedTableIds,
       reason: 'OVERRIDE_TABLES',
-      confidence: 1,
+      confidence: normalizeConfidence('OVERRIDE_TABLES', 1),
     };
   }
 
@@ -263,11 +297,12 @@ export const suggestAllocation = (
         const zoneCandidates = candidates.filter(candidate => candidate.zoneId === zoneId);
         if (zoneCandidates.length) {
           const best = pickBest(zoneCandidates);
+          const confidence = calculateConfidence(partySize, best);
           return {
             zoneId: best.zoneId,
             tableIds: best.tableIds,
             reason,
-            confidence: calculateConfidence(partySize, best),
+            confidence: normalizeConfidence(reason, confidence),
           };
         }
       }
@@ -300,7 +335,7 @@ export const suggestAllocation = (
     }
 
     if (allocationMode === 'floorplan') {
-      return { tableIds: [], reason: 'NO_FIT', confidence: 0 };
+      return { tableIds: [], reason: 'NO_FIT', confidence: normalizeConfidence('NO_FIT', 0) };
     }
   }
 
@@ -318,14 +353,21 @@ export const suggestAllocation = (
     ? emergencyCandidates
     : candidates;
   const best = pickBest(selectedCandidates);
+  const reason = usedEmergencyFallback
+    ? 'EMERGENCY_ZONE'
+    : allocationMode === 'hybrid'
+    ? 'FLOORPLAN_FALLBACK'
+    : 'BEST_FIT';
+  const confidence = calculateConfidence(partySize, best);
   return {
     zoneId: best.zoneId,
     tableIds: best.tableIds,
-    reason: usedEmergencyFallback
-      ? 'EMERGENCY_ZONE'
-      : allocationMode === 'hybrid'
-      ? 'FLOORPLAN_FALLBACK'
-      : 'BEST_FIT',
-    confidence: calculateConfidence(partySize, best),
+    reason,
+    confidence: normalizeConfidence(reason, confidence),
   };
+};
+
+export const replayAllocationDecision = (input: AllocationLogReplayInput) => {
+  const result = suggestAllocation(input);
+  return { zoneId: result.zoneId, tableIds: result.tableIds, reason: result.reason };
 };
