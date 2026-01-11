@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import { createHash } from 'crypto';
 import { logger } from 'firebase-functions/v2';
 import { AllocationSnapshot, SeatingSettingsDoc } from './types';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 export const writeAllocationDecisionLogForBooking = async ({
   unitId,
@@ -55,8 +56,8 @@ export const writeAllocationDecisionLogForBooking = async ({
   const basePayload = {
     type: 'decision',
     bookingId,
-    bookingStartTime: admin.firestore.Timestamp.fromDate(startDate),
-    bookingEndTime: admin.firestore.Timestamp.fromDate(endDate),
+    bookingStartTime: Timestamp.fromDate(startDate),
+    bookingEndTime: Timestamp.fromDate(endDate),
     partySize,
     selectedZoneId,
     selectedTableIds,
@@ -73,8 +74,8 @@ export const writeAllocationDecisionLogForBooking = async ({
     await ref.set(
       {
         ...basePayload,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: false }
     );
@@ -82,7 +83,7 @@ export const writeAllocationDecisionLogForBooking = async ({
     await ref.set(
       {
         ...basePayload,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
