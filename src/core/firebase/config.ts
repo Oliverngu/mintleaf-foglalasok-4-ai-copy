@@ -19,6 +19,7 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 const isDev = process.env.NODE_ENV !== "production";
 export const db = isDev
+  // Dev-only long polling helps CloudShell/proxy/mobile environments avoid transport aborts.
   ? initializeFirestore(app, { experimentalForceLongPolling: true, useFetchStreams: false })
   : getFirestore(app);
 export const functions = getFunctions(app, "europe-west3");

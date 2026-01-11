@@ -183,7 +183,13 @@ export const suggestSeating = async (
       });
     } catch (error) {
       if (debugSeating) {
-        console.warn('[seatingSuggestion] Failed to log emergency allocation', error);
+        const err = error as { code?: string; message?: string; details?: unknown } | null;
+        console.warn('[seatingSuggestion] Failed to log emergency allocation', {
+          error,
+          code: err?.code,
+          message: err?.message,
+          details: err?.details,
+        });
       }
     }
   }

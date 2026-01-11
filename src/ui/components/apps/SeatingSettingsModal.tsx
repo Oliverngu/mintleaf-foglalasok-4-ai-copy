@@ -500,7 +500,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         if (debugSeating) {
           console.warn('[seating] action aborted', { key, context: errorContext });
           if (isMountedRef.current) {
-            setSuccess('Művelet megszakadt (Abort).');
+            setSuccess('Művelet megszakadt (Abort). Próbáld újra.');
           }
         }
         return;
@@ -858,13 +858,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorContext: 'Error deleting floorplan:',
       successMessage: 'Alaprajz törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan call start', { floorplanId });
+        }
         await deleteFloorplan(unitId, floorplanId);
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan call done', { floorplanId });
+        }
         const nextFloorplans = await listFloorplans(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete floorplan refresh done', { floorplanId });
+        }
         const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
         const currentActiveId = settings?.activeFloorplanId ?? resolvedActiveFloorplanId;
         if (currentActiveId === floorplanId) {
           const nextActiveId = nextVisible[0]?.id ?? '';
           if (nextActiveId !== currentActiveId) {
+            if (debugSeating) {
+              console.debug('[seating] delete floorplan update active', {
+                from: currentActiveId,
+                to: nextActiveId,
+              });
+            }
             await updateSeatingSettings(unitId, {
               activeFloorplanId: nextActiveId,
             });
@@ -935,8 +950,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorContext: 'Error deleting zone:',
       successMessage: 'Zóna törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete zone call start', { zoneId });
+        }
         await deleteZone(unitId, zoneId);
-        setZones(await listZones(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete zone call done', { zoneId });
+        }
+        const nextZones = await listZones(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete zone refresh done', { zoneId });
+        }
+        setZones(nextZones);
       },
     });
     if (debugSeating) {
@@ -1040,8 +1065,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorContext: 'Error deleting table:',
       successMessage: 'Asztal törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete table call start', { tableId });
+        }
         await deleteTable(unitId, tableId);
-        setTables(await listTables(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete table call done', { tableId });
+        }
+        const nextTables = await listTables(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete table refresh done', { tableId });
+        }
+        setTables(nextTables);
       },
     });
     if (debugSeating) {
@@ -1413,8 +1448,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorContext: 'Error deleting combination:',
       successMessage: 'Kombináció törölve.',
       action: async () => {
+        if (debugSeating) {
+          console.debug('[seating] delete combo call start', { comboId });
+        }
         await deleteCombination(unitId, comboId);
-        setCombos(await listCombinations(unitId));
+        if (debugSeating) {
+          console.debug('[seating] delete combo call done', { comboId });
+        }
+        const nextCombos = await listCombinations(unitId);
+        if (debugSeating) {
+          console.debug('[seating] delete combo refresh done', { comboId });
+        }
+        setCombos(nextCombos);
       },
     });
     if (debugSeating) {

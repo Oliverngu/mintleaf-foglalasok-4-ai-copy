@@ -1707,6 +1707,7 @@ export const adminClearReservationOverride = onCall(
 
 export const logAllocationEvent = onCall({ region: REGION }, async request => {
   if (!request.auth?.uid) {
+    logger.warn('logAllocationEvent unauthenticated');
     throw new HttpsError('unauthenticated', 'Unauthorized');
   }
 
@@ -1764,16 +1765,40 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
 
   const userSnap = await db.collection('users').doc(request.auth.uid).get();
   if (!userSnap.exists) {
+    logger.warn('logAllocationEvent missing user doc', { uid: request.auth.uid });
     throw new HttpsError('permission-denied', 'Forbidden');
   }
 
   const userData = userSnap.data() || {};
   const role = userData.role as string | undefined;
-  const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+  const normalizeUnitIds = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === 'string');
+    }
+    if (typeof value === 'string') {
+      return [value];
+    }
+    return [];
+  };
+  const normalizedUnits = Array.from(
+    new Set(
+      [
+        ...normalizeUnitIds(userData.unitIds),
+        ...normalizeUnitIds(userData.unitIDs),
+        ...normalizeUnitIds(userData.unitId),
+      ].filter(Boolean)
+    )
+  );
   const canManage =
     role === 'Admin' ||
-    ((role === 'Unit Admin' || role === 'Unit Leader') && unitIds.includes(unitId));
+    ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
   if (!canManage) {
+    logger.warn('logAllocationEvent permission denied', {
+      uid: request.auth.uid,
+      role,
+      unitId,
+      normalizedUnits,
+    });
     throw new HttpsError('permission-denied', 'Forbidden');
   }
 
@@ -1809,6 +1834,12 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
       typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
     snapshot: snapshotPayload,
     source: 'seatingSuggestionService',
+  });
+
+  logger.info('logAllocationEvent write ok', {
+    unitId,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    tableIdsCount: tableIds.length,
   });
 
   return { ok: true };
