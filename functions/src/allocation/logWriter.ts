@@ -34,6 +34,7 @@ export const writeAllocationDecisionLogForBooking = async ({
 }) => {
   const db = admin.firestore();
   const docId = bookingId;
+  const normalizedReason = reason?.trim() ? reason.trim() : 'UNKNOWN';
   const eventIdSource = [
     unitId,
     bookingId,
@@ -42,7 +43,7 @@ export const writeAllocationDecisionLogForBooking = async ({
     String(partySize),
     allocationMode ?? '',
     allocationStrategy ?? '',
-    reason ?? '',
+    normalizedReason,
     selectedZoneId ?? '',
     selectedTableIds.join(','),
     algoVersion,
@@ -59,7 +60,7 @@ export const writeAllocationDecisionLogForBooking = async ({
     partySize,
     selectedZoneId,
     selectedTableIds,
-    reason,
+    reason: normalizedReason,
     allocationMode,
     allocationStrategy,
     snapshot,
