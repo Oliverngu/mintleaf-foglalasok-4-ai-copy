@@ -1,6 +1,5 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { Timestamp, db, functions } from '../firebase/config';
+import { Timestamp, db } from '../firebase/config';
 import { SeatingSettings } from '../models/data';
 import {
   getSeatingSettings as fetchSeatingSettings,
@@ -22,6 +21,13 @@ export interface SuggestSeatingResult {
   zoneId: string | null;
   tableIds: string[];
   reason?: string;
+  allocationMode?: SeatingSettings['allocationMode'];
+  allocationStrategy?: SeatingSettings['allocationStrategy'];
+  snapshot?: {
+    overflowZonesCount: number;
+    zonePriorityCount: number;
+    emergencyZonesCount: number;
+  };
 }
 
 const defaultSettings: SeatingSettings = {
@@ -56,43 +62,6 @@ const debugSeating =
   (typeof window !== 'undefined' &&
     window.localStorage.getItem('mintleaf_debug_seating') === '1');
 
-const logAllocationDecision = async ({
-  unitId,
-  bookingId,
-  startTime,
-  endTime,
-  headcount,
-  suggestion,
-  settings,
-}: {
-  unitId: string;
-  bookingId?: string;
-  startTime: Date;
-  endTime: Date;
-  headcount: number;
-  suggestion: { zoneId?: string; tableIds: string[]; reason?: string };
-  settings: SeatingSettings;
-}) => {
-  const callable = httpsCallable(functions, 'logAllocationEvent');
-  await callable({
-    unitId,
-    bookingId: bookingId ?? null,
-    startTimeISO: startTime.toISOString(),
-    endTimeISO: endTime.toISOString(),
-    partySize: headcount,
-    zoneId: suggestion.zoneId ?? null,
-    tableIds: suggestion.tableIds,
-    reason: suggestion.reason ?? null,
-    allocationMode: settings.allocationMode ?? null,
-    allocationStrategy: settings.allocationStrategy ?? null,
-    snapshot: {
-      overflowZonesCount: settings.overflowZones?.length ?? 0,
-      zonePriorityCount: settings.zonePriority?.length ?? 0,
-      emergencyZonesCount: settings.emergencyZones?.zoneIds?.length ?? 0,
-    },
-  });
-};
-
 export const suggestSeating = async (
   input: SuggestSeatingInput
 ): Promise<SuggestSeatingResult> => {
@@ -100,8 +69,20 @@ export const suggestSeating = async (
     ...defaultSettings,
     ...(await fetchSeatingSettings(input.unitId, { createIfMissing: false })),
   };
+  const snapshot = {
+    overflowZonesCount: settings.overflowZones?.length ?? 0,
+    zonePriorityCount: settings.zonePriority?.length ?? 0,
+    emergencyZonesCount: settings.emergencyZones?.zoneIds?.length ?? 0,
+  };
   if (!settings.allocationEnabled) {
-    return { zoneId: null, tableIds: [], reason: 'ALLOCATION_DISABLED' };
+    return {
+      zoneId: null,
+      tableIds: [],
+      reason: 'ALLOCATION_DISABLED',
+      allocationMode: settings.allocationMode,
+      allocationStrategy: settings.allocationStrategy,
+      snapshot,
+    };
   }
   const [zones, tables, combos] = await Promise.all([
     listZones(input.unitId),
@@ -170,35 +151,23 @@ export const suggestSeating = async (
       bookingDate: input.startTime,
     });
   }
-  try {
-    await logAllocationDecision({
-      unitId: input.unitId,
-      bookingId: input.bookingId,
-      startTime: input.startTime,
-      endTime: input.endTime,
-      headcount: input.headcount,
-      suggestion,
-      settings,
-    });
-  } catch (error) {
-    if (debugSeating) {
-      const err = error as { code?: string; message?: string; details?: unknown } | null;
-      console.warn('[seatingSuggestion] Failed to log allocation decision', {
-        error,
-        code: err?.code,
-        message: err?.message,
-        details: err?.details,
-      });
-    }
-  }
-
   if (!suggestion.tableIds.length) {
-    return { zoneId: null, tableIds: [], reason: suggestion.reason ?? 'NO_FIT' };
+    return {
+      zoneId: null,
+      tableIds: [],
+      reason: suggestion.reason ?? 'NO_FIT',
+      allocationMode: settings.allocationMode,
+      allocationStrategy: settings.allocationStrategy,
+      snapshot,
+    };
   }
 
   return {
     zoneId: suggestion.zoneId ?? null,
     tableIds: suggestion.tableIds,
     reason: suggestion.reason,
+    allocationMode: settings.allocationMode,
+    allocationStrategy: settings.allocationStrategy,
+    snapshot,
   };
 };

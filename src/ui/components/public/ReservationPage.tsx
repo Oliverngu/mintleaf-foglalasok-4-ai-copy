@@ -7,7 +7,7 @@ import {
   GuestFormSettings,
   CustomSelectField,
 } from '../../../core/models/data';
-import { db, Timestamp } from '../../../core/firebase/config';
+import { functions, db, Timestamp } from '../../../core/firebase/config';
 import {
   doc,
   getDoc,
@@ -17,10 +17,12 @@ import {
   getDocs,
   orderBy,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon';
 import { translations } from '../../../lib/i18n';
+import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import {
   ReservationThemeTokens,
   buildReservationTheme,
@@ -226,6 +228,10 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [locale, setLocale] = useState<Locale>('hu');
+  const debugSeating =
+    process.env.NODE_ENV !== 'production' ||
+    (typeof window !== 'undefined' &&
+      window.localStorage.getItem('mintleaf_debug_seating') === '1');
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [formData, setFormData] = useState({
@@ -537,6 +543,41 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         capacityByDate,
       });
       setStep(3);
+
+      try {
+        const suggestion = await suggestSeating({
+          unitId,
+          startTime: startDateTime,
+          endTime: endDateTime,
+          headcount: baseReservation.headcount,
+          bookingId: referenceCode,
+        });
+        const callable = httpsCallable(functions, 'logAllocationDecisionForBooking');
+        await callable({
+          unitId,
+          bookingId: referenceCode,
+          startTimeISO: startDateTime.toISOString(),
+          endTimeISO: endDateTime.toISOString(),
+          partySize: baseReservation.headcount,
+          zoneId: suggestion.zoneId ?? null,
+          tableIds: suggestion.tableIds,
+          reason: suggestion.reason ?? 'NO_FIT',
+          allocationMode: suggestion.allocationMode ?? 'capacity',
+          allocationStrategy: suggestion.allocationStrategy ?? 'bestFit',
+          snapshot: suggestion.snapshot ?? null,
+          algoVersion: 'alloc-v1',
+        });
+      } catch (error) {
+        if (debugSeating) {
+          const err = error as { code?: string; message?: string; details?: unknown } | null;
+          console.warn('[reservation] Failed to log allocation decision', {
+            error,
+            code: err?.code,
+            message: err?.message,
+            details: err?.details,
+          });
+        }
+      }
 
       // !!! FRONTEND NEM KÜLD EMAILT !!!
       // A backend (onReservationCreated / onReservationStatusChange) intézi.

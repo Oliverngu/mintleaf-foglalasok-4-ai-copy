@@ -121,6 +121,16 @@ const normalizeOptionalText = (value: unknown) => {
   return trimmed ? trimmed : undefined;
 };
 
+const normalizeUnitIds = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value === 'string') {
+    return [value];
+  }
+  return [];
+};
+
 const normalizeTags = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value
@@ -1771,15 +1781,6 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
 
   const userData = userSnap.data() || {};
   const role = userData.role as string | undefined;
-  const normalizeUnitIds = (value: unknown): string[] => {
-    if (Array.isArray(value)) {
-      return value.filter((item): item is string => typeof item === 'string');
-    }
-    if (typeof value === 'string') {
-      return [value];
-    }
-    return [];
-  };
   const normalizedUnits = Array.from(
     new Set(
       [
@@ -1843,6 +1844,169 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
   });
 
   return { ok: true };
+});
+
+export const logAllocationDecisionForBooking = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    logger.warn('logAllocationDecisionForBooking unauthenticated');
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const allowedKeys = new Set([
+    'unitId',
+    'bookingId',
+    'startTimeISO',
+    'endTimeISO',
+    'partySize',
+    'zoneId',
+    'tableIds',
+    'reason',
+    'allocationMode',
+    'allocationStrategy',
+    'snapshot',
+    'algoVersion',
+  ]);
+  const keys = Object.keys(data);
+  if (keys.some(key => !allowedKeys.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const unitId = data.unitId;
+  const bookingId = data.bookingId;
+  const startTimeISO = data.startTimeISO;
+  const endTimeISO = data.endTimeISO;
+  const partySize = data.partySize;
+  const tableIds = data.tableIds;
+  const algoVersion = data.algoVersion;
+
+  if (
+    typeof unitId !== 'string' ||
+    !unitId.trim() ||
+    typeof bookingId !== 'string' ||
+    !bookingId.trim() ||
+    typeof startTimeISO !== 'string' ||
+    typeof endTimeISO !== 'string'
+  ) {
+    throw new HttpsError('invalid-argument', 'unitId, bookingId és időpontok kötelezőek');
+  }
+
+  const startDate = new Date(startTimeISO);
+  const endDate = new Date(endTimeISO);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen időpont');
+  }
+
+  if (typeof partySize !== 'number' || Number.isNaN(partySize) || partySize <= 0) {
+    throw new HttpsError('invalid-argument', 'partySize kötelező');
+  }
+
+  if (!Array.isArray(tableIds) || tableIds.some(id => typeof id !== 'string')) {
+    throw new HttpsError('invalid-argument', 'tableIds kötelező');
+  }
+
+  if (typeof algoVersion !== 'string' || !algoVersion.trim()) {
+    throw new HttpsError('invalid-argument', 'algoVersion kötelező');
+  }
+
+  const userSnap = await db.collection('users').doc(request.auth.uid).get();
+  if (!userSnap.exists) {
+    logger.warn('logAllocationDecisionForBooking missing user doc', {
+      uid: request.auth.uid,
+    });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const userData = userSnap.data() || {};
+  const role = userData.role as string | undefined;
+  const normalizedUnits = Array.from(
+    new Set(
+      [
+        ...normalizeUnitIds(userData.unitIds),
+        ...normalizeUnitIds(userData.unitIDs),
+        ...normalizeUnitIds(userData.unitId),
+      ].filter(Boolean)
+    )
+  );
+  const canManage =
+    role === 'Admin' ||
+    ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
+  if (!canManage) {
+    logger.warn('logAllocationDecisionForBooking permission denied', {
+      uid: request.auth.uid,
+      role,
+      unitId,
+      normalizedUnits,
+    });
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const eventIdSource = [
+    unitId,
+    bookingId,
+    startTimeISO,
+    endTimeISO,
+    String(partySize),
+    typeof data.allocationMode === 'string' ? data.allocationMode : '',
+    typeof data.allocationStrategy === 'string' ? data.allocationStrategy : '',
+    typeof data.reason === 'string' ? data.reason : '',
+    typeof data.zoneId === 'string' ? data.zoneId : '',
+    tableIds.join(','),
+    algoVersion,
+  ].join('|');
+  const eventId = createHash("sha256").update(eventIdSource).digest("hex");
+
+  const snapshot = data.snapshot;
+  const snapshotPayload =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? {
+          overflowZonesCount:
+            typeof snapshot.overflowZonesCount === 'number'
+              ? snapshot.overflowZonesCount
+              : null,
+          zonePriorityCount:
+            typeof snapshot.zonePriorityCount === 'number' ? snapshot.zonePriorityCount : null,
+          emergencyZonesCount:
+            typeof snapshot.emergencyZonesCount === 'number'
+              ? snapshot.emergencyZonesCount
+              : null,
+        }
+      : null;
+
+  await db
+    .collection('units')
+    .doc(unitId)
+    .collection('allocation_logs')
+    .doc(eventId)
+    .set(
+      {
+        type: 'decision',
+        createdAt: FieldValue.serverTimestamp(),
+        createdByUserId: request.auth.uid,
+        bookingId,
+        bookingStartTime: Timestamp.fromDate(startDate),
+        bookingEndTime: Timestamp.fromDate(endDate),
+        partySize,
+        selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
+        selectedTableIds: tableIds,
+        reason: typeof data.reason === 'string' ? data.reason : null,
+        allocationMode: typeof data.allocationMode === 'string' ? data.allocationMode : null,
+        allocationStrategy:
+          typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
+        snapshot: snapshotPayload,
+        algoVersion,
+        source: 'bookingSubmit',
+      },
+      { merge: true }
+    );
+
+  logger.info('logAllocationDecisionForBooking write ok', { unitId, bookingId, eventId });
+
+  return { ok: true, eventId };
 });
 
 export const adminRecalcReservationCapacityDay = onRequest(

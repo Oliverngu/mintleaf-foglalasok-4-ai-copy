@@ -334,7 +334,11 @@ export const listZones = async (unitId: string): Promise<Zone[]> => {
   const zonesPath = `units/${unitId}/zones`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'zones'));
-    return sortZones(snapshot.docs.map(docSnap => normalizeZone(docSnap.data(), docSnap.id)));
+    return sortZones(
+      snapshot.docs
+        .map(docSnap => normalizeZone(docSnap.data(), docSnap.id))
+        .filter(zone => zone.isActive !== false)
+    );
   } catch (error) {
     logPermissionDenied(error, 'list', zonesPath);
     throw error;
@@ -403,7 +407,11 @@ export const listTables = async (unitId: string): Promise<Table[]> => {
   const tablesPath = `units/${unitId}/tables`;
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'tables'));
-    return sortTables(snapshot.docs.map(docSnap => normalizeTable(docSnap.data(), docSnap.id)));
+    return sortTables(
+      snapshot.docs
+        .map(docSnap => normalizeTable(docSnap.data(), docSnap.id))
+        .filter(table => table.isActive !== false)
+    );
   } catch (error) {
     logPermissionDenied(error, 'list', tablesPath);
     throw error;
@@ -473,7 +481,9 @@ export const listCombinations = async (unitId: string): Promise<TableCombination
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'table_combinations'));
     return sortCombos(
-      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
+      snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as TableCombination))
+        .filter(combo => combo.isActive !== false)
     );
   } catch (error) {
     logPermissionDenied(error, 'list', combosPath);
@@ -549,7 +559,9 @@ export const listFloorplans = async (unitId: string): Promise<Floorplan[]> => {
   try {
     const snapshot = await getDocs(collection(db, 'units', unitId, 'floorplans'));
     return sortFloorplans(
-      snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+      snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Floorplan))
+        .filter(plan => plan.isActive !== false)
     );
   } catch (error) {
     logPermissionDenied(error, 'list', floorplansPath);

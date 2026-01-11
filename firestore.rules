@@ -160,9 +160,9 @@ function userUnits() {
       }
 
       match /allocation_logs/{logId} {
-        allow read, create: if canManageUnit(unitId)
+        allow read: if canManageUnit(unitId)
           || (isUnitLeader() && hasUnit(unitId));
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
 
       match /floorplans/{floorplanId} {
