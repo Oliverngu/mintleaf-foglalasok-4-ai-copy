@@ -458,6 +458,7 @@ export const guestUpdateReservation = onRequest(
 export const guestCreateReservation = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
+    console.log('>>> guestCreateReservation HANDLER ENTERED');
     try {
       if (req.method !== 'POST') {
         res.status(405).send('Only POST allowed');
