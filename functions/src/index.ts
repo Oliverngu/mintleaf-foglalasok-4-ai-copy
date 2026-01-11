@@ -411,7 +411,7 @@ export const guestUpdateReservation = onRequest(
               {
                 date: dateKey,
                 count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
               },
               { merge: true }
             );
@@ -419,10 +419,10 @@ export const guestUpdateReservation = onRequest(
 
           transaction.update(docRef, {
             status: 'cancelled',
-            cancelledAt: FieldValue.serverTimestamp(),
+            cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
             cancelReason: reason || '',
             cancelledBy: 'guest',
-            updatedAt: FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
           const logRef = db
@@ -434,7 +434,7 @@ export const guestUpdateReservation = onRequest(
             bookingId: docRef.id,
             unitId,
             type: 'guest_cancelled',
-            createdAt: FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
             createdByName: latest.name || 'Guest',
             source: 'guest',
             message: reason ? `Vendég lemondta: ${reason}` : 'Vendég lemondta',
@@ -990,14 +990,14 @@ export const adminHandleReservationAction = onRequest(
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
         const update: Record<string, any> = {
           status,
-          adminActionUsedAt: FieldValue.serverTimestamp(),
-          adminActionHandledAt: FieldValue.serverTimestamp(),
+          adminActionUsedAt: admin.firestore.FieldValue.serverTimestamp(),
+          adminActionHandledAt: admin.firestore.FieldValue.serverTimestamp(),
           adminActionSource: 'email',
-          updatedAt: FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         if (status === 'cancelled') {
           update.cancelledBy = 'admin';
-          update.cancelledAt = FieldValue.serverTimestamp();
+          update.cancelledAt = admin.firestore.FieldValue.serverTimestamp();
         }
 
         transaction.update(docRef, update);
@@ -1072,14 +1072,14 @@ export const adminOverrideDailyCapacity = onRequest(
         if (capacitySnap.exists) {
           transaction.update(capacityRef, {
             limit: newLimit,
-            updatedAt: FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         } else {
           transaction.set(capacityRef, {
             date: dateKey,
             count: 0,
             limit: newLimit,
-            updatedAt: FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
 
@@ -1091,7 +1091,7 @@ export const adminOverrideDailyCapacity = onRequest(
         transaction.set(logRef, {
           type: 'capacity_override',
           unitId,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -1244,11 +1244,11 @@ export const adminSetReservationAllocationOverride = onRequest(
 
         transaction.update(reservationRef, {
           allocationOverride,
-          allocationOverrideSetAt: FieldValue.serverTimestamp(),
+          allocationOverrideSetAt: admin.firestore.FieldValue.serverTimestamp(),
           allocationOverrideSetByUid: decoded.uid,
           // Admin action is authoritative: must be able to lock/unlock allocationFinal.
           allocationFinal,
-          allocationFinalComputedAt: FieldValue.serverTimestamp(),
+          allocationFinalComputedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         const logRef = db
@@ -1260,7 +1260,7 @@ export const adminSetReservationAllocationOverride = onRequest(
           bookingId: reservationId,
           unitId,
           type: 'allocation_override_set',
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -1286,7 +1286,7 @@ export const adminSetReservationAllocationOverride = onRequest(
           {
             date: dateKey,
             capacityNeedsRecalc: true,
-            updatedAt: FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
@@ -1549,7 +1549,7 @@ export const adminSetReservationOverride = onCall(
         .doc();
 
       const overrideData: Record<string, unknown> = {
-        updatedAt: FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: request.auth.uid,
         ...(forcedZoneId ? { forcedZoneId } : {}),
         ...(forcedTableIds ? { forcedTableIds } : {}),
@@ -1576,7 +1576,7 @@ export const adminSetReservationOverride = onCall(
         bookingId: reservationId,
         unitId,
         type: 'allocation_override_set',
-        createdAt: FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdByUserId: request.auth.uid,
         createdByName:
           userData.name ||
@@ -1667,7 +1667,7 @@ export const adminClearReservationOverride = onCall(
         bookingId: reservationId,
         unitId,
         type: 'allocation_override_set',
-        createdAt: FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdByUserId: request.auth.uid,
         createdByName:
           userData.name ||
@@ -1801,11 +1801,11 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
       : null;
 
   await db.collection('units').doc(unitId).collection('allocation_logs').add({
-    createdAt: FieldValue.serverTimestamp(),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
     createdByUserId: request.auth.uid,
     bookingId: typeof data.bookingId === 'string' ? data.bookingId : null,
-    bookingStartTime: Timestamp.fromDate(startDate),
-    bookingEndTime: Timestamp.fromDate(endDate),
+    bookingStartTime: admin.firestore.Timestamp.fromDate(startDate),
+    bookingEndTime: admin.firestore.Timestamp.fromDate(endDate),
     partySize,
     selectedZoneId: typeof data.zoneId === 'string' ? data.zoneId : null,
     selectedTableIds: tableIds,
@@ -2042,8 +2042,8 @@ export const adminRecalcReservationCapacityDay = onRequest(
         .collection('units')
         .doc(unitId)
         .collection('reservations')
-        .where('startTime', '>=', Timestamp.fromDate(dayStart))
-        .where('startTime', '<=', Timestamp.fromDate(dayEnd))
+        .where('startTime', '>=', admin.firestore.Timestamp.fromDate(dayStart))
+        .where('startTime', '<=', admin.firestore.Timestamp.fromDate(dayEnd))
         .get();
 
       let totalCount = 0;
@@ -2090,7 +2090,7 @@ export const adminRecalcReservationCapacityDay = onRequest(
           byZone,
           byTableGroup,
           capacityNeedsRecalc: false,
-          updatedAt: FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -2102,7 +2102,7 @@ export const adminRecalcReservationCapacityDay = onRequest(
         .add({
           type: 'capacity_recalc',
           unitId,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
           createdByUserId: decoded.uid,
           createdByName:
             userData.name ||
@@ -3494,7 +3494,7 @@ export const onReservationStatusChange = onDocumentUpdated(
             bookingId,
             unitId,
             type: after.status === 'confirmed' ? 'updated' : 'cancelled',
-            createdAt: FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
             createdByName: 'Email jóváhagyás',
             source: 'internal',
             message:
@@ -3543,7 +3543,7 @@ export const onReservationStatusChange = onDocumentUpdated(
               {
                 date: dateKey,
                 count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
               },
               { merge: true }
             );
