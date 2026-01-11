@@ -5,6 +5,7 @@ export type AllocationStrategy = 'bestFit' | 'minWaste' | 'priorityZoneFirst';
 
 export interface SuggestAllocationInput {
   partySize: number;
+  bookingDate?: Date;
   seatingSettings: SeatingSettings;
   zones: Zone[];
   tables: Table[];
@@ -37,6 +38,21 @@ const getCapacityBounds = (table: Table) => ({
 
 const canSeatSolo = (table: Table, settings: SeatingSettings) =>
   table.canSeatSolo === true || (settings.soloAllowedTableIds ?? []).includes(table.id);
+
+const isEmergencyZoneAllowed = (settings: SeatingSettings, bookingDate?: Date) => {
+  const emergency = settings.emergencyZones;
+  if (!emergency?.enabled) {
+    return false;
+  }
+  if (emergency.activeRule === 'byWeekday') {
+    if (!bookingDate) {
+      return false;
+    }
+    const weekdays = emergency.weekdays ?? [];
+    return weekdays.includes(bookingDate.getDay());
+  }
+  return true;
+};
 
 const compareCandidates = (
   strategy: AllocationStrategy,
@@ -76,6 +92,7 @@ const buildCandidates = (
   const activeCombos = (tableCombinations ?? []).filter(combo => combo.isActive);
   const zonesById = new Map(activeZones.map(zone => [zone.id, zone]));
   const tablesById = new Map(activeTables.map(table => [table.id, table]));
+  const allowCrossZoneCombinations = seatingSettings.allowCrossZoneCombinations ?? false;
   const maxCombineCount = seatingSettings.maxCombineCount ?? 2;
 
   const candidates: Candidate[] = [];
@@ -111,11 +128,30 @@ const buildCandidates = (
         if (comboTables.length !== combo.tableIds.length) {
           return;
         }
-        const zoneId = comboTables[0]?.zoneId;
-        if (!zoneId || comboTables.some(table => table.zoneId !== zoneId)) {
+        const zoneIds = new Set(
+          comboTables
+            .map(table => (typeof table.zoneId === 'string' ? table.zoneId.trim() : ''))
+            .filter(Boolean)
+        );
+        if (!zoneIds.size) {
           return;
         }
-        if (!zonesById.has(zoneId)) {
+        if (zoneIds.size !== 1 && !allowCrossZoneCombinations) {
+          return;
+        }
+        if (allowCrossZoneCombinations) {
+          for (const zoneId of zoneIds) {
+            if (!zonesById.has(zoneId)) {
+              return;
+            }
+          }
+        }
+        const firstTable = tablesById.get(combo.tableIds[0]);
+        if (!firstTable || typeof firstTable.zoneId !== 'string' || !firstTable.zoneId.trim()) {
+          return;
+        }
+        const anchorZoneId = firstTable.zoneId.trim();
+        if (!zonesById.has(anchorZoneId)) {
           return;
         }
         const totalMax = comboTables.reduce(
@@ -130,7 +166,7 @@ const buildCandidates = (
           return;
         }
         candidates.push({
-          zoneId,
+          zoneId: anchorZoneId,
           tableIds: combo.tableIds,
           totalMax,
           totalMin,
@@ -153,7 +189,7 @@ const calculateConfidence = (partySize: number, candidate: Candidate) => {
 export const suggestAllocation = (
   input: SuggestAllocationInput
 ): SuggestAllocationResult => {
-  const { partySize, seatingSettings, zones, override } = input;
+  const { partySize, seatingSettings, zones, override, bookingDate } = input;
   if (partySize <= 0) {
     return { tableIds: [], reason: 'INVALID_PARTY_SIZE', confidence: 0 };
   }
@@ -190,8 +226,14 @@ export const suggestAllocation = (
     });
   }
 
-  const overflowZoneIds = new Set(seatingSettings.overflowZones ?? []);
   const activeZoneIds = zones.filter(zone => zone.isActive).map(zone => zone.id);
+  const overflowZoneIds = new Set(seatingSettings.overflowZones ?? []);
+  const emergencyAllowed = isEmergencyZoneAllowed(seatingSettings, bookingDate);
+  const emergencyZoneIdSet = new Set(
+    (seatingSettings.emergencyZones?.zoneIds ?? [])
+      .filter(Boolean)
+      .filter(zoneId => activeZoneIds.includes(zoneId))
+  );
   const orderedZoneIds = priorityOrder.length
     ? [
         ...priorityOrder.filter(zoneId => activeZoneIds.includes(zoneId)),
@@ -205,8 +247,12 @@ export const suggestAllocation = (
         return priorityA - priorityB;
       });
 
-  const primaryZoneIds = orderedZoneIds.filter(zoneId => !overflowZoneIds.has(zoneId));
-  const fallbackZoneIds = orderedZoneIds.filter(zoneId => overflowZoneIds.has(zoneId));
+  const normalOrderedZoneIds = orderedZoneIds.filter(zoneId => !emergencyZoneIdSet.has(zoneId));
+  const primaryZoneIds = normalOrderedZoneIds.filter(zoneId => !overflowZoneIds.has(zoneId));
+  const fallbackZoneIds = normalOrderedZoneIds.filter(zoneId => overflowZoneIds.has(zoneId));
+  const emergencyZoneIdsOrdered = emergencyAllowed
+    ? orderedZoneIds.filter(zoneId => emergencyZoneIdSet.has(zoneId))
+    : [];
 
   const pickBest = (items: Candidate[]) =>
     [...items].sort(compareCandidates(allocationStrategy, zonePriority, partySize))[0];
@@ -246,16 +292,40 @@ export const suggestAllocation = (
       return fallbackResult;
     }
 
+    if (emergencyZoneIdsOrdered.length) {
+      const emergencyResult = evaluateZones(emergencyZoneIdsOrdered, 'EMERGENCY_ZONE');
+      if (emergencyResult) {
+        return emergencyResult;
+      }
+    }
+
     if (allocationMode === 'floorplan') {
       return { tableIds: [], reason: 'NO_FIT', confidence: 0 };
     }
   }
 
-  const best = pickBest(candidates);
+  const normalCandidates = candidates.filter(
+    candidate => !emergencyZoneIdSet.has(candidate.zoneId)
+  );
+  const emergencyCandidates = emergencyAllowed
+    ? candidates.filter(candidate => emergencyZoneIdSet.has(candidate.zoneId))
+    : [];
+  const usedEmergencyFallback =
+    emergencyAllowed && emergencyCandidates.length > 0 && normalCandidates.length === 0;
+  const selectedCandidates = normalCandidates.length
+    ? normalCandidates
+    : emergencyCandidates.length
+    ? emergencyCandidates
+    : candidates;
+  const best = pickBest(selectedCandidates);
   return {
     zoneId: best.zoneId,
     tableIds: best.tableIds,
-    reason: allocationMode === 'hybrid' ? 'FLOORPLAN_FALLBACK' : 'BEST_FIT',
+    reason: usedEmergencyFallback
+      ? 'EMERGENCY_ZONE'
+      : allocationMode === 'hybrid'
+      ? 'FLOORPLAN_FALLBACK'
+      : 'BEST_FIT',
     confidence: calculateConfidence(partySize, best),
   };
 };

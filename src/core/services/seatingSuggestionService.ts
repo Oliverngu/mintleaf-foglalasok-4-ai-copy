@@ -1,17 +1,13 @@
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { addDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
 import { Timestamp, db } from '../firebase/config';
-import {
-  SeatingSettings,
-  Table,
-  TableCombination,
-  Zone,
-} from '../models/data';
+import { SeatingSettings } from '../models/data';
 import {
   getSeatingSettings as fetchSeatingSettings,
   listCombinations,
   listTables,
   listZones,
 } from './seatingAdminService';
+import { suggestAllocation } from './allocation/tableAllocation';
 
 export interface SuggestSeatingInput {
   unitId: string;
@@ -50,39 +46,43 @@ const overlaps = (startA: Date, endA: Date, startB: Date, endB: Date) =>
   startA < endB && startB < endA;
 
 const getBufferMillis = (bufferMinutes?: number) => (bufferMinutes ?? 15) * 60 * 1000;
+const isDev = process.env.NODE_ENV !== 'production';
 
-const isEmergencyZoneAllowed = (settings: SeatingSettings, bookingDate: Date) => {
-  const emergency = settings.emergencyZones;
-  if (!emergency?.enabled) {
-    return false;
-  }
-  if (emergency.activeRule === 'byWeekday') {
-    const weekdays = emergency.weekdays ?? [];
-    return weekdays.includes(bookingDate.getDay());
-  }
-  return true;
-};
-
-const getCapacityBounds = (table: Table) => ({
-  minCapacity: table.minCapacity ?? 1,
-  maxCapacity: table.capacityMax ?? 2,
-});
-
-const canSeatSolo = (table: Table, settings: SeatingSettings) =>
-  table.canSeatSolo === true
-  || (settings.soloAllowedTableIds ?? []).includes(table.id);
-
-const compareCandidates = (
-  a: { slack: number; zonePriority: number; label: string },
-  b: { slack: number; zonePriority: number; label: string }
-) => {
-  if (a.slack !== b.slack) {
-    return a.slack - b.slack;
-  }
-  if (a.zonePriority !== b.zonePriority) {
-    return a.zonePriority - b.zonePriority;
-  }
-  return a.label.localeCompare(b.label);
+const logEmergencyAllocation = async ({
+  unitId,
+  bookingId,
+  startTime,
+  endTime,
+  headcount,
+  suggestion,
+  settings,
+}: {
+  unitId: string;
+  bookingId?: string;
+  startTime: Date;
+  endTime: Date;
+  headcount: number;
+  suggestion: { zoneId?: string; tableIds: string[]; reason?: string };
+  settings: SeatingSettings;
+}) => {
+  await addDoc(collection(db, 'units', unitId, 'allocation_logs'), {
+    createdAt: serverTimestamp(),
+    bookingId: bookingId ?? null,
+    bookingStartTime: Timestamp.fromDate(startTime),
+    bookingEndTime: Timestamp.fromDate(endTime),
+    partySize: headcount,
+    selectedZoneId: suggestion.zoneId ?? null,
+    selectedTableIds: suggestion.tableIds,
+    reason: suggestion.reason ?? null,
+    allocationMode: settings.allocationMode ?? null,
+    allocationStrategy: settings.allocationStrategy ?? null,
+    snapshot: {
+      overflowZonesCount: settings.overflowZones?.length ?? 0,
+      zonePriorityCount: settings.zonePriority?.length ?? 0,
+      emergencyZonesCount: settings.emergencyZones?.zoneIds?.length ?? 0,
+    },
+    source: 'seatingSuggestionService',
+  });
 };
 
 export const suggestSeating = async (
@@ -98,11 +98,8 @@ export const suggestSeating = async (
     listCombinations(input.unitId),
   ]);
 
-  const activeZones = zones.filter(zone => zone.isActive);
   const activeTables = tables.filter(table => table.isActive);
   const activeCombos = combos.filter(combo => combo.isActive);
-  const zoneById = new Map(activeZones.map(zone => [zone.id, zone]));
-  const tablesById = new Map(activeTables.map(table => [table.id, table]));
 
   const bufferMillis = getBufferMillis(settings.bufferMinutes);
   const startWithBuffer = new Date(input.startTime.getTime() - bufferMillis);
@@ -139,108 +136,54 @@ export const suggestSeating = async (
     }
   });
 
-  const emergencyAllowedByRule = isEmergencyZoneAllowed(settings, input.startTime);
-  const emergencyZoneIds = new Set(settings.emergencyZones?.zoneIds ?? []);
-  const normalZones = activeZones.filter(zone => !emergencyZoneIds.has(zone.id));
-  const emergencyZones = activeZones.filter(zone => emergencyZoneIds.has(zone.id));
+  const availableTables = activeTables.filter(table => !takenTableIds.has(table.id));
+  const availableTableIds = new Set(availableTables.map(table => table.id));
+  const availableCombos = activeCombos.filter(combo =>
+    combo.tableIds.every(tableId => availableTableIds.has(tableId))
+  );
 
-  const usableZones = [...normalZones, ...emergencyZones];
-  const soloAllowed = settings.soloAllowedTableIds ?? [];
-
-  const headcount = input.headcount;
-  const candidates: Array<{
-    zoneId: string;
-    tableIds: string[];
-    slack: number;
-    zonePriority: number;
-    label: string;
-    isEmergency: boolean;
-  }> = [];
-
-  const addCandidate = (zoneId: string, tableIds: string[], totalMax: number, label: string) => {
-    const zone = zoneById.get(zoneId);
-    if (!zone) return;
-    candidates.push({
-      zoneId,
-      tableIds,
-      slack: totalMax - headcount,
-      zonePriority: zone.priority ?? Number.POSITIVE_INFINITY,
-      label,
-      isEmergency: emergencyZoneIds.has(zoneId),
-    });
-  };
-
-  usableZones.forEach(zone => {
-    const zoneTables = activeTables.filter(table => table.zoneId === zone.id);
-    zoneTables.forEach(table => {
-      if (takenTableIds.has(table.id)) return;
-      const { minCapacity, maxCapacity } = getCapacityBounds(table);
-      const soloOk =
-        headcount === 1 && (table.canSeatSolo || soloAllowed.includes(table.id));
-      if (!soloOk && headcount < minCapacity) return;
-      if (headcount > maxCapacity) return;
-      addCandidate(zone.id, [table.id], maxCapacity, table.name ?? '');
-    });
+  const suggestion = suggestAllocation({
+    partySize: input.headcount,
+    bookingDate: input.startTime,
+    seatingSettings: settings,
+    zones,
+    tables: availableTables,
+    tableCombinations: availableCombos,
   });
 
-  const maxCombineCount = settings.maxCombineCount ?? 2;
-  if (maxCombineCount >= 2) {
-    activeCombos
-      .filter(combo => combo.tableIds.length <= maxCombineCount)
-      .forEach(combo => {
-        const comboTables = combo.tableIds
-          .map(tableId => tablesById.get(tableId))
-          .filter(Boolean) as Table[];
-        if (comboTables.length !== combo.tableIds.length) {
-          return;
-        }
-        if (comboTables.some(table => takenTableIds.has(table.id))) {
-          return;
-        }
-        const zoneId = comboTables[0]?.zoneId;
-        if (!zoneId || comboTables.some(table => table.zoneId !== zoneId)) {
-          return;
-        }
-        if (!usableZones.some(zone => zone.id === zoneId)) {
-          return;
-        }
-        const totalMax = comboTables.reduce(
-          (sum, table) => sum + getCapacityBounds(table).maxCapacity,
-          0
-        );
-        const totalMin = comboTables.reduce(
-          (sum, table) => sum + getCapacityBounds(table).minCapacity,
-          0
-        );
-        if (headcount > totalMax || headcount < totalMin) {
-          return;
-        }
-        const label = comboTables.map(table => table.name ?? '').join(',');
-        addCandidate(zoneId, combo.tableIds, totalMax, label);
+  if (isDev && suggestion.reason === 'EMERGENCY_ZONE') {
+    console.info('[seatingSuggestion] Emergency zone selected', {
+      unitId: input.unitId,
+      zoneId: suggestion.zoneId,
+      tableIds: suggestion.tableIds,
+      bookingDate: input.startTime,
+    });
+  }
+  if (suggestion.reason === 'EMERGENCY_ZONE' && suggestion.tableIds.length > 0) {
+    try {
+      await logEmergencyAllocation({
+        unitId: input.unitId,
+        bookingId: input.bookingId,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        headcount: input.headcount,
+        suggestion,
+        settings,
       });
+    } catch (error) {
+      if (isDev) {
+        console.warn('[seatingSuggestion] Failed to log emergency allocation', error);
+      }
+    }
   }
 
-  const normalCandidates = candidates.filter(candidate => !candidate.isEmergency);
-  const emergencyCandidates = candidates.filter(candidate => candidate.isEmergency);
-  const emergencyFallbackAllowed =
-    emergencyAllowedByRule || settings.emergencyZones?.enabled === false;
-  const orderedCandidates =
-    normalCandidates.length > 0
-      ? normalCandidates
-      : emergencyFallbackAllowed
-      ? emergencyCandidates
-      : [];
-
-  if (!orderedCandidates.length) {
-    return { zoneId: null, tableIds: [], reason: 'NO_FIT' };
+  if (!suggestion.tableIds.length) {
+    return { zoneId: null, tableIds: [], reason: suggestion.reason ?? 'NO_FIT' };
   }
 
-  const best = orderedCandidates.sort((a, b) =>
-    compareCandidates(
-      { slack: a.slack, zonePriority: a.zonePriority, label: a.label },
-      { slack: b.slack, zonePriority: b.zonePriority, label: b.label }
-    )
-  )[0];
-
-  return { zoneId: best.zoneId, tableIds: best.tableIds };
+  return {
+    zoneId: suggestion.zoneId ?? null,
+    tableIds: suggestion.tableIds,
+    reason: suggestion.reason,
+  };
 };

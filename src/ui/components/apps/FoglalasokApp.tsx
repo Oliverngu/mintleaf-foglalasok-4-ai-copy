@@ -476,21 +476,33 @@ const AllocationPanel: React.FC<{
     [zones]
   );
 
-  const suggestion = useMemo(
-    () =>
-      suggestAllocation({
-        partySize: booking.headcount,
-        seatingSettings,
-        zones,
-        tables,
-        tableCombinations: combinations,
-        override: {
-          forcedZoneId: zoneId || undefined,
-          forcedTableIds: tableIds.length ? tableIds : undefined,
-        },
-      }),
-    [booking.headcount, seatingSettings, zones, tables, combinations, zoneId, tableIds]
-  );
+  const suggestion = useMemo(() => {
+    const bookingDate =
+      booking.startTime && typeof booking.startTime.toDate === 'function'
+        ? booking.startTime.toDate()
+        : undefined;
+    return suggestAllocation({
+      partySize: booking.headcount,
+      bookingDate,
+      seatingSettings,
+      zones,
+      tables,
+      tableCombinations: combinations,
+      override: {
+        forcedZoneId: zoneId || undefined,
+        forcedTableIds: tableIds.length ? tableIds : undefined,
+      },
+    });
+  }, [
+    booking.headcount,
+    booking.startTime,
+    seatingSettings,
+    zones,
+    tables,
+    combinations,
+    zoneId,
+    tableIds,
+  ]);
   const bufferMinutes = seatingSettings.bufferMinutes ?? 15;
   const suggestionConflicts = useMemo(
     () =>
