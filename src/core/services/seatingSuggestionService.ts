@@ -31,6 +31,9 @@ const defaultSettings: SeatingSettings = {
   maxCombineCount: 2,
   vipEnabled: true,
   soloAllowedTableIds: [],
+  allocationEnabled: false,
+  allocationMode: 'capacity',
+  allocationStrategy: 'bestFit',
   zonePriority: [],
   overflowZones: [],
   allowCrossZoneCombinations: false,
@@ -92,6 +95,9 @@ export const suggestSeating = async (
     ...defaultSettings,
     ...(await fetchSeatingSettings(input.unitId, { createIfMissing: false })),
   };
+  if (!settings.allocationEnabled) {
+    return { zoneId: null, tableIds: [], reason: 'ALLOCATION_DISABLED' };
+  }
   const [zones, tables, combos] = await Promise.all([
     listZones(input.unitId),
     listTables(input.unitId),
