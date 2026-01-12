@@ -27,6 +27,7 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
+import { formatTimeSlot } from '../../utils/timeSlot';
 
 type Locale = 'hu' | 'en';
 
@@ -1502,7 +1503,13 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
           </p>
           <p>
             <strong>{t.preferredTimeSlotLabel}:</strong>{' '}
-            {submittedData.preferredTimeSlot || t.preferenceNotProvided}
+            {(() => {
+              const label = formatTimeSlot(submittedData.preferredTimeSlot, {
+                mode: 'label',
+                locale,
+              });
+              return label === '—' ? t.preferenceNotProvided : label;
+            })()}
           </p>
           <p>
             <strong>{t.seatingPreferenceLabel}:</strong>{' '}
