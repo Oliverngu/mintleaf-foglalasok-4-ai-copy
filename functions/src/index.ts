@@ -2347,6 +2347,38 @@ const queuedEmailTemplates: Record<
   | "register_welcome",
   { subject: string; html: string }
 > = {
+  booking_created_guest: {
+    subject: "Foglalás visszaigazolás: {{bookingDate}} {{bookingTimeFrom}}",
+    html: `
+      <h2>Foglalásodat megkaptuk</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
+      <ul>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+
+  booking_created_admin: {
+    subject: "Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő) – {{guestName}}",
+    html: `
+      <h2>Új foglalási kérelem érkezett</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+      <ul>
+        <li><strong>Vendég neve:</strong> {{guestName}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Email:</strong> {{guestEmail}}</li>
+        <li><strong>Telefon:</strong> {{guestPhone}}</li>
+      </ul>
+      <p>Ref: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+  
   leave_request_created: {
     subject: "Új szabadságkérés: {{userName}}",
     html: `
