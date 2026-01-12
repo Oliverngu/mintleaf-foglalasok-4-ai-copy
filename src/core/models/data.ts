@@ -110,6 +110,37 @@ export interface Booking {
   seatingSource?: 'auto' | 'manual';
   isVip?: boolean;
   noShowAt?: Timestamp;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
+  allocationIntent?: {
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+  };
+  allocationDiagnostics?: {
+    intentQuality?: 'none' | 'weak' | 'good';
+    reasons?: string[];
+    warnings?: string[];
+    matchedZoneId?: string | null;
+  };
+  allocationOverride?: {
+    enabled?: boolean;
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+    note?: string | null;
+  };
+  allocationOverrideSetAt?: Timestamp | null;
+  allocationOverrideSetByUid?: string;
+  allocationFinal?: {
+    source?: 'intent' | 'override';
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+  };
+  allocationFinalComputedAt?: Timestamp | null;
 }
 
 export interface Zone {
@@ -190,6 +221,8 @@ export interface PublicBookingDTO {
   headcount: number;
   startTimeMs: number | null;
   endTimeMs: number | null;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
   status: 'confirmed' | 'pending' | 'cancelled';
   locale?: 'hu' | 'en';
   occasion?: string;
@@ -250,6 +283,19 @@ export interface ReservationSetting {
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];
+}
+
+export interface ReservationCapacity {
+  date: string;
+  count?: number;
+  totalCount?: number;
+  byTimeSlot?: Record<string, number>;
+  byZone?: Record<string, number>;
+  byTableGroup?: Record<string, number>;
+  limit?: number;
+  updatedAt?: Timestamp;
+  capacityNeedsRecalc?: boolean;
+  hasAllocationWarnings?: boolean;
 }
 
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Unit,
   ReservationSetting,
-  User,
+  ReservationCapacity,
   ThemeSettings,
   GuestFormSettings,
   CustomSelectField,
@@ -15,6 +15,7 @@ import {
   query,
   where,
   getDocs,
+  orderBy,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -39,8 +40,6 @@ const PlayfulBubbles = () => (
 
 interface ReservationPageProps {
   unitId: string;
-  allUnits: Unit[];
-  currentUser: User | null;
 }
 
 const toDateKey = (date: Date): string => {
@@ -197,11 +196,30 @@ const ProgressIndicator: React.FC<{
   );
 };
 
-const ReservationPage: React.FC<ReservationPageProps> = ({
-  unitId,
-  allUnits,
-  currentUser: _currentUser, // jelenleg nincs használva
-}) => {
+const buildPublicUnit = (
+  unitId: string,
+  settings: ReservationSetting | null
+): Unit => {
+  const settingsAny = settings as Record<string, any> | null;
+  const name =
+    settingsAny?.publicName ||
+    settingsAny?.unitName ||
+    settingsAny?.brandName ||
+    unitId ||
+    'MintLeaf';
+  const logoUrl =
+    settings?.theme?.headerLogoUrl || settings?.theme?.timeWindowLogoUrl;
+
+  return {
+    id: unitId,
+    name,
+    logoUrl,
+  };
+};
+
+type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
@@ -217,6 +235,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     endTime: '',
     phone: '',
     email: '',
+    preferredTimeSlot: null as string | null,
+    seatingPreference: 'any' as SeatingPreference,
     customData: {} as Record<string, string>,
   });
   const [submittedData, setSubmittedData] = useState<any>(null);
@@ -227,6 +247,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
     new Map()
   );
+  const [capacityByDate, setCapacityByDate] = useState<
+    Map<string, ReservationCapacity>
+  >(new Map());
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
@@ -243,17 +266,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, []);
 
   useEffect(() => {
-    const currentUnit = allUnits.find((u) => u.id === unitId);
-    if (currentUnit) {
-      setUnit(currentUnit);
-      document.title = `Foglalás - ${currentUnit.name}`;
-    } else if (allUnits.length > 0) {
-      setError('A megadott egység nem található.');
+    if (!unitId) {
+      setError('Hiányzik az egység azonosítója.');
+      setLoading(false);
+      return;
     }
-  }, [unitId, allUnits]);
-
-  useEffect(() => {
-    if (!unit) return;
     const fetchSettings = async () => {
       setLoading(true);
       try {
@@ -288,8 +305,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             },
           };
           setSettings(finalSettings);
+          const publicUnit = buildPublicUnit(unitId, finalSettings);
+          setUnit(publicUnit);
+          document.title = `Foglalás - ${publicUnit.name}`;
         } else {
           setSettings(defaultSettings);
+          const publicUnit = buildPublicUnit(unitId, defaultSettings);
+          setUnit(publicUnit);
+          document.title = `Foglalás - ${publicUnit.name}`;
         }
       } catch (err) {
         console.error('Error fetching reservation settings:', err);
@@ -299,11 +322,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       }
     };
     fetchSettings();
-  }, [unit, unitId]);
+  }, [unitId]);
 
   useEffect(() => {
-    if (!unitId || !settings?.dailyCapacity || settings.dailyCapacity <= 0) {
+    if (!unitId || !settings) {
       setDailyHeadcounts(new Map());
+      setCapacityByDate(new Map());
       return;
     }
 
@@ -322,30 +346,44 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         59
       );
 
+      const startKey = toDateKey(startOfMonth);
+      const endKey = toDateKey(endOfMonth);
       const q = query(
-        collection(db, 'units', unitId, 'reservations'),
-        where('startTime', '>=', Timestamp.fromDate(startOfMonth)),
-        where('startTime', '<=', Timestamp.fromDate(endOfMonth)),
-        where('status', 'in', ['pending', 'confirmed'])
+        collection(db, 'units', unitId, 'reservation_capacity'),
+        where('date', '>=', startKey),
+        where('date', '<=', endKey),
+        orderBy('date')
       );
 
       try {
         const querySnapshot = await getDocs(q);
         const headcounts = new Map<string, number>();
+        const capacityMap = new Map<string, ReservationCapacity>();
         querySnapshot.docs.forEach((docSnap) => {
-          const booking = docSnap.data();
-          const dateKey = toDateKey(booking.startTime.toDate());
+          const capacity = docSnap.data() as ReservationCapacity;
+          const dateKey = capacity.date || docSnap.id;
+          const baseCount =
+            typeof capacity.totalCount === 'number'
+              ? capacity.totalCount
+              : capacity.count || 0;
           const currentCount = headcounts.get(dateKey) || 0;
-          headcounts.set(dateKey, currentCount + (booking.headcount || 0));
+          headcounts.set(dateKey, currentCount + baseCount);
+          capacityMap.set(dateKey, {
+            date: dateKey,
+            ...capacity,
+            count: capacity.count ?? baseCount,
+            totalCount: capacity.totalCount ?? baseCount,
+          });
         });
         setDailyHeadcounts(headcounts);
+        setCapacityByDate(capacityMap);
       } catch (err) {
         console.error('Error fetching headcounts:', err);
       }
     };
 
     fetchHeadcounts();
-  }, [unitId, currentMonth, settings?.dailyCapacity]);
+  }, [unitId, currentMonth, settings]);
 
   useEffect(() => {
     syncThemeCssVariables(theme);
@@ -360,6 +398,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       endTime: '',
       phone: '',
       email: '',
+      preferredTimeSlot: null,
+      seatingPreference: 'any',
       customData: {},
     });
     setSubmittedData(null);
@@ -448,7 +488,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         reservationMode: settings.reservationMode,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
-        customData: formData.customData,
+        preferredTimeSlot: formData.preferredTimeSlot,
+        seatingPreference: formData.seatingPreference,
+        customData: {
+          ...formData.customData,
+          preferredTimeSlot: formData.preferredTimeSlot ?? '',
+          seatingPreference: formData.seatingPreference,
+        },
       };
       const dateKey = toDateKey(selectedDate);
 
@@ -488,6 +534,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         date: selectedDate,
+        capacityByDate,
       });
       setStep(3);
 
@@ -925,6 +972,15 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     email: '',
   });
 
+  const timeSlotOptions = [
+    '11:00-13:00',
+    '13:00-15:00',
+    '15:00-17:00',
+    '17:00-19:00',
+    '19:00-21:00',
+    '21:00-23:00',
+  ];
+
   const validateField = (name: string, value: string) => {
     if (!value.trim()) return t.errorRequired;
     if (name === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
@@ -956,6 +1012,14 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     setFormData((prev: any) => ({
       ...prev,
       customData: { ...prev.customData, [name]: value },
+    }));
+  };
+
+  const handleTimeSlotChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const { value } = e.target;
+    setFormData((prev: any) => ({
+      ...prev,
+      preferredTimeSlot: value ? value : null,
     }));
   };
 
@@ -1149,6 +1213,75 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               style={inputTextStyle}
               min={formData.startTime}
             />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.preferredTimeSlotLabel}</label>
+            <select
+              name="preferredTimeSlot"
+              value={formData.preferredTimeSlot || ''}
+              onChange={handleTimeSlotChange}
+              className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
+            >
+              <option value="">{t.preferenceNotProvided}</option>
+              {timeSlotOptions.map((slot) => (
+                <option key={slot} value={slot}>
+                  {slot}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.seatingPreferenceLabel}</label>
+            <div
+              className={`grid grid-cols-2 gap-2 ${themeProps.radiusClass}`}
+              role="radiogroup"
+              aria-label={t.seatingPreferenceLabel}
+            >
+              {[
+                { value: 'any', label: t.seatingPreferenceAny },
+                { value: 'bar', label: t.seatingPreferenceBar },
+                { value: 'table', label: t.seatingPreferenceTable },
+                { value: 'outdoor', label: t.seatingPreferenceOutdoor },
+              ].map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-center justify-center px-3 py-2 border text-sm font-medium cursor-pointer transition-colors ${themeProps.radiusClass} ${
+                    formData.seatingPreference === option.value
+                      ? 'bg-[var(--color-primary)] text-white border-transparent'
+                      : ''
+                  }`}
+                  aria-checked={formData.seatingPreference === option.value}
+                  role="radio"
+                  style={{
+                    borderColor:
+                      formData.seatingPreference === option.value
+                        ? 'transparent'
+                        : themeProps.colors.surface,
+                    backgroundColor:
+                      formData.seatingPreference === option.value
+                        ? 'var(--color-primary)'
+                        : themeProps.colors.surface,
+                    color:
+                      formData.seatingPreference === option.value
+                        ? '#fff'
+                        : themeProps.colors.textPrimary,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="seatingPreference"
+                    value={option.value}
+                    checked={formData.seatingPreference === option.value}
+                    onChange={handleStandardChange}
+                    className="sr-only"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
@@ -1366,6 +1499,20 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
             {submittedData.contact?.phoneE164
               ? maskPhone(submittedData.contact.phoneE164)
               : 'N/A'}
+          </p>
+          <p>
+            <strong>{t.preferredTimeSlotLabel}:</strong>{' '}
+            {submittedData.preferredTimeSlot || t.preferenceNotProvided}
+          </p>
+          <p>
+            <strong>{t.seatingPreferenceLabel}:</strong>{' '}
+            {submittedData.seatingPreference && submittedData.seatingPreference !== 'any'
+              ? ({
+                  bar: t.seatingPreferenceBar,
+                  table: t.seatingPreferenceTable,
+                  outdoor: t.seatingPreferenceOutdoor,
+                } as Record<string, string>)[submittedData.seatingPreference] || t.preferenceNotProvided
+              : t.preferenceNotProvided}
           </p>
           {Object.entries(submittedData.customData || {}).map(([key, value]) => {
             const field = settings.guestForm?.customSelects?.find(

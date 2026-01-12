@@ -114,7 +114,8 @@ const ShiftModal: FC<ShiftModalProps> = ({ isOpen, onClose, onSave, onDelete, sh
                 const [endHour, endMinute] = formData.endTime.split(':').map(Number);
                 endDate = new Date(date);
                 endDate.setHours(endHour, endMinute, 0, 0);
-                if (endDate <= startDate) { // Handle overnight shifts
+                // Handle overnight shifts when the end time is earlier than the start time.
+                if (endDate <= startDate) {
                     endDate.setDate(endDate.getDate() + 1);
                 }
             }

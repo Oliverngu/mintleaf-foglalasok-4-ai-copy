@@ -22,6 +22,8 @@ import TrashIcon from '../../../../components/icons/TrashIcon';
 import { listTables, listZones, updateReservationSeating } from '../../../core/services/seatingService';
 import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import SeatingSettingsModal from './SeatingSettingsModal';
+import { setReservationAllocationOverride } from '../../../core/services/adminAllocationApiService';
+import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -31,11 +33,13 @@ type BookingLogType =
   | 'guest_created'
   | 'guest_cancelled'
   | 'capacity_override'
-  | 'admin_seating_updated';
+  | 'admin_seating_updated'
+  | 'allocation_override_set'
+  | 'capacity_recalc';
 
 interface BookingLog {
   id: string;
-  bookingId: string;
+  bookingId?: string;
   unitId: string;
   type: BookingLogType;
   createdAt: Timestamp | null;
@@ -290,6 +294,209 @@ const BookingSeatingEditor: React.FC<{
   );
 };
 
+const timeSlotOptions = [
+  '11:00-13:00',
+  '13:00-15:00',
+  '15:00-17:00',
+  '17:00-19:00',
+  '19:00-21:00',
+  '21:00-23:00',
+];
+
+const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => {
+  if (!value || value === 'any') return 'Nincs megadva';
+  if (value === 'bar') return 'Bár';
+  if (value === 'table') return 'Asztal';
+  if (value === 'outdoor') return 'Terasz';
+  return 'Nincs megadva';
+};
+
+const AllocationOverrideEditor: React.FC<{
+  booking: Booking;
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+}> = ({ booking, unitId, zones, tables }) => {
+  const [enabled, setEnabled] = useState(Boolean(booking.allocationOverride?.enabled));
+  const [timeSlot, setTimeSlot] = useState<string>(booking.allocationOverride?.timeSlot || '');
+  const [zoneId, setZoneId] = useState<string>(booking.allocationOverride?.zoneId || '');
+  const [tableGroup, setTableGroup] = useState<string>(
+    booking.allocationOverride?.tableGroup || ''
+  );
+  const [tableIds, setTableIds] = useState<string[]>(
+    booking.allocationOverride?.tableIds || []
+  );
+  const [note, setNote] = useState<string>(booking.allocationOverride?.note || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEnabled(Boolean(booking.allocationOverride?.enabled));
+    setTimeSlot(booking.allocationOverride?.timeSlot || '');
+    setZoneId(booking.allocationOverride?.zoneId || '');
+    setTableGroup(booking.allocationOverride?.tableGroup || '');
+    setTableIds(booking.allocationOverride?.tableIds || []);
+    setNote(booking.allocationOverride?.note || '');
+  }, [booking]);
+
+  const availableTables = useMemo(
+    () => tables.filter(table => table.zoneId === zoneId && table.isActive),
+    [tables, zoneId]
+  );
+
+  const toggleTable = (tableId: string) => {
+    setTableIds(current =>
+      current.includes(tableId)
+        ? current.filter(id => id !== tableId)
+        : [...current, tableId]
+    );
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      await setReservationAllocationOverride(unitId, booking.id, {
+        enabled,
+        timeSlot: timeSlot || null,
+        zoneId: zoneId || null,
+        tableGroup: tableGroup || null,
+        tableIds: tableIds.length ? tableIds : null,
+        note: note || null,
+      });
+      setSaveSuccess('Allocation override mentve.');
+    } catch (err) {
+      console.error('Error saving allocation override:', err);
+      setSaveError('Nem sikerült menteni az allocation override-ot.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+          Allocation override
+        </label>
+        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={event => setEnabled(event.target.checked)}
+          />
+          Engedélyezve
+        </label>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+            Idősáv
+          </label>
+          <select
+            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+            value={timeSlot}
+            onChange={event => setTimeSlot(event.target.value)}
+          >
+            <option value="">Nincs beállítva</option>
+            {timeSlotOptions.map(slot => (
+              <option key={slot} value={slot}>
+                {slot}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+            Zóna
+          </label>
+          <select
+            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+            value={zoneId}
+            onChange={event => {
+              setZoneId(event.target.value);
+              setTableIds([]);
+            }}
+          >
+            <option value="">Nincs beállítva</option>
+            {zones.map(zone => (
+              <option key={zone.id} value={zone.id}>
+                {zone.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+            Table group
+          </label>
+          <input
+            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+            value={tableGroup}
+            onChange={event => setTableGroup(event.target.value)}
+            placeholder="Pl. 4-es zóna"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Asztalok</label>
+        <div className="mt-2 space-y-2">
+          {!zoneId && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Válassz zónát az asztalokhoz.
+            </p>
+          )}
+          {zoneId && availableTables.length === 0 && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Nincs aktív asztal ebben a zónában.
+            </p>
+          )}
+          {zoneId &&
+            availableTables.map(table => (
+              <label
+                key={table.id}
+                className="flex items-center gap-2 text-xs text-[var(--color-text-main)]"
+              >
+                <input
+                  type="checkbox"
+                  checked={tableIds.includes(table.id)}
+                  onChange={() => toggleTable(table.id)}
+                />
+                <span>{table.name}</span>
+              </label>
+            ))}
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+          Megjegyzés
+        </label>
+        <textarea
+          className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+          rows={2}
+          value={note}
+          onChange={event => setNote(event.target.value)}
+          placeholder="Opcionális admin megjegyzés"
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-[var(--color-primary)] text-white disabled:opacity-60"
+        >
+          {isSaving ? 'Mentés...' : 'Mentés'}
+        </button>
+        {saveSuccess && <span className="text-xs text-green-600">{saveSuccess}</span>}
+        {saveError && <span className="text-xs text-red-600">{saveError}</span>}
+      </div>
+    </div>
+  );
+};
+
 const BookingDetailsModal: React.FC<{
   selectedDate: Date;
   bookings: Booking[];
@@ -305,6 +512,36 @@ const BookingDetailsModal: React.FC<{
     seatingSource: 'manual';
   }) => void;
 }> = ({ selectedDate, bookings, onClose, isAdmin, onDelete, unitId, zones, tables, onSeatingSaved }) => {
+  const [isRecalcRunning, setIsRecalcRunning] = useState(false);
+  const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+
+  const dateKey = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedDate]);
+
+  const handleRecalcCapacity = async () => {
+    if (!unitId || !dateKey) {
+      setRecalcError('Hiányzó egység vagy dátum.');
+      return;
+    }
+    setIsRecalcRunning(true);
+    setRecalcMessage(null);
+    setRecalcError(null);
+    try {
+      await recalcReservationCapacityDay(unitId, dateKey);
+      setRecalcMessage('Napi kapacitás újraszámolva.');
+    } catch (err) {
+      console.error('Error recalculating capacity:', err);
+      setRecalcError('Nem sikerült újraszámolni a kapacitást.');
+    } finally {
+      setIsRecalcRunning(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -346,6 +583,22 @@ const BookingDetailsModal: React.FC<{
           </button>
         </div>
         <div className="p-6 overflow-y-auto space-y-4">
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleRecalcCapacity}
+                disabled={isRecalcRunning}
+                className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 disabled:opacity-60"
+              >
+                {isRecalcRunning ? 'Újraszámolás...' : 'Napi kapacitás újraszámolása'}
+              </button>
+              {recalcMessage && (
+                <span className="text-xs text-green-600">{recalcMessage}</span>
+              )}
+              {recalcError && <span className="text-xs text-red-600">{recalcError}</span>}
+            </div>
+          )}
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
@@ -379,6 +632,64 @@ const BookingDetailsModal: React.FC<{
                       Megjegyzés: {booking.notes}
                     </p>
                   )}
+                  <div className="mt-2 space-y-1 text-sm text-[var(--color-text-secondary)]">
+                    <p>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Preferált idősáv:
+                      </span>{' '}
+                      {booking.preferredTimeSlot || 'Nincs megadva'}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Ülés preferencia:
+                      </span>{' '}
+                      {resolveSeatingPreferenceLabel(booking.seatingPreference)}
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-[var(--color-text-secondary)]">
+                    <div>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Allocation intent:
+                      </span>{' '}
+                      {booking.allocationIntent?.timeSlot ||
+                      booking.allocationIntent?.zoneId ||
+                      booking.allocationIntent?.tableGroup
+                        ? `timeSlot=${booking.allocationIntent?.timeSlot || '—'}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${booking.allocationIntent?.tableGroup || '—'}`
+                        : 'Nincs adat'}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Allocation diagnostics:
+                      </span>{' '}
+                      {booking.allocationDiagnostics
+                        ? `quality=${booking.allocationDiagnostics.intentQuality || '—'}, reasons=${
+                            booking.allocationDiagnostics.reasons?.length
+                              ? booking.allocationDiagnostics.reasons.join(', ')
+                              : '—'
+                          }, warnings=${
+                            booking.allocationDiagnostics.warnings?.length
+                              ? booking.allocationDiagnostics.warnings.join(', ')
+                              : '—'
+                          }`
+                        : 'Nincs adat'}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-[var(--color-text-main)]">
+                        Allocation final:
+                      </span>{' '}
+                      {booking.allocationFinal
+                        ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${
+                            booking.allocationFinal.timeSlot || '—'
+                          }, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
+                            booking.allocationFinal.tableGroup || '—'
+                          }, tableIds=${
+                            booking.allocationFinal.tableIds?.length
+                              ? booking.allocationFinal.tableIds.join(', ')
+                              : '—'
+                          }`
+                        : 'Nincs adat'}
+                    </div>
+                  </div>
                   {isAdmin && (
                     <BookingSeatingEditor
                       booking={booking}
@@ -386,6 +697,14 @@ const BookingDetailsModal: React.FC<{
                       zones={zones}
                       tables={tables}
                       onSeatingSaved={update => onSeatingSaved(booking.id, update)}
+                    />
+                  )}
+                  {isAdmin && (
+                    <AllocationOverrideEditor
+                      booking={booking}
+                      unitId={unitId}
+                      zones={zones}
+                      tables={tables}
                     />
                   )}
                   {isAdmin && (
@@ -440,6 +759,12 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
     }
     if (log.type === 'admin_seating_updated') {
       return 'bg-blue-500';
+    }
+    if (log.type === 'capacity_recalc') {
+      return 'bg-purple-500';
+    }
+    if (log.type === 'allocation_override_set') {
+      return 'bg-purple-500';
     }
     // kék – admin / belső
     return 'bg-blue-500';

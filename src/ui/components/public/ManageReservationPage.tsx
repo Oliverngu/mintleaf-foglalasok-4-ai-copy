@@ -6,6 +6,7 @@ import LoadingSpinner from '../../../../components/LoadingSpinner';
 import { translations } from '../../../lib/i18n';
 import {
   buildReservationTheme,
+  defaultThemeSettings,
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
@@ -28,14 +29,12 @@ interface ManageReservationPageProps {
   unitId: string;
   reservationId: string;
   manageToken: string;
-  allUnits: Unit[];
 }
 
 const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   unitId,
   reservationId,
   manageToken,
-  allUnits,
 }) => {
   const [booking, setBooking] = useState<PublicBookingDTO | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -74,13 +73,71 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     }
   }, []);
 
+  const buildPublicUnit = (
+    settingsValue: ReservationSetting | null,
+    fallbackName: string
+  ): Unit => {
+    const settingsAny = settingsValue as Record<string, any> | null;
+    const name =
+      settingsAny?.publicName ||
+      settingsAny?.unitName ||
+      settingsAny?.brandName ||
+      fallbackName ||
+      'MintLeaf';
+    const logoUrl =
+      settingsValue?.theme?.headerLogoUrl || settingsValue?.theme?.timeWindowLogoUrl;
+    return {
+      id: unitId,
+      name,
+      logoUrl,
+    };
+  };
+
   useEffect(() => {
-    const resolvedUnit =
-      allUnits.find((currentUnit) => currentUnit.id === unitId) || null;
-    if (resolvedUnit) {
-      setUnit(resolvedUnit);
-    }
-  }, [allUnits, unitId]);
+    if (!unitId) return;
+    const fetchSettings = async () => {
+      try {
+        const settingsRef = doc(db, 'reservation_settings', unitId);
+        const settingsSnap = await getDoc(settingsRef);
+        if (settingsSnap.exists()) {
+          const data = settingsSnap.data() as ReservationSetting;
+          const nextSettings: ReservationSetting = {
+            ...data,
+            blackoutDates: data.blackoutDates || [],
+            id: unitId,
+            uiTheme: data.uiTheme || 'minimal_glass',
+            theme: {
+              ...defaultThemeSettings,
+              ...(data.theme || {}),
+            },
+          };
+          setSettings(nextSettings);
+          setUnit(prev => prev ?? buildPublicUnit(nextSettings, unitId));
+          return;
+        }
+        const fallbackSettings: ReservationSetting = {
+          id: unitId,
+          blackoutDates: [],
+          uiTheme: 'minimal_glass',
+          theme: defaultThemeSettings,
+        } as ReservationSetting;
+        setSettings(fallbackSettings);
+        setUnit(prev => prev ?? buildPublicUnit(fallbackSettings, unitId));
+      } catch (settingsErr) {
+        console.error('Error fetching reservation settings:', settingsErr);
+        const fallbackSettings: ReservationSetting = {
+          id: unitId,
+          blackoutDates: [],
+          uiTheme: 'minimal_glass',
+          theme: defaultThemeSettings,
+        } as ReservationSetting;
+        setSettings(fallbackSettings);
+        setUnit(prev => prev ?? buildPublicUnit(fallbackSettings, unitId));
+      }
+    };
+
+    fetchSettings();
+  }, [unitId]);
 
   useEffect(() => {
     const hashToken = async () => {
@@ -166,6 +223,8 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           headcount: payload.headcount,
           startTimeMs: payload.startTimeMs ?? null,
           endTimeMs: payload.endTimeMs ?? null,
+          preferredTimeSlot: payload.preferredTimeSlot ?? null,
+          seatingPreference: payload.seatingPreference ?? 'any',
           status: payload.status,
           occasion: payload.occasion || '',
           source: payload.source || '',
@@ -178,12 +237,13 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         };
 
         setBooking(foundBooking);
-        if (!unit) {
-          setUnit({
+        setUnit(prev =>
+          prev ??
+          ({
             id: payload.unitId,
             name: payload.unitName || 'MintLeaf',
-          } as Unit);
-        }
+          } as Unit)
+        );
 
         const urlParams = new URLSearchParams(window.location.search);
         const langOverride = urlParams.get('lang');
@@ -212,41 +272,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       }
       setLoading(false);
     }
-  }, [manageToken, reservationId, t.actionFailed, t.invalidManageLink, unit, unitId]);
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      if (!unit) return;
-      try {
-        const settingsRef = doc(db, 'reservation_settings', unit.id);
-        const settingsSnap = await getDoc(settingsRef);
-        if (settingsSnap.exists()) {
-          const data = settingsSnap.data() as ReservationSetting;
-          setSettings({
-            ...data,
-            blackoutDates: data.blackoutDates || [],
-            id: unit.id,
-            uiTheme: data.uiTheme || 'minimal_glass',
-          });
-        } else {
-          setSettings({
-            id: unit.id,
-            blackoutDates: [],
-            uiTheme: 'minimal_glass',
-          } as ReservationSetting);
-        }
-      } catch (settingsErr) {
-        console.error('Error fetching reservation settings:', settingsErr);
-        setSettings({
-          id: unit.id,
-          blackoutDates: [],
-          uiTheme: 'minimal_glass',
-        } as ReservationSetting);
-      }
-    };
-
-    fetchSettings();
-  }, [unit]);
+  }, [manageToken, reservationId, t.actionFailed, t.invalidManageLink, unitId]);
 
   useEffect(() => {
     syncThemeCssVariables(theme);
@@ -559,6 +585,20 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         <p>
           <strong>{t.phone}:</strong>{' '}
           {booking.contact?.phoneE164 ? maskPhone(booking.contact.phoneE164) : 'N/A'}
+        </p>
+        <p>
+          <strong>{t.preferredTimeSlotLabel}:</strong>{' '}
+          {booking.preferredTimeSlot || t.preferenceNotProvided}
+        </p>
+        <p>
+          <strong>{t.seatingPreferenceLabel}:</strong>{' '}
+          {booking.seatingPreference && booking.seatingPreference !== 'any'
+            ? ({
+                bar: t.seatingPreferenceBar,
+                table: t.seatingPreferenceTable,
+                outdoor: t.seatingPreferenceOutdoor,
+              } as Record<string, string>)[booking.seatingPreference] || t.preferenceNotProvided
+            : t.preferenceNotProvided}
         </p>
       </div>
 
