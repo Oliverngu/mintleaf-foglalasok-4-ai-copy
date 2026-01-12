@@ -1,6 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { createHash, randomBytes } from "crypto";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import {
@@ -14,9 +15,7 @@ import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 admin.initializeApp();
 
 // 🔹 Itt definiáljuk, és CSAK EZT használjuk mindenhol
-const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
+const db = getFirestore();
 const REGION = "europe-west3";
 
 const EMAIL_GATEWAY_URL =
@@ -273,6 +272,8 @@ const getClientIp = (req: any) => {
 
 const enforceRateLimit = async (unitId: string, req: any) => {
   const ip = getClientIp(req);
+  logger.info('rateLimit', { unitId, ip });
+
   const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
   const docId = `${unitId}_${ipHash}`;
   const ref = db.collection('guest_rate_limits').doc(docId);
@@ -281,23 +282,33 @@ const enforceRateLimit = async (unitId: string, req: any) => {
     const snap = await transaction.get(ref);
     const now = Date.now();
     const data = snap.exists ? snap.data() || {} : {};
+
+    const windowStartMsRaw = data.windowStartMs;
+    const countRaw = data.count;
+
     const windowStartMs =
-      typeof data.windowStartMs === 'number' ? data.windowStartMs : now;
-    const count = typeof data.count === 'number' ? data.count : 0;
-    const withinWindow = now - windowStartMs < RATE_LIMIT_WINDOW_MS;
+      typeof windowStartMsRaw === 'number' ? windowStartMsRaw : 0;
+    const count = typeof countRaw === 'number' ? countRaw : 0;
+
+    const withinWindow =
+      windowStartMs > 0 && now - windowStartMs < RATE_LIMIT_WINDOW_MS;
 
     if (withinWindow && count >= RATE_LIMIT_MAX) {
       throw new Error('RATE_LIMIT');
     }
 
     if (!withinWindow) {
-      transaction.set(ref, { windowStartMs: now, count: 1 }, { merge: true });
+      transaction.set(
+        ref,
+        { windowStartMs: now, count: 1, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
       return;
     }
 
     transaction.set(
       ref,
-      { windowStartMs, count: count + 1 },
+      { windowStartMs, count: count + 1, updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
   });
@@ -616,6 +627,7 @@ export const guestCreateReservation = onRequest(
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
           },
+          
           locale: reservation.locale || 'hu',
           status,
           createdAt: FieldValue.serverTimestamp(),
@@ -632,7 +644,7 @@ export const guestCreateReservation = onRequest(
                 adminActionUsedAt: null,
               }
             : {}),
-          skipCreateEmails: true,
+          skipCreateEmails: Boolean((reservation as any)?.skipCreateEmails),
         });
 
         const capacityUpdate: Record<string, any> = {
@@ -774,7 +786,15 @@ export const guestCreateReservation = onRequest(
         ),
       ]);
 
-      res.status(200).json({ ...createResult, manageToken });
+        const isEmulator =
+          process.env.FUNCTIONS_EMULATOR === 'true' ||
+          process.env.FIREBASE_EMULATOR_HUB;
+
+          res.status(200).json({
+          ...createResult,
+          manageToken,
+          ...(isEmulator ? { adminActionToken } : {}),
+      });
     } catch (err: any) {
       if (err instanceof Error && err.message === 'CAPACITY_FULL') {
         res.status(409).json({ error: 'capacity_full' });
@@ -1017,6 +1037,9 @@ export const adminHandleReservationAction = onRequest(
     }
   }
 );
+
+
+
 
 export const adminOverrideDailyCapacity = onRequest(
   { region: REGION, cors: true },
@@ -2324,6 +2347,38 @@ const queuedEmailTemplates: Record<
   | "register_welcome",
   { subject: string; html: string }
 > = {
+  booking_created_guest: {
+    subject: "Foglalás visszaigazolás: {{bookingDate}} {{bookingTimeFrom}}",
+    html: `
+      <h2>Foglalásodat megkaptuk</h2>
+      <p>Kedves {{guestName}}!</p>
+      <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
+      <ul>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+      </ul>
+      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+
+  booking_created_admin: {
+    subject: "Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő) – {{guestName}}",
+    html: `
+      <h2>Új foglalási kérelem érkezett</h2>
+      <p>Egység: <strong>{{unitName}}</strong></p>
+      <ul>
+        <li><strong>Vendég neve:</strong> {{guestName}}</li>
+        <li><strong>Dátum:</strong> {{bookingDate}}</li>
+        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
+        <li><strong>Létszám:</strong> {{headcount}} fő</li>
+        <li><strong>Email:</strong> {{guestEmail}}</li>
+        <li><strong>Telefon:</strong> {{guestPhone}}</li>
+      </ul>
+      <p>Ref: <strong>{{bookingRef}}</strong></p>
+    `,
+  },
+  
   leave_request_created: {
     subject: "Új szabadságkérés: {{userName}}",
     html: `

@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 import { FloorplanTable, FloorplanZone, SeatingSettingsDoc, TableCombinationDoc } from './types';
 import { normalizeTable, normalizeZone } from './normalize';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, getFirestore } from 'firebase-admin/firestore';
 
 const getBufferMillis = (bufferMinutes?: number) => (bufferMinutes ?? 15) * 60 * 1000;
 
@@ -9,7 +9,7 @@ const overlaps = (startA: Date, endA: Date, startB: Date, endB: Date) =>
   startA < endB && startB < endA;
 
 export const fetchSeatingSettings = async (unitId: string, defaults: SeatingSettingsDoc) => {
-  const db = admin.firestore();
+  const db = getFirestore();
   const settingsSnap = await db
     .collection('units')
     .doc(unitId)
@@ -23,7 +23,7 @@ export const fetchSeatingSettings = async (unitId: string, defaults: SeatingSett
 };
 
 export const fetchSeatingEntities = async (unitId: string) => {
-  const db = admin.firestore();
+  const db = getFirestore();
   const [zonesSnap, tablesSnap, combosSnap] = await Promise.all([
     db.collection('units').doc(unitId).collection('zones').get(),
     db.collection('units').doc(unitId).collection('tables').get(),
@@ -62,7 +62,7 @@ export const fetchTakenTableIds = async ({
   endDate: Date;
   bufferMinutes?: number;
 }) => {
-  const db = admin.firestore();
+  const db = getFirestore();
   const bufferMillis = getBufferMillis(bufferMinutes);
   const startWithBuffer = new Date(startDate.getTime() - bufferMillis);
   const endWithBuffer = new Date(endDate.getTime() + bufferMillis);
