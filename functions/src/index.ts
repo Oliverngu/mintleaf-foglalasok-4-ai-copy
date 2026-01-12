@@ -77,13 +77,23 @@ interface AllocationFinal {
   locked?: boolean | null;
 }
 
+const CAPACITY_KEY_SAFE_PATTERN = /^[a-zA-Z0-9:_\- ]+$/;
+
 const normalizePreferredTimeSlot = (value: unknown) => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
   const capped = trimmed.slice(0, 64);
-  const safePattern = /^[a-zA-Z0-9:_\- ]+$/;
-  if (!safePattern.test(capped)) return null;
+  if (!CAPACITY_KEY_SAFE_PATTERN.test(capped)) return null;
+  return capped;
+};
+
+const normalizeCapacityKey = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const capped = trimmed.slice(0, 64);
+  if (!CAPACITY_KEY_SAFE_PATTERN.test(capped)) return null;
   return capped;
 };
 
@@ -92,7 +102,9 @@ const TIMEZONE_SEMANTICS = 'local';
 const computeCapacityTimeSlot = (date: Date) => {
   const hour = date.getHours();
   let slot: string | null = null;
-  if (hour >= 6 && hour < 12) {
+  if (hour >= 0 && hour < 6) {
+    slot = 'night';
+  } else if (hour >= 6 && hour < 12) {
     slot = 'morning';
   } else if (hour >= 12 && hour < 18) {
     slot = 'afternoon';
@@ -124,6 +136,13 @@ const normalizeAllocationText = (value: unknown, maxLength = 64) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, maxLength);
+};
+
+const serializeError = (err: unknown) => {
+  if (err instanceof Error) {
+    return { message: err.message, stack: err.stack };
+  }
+  return { message: String(err) };
 };
 
 const normalizeOptionalText = (value: unknown) => {
@@ -219,6 +238,102 @@ const fetchFloorplanContext = async (unitId: string) => {
   return { zones, tables };
 };
 
+const resolveMatchedZoneId = (zones: FloorplanZone[], zoneId: string | null) => {
+  if (!zoneId) return null;
+  return zones.some(zone => zone.id === zoneId) ? zoneId : null;
+};
+
+const resolveTableGroupKey = (table: FloorplanTable) => {
+  const t = table as any;
+  const candidate = table.tableGroup ?? t.table_group ?? t.group ?? t.groupId ?? t.tableGroupId;
+  return normalizeCapacityKey(candidate);
+};
+
+const FLOORPLAN_CONTEXT_TTL_MS = 5 * 60 * 1000;
+const FLOORPLAN_CONTEXT_TIMEOUT_MS = 800;
+const FLOORPLAN_CONTEXT_CACHE_MAX = 100;
+const floorplanContextCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    data?: { zones: FloorplanZone[]; tables: FloorplanTable[] };
+    inFlight?: Promise<{ zones: FloorplanZone[]; tables: FloorplanTable[] }>;
+  }
+>();
+
+const fetchFloorplanContextCached = async (unitId: string) => {
+  const now = Date.now();
+  const cached = floorplanContextCache.get(unitId);
+  if (cached?.data && cached.expiresAt > now) {
+    return { ...cached.data, fromCache: true };
+  }
+  if (cached?.inFlight) {
+    const data = await cached.inFlight;
+    return { ...data, fromCache: false };
+  }
+
+  const fetchPromise = fetchFloorplanContext(unitId);
+  floorplanContextCache.set(unitId, {
+    expiresAt: now + FLOORPLAN_CONTEXT_TTL_MS,
+    inFlight: fetchPromise,
+  });
+
+  fetchPromise
+    .then(data => {
+      floorplanContextCache.set(unitId, {
+        expiresAt: Date.now() + FLOORPLAN_CONTEXT_TTL_MS,
+        data,
+      });
+    })
+    .catch(err => {
+      logger.warn('floorplan context fetch failed', { unitId, error: serializeError(err) });
+    })
+    .finally(() => {
+      const entry = floorplanContextCache.get(unitId);
+      if (entry?.inFlight === fetchPromise) {
+        floorplanContextCache.set(unitId, { ...entry, inFlight: undefined });
+      }
+    });
+
+  if (floorplanContextCache.size > FLOORPLAN_CONTEXT_CACHE_MAX) {
+    const nowCleanup = Date.now();
+    for (const [key, entry] of floorplanContextCache.entries()) {
+      if (!entry.inFlight && entry.expiresAt <= nowCleanup) {
+        floorplanContextCache.delete(key);
+      }
+    }
+    while (floorplanContextCache.size > FLOORPLAN_CONTEXT_CACHE_MAX) {
+      let evicted = false;
+      for (const [key, entry] of floorplanContextCache.entries()) {
+        if (!entry.inFlight) {
+          floorplanContextCache.delete(key);
+          evicted = true;
+          break;
+        }
+      }
+      if (!evicted) break;
+    }
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error('FLOORPLAN_TIMEOUT')),
+      FLOORPLAN_CONTEXT_TIMEOUT_MS
+    );
+  });
+
+  try {
+    const data = await Promise.race([fetchPromise, timeoutPromise]);
+    return { ...data, fromCache: false };
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
+  }
+};
+
 const computeAllocationDiagnostics = (
   preferredTimeSlot: string | null,
   seatingPreference: SeatingPreference,
@@ -228,6 +343,10 @@ const computeAllocationDiagnostics = (
 ): AllocationDiagnostics => {
   const reasons: string[] = [];
   const warnings: string[] = [];
+  const resolvedZoneId = resolveMatchedZoneId(zones, matchedZoneId);
+  if (matchedZoneId && !resolvedZoneId) {
+    warnings.push('ZONE_INACTIVE_OR_MISSING');
+  }
 
   if (!zones.length) warnings.push('NO_ZONES');
   if (!tables.length) warnings.push('NO_TABLES');
@@ -236,7 +355,7 @@ const computeAllocationDiagnostics = (
 
   if (seatingPreference === 'any') {
     if (preferredTimeSlot) intentQuality = 'weak';
-  } else if (!matchedZoneId) {
+  } else if (!resolvedZoneId) {
     intentQuality = 'weak';
     reasons.push('ZONE_NO_MATCH');
   } else {
@@ -245,7 +364,7 @@ const computeAllocationDiagnostics = (
 
   return {
     intentQuality,
-    matchedZoneId: matchedZoneId || null,
+    matchedZoneId: resolvedZoneId || null,
     reasons,
     warnings,
   };
@@ -522,6 +641,10 @@ export const guestUpdateReservation = onRequest(
  * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
  *   -H "Content-Type: application/json" \
  *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735696800000,"endTimeMs":1735700400000}'
+ * Night slot coverage (01:00 local time -> byTimeSlot.night):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735693200000,"endTimeMs":1735696800000}'
  * DateKey boundary move (late night -> after midnight):
  * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
  *   -H "Content-Type: application/json" \
@@ -652,6 +775,28 @@ export const guestModifyReservation = onRequest(
 
       const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
       const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+      let allocationZones: FloorplanZone[] = [];
+      let allocationTables: FloorplanTable[] = [];
+      let allocationContextReady = false;
+      let activeZoneIds: Set<string> | undefined;
+      let activeTableGroups: Set<string> | undefined;
+      try {
+        const context = await fetchFloorplanContextCached(unitId);
+        allocationZones = context.zones;
+        allocationTables = context.tables;
+        activeZoneIds = new Set(allocationZones.map(zone => zone.id));
+        activeTableGroups = new Set(
+          allocationTables
+            .map(table => resolveTableGroupKey(table))
+            .filter((value): value is string => !!value)
+        );
+        allocationContextReady = true;
+      } catch (err) {
+        logger.warn('guestModifyReservation allocation context failed', {
+          unitId,
+          error: serializeError(err),
+        });
+      }
 
       const applyCapacityDelta = (
         maps: {
@@ -661,28 +806,47 @@ export const guestModifyReservation = onRequest(
         },
         delta: number,
         intent: AllocationIntent | null | undefined,
-        untracked: { value: number }
+        untracked: { value: number },
+        opts?: { activeZoneIds?: Set<string>; activeTableGroups?: Set<string> }
       ) => {
         let usedUntracked = false;
         let appliedAny = false;
+        const normalizedTimeSlot = normalizePreferredTimeSlot(intent?.timeSlot ?? null);
+        const normalizedZoneId = normalizeCapacityKey(intent?.zoneId ?? null);
+        const normalizedTableGroup = normalizeCapacityKey(intent?.tableGroup ?? null);
+        const normalizedZoneIdUsed = !!normalizedZoneId;
+        const normalizedTableGroupUsed = !!normalizedTableGroup;
+        const timeSlotApplied = !!normalizedTimeSlot;
+        const invalidZoneKey =
+          delta > 0 &&
+          !!normalizedZoneId &&
+          !!opts?.activeZoneIds &&
+          !opts.activeZoneIds.has(normalizedZoneId);
+        const invalidTableGroupKey =
+          delta > 0 &&
+          !!normalizedTableGroup &&
+          !!opts?.activeTableGroups &&
+          !opts.activeTableGroups.has(normalizedTableGroup);
+        const invalidZoneId = invalidZoneKey ? normalizedZoneId : null;
+        const invalidTableGroupKeyName = invalidTableGroupKey ? normalizedTableGroup : null;
 
-        if (intent?.timeSlot) {
-          maps.byTimeSlot[intent.timeSlot] = clampAdd(
-            maps.byTimeSlot[intent.timeSlot] || 0,
+        if (normalizedTimeSlot) {
+          maps.byTimeSlot[normalizedTimeSlot] = clampAdd(
+            maps.byTimeSlot[normalizedTimeSlot] || 0,
             delta
           );
           appliedAny = true;
         }
-        if (intent?.zoneId) {
-          maps.byZone[intent.zoneId] = clampAdd(
-            maps.byZone[intent.zoneId] || 0,
+        if (normalizedZoneId && !invalidZoneKey) {
+          maps.byZone[normalizedZoneId] = clampAdd(
+            maps.byZone[normalizedZoneId] || 0,
             delta
           );
           appliedAny = true;
         }
-        if (intent?.tableGroup) {
-          maps.byTableGroup[intent.tableGroup] = clampAdd(
-            maps.byTableGroup[intent.tableGroup] || 0,
+        if (normalizedTableGroup && !invalidTableGroupKey) {
+          maps.byTableGroup[normalizedTableGroup] = clampAdd(
+            maps.byTableGroup[normalizedTableGroup] || 0,
             delta
           );
           appliedAny = true;
@@ -693,12 +857,22 @@ export const guestModifyReservation = onRequest(
           usedUntracked = true;
         }
 
-        return { usedUntracked };
+        return {
+          usedUntracked,
+          normalizedZoneIdUsed,
+          normalizedTableGroupUsed,
+          timeSlotApplied,
+          invalidZoneKey,
+          invalidTableGroupKey,
+          invalidZoneId,
+          invalidTableGroupKeyName,
+        };
       };
 
       const buildBreakdownUpdate = (
         capacityData: Record<string, any>,
-        deltas: Array<{ delta: number; intent: AllocationIntent | null | undefined; label: string }>
+        deltas: Array<{ delta: number; intent: AllocationIntent | null | undefined; label: string }>,
+        opts?: { activeZoneIds?: Set<string>; activeTableGroups?: Set<string> }
       ) => {
         const maps = {
           byTimeSlot: {
@@ -715,9 +889,30 @@ export const guestModifyReservation = onRequest(
           value: clampAdd(Number(capacityData.breakdownUntracked || 0), 0),
         };
         const untrackedApplied: Record<string, boolean> = {};
+        const normalizedApplied: Record<
+          string,
+          {
+            normalizedZoneIdUsed: boolean;
+            normalizedTableGroupUsed: boolean;
+            timeSlotApplied: boolean;
+            invalidZoneKey: boolean;
+            invalidTableGroupKey: boolean;
+            invalidZoneId: string | null;
+            invalidTableGroupKeyName: string | null;
+          }
+        > = {};
         deltas.forEach(({ delta, intent, label }) => {
-          const result = applyCapacityDelta(maps, delta, intent, untracked);
+          const result = applyCapacityDelta(maps, delta, intent, untracked, opts);
           untrackedApplied[label] = result.usedUntracked;
+          normalizedApplied[label] = {
+            normalizedZoneIdUsed: result.normalizedZoneIdUsed,
+            normalizedTableGroupUsed: result.normalizedTableGroupUsed,
+            timeSlotApplied: result.timeSlotApplied,
+            invalidZoneKey: result.invalidZoneKey,
+            invalidTableGroupKey: result.invalidTableGroupKey,
+            invalidZoneId: result.invalidZoneId,
+            invalidTableGroupKeyName: result.invalidTableGroupKeyName,
+          };
         });
         const update: Record<string, any> = {
           breakdownUntracked: untracked.value,
@@ -725,7 +920,7 @@ export const guestModifyReservation = onRequest(
         if (Object.keys(maps.byTimeSlot).length > 0) update.byTimeSlot = maps.byTimeSlot;
         if (Object.keys(maps.byZone).length > 0) update.byZone = maps.byZone;
         if (Object.keys(maps.byTableGroup).length > 0) update.byTableGroup = maps.byTableGroup;
-        return { update, untrackedApplied };
+        return { update, untrackedApplied, normalizedApplied };
       };
 
       let debugInfo: {
@@ -733,11 +928,23 @@ export const guestModifyReservation = onRequest(
         nextDateKey?: string;
         oldTimeSlot?: string | null;
         newTimeSlot?: string | null;
+        timeSlotComputed?: string | null;
+        guestPreferredTimeSlot?: string | null;
         existingHeadcount?: number;
         untrackedOldUsed?: boolean;
         untrackedNewUsed?: boolean;
         oldIntentExists?: boolean;
         newIntentExists?: boolean;
+        normalizedZoneIdUsed?: boolean;
+        normalizedTableGroupUsed?: boolean;
+        invalidZoneKey?: boolean;
+        invalidTableGroupKey?: boolean;
+        invalidZoneId?: string | null;
+        invalidTableGroupKeyName?: string | null;
+        intentQuality?: AllocationDiagnostics['intentQuality'];
+        matchedZoneId?: string | null;
+        intentReasons?: string[];
+        intentWarnings?: string[];
       } = {};
 
       const result = await db.runTransaction(async (transaction) => {
@@ -766,6 +973,8 @@ export const guestModifyReservation = onRequest(
         }
 
         const oldIntent = (latest.allocationIntent || null) as AllocationIntent | null;
+        const seatingPreference = normalizeSeatingPreference(latest.seatingPreference);
+        const guestPreferredTimeSlot = normalizePreferredTimeSlot(latest.preferredTimeSlot);
         const newTimeSlot = computeCapacityTimeSlot(startTime);
         const newIntent = oldIntent
           ? {
@@ -773,6 +982,7 @@ export const guestModifyReservation = onRequest(
               timeSlot: newTimeSlot ?? oldIntent.timeSlot ?? null,
             }
           : null;
+        const computedTimeSlot = newIntent?.timeSlot ?? null;
 
         const currentDateKey = toDateKey(existingStart);
         const nextDateKey = toDateKey(startTime);
@@ -828,12 +1038,44 @@ export const guestModifyReservation = onRequest(
           throw new Error('CAPACITY_FULL');
         }
 
+        let allocationDiagnostics: AllocationDiagnostics;
+        if (allocationContextReady) {
+          allocationDiagnostics = computeAllocationDiagnostics(
+            guestPreferredTimeSlot,
+            seatingPreference,
+            allocationZones,
+            allocationTables,
+            newIntent?.zoneId ?? null
+          );
+        } else {
+          const intentQuality =
+            seatingPreference === 'any'
+              ? guestPreferredTimeSlot
+                ? 'weak'
+                : 'none'
+              : 'weak';
+          allocationDiagnostics = {
+            intentQuality,
+            matchedZoneId: newIntent?.zoneId ?? null,
+            reasons: [],
+            warnings: ['context_unavailable'],
+          };
+        }
+
+        const breakdownOpts = allocationContextReady
+          ? { activeZoneIds, activeTableGroups }
+          : undefined;
+
         if (currentDateKey === nextDateKey) {
           const delta = parsedHeadcount - existingHeadcount;
-          const breakdownResult = buildBreakdownUpdate(currentCapData, [
-            { delta: -existingHeadcount, intent: oldIntent, label: 'old' },
-            { delta: parsedHeadcount, intent: newIntent, label: 'new' },
-          ]);
+          const breakdownResult = buildBreakdownUpdate(
+            currentCapData,
+            [
+              { delta: -existingHeadcount, intent: oldIntent, label: 'old' },
+              { delta: parsedHeadcount, intent: newIntent, label: 'new' },
+            ],
+            breakdownOpts
+          );
           const capacityUpdate: Record<string, any> = {
             date: currentDateKey,
             count: Math.max(0, currentCount + delta),
@@ -844,15 +1086,29 @@ export const guestModifyReservation = onRequest(
           transaction.set(capacityRefCurrent, capacityUpdate, { merge: true });
           debugInfo.untrackedOldUsed = breakdownResult.untrackedApplied.old ?? false;
           debugInfo.untrackedNewUsed = breakdownResult.untrackedApplied.new ?? false;
+          debugInfo.normalizedZoneIdUsed =
+            breakdownResult.normalizedApplied.new?.normalizedZoneIdUsed ?? false;
+          debugInfo.normalizedTableGroupUsed =
+            breakdownResult.normalizedApplied.new?.normalizedTableGroupUsed ?? false;
+          debugInfo.invalidZoneKey = breakdownResult.normalizedApplied.new?.invalidZoneKey ?? false;
+          debugInfo.invalidTableGroupKey =
+            breakdownResult.normalizedApplied.new?.invalidTableGroupKey ?? false;
+          debugInfo.invalidZoneId = breakdownResult.normalizedApplied.new?.invalidZoneId ?? null;
+          debugInfo.invalidTableGroupKeyName =
+            breakdownResult.normalizedApplied.new?.invalidTableGroupKeyName ?? null;
         } else {
           const currentDelta = -existingHeadcount;
           const nextDelta = parsedHeadcount;
-          const currentBreakdownResult = buildBreakdownUpdate(currentCapData, [
-            { delta: currentDelta, intent: oldIntent, label: 'old' },
-          ]);
-          const nextBreakdownResult = buildBreakdownUpdate(nextCapData, [
-            { delta: nextDelta, intent: newIntent, label: 'new' },
-          ]);
+          const currentBreakdownResult = buildBreakdownUpdate(
+            currentCapData,
+            [{ delta: currentDelta, intent: oldIntent, label: 'old' }],
+            breakdownOpts
+          );
+          const nextBreakdownResult = buildBreakdownUpdate(
+            nextCapData,
+            [{ delta: nextDelta, intent: newIntent, label: 'new' }],
+            breakdownOpts
+          );
           const currentUpdate: Record<string, any> = {
             date: currentDateKey,
             count: Math.max(0, currentCount + currentDelta),
@@ -874,6 +1130,18 @@ export const guestModifyReservation = onRequest(
           transaction.set(capacityRefNext, nextUpdate, { merge: true });
           debugInfo.untrackedOldUsed = currentBreakdownResult.untrackedApplied.old ?? false;
           debugInfo.untrackedNewUsed = nextBreakdownResult.untrackedApplied.new ?? false;
+          debugInfo.normalizedZoneIdUsed =
+            nextBreakdownResult.normalizedApplied.new?.normalizedZoneIdUsed ?? false;
+          debugInfo.normalizedTableGroupUsed =
+            nextBreakdownResult.normalizedApplied.new?.normalizedTableGroupUsed ?? false;
+          debugInfo.invalidZoneKey =
+            nextBreakdownResult.normalizedApplied.new?.invalidZoneKey ?? false;
+          debugInfo.invalidTableGroupKey =
+            nextBreakdownResult.normalizedApplied.new?.invalidTableGroupKey ?? false;
+          debugInfo.invalidZoneId =
+            nextBreakdownResult.normalizedApplied.new?.invalidZoneId ?? null;
+          debugInfo.invalidTableGroupKeyName =
+            nextBreakdownResult.normalizedApplied.new?.invalidTableGroupKeyName ?? null;
         }
 
         const modifiedFields = [];
@@ -885,6 +1153,7 @@ export const guestModifyReservation = onRequest(
           headcount: parsedHeadcount,
           startTime: Timestamp.fromDate(startTime),
           endTime: Timestamp.fromDate(endTime),
+          allocationDiagnostics,
           modifiedAt: FieldValue.serverTimestamp(),
           modifiedFields,
           modifiedBy: 'guest',
@@ -950,9 +1219,15 @@ export const guestModifyReservation = onRequest(
           nextDateKey,
           oldTimeSlot: oldIntent?.timeSlot ?? null,
           newTimeSlot: newIntent?.timeSlot ?? null,
+          timeSlotComputed: computedTimeSlot,
+          guestPreferredTimeSlot,
           existingHeadcount,
           oldIntentExists: !!oldIntent,
           newIntentExists: !!newIntent,
+          intentQuality: allocationDiagnostics.intentQuality,
+          matchedZoneId: allocationDiagnostics.matchedZoneId ?? null,
+          intentReasons: allocationDiagnostics.reasons,
+          intentWarnings: allocationDiagnostics.warnings,
         };
 
         return {
@@ -973,6 +1248,23 @@ export const guestModifyReservation = onRequest(
         newTimeSlot: debugInfo.newTimeSlot,
         untrackedOldUsed: debugInfo.untrackedOldUsed,
         untrackedNewUsed: debugInfo.untrackedNewUsed,
+        normalizedZoneIdUsed: debugInfo.normalizedZoneIdUsed,
+        normalizedTableGroupUsed: debugInfo.normalizedTableGroupUsed,
+        invalidZoneKey: debugInfo.invalidZoneKey,
+        invalidTableGroupKey: debugInfo.invalidTableGroupKey,
+        invalidZoneId: debugInfo.invalidZoneId,
+        invalidTableGroupKeyName: debugInfo.invalidTableGroupKeyName,
+        timeSlotComputed: debugInfo.timeSlotComputed,
+        guestPreferredTimeSlot: debugInfo.guestPreferredTimeSlot,
+        intentQuality: debugInfo.intentQuality,
+        matchedZoneId: debugInfo.matchedZoneId,
+        intentReasons: debugInfo.intentReasons,
+        intentWarnings: debugInfo.intentWarnings,
+        allocationContextReady,
+        activeZoneCount: allocationContextReady ? allocationZones.length : undefined,
+        activeTableCount: allocationContextReady ? allocationTables.length : undefined,
+        activeTableGroupCount:
+          allocationContextReady && activeTableGroups ? activeTableGroups.size : undefined,
         tzSemantics: TIMEZONE_SEMANTICS,
         existingHeadcount: debugInfo.existingHeadcount,
         newHeadcount: parsedHeadcount,

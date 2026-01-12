@@ -39,6 +39,7 @@ import {
   getOverride,
   setOverride,
 } from '../../../core/services/seating/reservationOverridesService';
+import { formatTimeSlot } from '../../utils/timeSlot';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
 type BookingLogType =
@@ -316,6 +317,8 @@ const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => 
   if (value === 'outdoor') return 'Terasz';
   return 'Nincs megadva';
 };
+
+const TIME_SLOT_LOCALE = 'hu' as const;
 
 type AllocationConflict = {
   bookingId: string;
@@ -1231,7 +1234,12 @@ const BookingDetailsModal: React.FC<{
                       {booking.allocationIntent?.timeSlot ||
                       booking.allocationIntent?.zoneId ||
                       booking.allocationIntent?.tableGroup
-                        ? `timeSlot=${booking.allocationIntent?.timeSlot || '—'}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${booking.allocationIntent?.tableGroup || '—'}`
+                        ? `timeSlot=${formatTimeSlot(booking.allocationIntent?.timeSlot, {
+                            mode: 'raw+label',
+                            locale: TIME_SLOT_LOCALE,
+                          })}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${
+                            booking.allocationIntent?.tableGroup || '—'
+                          }`
                         : 'Nincs adat'}
                     </div>
                     <div>
@@ -1255,9 +1263,13 @@ const BookingDetailsModal: React.FC<{
                         Allocation final:
                       </span>{' '}
                       {booking.allocationFinal
-                        ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${
-                            booking.allocationFinal.timeSlot || '—'
-                          }, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
+                        ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
+                            booking.allocationFinal.timeSlot,
+                            {
+                              mode: 'raw+label',
+                              locale: TIME_SLOT_LOCALE,
+                            }
+                          )}, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
                             booking.allocationFinal.tableGroup || '—'
                           }, tableIds=${
                             booking.allocationFinal.tableIds?.length
