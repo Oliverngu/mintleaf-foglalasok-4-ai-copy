@@ -644,7 +644,7 @@ export const guestCreateReservation = onRequest(
                 adminActionUsedAt: null,
               }
             : {}),
-          skipCreateEmails: true,
+          skipCreateEmails: Boolean((reservation as any)?.skipCreateEmails),
         });
 
         const capacityUpdate: Record<string, any> = {
