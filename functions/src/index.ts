@@ -615,6 +615,7 @@ export const guestCreateReservation = onRequest(
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
           },
+          
           locale: reservation.locale || 'hu',
           status,
           createdAt: FieldValue.serverTimestamp(),
@@ -773,7 +774,15 @@ export const guestCreateReservation = onRequest(
         ),
       ]);
 
-      res.status(200).json({ ...createResult, manageToken });
+        const isEmulator =
+          process.env.FUNCTIONS_EMULATOR === 'true' ||
+          process.env.FIREBASE_EMULATOR_HUB;
+
+          res.status(200).json({
+          ...createResult,
+          manageToken,
+          ...(isEmulator ? { adminActionToken } : {}),
+      });
     } catch (err: any) {
       if (err instanceof Error && err.message === 'CAPACITY_FULL') {
         res.status(409).json({ error: 'capacity_full' });
@@ -1016,6 +1025,9 @@ export const adminHandleReservationAction = onRequest(
     }
   }
 );
+
+
+
 
 export const adminOverrideDailyCapacity = onRequest(
   { region: REGION, cors: true },
