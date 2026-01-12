@@ -87,6 +87,31 @@ const normalizePreferredTimeSlot = (value: unknown) => {
   return capped;
 };
 
+const TIMEZONE_SEMANTICS = 'local';
+// Keep time-slot calculation aligned with toDateKey() which uses local date parts.
+const computeCapacityTimeSlot = (date: Date) => {
+  const hour = date.getHours();
+  let slot: string | null = null;
+  if (hour >= 6 && hour < 12) {
+    slot = 'morning';
+  } else if (hour >= 12 && hour < 18) {
+    slot = 'afternoon';
+  } else if (hour >= 18 && hour < 24) {
+    slot = 'evening';
+  }
+  return normalizePreferredTimeSlot(slot);
+};
+
+const formatTimeForLog = (date: Date) =>
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+const dateKeyOf = (date: Date) => toDateKey(date);
+
+const formatLogDateTime = (date: Date, dateKey: string) =>
+  `${dateKey} ${formatTimeForLog(date)}${dateKeyOf(date) !== dateKey ? '(!)' : ''}`;
+
+const clampAdd = (value: number, delta: number) => Math.max(0, value + delta);
+
 const normalizeSeatingPreference = (value: unknown): SeatingPreference => {
   if (value === 'bar' || value === 'table' || value === 'outdoor' || value === 'any') {
     return value;
@@ -461,6 +486,519 @@ export const guestUpdateReservation = onRequest(
       res.status(400).json({ error: 'Ismeretlen action' });
     } catch (err) {
       logger.error('guestUpdateReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+/*
+ * Emulator curl tests:
+ * 1) Success (200) + time slot change:
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":4,"startTimeMs":1735758000000,"endTimeMs":1735761600000}'
+ * 2) Bad token (404):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"BAD","headcount":4,"startTimeMs":1735732800000,"endTimeMs":1735736400000}'
+ * 3) Capacity full (409):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":30,"startTimeMs":1735732800000,"endTimeMs":1735736400000}'
+ *
+ * After (1), verify reservation_capacity.byTimeSlot moved headcount from afternoon->evening.
+ * Headcount-only change:
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":6,"startTimeMs":1735758000000,"endTimeMs":1735761600000}'
+ * Time-slot-only change:
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":4,"startTimeMs":1735765200000,"endTimeMs":1735768800000}'
+ * Midnight boundary check (verify toDateKey + timeSlot agree with local day/slot):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735689600000,"endTimeMs":1735693200000}'
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735696800000,"endTimeMs":1735700400000}'
+ * DateKey boundary move (late night -> after midnight):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735762800000,"endTimeMs":1735766400000}'
+ * Cross-midnight booking window (23:30 -> 00:30):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":2,"startTimeMs":1735774200000,"endTimeMs":1735777800000}'
+ * No allocationIntent (ensure breakdownUntracked updates):
+ * curl -X POST http://localhost:5001/<PROJECT>/europe-west3/guestModifyReservation \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"unitId":"UNIT","reservationId":"RES","manageToken":"TOKEN","headcount":3,"startTimeMs":1735774200000,"endTimeMs":1735777800000}'
+ *
+ * Inspect logs in units/{unitId}/reservation_logs and reservation_capacity.byTimeSlot.
+ * Verify capacity docs for old/new dateKey and a reservation_logs entry for guest_modified.
+ * For cross-midnight, capacity uses startTime dateKey; logs should show date+time for end field.
+ */
+export const guestModifyReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set([
+        'unitId',
+        'reservationId',
+        'manageToken',
+        'headcount',
+        'startTimeMs',
+        'endTimeMs',
+      ]);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, manageToken, headcount, startTimeMs, endTimeMs } =
+        body;
+      const parsedHeadcount = Number(headcount);
+      const parsedStartTimeMs = Number(startTimeMs);
+      const parsedEndTimeMs = Number(endTimeMs);
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof manageToken !== 'string' ||
+        !Number.isFinite(parsedHeadcount) ||
+        !Number.isFinite(parsedStartTimeMs) ||
+        !Number.isFinite(parsedEndTimeMs)
+      ) {
+        res
+          .status(400)
+          .json({ error: 'unitId, reservationId, token és új időpont kötelező' });
+        return;
+      }
+
+      if (parsedHeadcount < MIN_HEADCOUNT || parsedHeadcount > MAX_HEADCOUNT) {
+        res.status(400).json({ error: `Létszám ${MIN_HEADCOUNT}-${MAX_HEADCOUNT} között lehet` });
+        return;
+      }
+
+      const startTime = new Date(parsedStartTimeMs);
+      const endTime = new Date(parsedEndTimeMs);
+      if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {
+        res.status(400).json({ error: 'Érvénytelen időpont' });
+        return;
+      }
+      if (endTime.getTime() <= startTime.getTime()) {
+        res.status(400).json({ error: 'A befejezési időpontnak a kezdés után kell lennie.' });
+        return;
+      }
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
+      }
+
+      const docRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+      const bookingSnap = await docRef.get();
+
+      if (!bookingSnap.exists) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const booking = bookingSnap.data() || {};
+      const manageTokenHash = hashManageToken(manageToken);
+      const hasHash = typeof booking.manageTokenHash === 'string' && booking.manageTokenHash;
+      const legacyMatch = !hasHash && manageToken === reservationId;
+      if (!legacyMatch && booking.manageTokenHash !== manageTokenHash) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const bookingStart = booking.startTime?.toDate
+        ? booking.startTime.toDate()
+        : booking.startTime instanceof Date
+        ? booking.startTime
+        : null;
+      if (bookingStart && bookingStart.getTime() < Date.now()) {
+        res
+          .status(400)
+          .json({ error: 'Már elmúlt időpontú foglalást nem lehet módosítani.' });
+        return;
+      }
+
+      if (booking.status && booking.status !== 'pending') {
+        res.status(400).json({ error: 'A foglalás nem módosítható.' });
+        return;
+      }
+
+      const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
+      const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+
+      const applyCapacityDelta = (
+        maps: {
+          byTimeSlot: Record<string, number>;
+          byZone: Record<string, number>;
+          byTableGroup: Record<string, number>;
+        },
+        delta: number,
+        intent: AllocationIntent | null | undefined,
+        untracked: { value: number }
+      ) => {
+        let usedUntracked = false;
+        let appliedAny = false;
+
+        if (intent?.timeSlot) {
+          maps.byTimeSlot[intent.timeSlot] = clampAdd(
+            maps.byTimeSlot[intent.timeSlot] || 0,
+            delta
+          );
+          appliedAny = true;
+        }
+        if (intent?.zoneId) {
+          maps.byZone[intent.zoneId] = clampAdd(
+            maps.byZone[intent.zoneId] || 0,
+            delta
+          );
+          appliedAny = true;
+        }
+        if (intent?.tableGroup) {
+          maps.byTableGroup[intent.tableGroup] = clampAdd(
+            maps.byTableGroup[intent.tableGroup] || 0,
+            delta
+          );
+          appliedAny = true;
+        }
+
+        if (!appliedAny) {
+          untracked.value = clampAdd(untracked.value, delta);
+          usedUntracked = true;
+        }
+
+        return { usedUntracked };
+      };
+
+      const buildBreakdownUpdate = (
+        capacityData: Record<string, any>,
+        deltas: Array<{ delta: number; intent: AllocationIntent | null | undefined; label: string }>
+      ) => {
+        const maps = {
+          byTimeSlot: {
+            ...(capacityData.byTimeSlot as Record<string, number> | undefined),
+          },
+          byZone: {
+            ...(capacityData.byZone as Record<string, number> | undefined),
+          },
+          byTableGroup: {
+            ...(capacityData.byTableGroup as Record<string, number> | undefined),
+          },
+        };
+        const untracked = {
+          value: clampAdd(Number(capacityData.breakdownUntracked || 0), 0),
+        };
+        const untrackedApplied: Record<string, boolean> = {};
+        deltas.forEach(({ delta, intent, label }) => {
+          const result = applyCapacityDelta(maps, delta, intent, untracked);
+          untrackedApplied[label] = result.usedUntracked;
+        });
+        const update: Record<string, any> = {
+          breakdownUntracked: untracked.value,
+        };
+        if (Object.keys(maps.byTimeSlot).length > 0) update.byTimeSlot = maps.byTimeSlot;
+        if (Object.keys(maps.byZone).length > 0) update.byZone = maps.byZone;
+        if (Object.keys(maps.byTableGroup).length > 0) update.byTableGroup = maps.byTableGroup;
+        return { update, untrackedApplied };
+      };
+
+      let debugInfo: {
+        currentDateKey?: string;
+        nextDateKey?: string;
+        oldTimeSlot?: string | null;
+        newTimeSlot?: string | null;
+        existingHeadcount?: number;
+        untrackedOldUsed?: boolean;
+        untrackedNewUsed?: boolean;
+        oldIntentExists?: boolean;
+        newIntentExists?: boolean;
+      } = {};
+
+      const result = await db.runTransaction(async (transaction) => {
+        const latestSnap = await transaction.get(docRef);
+        if (!latestSnap.exists) {
+          throw new Error('NOT_FOUND');
+        }
+        const latest = latestSnap.data() || {};
+        if (latest.status && latest.status !== 'pending') {
+          throw new Error('INVALID_STATUS');
+        }
+
+        const existingHeadcount = Number(latest.headcount || 0);
+        const existingStart = latest.startTime?.toDate
+          ? latest.startTime.toDate()
+          : latest.startTime instanceof Date
+          ? latest.startTime
+          : null;
+        const existingEnd = latest.endTime?.toDate
+          ? latest.endTime.toDate()
+          : latest.endTime instanceof Date
+          ? latest.endTime
+          : null;
+        if (!existingStart) {
+          throw new Error('INVALID_DATA');
+        }
+
+        const oldIntent = (latest.allocationIntent || null) as AllocationIntent | null;
+        const newTimeSlot = computeCapacityTimeSlot(startTime);
+        const newIntent = oldIntent
+          ? {
+              ...oldIntent,
+              timeSlot: newTimeSlot ?? oldIntent.timeSlot ?? null,
+            }
+          : null;
+
+        const currentDateKey = toDateKey(existingStart);
+        const nextDateKey = toDateKey(startTime);
+        const capacityRefCurrent = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_capacity')
+          .doc(currentDateKey);
+        const capacityRefNext = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_capacity')
+          .doc(nextDateKey);
+
+        const [currentCapSnap, nextCapSnap] = await Promise.all(
+          currentDateKey === nextDateKey
+            ? [transaction.get(capacityRefCurrent), Promise.resolve(null)]
+            : [
+                transaction.get(capacityRefCurrent),
+                transaction.get(capacityRefNext),
+              ]
+        );
+
+        const currentCapData =
+          currentCapSnap && currentCapSnap.exists ? currentCapSnap.data() || {} : {};
+        const nextCapData =
+          currentDateKey === nextDateKey
+            ? currentCapData
+            : nextCapSnap && nextCapSnap.exists
+            ? nextCapSnap.data() || {}
+            : {};
+
+        const currentCount =
+          (currentCapData.totalCount as number | undefined) ??
+          (currentCapData.count as number | undefined) ??
+          0;
+        const nextCountBase =
+          (nextCapData.totalCount as number | undefined) ??
+          (nextCapData.count as number | undefined) ??
+          0;
+        const limitFromDoc = (nextCapData.limit as number | undefined) ?? undefined;
+        const limitFromSettings =
+          settings.dailyCapacity && settings.dailyCapacity > 0
+            ? settings.dailyCapacity
+            : undefined;
+        const limit = limitFromDoc ?? limitFromSettings;
+        const nextCount =
+          currentDateKey === nextDateKey
+            ? currentCount - existingHeadcount + parsedHeadcount
+            : nextCountBase + parsedHeadcount;
+
+        if (typeof limit === 'number' && nextCount > limit) {
+          throw new Error('CAPACITY_FULL');
+        }
+
+        if (currentDateKey === nextDateKey) {
+          const delta = parsedHeadcount - existingHeadcount;
+          const breakdownResult = buildBreakdownUpdate(currentCapData, [
+            { delta: -existingHeadcount, intent: oldIntent, label: 'old' },
+            { delta: parsedHeadcount, intent: newIntent, label: 'new' },
+          ]);
+          const capacityUpdate: Record<string, any> = {
+            date: currentDateKey,
+            count: Math.max(0, currentCount + delta),
+            totalCount: Math.max(0, currentCount + delta),
+            updatedAt: FieldValue.serverTimestamp(),
+            ...breakdownResult.update,
+          };
+          transaction.set(capacityRefCurrent, capacityUpdate, { merge: true });
+          debugInfo.untrackedOldUsed = breakdownResult.untrackedApplied.old ?? false;
+          debugInfo.untrackedNewUsed = breakdownResult.untrackedApplied.new ?? false;
+        } else {
+          const currentDelta = -existingHeadcount;
+          const nextDelta = parsedHeadcount;
+          const currentBreakdownResult = buildBreakdownUpdate(currentCapData, [
+            { delta: currentDelta, intent: oldIntent, label: 'old' },
+          ]);
+          const nextBreakdownResult = buildBreakdownUpdate(nextCapData, [
+            { delta: nextDelta, intent: newIntent, label: 'new' },
+          ]);
+          const currentUpdate: Record<string, any> = {
+            date: currentDateKey,
+            count: Math.max(0, currentCount + currentDelta),
+            totalCount: Math.max(0, currentCount + currentDelta),
+            updatedAt: FieldValue.serverTimestamp(),
+            ...currentBreakdownResult.update,
+          };
+          const nextUpdate: Record<string, any> = {
+            date: nextDateKey,
+            count: Math.max(0, nextCountBase + nextDelta),
+            totalCount: Math.max(0, nextCountBase + nextDelta),
+            updatedAt: FieldValue.serverTimestamp(),
+            ...nextBreakdownResult.update,
+          };
+          if (limitFromDoc == null && typeof limitFromSettings === 'number') {
+            nextUpdate.limit = limitFromSettings;
+          }
+          transaction.set(capacityRefCurrent, currentUpdate, { merge: true });
+          transaction.set(capacityRefNext, nextUpdate, { merge: true });
+          debugInfo.untrackedOldUsed = currentBreakdownResult.untrackedApplied.old ?? false;
+          debugInfo.untrackedNewUsed = nextBreakdownResult.untrackedApplied.new ?? false;
+        }
+
+        const modifiedFields = [];
+        if (existingHeadcount !== parsedHeadcount) modifiedFields.push('headcount');
+        if (existingStart.getTime() !== startTime.getTime()) modifiedFields.push('startTime');
+        if (existingEnd?.getTime() !== endTime.getTime()) modifiedFields.push('endTime');
+
+        transaction.update(docRef, {
+          headcount: parsedHeadcount,
+          startTime: Timestamp.fromDate(startTime),
+          endTime: Timestamp.fromDate(endTime),
+          modifiedAt: FieldValue.serverTimestamp(),
+          modifiedFields,
+          modifiedBy: 'guest',
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        if (modifiedFields.length > 0) {
+          const logRef = db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservation_logs')
+            .doc();
+          const parts: string[] = [];
+          if (existingHeadcount !== parsedHeadcount) {
+            parts.push(`headcount ${existingHeadcount}→${parsedHeadcount}`);
+          }
+          if (existingStart.getTime() !== startTime.getTime()) {
+            const fromDateKey = dateKeyOf(existingStart);
+            const toDateKeyValue = dateKeyOf(startTime);
+            const fromValue =
+              fromDateKey !== toDateKeyValue
+                ? formatLogDateTime(existingStart, fromDateKey)
+                : formatTimeForLog(existingStart);
+            const toValue =
+              fromDateKey !== toDateKeyValue
+                ? formatLogDateTime(startTime, toDateKeyValue)
+                : formatTimeForLog(startTime);
+            parts.push(
+              `start ${fromValue}→${toValue}`
+            );
+          }
+          if (existingEnd?.getTime() !== endTime.getTime()) {
+            const fromDateKey = existingEnd ? dateKeyOf(existingEnd) : '';
+            const toDateKeyValue = dateKeyOf(endTime);
+            const showDate = fromDateKey !== toDateKeyValue;
+            const fromValue = existingEnd
+              ? showDate
+                ? formatLogDateTime(existingEnd, fromDateKey)
+                : formatTimeForLog(existingEnd)
+              : '';
+            const toValue = showDate
+              ? formatLogDateTime(endTime, toDateKeyValue)
+              : formatTimeForLog(endTime);
+            parts.push(
+              `end ${fromValue}→${toValue}`
+            );
+          }
+          const messageSuffix = parts.length > 0 ? ` ${parts.join(', ')}` : '';
+          transaction.set(logRef, {
+            bookingId: docRef.id,
+            unitId,
+            type: 'guest_modified',
+            createdAt: FieldValue.serverTimestamp(),
+            source: 'guest',
+            message: `Vendég módosította:${messageSuffix}`,
+            modifiedFields,
+          });
+        }
+
+        debugInfo = {
+          ...debugInfo,
+          currentDateKey,
+          nextDateKey,
+          oldTimeSlot: oldIntent?.timeSlot ?? null,
+          newTimeSlot: newIntent?.timeSlot ?? null,
+          existingHeadcount,
+          oldIntentExists: !!oldIntent,
+          newIntentExists: !!newIntent,
+        };
+
+        return {
+          headcount: parsedHeadcount,
+          startTimeMs: startTime.getTime(),
+          endTimeMs: endTime.getTime(),
+        };
+      });
+
+      logger.info('guestModifyReservation update', {
+        unitId,
+        reservationId,
+        currentDateKey: debugInfo.currentDateKey,
+        nextDateKey: debugInfo.nextDateKey,
+        oldIntentExists: debugInfo.oldIntentExists,
+        newIntentExists: debugInfo.newIntentExists,
+        oldTimeSlot: debugInfo.oldTimeSlot,
+        newTimeSlot: debugInfo.newTimeSlot,
+        untrackedOldUsed: debugInfo.untrackedOldUsed,
+        untrackedNewUsed: debugInfo.untrackedNewUsed,
+        tzSemantics: TIMEZONE_SEMANTICS,
+        existingHeadcount: debugInfo.existingHeadcount,
+        newHeadcount: parsedHeadcount,
+      });
+
+      res.status(200).json({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message === 'CAPACITY_FULL') {
+          res.status(409).json({ error: 'capacity_full' });
+          return;
+        }
+        if (err.message === 'NOT_FOUND') {
+          res.status(404).json({ error: 'Foglalás nem található' });
+          return;
+        }
+        if (err.message === 'INVALID_STATUS') {
+          res.status(400).json({ error: 'A foglalás nem módosítható.' });
+          return;
+        }
+        if (err.message === 'INVALID_DATA') {
+          res.status(400).json({ error: 'A foglalás adatai hiányosak.' });
+          return;
+        }
+      }
+      logger.error('guestModifyReservation error', err);
       res.status(500).json({ error: 'Szerverhiba' });
     }
   }
@@ -904,6 +1442,8 @@ export const guestGetReservation = onRequest(
         occasion: booking.occasion || '',
         source: booking.source || '',
         referenceCode: booking.referenceCode || bookingSnap.id,
+        cancelReason: booking.cancelReason || '',
+        cancelledBy: booking.cancelledBy || null,
         contact: booking.contact || {},
         adminActionTokenHash: booking.adminActionTokenHash || null,
         adminActionExpiresAtMs: adminActionExpiresAt
