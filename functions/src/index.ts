@@ -280,23 +280,33 @@ const enforceRateLimit = async (unitId: string, req: any) => {
     const snap = await transaction.get(ref);
     const now = Date.now();
     const data = snap.exists ? snap.data() || {} : {};
+
+    const windowStartMsRaw = data.windowStartMs;
+    const countRaw = data.count;
+
     const windowStartMs =
-      typeof data.windowStartMs === 'number' ? data.windowStartMs : now;
-    const count = typeof data.count === 'number' ? data.count : 0;
-    const withinWindow = now - windowStartMs < RATE_LIMIT_WINDOW_MS;
+      typeof windowStartMsRaw === 'number' ? windowStartMsRaw : 0;
+    const count = typeof countRaw === 'number' ? countRaw : 0;
+
+    const withinWindow =
+      windowStartMs > 0 && now - windowStartMs < RATE_LIMIT_WINDOW_MS;
 
     if (withinWindow && count >= RATE_LIMIT_MAX) {
       throw new Error('RATE_LIMIT');
     }
 
     if (!withinWindow) {
-      transaction.set(ref, { windowStartMs: now, count: 1 }, { merge: true });
+      transaction.set(
+        ref,
+        { windowStartMs: now, count: 1, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
       return;
     }
 
     transaction.set(
       ref,
-      { windowStartMs, count: count + 1 },
+      { windowStartMs, count: count + 1, updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
   });
