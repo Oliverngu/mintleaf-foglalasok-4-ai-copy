@@ -3641,20 +3641,21 @@ const getScheduleStaffEmails = async (unitId: string): Promise<string[]> => {
   if (cached && Date.now() - cachedAt < EMAIL_RECIPIENT_CACHE_TTL_MS) {
     return cached;
   }
+
   const snap = await db
     .collection("users")
     .where("unitIds", "array-contains", unitId)
     .get();
+
   const emails = snap.docs
-    .map(doc => doc.data())
-    .filter(data => {
-      const emailCandidate = data?.email || data?.contact?.email;
-      // supports contact.email fallback
-      return (
-        data?.notifications?.newSchedule !== false && isEmailString(emailCandidate)
-      );
+    .map(doc => {
+      const data = doc.data();
+      const email = data?.email || data?.contact?.email;
+      const notificationsEnabled = data?.notifications?.newSchedule !== false;
+      return notificationsEnabled && isEmailString(email) ? email : null;
     })
-    .map(data => (data?.email || data?.contact?.email) as string);
+    .filter((e): e is string => !!e);
+
   const deduped = Array.from(new Set(emails)).sort();
   cachedScheduleStaffEmails.set(unitId, deduped);
   cachedScheduleStaffEmailsAt.set(unitId, Date.now());
