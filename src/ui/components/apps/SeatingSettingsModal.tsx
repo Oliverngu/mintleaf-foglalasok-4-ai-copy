@@ -96,6 +96,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     height: number;
     mode: 'move' | 'rotate';
     tableStartRot: number;
+    rotStartAngleDeg: number;
+    rotCenterX: number;
+    rotCenterY: number;
     floorplanWidth: number;
     floorplanHeight: number;
     gridSize: number;
@@ -103,6 +106,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   } | null>(null);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
+  const [undoTick, setUndoTick] = useState(0);
+  const floorplanRef = useRef<HTMLDivElement | null>(null);
+  const lastActionRef = useRef<null | {
+    tableId: string;
+    kind: 'move' | 'rotate';
+    prev: { x: number; y: number; rot: number };
+    next: { x: number; y: number; rot: number };
+    ts: number;
+  }>(null);
   const prevActiveFloorplanIdRef = useRef<string | null>(null);
 
   const [zoneForm, setZoneForm] = useState<{
@@ -405,6 +417,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setLastSaved({});
       setLastSavedRot({});
       setDragState(null);
+      lastActionRef.current = null;
+      setUndoTick(tick => tick + 1);
     }
     prevActiveFloorplanIdRef.current = next;
   }, [activeFloorplan?.id]);
@@ -721,10 +735,91 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const getLocalPointerPosition = (event: React.PointerEvent<HTMLElement>) => {
+    const rect = floorplanRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: event.clientX, y: event.clientY };
+    }
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  const handleUndoLastAction = React.useCallback(async () => {
+    const action = lastActionRef.current;
+    if (!action) return;
+    if (savingById[action.tableId]) return;
+    setSavingById(current => ({ ...current, [action.tableId]: true }));
+    setDraftPositions(current => ({
+      ...current,
+      [action.tableId]: { x: action.prev.x, y: action.prev.y },
+    }));
+    setDraftRotations(current => ({ ...current, [action.tableId]: action.prev.rot }));
+    try {
+      if (action.kind === 'move') {
+        await updateTable(unitId, action.tableId, { x: action.prev.x, y: action.prev.y });
+        setLastSaved(current => ({
+          ...current,
+          [action.tableId]: { x: action.prev.x, y: action.prev.y },
+        }));
+      } else {
+        await updateTable(unitId, action.tableId, { rot: action.prev.rot });
+        setLastSavedRot(current => ({ ...current, [action.tableId]: action.prev.rot }));
+      }
+      lastActionRef.current = null;
+      setUndoTick(tick => tick + 1);
+    } catch (err) {
+      console.error('Error undoing last action:', err);
+      setDraftPositions(current => ({
+        ...current,
+        [action.tableId]: { x: action.next.x, y: action.next.y },
+      }));
+      setDraftRotations(current => ({ ...current, [action.tableId]: action.next.rot }));
+      setError('Nem sikerült visszavonni a legutóbbi műveletet.');
+    } finally {
+      setSavingById(current => ({ ...current, [action.tableId]: false }));
+    }
+  }, [savingById, unitId]);
+
+  const isUndoAvailable = useMemo(() => Boolean(lastActionRef.current), [undoTick]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isUndoKey =
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z';
+      if (!isUndoKey) return;
+      if (!lastActionRef.current) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void handleUndoLastAction();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleUndoLastAction]);
+
   const finalizeDrag = async (tableId: string, x: number, y: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
       await updateTable(unitId, tableId, { x, y });
+      const prevPos = lastSavedByIdRef.current[tableId] ?? { x, y };
+      const prevRot =
+        lastSavedRotByIdRef.current[tableId] ?? draftRotations[tableId] ?? 0;
+      lastActionRef.current = {
+        tableId,
+        kind: 'move',
+        prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
+        next: { x, y, rot: prevRot },
+        ts: Date.now(),
+      };
+      setUndoTick(tick => tick + 1);
       setLastSaved(current => ({ ...current, [tableId]: { x, y } }));
     } catch (err) {
       console.error('Error updating table position:', err);
@@ -741,10 +836,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
-  const finalizeRotation = async (tableId: string, rot: number) => {
+  const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
       await updateTable(unitId, tableId, { rot });
+      const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
+      lastActionRef.current = {
+        tableId,
+        kind: 'rotate',
+        prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
+        next: { x: prevPos.x, y: prevPos.y, rot },
+        ts: Date.now(),
+      };
+      setUndoTick(tick => tick + 1);
       setLastSavedRot(current => ({ ...current, [tableId]: rot }));
     } catch (err) {
       console.error('Error updating table rotation:', err);
@@ -774,6 +878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
     const mode = event.shiftKey ? 'rotate' : 'move';
+    const centerX = position.x + geometry.w / 2;
+    const centerY = position.y + geometry.h / 2;
+    const pointer = getLocalPointerPosition(event);
+    const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
     setDragState({
       tableId: table.id,
       pointerStartX: event.clientX,
@@ -784,6 +892,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       height: geometry.h,
       mode,
       tableStartRot: renderRot,
+      rotStartAngleDeg: startAngle,
+      rotCenterX: centerX,
+      rotCenterY: centerY,
       floorplanWidth,
       floorplanHeight,
       gridSize: editorGridSize,
@@ -803,8 +914,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const deltaX = event.clientX - dragState.pointerStartX;
     const deltaY = event.clientY - dragState.pointerStartY;
     if (dragState.mode === 'rotate') {
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
-      updateDraftRotation(dragState.tableId, snapRotation(nextRot));
+      if (!floorplanRef.current) {
+        handleTablePointerCancel();
+        return;
+      }
+      const pointer = getLocalPointerPosition(event);
+      const currentAngle =
+        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
+      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
+      updateDraftRotation(dragState.tableId, snapRotation(nextRot, step));
       return;
     }
     let nextX = dragState.tableStartX + deltaX;
@@ -823,17 +944,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!dragState) return;
     event.preventDefault();
-    const deltaX = event.clientX - dragState.pointerStartX;
-    const deltaY = event.clientY - dragState.pointerStartY;
     const tableId = dragState.tableId;
     if (dragState.mode === 'rotate') {
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
-      const snappedRot = snapRotation(nextRot);
+      if (!floorplanRef.current) {
+        handleTablePointerCancel();
+        return;
+      }
+      const pointer = getLocalPointerPosition(event);
+      const currentAngle =
+        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
+      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
+      const snappedRot = snapRotation(nextRot, step);
       updateDraftRotation(tableId, snappedRot);
+      const prevRot = dragState.tableStartRot;
       setDragState(null);
-      void finalizeRotation(tableId, snappedRot);
+      void finalizeRotation(tableId, snappedRot, prevRot);
       return;
     }
+    const deltaX = event.clientX - dragState.pointerStartX;
+    const deltaY = event.clientY - dragState.pointerStartY;
     let nextX = dragState.tableStartX + deltaX;
     let nextY = dragState.tableStartY + deltaY;
     if (dragState.snapToGrid) {
@@ -1051,13 +1183,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="text-xs text-[var(--color-text-secondary)]">
-                Grid: {editorGridSize}px • Shift + húzás = forgatás
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                <span>
+                  Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
+                </span>
+                <button
+                  type="button"
+                  className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
+                  onClick={() => void handleUndoLastAction()}
+                  disabled={!isUndoAvailable}
+                >
+                  Undo
+                </button>
               </div>
               <div className="overflow-auto">
                 <div
                   className="relative border border-gray-200 rounded-lg"
                   style={{ width: floorplanWidth, height: floorplanHeight }}
+                  ref={floorplanRef}
                 >
                   {activeFloorplan.backgroundImageUrl && (
                     <img
@@ -1080,7 +1223,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     return (
                       <div
                         key={table.id}
-                        className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none"
+                        className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none relative"
                         style={{
                           left: position.x,
                           top: position.y,
@@ -1101,6 +1244,60 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         onPointerUp={handleTablePointerUp}
                         onPointerCancel={handleTablePointerCancel}
                       >
+                        {isSelected && !table.locked && (
+                          <>
+                            <span
+                              className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
+                              aria-hidden="true"
+                            />
+                            <button
+                              type="button"
+                              className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
+                              style={{ touchAction: 'none' }}
+                              onPointerDown={event => {
+                                if (!activeFloorplan) return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedTableId(table.id);
+                                event.currentTarget.setPointerCapture?.(event.pointerId);
+                                const centerX = position.x + geometry.w / 2;
+                                const centerY = position.y + geometry.h / 2;
+                                const pointer = getLocalPointerPosition(event);
+                                const startAngle =
+                                  Math.atan2(pointer.y - centerY, pointer.x - centerX) *
+                                  (180 / Math.PI);
+                                setDragState({
+                                  tableId: table.id,
+                                  pointerStartX: event.clientX,
+                                  pointerStartY: event.clientY,
+                                  tableStartX: position.x,
+                                  tableStartY: position.y,
+                                  width: geometry.w,
+                                  height: geometry.h,
+                                  mode: 'rotate',
+                                  tableStartRot: renderRot,
+                                  rotStartAngleDeg: startAngle,
+                                  rotCenterX: centerX,
+                                  rotCenterY: centerY,
+                                  floorplanWidth,
+                                  floorplanHeight,
+                                  gridSize: editorGridSize,
+                                  snapToGrid: table.snapToGrid ?? false,
+                                });
+                                setLastSavedRot(current =>
+                                  current[table.id] !== undefined
+                                    ? current
+                                    : { ...current, [table.id]: renderRot }
+                                );
+                              }}
+                              onPointerMove={handleTablePointerMove}
+                              onPointerUp={handleTablePointerUp}
+                              onPointerCancel={handleTablePointerCancel}
+                            >
+                              <span className="h-1 w-1 rounded-full bg-gray-500" />
+                            </button>
+                          </>
+                        )}
                         <span>{table.name}</span>
                         <div className="flex gap-1 mt-1">
                           {table.locked && (
@@ -1136,7 +1333,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   [table.id]:
                                     current[table.id] !== undefined ? current[table.id] : renderRot,
                                 }));
-                                void finalizeRotation(table.id, nextRot);
+                                void finalizeRotation(table.id, nextRot, renderRot);
                               }}
                             >
                               ↺
@@ -1157,7 +1354,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   [table.id]:
                                     current[table.id] !== undefined ? current[table.id] : renderRot,
                                 }));
-                                void finalizeRotation(table.id, nextRot);
+                                void finalizeRotation(table.id, nextRot, renderRot);
                               }}
                             >
                               ↻
@@ -1177,7 +1374,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   [table.id]:
                                     current[table.id] !== undefined ? current[table.id] : renderRot,
                                 }));
-                                void finalizeRotation(table.id, 0);
+                                void finalizeRotation(table.id, 0, renderRot);
                               }}
                             >
                               Reset
