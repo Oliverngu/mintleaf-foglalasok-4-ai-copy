@@ -124,6 +124,16 @@ const formatLogDateTime = (date: Date, dateKey: string) =>
 
 const clampAdd = (value: number, delta: number) => Math.max(0, value + delta);
 
+const pruneZeroEntries = (map: Record<string, number> | undefined) => {
+  if (!map) return undefined;
+  const pruned = Object.fromEntries(
+    Object.entries(map).filter(([, value]) => value !== 0)
+  ) as Record<string, number>;
+  return Object.keys(pruned).length > 0 ? pruned : undefined;
+};
+// Sanity assertions: pruneZeroEntries({ a: 0, b: 2 }) => { b: 2 }
+// Sanity assertions: pruneZeroEntries({ a: 0 }) => undefined
+
 const normalizeSeatingPreference = (value: unknown): SeatingPreference => {
   if (value === 'bar' || value === 'table' || value === 'outdoor' || value === 'any') {
     return value;
@@ -661,6 +671,8 @@ export const guestUpdateReservation = onRequest(
  * Inspect logs in units/{unitId}/reservation_logs and reservation_capacity.byTimeSlot.
  * Verify capacity docs for old/new dateKey and a reservation_logs entry for guest_modified.
  * For cross-midnight, capacity uses startTime dateKey; logs should show date+time for end field.
+ * Zero-prune check: seed reservation_capacity.byZone with {"Z1": 2}, modify a reservation to apply
+ * a -2 delta for Z1, then verify byZone is deleted (field absent) and logger fields byZoneDeleted=true.
  */
 export const guestModifyReservation = onRequest(
   { region: REGION, cors: true },
@@ -914,13 +926,26 @@ export const guestModifyReservation = onRequest(
             invalidTableGroupKeyName: result.invalidTableGroupKeyName,
           };
         });
+        const prunedByTimeSlot = pruneZeroEntries(maps.byTimeSlot);
+        const prunedByZone = pruneZeroEntries(maps.byZone);
+        const prunedByTableGroup = pruneZeroEntries(maps.byTableGroup);
         const update: Record<string, any> = {
           breakdownUntracked: untracked.value,
         };
-        if (Object.keys(maps.byTimeSlot).length > 0) update.byTimeSlot = maps.byTimeSlot;
-        if (Object.keys(maps.byZone).length > 0) update.byZone = maps.byZone;
-        if (Object.keys(maps.byTableGroup).length > 0) update.byTableGroup = maps.byTableGroup;
-        return { update, untrackedApplied, normalizedApplied };
+        // Sanity: map emptied => FieldValue.delete() removes the field on merge.
+        // Sanity: map has entries => pruned map is written.
+        if (prunedByTimeSlot) update.byTimeSlot = prunedByTimeSlot;
+        else update.byTimeSlot = FieldValue.delete();
+        if (prunedByZone) update.byZone = prunedByZone;
+        else update.byZone = FieldValue.delete();
+        if (prunedByTableGroup) update.byTableGroup = prunedByTableGroup;
+        else update.byTableGroup = FieldValue.delete();
+        const deleted = {
+          byTimeSlot: !prunedByTimeSlot,
+          byZone: !prunedByZone,
+          byTableGroup: !prunedByTableGroup,
+        };
+        return { update, untrackedApplied, normalizedApplied, deleted };
       };
 
       let debugInfo: {
@@ -937,6 +962,9 @@ export const guestModifyReservation = onRequest(
         newIntentExists?: boolean;
         normalizedZoneIdUsed?: boolean;
         normalizedTableGroupUsed?: boolean;
+        byTimeSlotDeleted?: boolean;
+        byZoneDeleted?: boolean;
+        byTableGroupDeleted?: boolean;
         invalidZoneKey?: boolean;
         invalidTableGroupKey?: boolean;
         invalidZoneId?: string | null;
@@ -1090,6 +1118,9 @@ export const guestModifyReservation = onRequest(
             breakdownResult.normalizedApplied.new?.normalizedZoneIdUsed ?? false;
           debugInfo.normalizedTableGroupUsed =
             breakdownResult.normalizedApplied.new?.normalizedTableGroupUsed ?? false;
+          debugInfo.byTimeSlotDeleted = breakdownResult.deleted.byTimeSlot;
+          debugInfo.byZoneDeleted = breakdownResult.deleted.byZone;
+          debugInfo.byTableGroupDeleted = breakdownResult.deleted.byTableGroup;
           debugInfo.invalidZoneKey = breakdownResult.normalizedApplied.new?.invalidZoneKey ?? false;
           debugInfo.invalidTableGroupKey =
             breakdownResult.normalizedApplied.new?.invalidTableGroupKey ?? false;
@@ -1134,6 +1165,12 @@ export const guestModifyReservation = onRequest(
             nextBreakdownResult.normalizedApplied.new?.normalizedZoneIdUsed ?? false;
           debugInfo.normalizedTableGroupUsed =
             nextBreakdownResult.normalizedApplied.new?.normalizedTableGroupUsed ?? false;
+          debugInfo.byTimeSlotDeleted =
+            currentBreakdownResult.deleted.byTimeSlot || nextBreakdownResult.deleted.byTimeSlot;
+          debugInfo.byZoneDeleted =
+            currentBreakdownResult.deleted.byZone || nextBreakdownResult.deleted.byZone;
+          debugInfo.byTableGroupDeleted =
+            currentBreakdownResult.deleted.byTableGroup || nextBreakdownResult.deleted.byTableGroup;
           debugInfo.invalidZoneKey =
             nextBreakdownResult.normalizedApplied.new?.invalidZoneKey ?? false;
           debugInfo.invalidTableGroupKey =
@@ -1250,6 +1287,9 @@ export const guestModifyReservation = onRequest(
         untrackedNewUsed: debugInfo.untrackedNewUsed,
         normalizedZoneIdUsed: debugInfo.normalizedZoneIdUsed,
         normalizedTableGroupUsed: debugInfo.normalizedTableGroupUsed,
+        byTimeSlotDeleted: debugInfo.byTimeSlotDeleted,
+        byZoneDeleted: debugInfo.byZoneDeleted,
+        byTableGroupDeleted: debugInfo.byTableGroupDeleted,
         invalidZoneKey: debugInfo.invalidZoneKey,
         invalidTableGroupKey: debugInfo.invalidTableGroupKey,
         invalidZoneId: debugInfo.invalidZoneId,
@@ -3014,15 +3054,6 @@ interface BookingRecord {
   skipCreateEmails?: boolean;
 }
 
-interface QueuedEmail {
-  typeId: string;
-  unitId?: string | null;
-  payload: Record<string, any>;
-  createdAt?: FirebaseFirestore.Timestamp | Date;
-  status: "pending" | "sent" | "error";
-  errorMessage?: string;
-}
-
 interface EmailSettingsDocument {
   enabledTypes?: Record<string, boolean>;
   adminRecipients?: Record<string, string[]>;
@@ -3179,38 +3210,6 @@ const queuedEmailTemplates: Record<
   | "register_welcome",
   { subject: string; html: string }
 > = {
-  booking_created_guest: {
-    subject: "Foglalás visszaigazolás: {{bookingDate}} {{bookingTimeFrom}}",
-    html: `
-      <h2>Foglalásodat megkaptuk</h2>
-      <p>Kedves {{guestName}}!</p>
-      <p>Köszönjük a foglalást a(z) <strong>{{unitName}}</strong> egységbe.</p>
-      <ul>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-      </ul>
-      <p>Hivatkozási kód: <strong>{{bookingRef}}</strong></p>
-    `,
-  },
-
-  booking_created_admin: {
-    subject: "Új foglalás: {{bookingDate}} {{bookingTimeFrom}} ({{headcount}} fő) – {{guestName}}",
-    html: `
-      <h2>Új foglalási kérelem érkezett</h2>
-      <p>Egység: <strong>{{unitName}}</strong></p>
-      <ul>
-        <li><strong>Vendég neve:</strong> {{guestName}}</li>
-        <li><strong>Dátum:</strong> {{bookingDate}}</li>
-        <li><strong>Időpont:</strong> {{bookingTimeRange}}</li>
-        <li><strong>Létszám:</strong> {{headcount}} fő</li>
-        <li><strong>Email:</strong> {{guestEmail}}</li>
-        <li><strong>Telefon:</strong> {{guestPhone}}</li>
-      </ul>
-      <p>Ref: <strong>{{bookingRef}}</strong></p>
-    `,
-  },
-  
   leave_request_created: {
     subject: "Új szabadságkérés: {{userName}}",
     html: `
@@ -3260,6 +3259,45 @@ const queuedEmailTemplates: Record<
       <p>Örülünk, hogy csatlakoztál.</p>
     `,
   },
+};
+
+type QueuedTemplateKey = keyof typeof queuedEmailTemplates;
+
+type EmailQueueDoc = {
+  typeId: QueuedTemplateKey;
+  unitId: string | null;
+  payload: Record<string, any>;
+  status: "pending" | "sent" | "error";
+  createdAt?: FirebaseFirestore.Timestamp | Date | FirebaseFirestore.FieldValue;
+  sentAt?: FirebaseFirestore.Timestamp | Date | FirebaseFirestore.FieldValue;
+  errorMessage?: string;
+};
+
+const isQueuedTemplateKey = (value: string): value is QueuedTemplateKey =>
+  value in queuedEmailTemplates;
+
+const enqueueQueuedEmail = async (
+  type: unknown,
+  unitId: string | null,
+  payload: Record<string, any>
+) => {
+  // Sanity: only queuedEmailTemplates keys are accepted for queue writes.
+  if (typeof type !== "string") {
+    logger.warn("enqueue invalid template key", { type });
+    return;
+  }
+  if (!isQueuedTemplateKey(type)) {
+    logger.warn("enqueue invalid template key", { type });
+    return;
+  }
+  const doc: EmailQueueDoc = {
+    typeId: type,
+    unitId,
+    payload,
+    status: "pending",
+    createdAt: FieldValue.serverTimestamp(),
+  };
+  await db.collection("email_queue").add(doc);
 };
 
 type TemplateId = keyof typeof defaultTemplates;
@@ -3674,17 +3712,33 @@ export const onQueuedEmailCreated = onDocumentCreated(
     document: "email_queue/{emailId}",
   },
   async event => {
-    const queued = event.data?.data() as QueuedEmail | undefined;
+    // Sanity: queued email documents must include typeId/unitId/payload/status/createdAt.
+    const queued = event.data?.data();
     const emailId = event.params.emailId as string;
     const ref = db.doc(`email_queue/${emailId}`);
 
-    if (!queued || !queued.typeId || !queued.payload) {
+    const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
+    const payload = queued?.payload;
+    const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
+    const payloadValid = !!payload && typeof payload === "object" && !Array.isArray(payload);
+    if (!typeId || !payloadValid) {
       logger.error("Queued email missing required fields", { emailId });
+      await ref.update({
+        status: "error",
+        errorMessage: "Queued email missing required fields",
+      });
       return;
     }
 
-    const { typeId, unitId = null, payload } = queued;
-    const template = queuedEmailTemplates[typeId as keyof typeof queuedEmailTemplates];
+    if (!isQueuedTemplateKey(typeId)) {
+      logger.error("No template found for queued email", { typeId, emailId });
+      await ref.update({
+        status: "error",
+        errorMessage: `No template for typeId ${typeId}`,
+      });
+      return;
+    }
+    const template = queuedEmailTemplates[typeId];
 
     if (!template) {
       logger.error("No template found for queued email", { typeId, emailId });
