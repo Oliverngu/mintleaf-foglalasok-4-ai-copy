@@ -272,6 +272,8 @@ const getClientIp = (req: any) => {
 
 const enforceRateLimit = async (unitId: string, req: any) => {
   const ip = getClientIp(req);
+  logger.info('rateLimit', { unitId, ip });
+
   const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
   const docId = `${unitId}_${ipHash}`;
   const ref = db.collection('guest_rate_limits').doc(docId);
