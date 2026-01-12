@@ -244,6 +244,8 @@ export interface PublicBookingDTO {
   occasion?: string;
   source?: string;
   referenceCode?: string;
+  cancelReason?: string;
+  cancelledBy?: 'guest' | 'admin' | 'system';
   contact?: {
     phoneE164?: string;
     email?: string;
