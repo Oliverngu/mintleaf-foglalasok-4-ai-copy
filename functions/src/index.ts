@@ -1,4 +1,5 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
@@ -8,6 +9,10 @@ import {
   computeAllocationDecisionForBooking,
   writeAllocationDecisionLogForBooking,
 } from "./allocation";
+import { decideAllocation } from "./reservations/allocationEngine";
+import { writeAllocationAuditLog } from "./reservations/allocationLogService";
+import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
+import { applyCapacityLedgerTx, countsTowardCapacity } from "./reservations/capacityLedgerService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -45,6 +50,9 @@ const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const MIN_HEADCOUNT = 1;
 const MAX_HEADCOUNT = 30;
 const EMAIL_QUEUE_LOCK_TTL_MS = 2 * 60 * 1000;
+const EMAIL_QUEUE_MAX_ATTEMPTS = 6;
+const EMAIL_QUEUE_BASE_BACKOFF_MS = 15_000;
+const EMAIL_QUEUE_MAX_BACKOFF_MS = 10 * 60 * 1000;
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
 
 interface AllocationIntent {
@@ -559,29 +567,24 @@ export const guestUpdateReservation = onRequest(
             return { alreadyCancelled: true };
           }
 
-          if (latest.startTime && latest.headcount > 0) {
-            const startDate = latest.startTime.toDate();
-            const dateKey = toDateKey(startDate);
-            const capacityRef = db
-              .collection('units')
-              .doc(unitId)
-              .collection('reservation_capacity')
-              .doc(dateKey);
-            const capacitySnap = await transaction.get(capacityRef);
-            const currentCount = capacitySnap.exists
-              ? (capacitySnap.data()?.count as number) || 0
-              : 0;
-            const nextCount = Math.max(0, currentCount - (latest.headcount || 0));
-            transaction.set(
-              capacityRef,
-              {
-                date: dateKey,
-                count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-          }
+          const startDate = latest.startTime?.toDate
+            ? latest.startTime.toDate()
+            : latest.startTime instanceof Date
+            ? latest.startTime
+            : null;
+          const dateKey = startDate ? toDateKey(startDate) : toDateKey(new Date());
+
+          await applyCapacityLedgerTx({
+            transaction,
+            db,
+            unitId,
+            reservationRef: docRef,
+            reservationData: latest,
+            nextStatus: 'cancelled',
+            nextDateKey: dateKey,
+            nextHeadcount: Number(latest.headcount || 0),
+            mutationTraceId: `guest-cancel-${docRef.id}`,
+          });
 
           transaction.update(docRef, {
             status: 'cancelled',
@@ -1058,13 +1061,30 @@ export const guestModifyReservation = onRequest(
             ? settings.dailyCapacity
             : undefined;
         const limit = limitFromDoc ?? limitFromSettings;
-        const nextCount =
+        const allocationOverrideDecision = await readAllocationOverrideTx(
+          transaction,
+          db,
+          unitId,
+          nextDateKey
+        );
+        const existingIncluded = countsTowardCapacity(latest.status || 'pending');
+        const decisionBaseline =
           currentDateKey === nextDateKey
-            ? currentCount - existingHeadcount + parsedHeadcount
-            : nextCountBase + parsedHeadcount;
+            ? Math.max(0, currentCount - (existingIncluded ? existingHeadcount : 0))
+            : nextCountBase;
+        const allocationDecision = decideAllocation({
+          unitId,
+          dateKey: nextDateKey,
+          startTime,
+          endTime,
+          partySize: parsedHeadcount,
+          capacitySnapshot: { currentCount: decisionBaseline, limit },
+          settings: { bookableWindow: settings.bookableWindow ?? null },
+          overrides: allocationOverrideDecision,
+        });
 
-        if (typeof limit === 'number' && nextCount > limit) {
-          throw new Error('CAPACITY_FULL');
+        if (allocationDecision.decision.status !== 'accepted') {
+          return { rejected: true, allocationDecision };
         }
 
         let allocationDiagnostics: AllocationDiagnostics;
@@ -1095,20 +1115,32 @@ export const guestModifyReservation = onRequest(
           ? { activeZoneIds, activeTableGroups }
           : undefined;
 
+        await applyCapacityLedgerTx({
+          transaction,
+          db,
+          unitId,
+          reservationRef: docRef,
+          reservationData: latest,
+          nextStatus: latest.status || 'pending',
+          nextDateKey: nextDateKey,
+          nextHeadcount: parsedHeadcount,
+          mutationTraceId: `guest-modify-${reservationId}-${allocationDecision.auditLog.traceId}`,
+        });
+
+        const oldDelta = existingIncluded ? -existingHeadcount : 0;
+        const newDelta = existingIncluded ? parsedHeadcount : 0;
+
         if (currentDateKey === nextDateKey) {
-          const delta = parsedHeadcount - existingHeadcount;
           const breakdownResult = buildBreakdownUpdate(
             currentCapData,
             [
-              { delta: -existingHeadcount, intent: oldIntent, label: 'old' },
-              { delta: parsedHeadcount, intent: newIntent, label: 'new' },
+              { delta: oldDelta, intent: oldIntent, label: 'old' },
+              { delta: newDelta, intent: newIntent, label: 'new' },
             ],
             breakdownOpts
           );
           const capacityUpdate: Record<string, any> = {
             date: currentDateKey,
-            count: Math.max(0, currentCount + delta),
-            totalCount: Math.max(0, currentCount + delta),
             updatedAt: FieldValue.serverTimestamp(),
             ...breakdownResult.update,
           };
@@ -1129,29 +1161,23 @@ export const guestModifyReservation = onRequest(
           debugInfo.invalidTableGroupKeyName =
             breakdownResult.normalizedApplied.new?.invalidTableGroupKeyName ?? null;
         } else {
-          const currentDelta = -existingHeadcount;
-          const nextDelta = parsedHeadcount;
           const currentBreakdownResult = buildBreakdownUpdate(
             currentCapData,
-            [{ delta: currentDelta, intent: oldIntent, label: 'old' }],
+            [{ delta: oldDelta, intent: oldIntent, label: 'old' }],
             breakdownOpts
           );
           const nextBreakdownResult = buildBreakdownUpdate(
             nextCapData,
-            [{ delta: nextDelta, intent: newIntent, label: 'new' }],
+            [{ delta: newDelta, intent: newIntent, label: 'new' }],
             breakdownOpts
           );
           const currentUpdate: Record<string, any> = {
             date: currentDateKey,
-            count: Math.max(0, currentCount + currentDelta),
-            totalCount: Math.max(0, currentCount + currentDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...currentBreakdownResult.update,
           };
           const nextUpdate: Record<string, any> = {
             date: nextDateKey,
-            count: Math.max(0, nextCountBase + nextDelta),
-            totalCount: Math.max(0, nextCountBase + nextDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...nextBreakdownResult.update,
           };
@@ -1192,6 +1218,16 @@ export const guestModifyReservation = onRequest(
           startTime: Timestamp.fromDate(startTime),
           endTime: Timestamp.fromDate(endTime),
           allocationDiagnostics,
+          allocation: {
+            status: allocationDecision.decision.status,
+            reasonCode: allocationDecision.decision.reasonCode,
+            ruleApplied: allocationDecision.auditLog.ruleApplied,
+            traceId: allocationDecision.auditLog.traceId,
+            capacityKey: allocationDecision.decision.capacityKey,
+          },
+          allocationTraceId: allocationDecision.auditLog.traceId,
+          allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
+          allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
           modifiedAt: FieldValue.serverTimestamp(),
           modifiedFields,
           modifiedBy: 'guest',
@@ -1272,8 +1308,25 @@ export const guestModifyReservation = onRequest(
           headcount: parsedHeadcount,
           startTimeMs: startTime.getTime(),
           endTimeMs: endTime.getTime(),
+          allocationDecision,
         };
       });
+
+      const allocationDecision = result.allocationDecision;
+      const auditLog = {
+        ...allocationDecision.auditLog,
+        reservationId,
+      };
+      await writeAllocationAuditLog(db, auditLog);
+
+      if (result.rejected) {
+        if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
+          res.status(409).json({ error: 'capacity_full' });
+          return;
+        }
+        res.status(400).json({ error: 'A foglalás nem módosítható.' });
+        return;
+      }
 
       logger.info('guestModifyReservation update', {
         unitId,
@@ -1311,7 +1364,8 @@ export const guestModifyReservation = onRequest(
         newHeadcount: parsedHeadcount,
       });
 
-      res.status(200).json({ ok: true, ...result });
+      const { allocationDecision: _allocationDecision, ...responsePayload } = result;
+      res.status(200).json({ ok: true, ...responsePayload });
     } catch (err) {
       if (err instanceof Error) {
         if (err.message === 'CAPACITY_FULL') {
@@ -1457,14 +1511,35 @@ export const guestCreateReservation = onRequest(
             ? settings.dailyCapacity
             : undefined;
         const limit = limitFromDoc ?? limitFromSettings;
-        const nextCount = currentCount + headcount;
 
-        if (typeof limit === 'number' && nextCount > limit) {
-          throw new Error('CAPACITY_FULL');
+        const allocationOverrideDecision = await readAllocationOverrideTx(
+          transaction,
+          db,
+          unitId,
+          effectiveDateKey
+        );
+
+        const allocationDecision = decideAllocation({
+          unitId,
+          dateKey: effectiveDateKey,
+          startTime,
+          endTime,
+          partySize: headcount,
+          capacitySnapshot: { currentCount, limit },
+          settings: { bookableWindow: settings.bookableWindow ?? null },
+          overrides: allocationOverrideDecision,
+        });
+
+        if (allocationDecision.decision.status !== 'accepted') {
+          return { bookingId: null, allocationDecision };
         }
+
+        const nextCount = allocationDecision.capacityEffects.nextTotal;
 
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
+        const allocationTraceId = allocationDecision.auditLog.traceId;
+        const countsCapacity = countsTowardCapacity(status);
 
         const allocationIntentData = {
           ...allocationIntent,
@@ -1494,6 +1569,23 @@ export const guestCreateReservation = onRequest(
           allocationOverrideSetAt: null,
           allocationFinal,
           allocationFinalComputedAt: FieldValue.serverTimestamp(),
+          allocation: {
+            status: allocationDecision.decision.status,
+            reasonCode: allocationDecision.decision.reasonCode,
+            ruleApplied: allocationDecision.auditLog.ruleApplied,
+            traceId: allocationTraceId,
+            capacityKey: allocationDecision.decision.capacityKey,
+          },
+          allocationTraceId,
+          allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
+          allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
+          capacityLedger: {
+            applied: countsCapacity,
+            key: countsCapacity ? effectiveDateKey : null,
+            count: countsCapacity ? headcount : null,
+            appliedAt: countsCapacity ? FieldValue.serverTimestamp() : null,
+            lastMutationTraceId: allocationTraceId,
+          },
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -1584,8 +1676,25 @@ export const guestCreateReservation = onRequest(
           message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
         });
 
-        return { bookingId: referenceCode };
+        return { bookingId: referenceCode, allocationDecision };
       });
+
+      const allocationDecision = createResult.allocationDecision;
+      const auditLog = {
+        ...allocationDecision.auditLog,
+        reservationId: createResult.bookingId ?? null,
+        traceId: createResult.bookingId ?? allocationDecision.auditLog.traceId,
+      };
+      await writeAllocationAuditLog(db, auditLog);
+
+      if (allocationDecision.decision.status !== 'accepted') {
+        if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
+          res.status(409).json({ error: 'capacity_full' });
+          return;
+        }
+        res.status(400).json({ error: 'reservation_not_available' });
+        return;
+      }
 
       const bookingForEmail: BookingRecord = {
         unitId,
@@ -1881,7 +1990,26 @@ export const adminHandleReservationAction = onRequest(
           throw new Error('NOT_FOUND');
         }
 
+        const bookingStart = booking.startTime?.toDate
+          ? booking.startTime.toDate()
+          : booking.startTime instanceof Date
+          ? booking.startTime
+          : null;
+        const bookingDateKey = bookingStart ? toDateKey(bookingStart) : toDateKey(new Date());
+
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
+        await applyCapacityLedgerTx({
+          transaction,
+          db,
+          unitId,
+          reservationRef: docRef,
+          reservationData: booking,
+          nextStatus: status,
+          nextDateKey: bookingDateKey,
+          nextHeadcount: Number(booking.headcount || 0),
+          mutationTraceId: `admin-action-${docRef.id}-${status}`,
+        });
+
         const update: Record<string, any> = {
           status,
           adminActionUsedAt: FieldValue.serverTimestamp(),
@@ -3285,6 +3413,13 @@ type EmailQueueDoc = {
   status: EmailQueueStatus;
   createdAt?: EmailQueueTimestamp;
   sentAt?: EmailQueueTimestamp;
+  attemptCount?: number;
+  nextAttemptAt?: EmailQueueTimestamp | null;
+  lastErrorAt?: EmailQueueTimestamp | null;
+  lastErrorCode?: string | null;
+  dlq?: boolean;
+  dlqAt?: EmailQueueTimestamp;
+  dlqReason?: string;
   errorMessage?: string;
 } & EmailQueueLockFields;
 
@@ -3743,7 +3878,15 @@ const sendEmail = async (params: {
         toCount: toList.length,
         toDomains,
       });
-      throw new Error(`Email gateway error ${response.status}: ${text}`);
+      const errorCode =
+        response.headers.get("x-error-code") ||
+        response.headers.get("x-error-code".toUpperCase());
+      const e: any = new Error(`Email gateway error ${response.status}: ${text}`);
+      e.status = response.status;
+      if (errorCode) {
+        e.code = errorCode;
+      }
+      throw e;
     }
 
     logger.info("EMAIL GATEWAY OK", {
@@ -4026,6 +4169,403 @@ const buildDetailsCardHtml = (
   `;
 };
 
+const toMillis = (value: EmailQueueTimestamp | null | undefined): number | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value.getTime();
+  const anyValue = value as any;
+  if (typeof anyValue.toMillis === "function") return anyValue.toMillis();
+  if (typeof anyValue.toDate === "function") return anyValue.toDate().getTime();
+  const numeric = Number(anyValue);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const asFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const toMillisStrict = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) return asNumber;
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  const anyValue = value as any;
+  if (typeof anyValue?.toMillis === "function") return anyValue.toMillis();
+  if (typeof anyValue?.toDate === "function") return anyValue.toDate().getTime();
+
+  const wrappedTimestamp = typeof anyValue?.timestampValue === "string"
+    ? anyValue.timestampValue
+    : null;
+  if (wrappedTimestamp) {
+    const parsed = Date.parse(wrappedTimestamp);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  const seconds =
+    asFiniteNumber(anyValue?.seconds) ??
+    asFiniteNumber(anyValue?._seconds);
+  const nanos =
+    asFiniteNumber(anyValue?.nanoseconds) ??
+    asFiniteNumber(anyValue?.nanos) ??
+    asFiniteNumber(anyValue?._nanoseconds);
+  if (seconds !== null) {
+    const nanosValue = nanos !== null ? nanos : 0;
+    const millis = seconds * 1000 + nanosValue / 1_000_000;
+    return Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+};
+
+const isFuture = (value: unknown): boolean => {
+  const millis = toMillisStrict(value);
+  return millis !== null && millis > Date.now();
+};
+
+const computeBackoffMs = (attemptCount: number, seed: string) => {
+  const exponent = Math.max(0, attemptCount - 1);
+  const baseDelay = EMAIL_QUEUE_BASE_BACKOFF_MS * 2 ** exponent;
+  const cappedDelay = Math.min(baseDelay, EMAIL_QUEUE_MAX_BACKOFF_MS);
+  const hash = createHash("sha256").update(seed).digest();
+  const jitterRatio = (hash[0] ?? 0) / 255;
+  const jitterMs = Math.round(cappedDelay * jitterRatio * 0.2);
+  return Math.min(cappedDelay + jitterMs, EMAIL_QUEUE_MAX_BACKOFF_MS);
+};
+
+const isTransientEmailError = (err: unknown) => {
+  const anyErr = err as any;
+  if (anyErr?.isPermanent) return false;
+  const status = typeof anyErr?.status === "number" ? anyErr.status : null;
+  if (status !== null) {
+    if (status === 429) return true;
+    if (status >= 500) return true;
+    if (status >= 400) return false;
+  }
+  const code = typeof anyErr?.code === "string" ? anyErr.code : null;
+  if (code && ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"].includes(code)) {
+    return true;
+  }
+  return true;
+};
+
+const extractErrorCode = (err: unknown): string | null => {
+  const anyErr = err as any;
+  if (typeof anyErr?.code === "string") return anyErr.code;
+  if (typeof anyErr?.status === "number") return String(anyErr.status);
+  return null;
+};
+
+const clearEmailQueueLock = (ref: FirebaseFirestore.DocumentReference) =>
+  ref.update({
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  });
+
+const clearEmailQueueLockIfOwner = async (
+  ref: FirebaseFirestore.DocumentReference,
+  processingBy: string
+) => {
+  await db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data();
+    if (data?.processingBy !== processingBy) return;
+    transaction.update(ref, {
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+  });
+};
+
+const markRetry = async (
+  ref: FirebaseFirestore.DocumentReference,
+  attemptCount: number,
+  emailId: string,
+  err: unknown
+) => {
+  const nextAttemptCount = attemptCount + 1;
+  const backoffMs = computeBackoffMs(nextAttemptCount, `${emailId}:${nextAttemptCount}`);
+  const nextAttemptAt = Timestamp.fromMillis(Date.now() + backoffMs);
+  await ref.update({
+    status: "pending",
+    attemptCount: nextAttemptCount,
+    nextAttemptAt,
+    lastErrorAt: FieldValue.serverTimestamp(),
+    lastErrorCode: extractErrorCode(err),
+    errorMessage: err instanceof Error ? err.message : String(err),
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  });
+};
+
+const markDlq = async (
+  ref: FirebaseFirestore.DocumentReference,
+  reason: string,
+  err?: unknown
+) => {
+  const errorMessage = err instanceof Error ? err.message : err ? String(err) : null;
+  const lastErrorCode = err ? extractErrorCode(err) : null;
+  const update: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+    status: "error",
+    dlq: true,
+    dlqAt: FieldValue.serverTimestamp(),
+    dlqReason: reason,
+    lastErrorAt: FieldValue.serverTimestamp(),
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  };
+  if (errorMessage) {
+    update.errorMessage = errorMessage;
+  } else {
+    update.errorMessage = FieldValue.delete();
+  }
+  if (lastErrorCode) {
+    update.lastErrorCode = lastErrorCode;
+  } else {
+    update.lastErrorCode = FieldValue.delete();
+  }
+  await ref.update(update);
+};
+
+const processQueuedEmail = async (params: {
+  emailId: string;
+  processingBy: string;
+  queuedData?: FirebaseFirestore.DocumentData;
+}) => {
+  const { emailId, processingBy, queuedData } = params;
+  const ref = db.doc(`email_queue/${emailId}`);
+
+  const claim = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.data();
+    if (!snapshot.exists) {
+      return {
+        claimResult: "already_done" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    const status = data?.status;
+    const processingAt = data?.processingAt as Timestamp | undefined;
+    const processingExpiresAt = data?.processingExpiresAt as Timestamp | undefined;
+    const now = Timestamp.now();
+    const lockExpired = processingExpiresAt
+      ? processingExpiresAt.toMillis() <= now.toMillis()
+      : false;
+    const hasLock = !!processingAt;
+
+    if (status !== "pending") {
+      return {
+        claimResult: "already_done" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    if (hasLock && !lockExpired) {
+      return {
+        claimResult: "locked" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    // Lock expires after EMAIL_QUEUE_LOCK_TTL_MS to allow a later steal if needed.
+    const expiresAt = Timestamp.fromMillis(now.toMillis() + EMAIL_QUEUE_LOCK_TTL_MS);
+    transaction.update(ref, {
+      // Lock is acquired when processingAt/processingBy are set.
+      processingAt: FieldValue.serverTimestamp(),
+      processingBy,
+      processingExpiresAt: expiresAt,
+    });
+
+    return {
+      claimResult: "claimed" as const,
+      lockExpired: hasLock && lockExpired,
+      queued: data,
+    };
+  });
+
+  const queued = claim.queued ?? queuedData;
+  const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
+  const payload = queued?.payload;
+  const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
+  logger.info("Queued email claim processed", {
+    emailId,
+    typeId,
+    unitId,
+    claimResult: claim.claimResult,
+    processingBy,
+    lockExpired: claim.lockExpired,
+  });
+
+  if (claim.claimResult !== "claimed") {
+    return;
+  }
+
+  const latestSnapshot = await ref.get();
+  const latestQueued = latestSnapshot.data() ?? queued ?? queuedData;
+  const latestStatus = latestQueued?.status;
+  const latestSentAt = latestQueued?.sentAt as EmailQueueTimestamp | undefined;
+  const nextAttemptAt = latestQueued?.nextAttemptAt as EmailQueueTimestamp | null | undefined;
+  const attemptCount =
+    typeof latestQueued?.attemptCount === "number" ? latestQueued.attemptCount : 0;
+  const effectiveTypeId =
+    typeof latestQueued?.typeId === "string" ? latestQueued.typeId : typeId;
+  const effectivePayload = latestQueued?.payload ?? payload;
+  const effectiveUnitId =
+    typeof latestQueued?.unitId === "string" ? latestQueued.unitId : unitId;
+
+  if (latestStatus !== "pending" || latestSentAt) {
+    logger.info("Queued email already processed", {
+      emailId,
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      status: latestStatus,
+    });
+    await clearEmailQueueLockIfOwner(ref, processingBy);
+    return;
+  }
+
+  if (isFuture(nextAttemptAt)) {
+    const nextAttemptMs = toMillisStrict(nextAttemptAt);
+    logger.info("Queued email backoff active", {
+      emailId,
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      nextAttemptAtMs: nextAttemptMs,
+      stage: "processEarly",
+    });
+    await clearEmailQueueLockIfOwner(ref, processingBy);
+    return;
+  }
+
+  const payloadValid =
+    !!effectivePayload && typeof effectivePayload === "object" && !Array.isArray(effectivePayload);
+  if (!effectiveTypeId || !payloadValid) {
+    const missingFields = [
+      ...(effectiveTypeId ? [] : ["typeId"]),
+      ...(payloadValid ? [] : ["payload"]),
+    ];
+    logger.error("Queued email missing required fields", { emailId, missingFields });
+    await markDlq(ref, "missing_fields", new Error("Queued email missing required fields"));
+    return;
+  }
+
+  if (!isQueuedTemplateKey(effectiveTypeId)) {
+    logger.error("No template found for queued email", { typeId: effectiveTypeId, emailId });
+    await markDlq(
+      ref,
+      "invalid_type",
+      new Error(`No template for typeId ${String(effectiveTypeId)}`)
+    );
+    return;
+  }
+  const template = queuedEmailTemplates[effectiveTypeId];
+  const payloadData = effectivePayload as Record<string, any>;
+
+  const allowed = await shouldSendEmail(effectiveTypeId, effectiveUnitId);
+  if (!allowed) {
+    logger.info("Email sending disabled via settings", {
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      emailId,
+    });
+    await ref.update({
+      status: "sent",
+      sentAt: FieldValue.serverTimestamp(),
+      // Lock is cleared after a successful send.
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+    return;
+  }
+
+  try {
+    const recipients = await resolveQueuedEmailRecipients(
+      effectiveTypeId,
+      effectiveUnitId,
+      payloadData
+    );
+
+    if (!recipients.length) {
+      await markDlq(ref, "no_recipients", new Error("No recipients resolved for queued email"));
+      return;
+    }
+
+    logger.info("Queued email recipients resolved", {
+      typeId: effectiveTypeId,
+      emailId,
+      count: recipients.length,
+    });
+
+    const subject = renderTemplate(template.subject, payloadData);
+    const html = renderTemplate(template.html, payloadData);
+
+    const latestBeforeSend = await ref.get();
+    const beforeSendAttemptAt = latestBeforeSend.data()?.nextAttemptAt;
+    if (isFuture(beforeSendAttemptAt)) {
+      const nextAttemptMs = toMillisStrict(beforeSendAttemptAt);
+      logger.info("Queued email backoff active", {
+        emailId,
+        typeId: effectiveTypeId,
+        unitId: effectiveUnitId,
+        nextAttemptAtMs: nextAttemptMs,
+        stage: "preSend",
+      });
+      await clearEmailQueueLockIfOwner(ref, processingBy);
+      return;
+    }
+
+    await sendEmail({
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId || undefined,
+      to: recipients,
+      subject,
+      html,
+      payload: payloadData,
+    });
+
+    await ref.update({
+      status: "sent",
+      sentAt: FieldValue.serverTimestamp(),
+      // Lock is cleared after a successful send.
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+  } catch (err: any) {
+    logger.error("Failed to process queued email", {
+      typeId: effectiveTypeId,
+      emailId,
+      message: err?.message,
+    });
+    if (attemptCount + 1 >= EMAIL_QUEUE_MAX_ATTEMPTS || !isTransientEmailError(err)) {
+      await markDlq(ref, "send_failed", err);
+      return;
+    }
+    await markRetry(ref, attemptCount, emailId, err);
+  }
+};
+
 export const onQueuedEmailCreated = onDocumentCreated(
   {
     region: REGION,
@@ -4039,167 +4579,89 @@ export const onQueuedEmailCreated = onDocumentCreated(
      * - Concurrency: trigger two parallel runs; confirm only one sendEmail occurs and logs "claimed".
      * - Expired lock: set processingExpiresAt in emulator to a past timestamp, then re-trigger and
      *   confirm the next invocation logs lockExpired=true and sends.
-     */
+     * - Backoff: set attemptCount > 0 + nextAttemptAt in the future, trigger and confirm "backoff_active".
+     * - Retry: force gateway error and confirm attemptCount increments + nextAttemptAt increases.
+     * - DLQ: cause missing fields or no recipients and confirm dlq fields are set.
+     * - Idempotency: set sentAt and confirm it exits without resending.
+     * - Lock cleanup: ensure processing fields clear on every exit path.
+    */
     // Sanity: queued email documents must include typeId/unitId/payload/status/createdAt.
     const emailId = event.params.emailId as string;
-    const ref = db.doc(`email_queue/${emailId}`);
-    const processingBy = event.id || randomBytes(12).toString("hex");
-
-    const claim = await db.runTransaction(async transaction => {
-      const snapshot = await transaction.get(ref);
-      const data = snapshot.data();
-      if (!snapshot.exists) {
-        return {
-          claimResult: "already_done" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      const status = data?.status;
-      const processingAt = data?.processingAt as Timestamp | undefined;
-      const processingExpiresAt = data?.processingExpiresAt as Timestamp | undefined;
-      const now = Timestamp.now();
-      const lockExpired = processingExpiresAt
-        ? processingExpiresAt.toMillis() <= now.toMillis()
-        : false;
-      const hasLock = !!processingAt;
-
-      if (status !== "pending") {
-        return {
-          claimResult: "already_done" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      if (hasLock && !lockExpired) {
-        return {
-          claimResult: "locked" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      // Lock expires after EMAIL_QUEUE_LOCK_TTL_MS to allow a later steal if needed.
-      const expiresAt = Timestamp.fromMillis(now.toMillis() + EMAIL_QUEUE_LOCK_TTL_MS);
-      transaction.update(ref, {
-        // Lock is acquired when processingAt/processingBy are set.
-        processingAt: FieldValue.serverTimestamp(),
-        processingBy,
-        processingExpiresAt: expiresAt,
-      });
-
-      return {
-        claimResult: "claimed" as const,
-        lockExpired: hasLock && lockExpired,
-        queued: data,
-      };
-    });
-
-    const queued = claim.queued ?? event.data?.data();
-    const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
-    const payload = queued?.payload;
-    const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
-    logger.info("Queued email claim processed", {
-      emailId,
-      typeId,
-      unitId,
-      claimResult: claim.claimResult,
-      processingBy,
-      lockExpired: claim.lockExpired,
-    });
-
-    if (claim.claimResult !== "claimed") {
-      return;
-    }
-
-    const payloadValid = !!payload && typeof payload === "object" && !Array.isArray(payload);
-    if (!typeId || !payloadValid) {
-      logger.error("Queued email missing required fields", { emailId });
-      await ref.update({
-        status: "error",
-        errorMessage: "Queued email missing required fields",
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-      return;
-    }
-
-    if (!isQueuedTemplateKey(typeId)) {
-      logger.error("No template found for queued email", { typeId, emailId });
-      await ref.update({
-        status: "error",
-        errorMessage: `No template for typeId ${typeId}`,
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-      return;
-    }
-    const template = queuedEmailTemplates[typeId];
-    const payloadData = payload as Record<string, any>;
-
-    const allowed = await shouldSendEmail(typeId, unitId);
-    if (!allowed) {
-      logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
-      await ref.update({
-        status: "sent",
-        sentAt: FieldValue.serverTimestamp(),
-        // Lock is cleared after a successful send.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-      return;
-    }
-
-    try {
-      const recipients = await resolveQueuedEmailRecipients(typeId, unitId, payloadData);
-
-      if (!recipients.length) {
-        throw new Error("No recipients resolved for queued email");
-      }
-
-      logger.info("Queued email recipients resolved", {
-        typeId,
+    const createdData = event.data?.data();
+    const createdStatus = createdData?.status;
+    const createdNextAttemptAt = createdData?.nextAttemptAt;
+    if (createdStatus === "pending" && isFuture(createdNextAttemptAt)) {
+      const createdTypeId =
+        typeof createdData?.typeId === "string" ? createdData.typeId : null;
+      const createdUnitId =
+        typeof createdData?.unitId === "string" ? createdData.unitId : null;
+      logger.info("Queued email backoff active", {
         emailId,
-        count: recipients.length,
+        typeId: createdTypeId,
+        unitId: createdUnitId,
+        nextAttemptAtMs: toMillisStrict(createdNextAttemptAt),
+        stage: "onCreated",
       });
+      return;
+    }
+    const processingBy = event.id || randomBytes(12).toString("hex");
+    await processQueuedEmail({
+      emailId,
+      processingBy,
+      queuedData: createdData,
+    });
+  }
+);
 
-      const subject = renderTemplate(template.subject, payloadData);
-      const html = renderTemplate(template.html, payloadData);
+export const onQueuedEmailScheduled = onSchedule(
+  {
+    region: REGION,
+    schedule: "every 1 minute",
+  },
+  async event => {
+    const maxBatchSize = 50;
+    const now = Timestamp.now();
+    const baseQuery = db.collection("email_queue").where("status", "==", "pending");
 
-      await sendEmail({
-        typeId,
-        unitId: unitId || undefined,
-        to: recipients,
-        subject,
-        html,
-        payload: payloadData,
-      });
+    const [dueSnap, nullSnap, dueLegacySnap, nullLegacySnap] = await Promise.all([
+      baseQuery.where("dlq", "==", false).where("nextAttemptAt", "<=", now).get(),
+      baseQuery.where("dlq", "==", false).where("nextAttemptAt", "==", null).get(),
+      baseQuery.where("dlq", "==", null).where("nextAttemptAt", "<=", now).get(),
+      baseQuery.where("dlq", "==", null).where("nextAttemptAt", "==", null).get(),
+    ]);
 
-      await ref.update({
-        status: "sent",
-        sentAt: FieldValue.serverTimestamp(),
-        // Lock is cleared after a successful send.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
+    const baseProcessingBy = String(event.scheduleTime ?? Date.now());
+    const seen = new Set<string>();
+    const docs = [
+      ...dueSnap.docs,
+      ...nullSnap.docs,
+      ...dueLegacySnap.docs,
+      ...nullLegacySnap.docs,
+    ];
+    for (const docSnap of docs) {
+      if (seen.has(docSnap.id)) continue;
+      seen.add(docSnap.id);
+    }
+
+    logger.info("Queued email scheduled run", {
+      dueCount: dueSnap.size,
+      nullCount: nullSnap.size,
+      dueLegacyCount: dueLegacySnap.size,
+      nullLegacyCount: nullLegacySnap.size,
+      uniqueCount: seen.size,
+    });
+
+    let processed = 0;
+    for (const docSnap of docs) {
+      if (processed >= maxBatchSize) break;
+      if (!seen.has(docSnap.id)) continue;
+      seen.delete(docSnap.id);
+      await processQueuedEmail({
+        emailId: docSnap.id,
+        processingBy: `${baseProcessingBy}:${docSnap.id}`,
+        queuedData: docSnap.data(),
       });
-    } catch (err: any) {
-      logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
-      await ref.update({
-        status: "error",
-        errorMessage: err?.message || "Unknown error",
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
+      processed += 1;
     }
   }
 );
@@ -4881,25 +5343,22 @@ export const onReservationStatusChange = onDocumentUpdated(
                 ? after.startTime
                 : new Date(after.startTime as any);
             const dateKey = toDateKey(startDate);
-            const capacityRef = db
+            const reservationRef = db
               .collection('units')
               .doc(unitId)
-              .collection('reservation_capacity')
-              .doc(dateKey);
-            const capacitySnap = await transaction.get(capacityRef);
-            const currentCount = capacitySnap.exists
-              ? (capacitySnap.data()?.count as number) || 0
-              : 0;
-            const nextCount = Math.max(0, currentCount - (after.headcount || 0));
-            transaction.set(
-              capacityRef,
-              {
-                date: dateKey,
-                count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
+              .collection('reservations')
+              .doc(bookingId);
+            await applyCapacityLedgerTx({
+              transaction,
+              db,
+              unitId,
+              reservationRef,
+              reservationData: after as Record<string, any>,
+              nextStatus: 'cancelled',
+              nextDateKey: dateKey,
+              nextHeadcount: Number(after.headcount || 0),
+              mutationTraceId: `admin-cancel-${bookingId}`,
+            });
           })
           .catch(err =>
             logger.error("Failed to adjust capacity after admin cancel", { unitId, err })
