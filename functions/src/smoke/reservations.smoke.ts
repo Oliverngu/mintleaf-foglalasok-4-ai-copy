@@ -63,6 +63,24 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   }
 };
 
+const postJsonSafe = async (
+  url: string,
+  body: unknown
+): Promise<{ ok: boolean; status: number; text: string; json?: any }> => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = undefined;
+  }
+  return { ok: response.ok, status: response.status, text, json };
+};
 const assertTruthy = (condition: unknown, message: string) => {
   if (!condition) {
     fail(message);
@@ -187,19 +205,22 @@ const run = async () => {
   const modifyEnd = new Date(endTime.getTime());
   const newDateKey = dateKeyFromDate(modifyStart);
 
-  try {
-    await postJson(modifyUrl, {
-      unitId,
-      reservationId: createResponse.bookingId,
-      manageToken: createResponse.manageToken,
-      headcount: 3,
-      startTimeMs: modifyStart.getTime(),
-      endTimeMs: modifyEnd.getTime(),
-    });
-  } catch (err) {
+  const modifyPayload = {
+    unitId,
+    reservationId: createResponse.bookingId,
+    manageToken: createResponse.manageToken,
+    headcount: 3,
+    startTimeMs: modifyStart.getTime(),
+    endTimeMs: modifyEnd.getTime(),
+  };
+  const modifyResponse = await postJsonSafe(modifyUrl, modifyPayload);
+  if (!modifyResponse.ok) {
     const latestSnap = await reservationRef.get();
     const latestData = latestSnap.data() || {};
     fail('guestModifyReservation failed', {
+      httpStatus: modifyResponse.status,
+      responseText: modifyResponse.text,
+      request: modifyPayload,
       reservationStatus: latestData.status,
       reservationStartTime: latestData.startTime?.toDate?.()
         ? latestData.startTime.toDate()
