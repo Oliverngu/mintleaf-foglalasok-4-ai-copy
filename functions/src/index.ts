@@ -11,6 +11,7 @@ import {
 } from "./allocation";
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
+import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -1464,6 +1465,13 @@ export const guestCreateReservation = onRequest(
             : undefined;
         const limit = limitFromDoc ?? limitFromSettings;
 
+        const allocationOverrideDecision = await readAllocationOverrideTx(
+          transaction,
+          db,
+          unitId,
+          effectiveDateKey
+        );
+
         const allocationDecision = decideAllocation({
           unitId,
           dateKey: effectiveDateKey,
@@ -1472,7 +1480,7 @@ export const guestCreateReservation = onRequest(
           partySize: headcount,
           capacitySnapshot: { currentCount, limit },
           settings: { bookableWindow: settings.bookableWindow ?? null },
-          overrides: null,
+          overrides: allocationOverrideDecision,
         });
 
         if (allocationDecision.decision.status !== 'accepted') {
