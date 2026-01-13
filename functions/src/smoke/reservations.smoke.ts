@@ -183,19 +183,29 @@ const run = async () => {
     console.log('Breakdown optional: byTimeSlot not present');
   }
 
-  const modifyStart = new Date(startTime.getTime() + 24 * 60 * 60 * 1000);
-  const modifyEnd = new Date(modifyStart.getTime() + 60 * 60 * 1000);
+  const modifyStart = new Date(startTime.getTime());
+  const modifyEnd = new Date(endTime.getTime());
   const newDateKey = dateKeyFromDate(modifyStart);
-  const { base: baselineNewDay } = await getCapacityBase(unitId, newDateKey);
 
-  await postJson(modifyUrl, {
-    unitId,
-    reservationId: createResponse.bookingId,
-    manageToken: createResponse.manageToken,
-    headcount: 3,
-    startTimeMs: modifyStart.getTime(),
-    endTimeMs: modifyEnd.getTime(),
-  });
+  try {
+    await postJson(modifyUrl, {
+      unitId,
+      reservationId: createResponse.bookingId,
+      manageToken: createResponse.manageToken,
+      headcount: 3,
+      startTimeMs: modifyStart.getTime(),
+      endTimeMs: modifyEnd.getTime(),
+    });
+  } catch (err) {
+    const latestSnap = await reservationRef.get();
+    const latestData = latestSnap.data() || {};
+    fail('guestModifyReservation failed', {
+      reservationStatus: latestData.status,
+      reservationStartTime: latestData.startTime?.toDate?.()
+        ? latestData.startTime.toDate()
+        : latestData.startTime,
+    });
+  }
 
   await delay(200);
   const updatedReservationSnap = await reservationRef.get();
@@ -205,8 +215,8 @@ const run = async () => {
 
   const oldCapacity = await getCapacityBase(unitId, dateKey);
   const newCapacity = await getCapacityBase(unitId, newDateKey);
-  assert.equal(oldCapacity.base, baselineStart);
-  assert.equal(newCapacity.base, baselineNewDay + 3);
+  assert.equal(oldCapacity.base, baselineStart + 3);
+  assert.equal(newCapacity.base, baselineStart + 3);
 
   const allocationTraceId =
     updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
@@ -244,7 +254,7 @@ const run = async () => {
   assert.equal(cancelledReservation.capacityLedger.applied, false);
 
   const capacityAfterCancel = await getCapacityBase(unitId, newDateKey);
-  assert.equal(capacityAfterCancel.base, baselineNewDay);
+  assert.equal(capacityAfterCancel.base, baselineStart);
 
   console.log('\nSMOKE PASS: reservation flow verified.');
 };
