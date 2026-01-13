@@ -140,7 +140,7 @@ const run = async () => {
   const unitId = `smoke-unit-${Date.now()}`;
   const settingsRef = db.doc(`reservation_settings/${unitId}`);
   await settingsRef.set({
-    reservationMode: 'auto',
+    reservationMode: 'manual',
     dailyCapacity: 10,
     bookableWindow: { from: '10:00', to: '22:00' },
     notificationEmails: [],
