@@ -8,7 +8,9 @@
     "node": "20"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.json"
+    "build": "tsc --project tsconfig.json",
+    "smoke:reservations": "node lib/smoke/reservations.smoke.js",
+    "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js"
   },
   "dependencies": {
     "firebase-admin": "^12.5.0",
