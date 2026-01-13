@@ -12,6 +12,7 @@ import {
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
+import { computeCapacityMutationPlan } from "./reservations/capacityDelta";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -1065,14 +1066,43 @@ export const guestModifyReservation = onRequest(
             ? settings.dailyCapacity
             : undefined;
         const limit = limitFromDoc ?? limitFromSettings;
-        const nextCount =
+        const allocationOverrideDecision = await readAllocationOverrideTx(
+          transaction,
+          db,
+          unitId,
+          nextDateKey
+        );
+        const decisionBaseline =
           currentDateKey === nextDateKey
-            ? currentCount - existingHeadcount + parsedHeadcount
-            : nextCountBase + parsedHeadcount;
+            ? Math.max(0, currentCount - existingHeadcount)
+            : nextCountBase;
+        const allocationDecision = decideAllocation({
+          unitId,
+          dateKey: nextDateKey,
+          startTime,
+          endTime,
+          partySize: parsedHeadcount,
+          capacitySnapshot: { currentCount: decisionBaseline, limit },
+          settings: { bookableWindow: settings.bookableWindow ?? null },
+          overrides: allocationOverrideDecision,
+        });
 
-        if (typeof limit === 'number' && nextCount > limit) {
-          throw new Error('CAPACITY_FULL');
+        if (allocationDecision.decision.status !== 'accepted') {
+          return { rejected: true, allocationDecision };
         }
+
+        const mutations = computeCapacityMutationPlan({
+          oldKey: currentDateKey,
+          newKey: nextDateKey,
+          oldCount: existingHeadcount,
+          newCount: parsedHeadcount,
+          oldIncluded: true,
+          newIncluded: true,
+        });
+        const mutationByKey = new Map(mutations.map(mutation => [mutation.key, mutation.delta]));
+        const currentDelta = mutationByKey.get(currentDateKey) ?? 0;
+        const nextDelta =
+          currentDateKey === nextDateKey ? currentDelta : mutationByKey.get(nextDateKey) ?? 0;
 
         let allocationDiagnostics: AllocationDiagnostics;
         if (allocationContextReady) {
@@ -1103,7 +1133,6 @@ export const guestModifyReservation = onRequest(
           : undefined;
 
         if (currentDateKey === nextDateKey) {
-          const delta = parsedHeadcount - existingHeadcount;
           const breakdownResult = buildBreakdownUpdate(
             currentCapData,
             [
@@ -1114,8 +1143,8 @@ export const guestModifyReservation = onRequest(
           );
           const capacityUpdate: Record<string, any> = {
             date: currentDateKey,
-            count: Math.max(0, currentCount + delta),
-            totalCount: Math.max(0, currentCount + delta),
+            count: Math.max(0, currentCount + currentDelta),
+            totalCount: Math.max(0, currentCount + currentDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...breakdownResult.update,
           };
@@ -1136,8 +1165,6 @@ export const guestModifyReservation = onRequest(
           debugInfo.invalidTableGroupKeyName =
             breakdownResult.normalizedApplied.new?.invalidTableGroupKeyName ?? null;
         } else {
-          const currentDelta = -existingHeadcount;
-          const nextDelta = parsedHeadcount;
           const currentBreakdownResult = buildBreakdownUpdate(
             currentCapData,
             [{ delta: currentDelta, intent: oldIntent, label: 'old' }],
@@ -1199,6 +1226,16 @@ export const guestModifyReservation = onRequest(
           startTime: Timestamp.fromDate(startTime),
           endTime: Timestamp.fromDate(endTime),
           allocationDiagnostics,
+          allocation: {
+            status: allocationDecision.decision.status,
+            reasonCode: allocationDecision.decision.reasonCode,
+            ruleApplied: allocationDecision.auditLog.ruleApplied,
+            traceId: allocationDecision.auditLog.traceId,
+            capacityKey: allocationDecision.decision.capacityKey,
+          },
+          allocationTraceId: allocationDecision.auditLog.traceId,
+          allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
+          allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
           modifiedAt: FieldValue.serverTimestamp(),
           modifiedFields,
           modifiedBy: 'guest',
@@ -1279,8 +1316,25 @@ export const guestModifyReservation = onRequest(
           headcount: parsedHeadcount,
           startTimeMs: startTime.getTime(),
           endTimeMs: endTime.getTime(),
+          allocationDecision,
         };
       });
+
+      const allocationDecision = result.allocationDecision;
+      const auditLog = {
+        ...allocationDecision.auditLog,
+        reservationId,
+      };
+      await writeAllocationAuditLog(db, auditLog);
+
+      if (result.rejected) {
+        if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
+          res.status(409).json({ error: 'capacity_full' });
+          return;
+        }
+        res.status(400).json({ error: 'A foglalás nem módosítható.' });
+        return;
+      }
 
       logger.info('guestModifyReservation update', {
         unitId,
@@ -1318,7 +1372,8 @@ export const guestModifyReservation = onRequest(
         newHeadcount: parsedHeadcount,
       });
 
-      res.status(200).json({ ok: true, ...result });
+      const { allocationDecision: _allocationDecision, ...responsePayload } = result;
+      res.status(200).json({ ok: true, ...responsePayload });
     } catch (err) {
       if (err instanceof Error) {
         if (err.message === 'CAPACITY_FULL') {
