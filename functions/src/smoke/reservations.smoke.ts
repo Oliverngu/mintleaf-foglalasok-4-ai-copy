@@ -38,6 +38,82 @@ const db = admin.firestore();
 const AUTH_EMULATOR_HOST =
   process.env.AUTH_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST || '';
 
+const buildFunctionUrls = (host: string, projectId: string, region: string) => ({
+  createUrl: `http://${host}/${projectId}/${region}/guestCreateReservation`,
+  modifyUrl: `http://${host}/${projectId}/${region}/guestModifyReservation`,
+  cancelUrl: `http://${host}/${projectId}/${region}/guestUpdateReservation`,
+  adminUrl: `http://${host}/${projectId}/${region}/adminHandleReservationAction`,
+});
+
+const logEnvAndUrls = (urls: ReturnType<typeof buildFunctionUrls>) => {
+  console.log('Resolved environment:');
+  console.log(`  PROJECT_ID: ${PROJECT_ID}`);
+  console.log(`  REGION: ${REGION}`);
+  console.log(`  FUNCTIONS_EMULATOR_HOST: ${FUNCTIONS_EMULATOR_HOST}`);
+  console.log(`  FIRESTORE_EMULATOR_HOST: ${FIRESTORE_EMULATOR_HOST}`);
+  console.log(`  AUTH_EMULATOR_HOST: ${AUTH_EMULATOR_HOST || '(not set)'}`);
+  console.log('Resolved function URLs:');
+  console.log(`  createUrl: ${urls.createUrl}`);
+  console.log(`  modifyUrl: ${urls.modifyUrl}`);
+  console.log(`  cancelUrl: ${urls.cancelUrl}`);
+  console.log(`  adminUrl: ${urls.adminUrl}`);
+};
+
+const detectEmulatorProjectId = async (): Promise<string | null> => {
+  try {
+    const response = await fetch(`http://${FUNCTIONS_EMULATOR_HOST}/`);
+    const text = await response.text();
+    const match =
+      text.match(/project(?:\s*id)?\s*[:=]\s*["']?([a-z0-9-]+)/i) ||
+      text.match(/Project\s*ID\s*[:=]\s*["']?([a-z0-9-]+)/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const preflightFunctionsEmulator = async (urls: ReturnType<typeof buildFunctionUrls>) => {
+  const emulatorProjectId = await detectEmulatorProjectId();
+  const hint = emulatorProjectId
+    ? `export PROJECT_ID=${emulatorProjectId} (or use the projectId printed by emulator start).`
+    : 'Use the projectId printed by emulator start (or export PROJECT_ID accordingly).';
+  try {
+    const optionsResponse = await fetch(urls.createUrl, { method: 'OPTIONS' });
+    const postResponse = await fetch(urls.createUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const statuses = [optionsResponse.status, postResponse.status];
+    console.log(`[SMOKE][PREFLIGHT] createUrl statuses: ${statuses.join(', ')}`);
+    const hasNon404 = statuses.some(status => status !== 404);
+    if (!hasNon404) {
+      fail('Functions emulator project/region mismatch (404)', {
+        projectId: PROJECT_ID,
+        region: REGION,
+        functionsEmulatorHost: FUNCTIONS_EMULATOR_HOST,
+        firestoreEmulatorHost: FIRESTORE_EMULATOR_HOST,
+        authEmulatorHost: AUTH_EMULATOR_HOST || '(not set)',
+        emulatorProjectId: emulatorProjectId ?? '(not detected)',
+        expectedUrls: urls,
+        expectedCreateUrl: urls.createUrl,
+        hint,
+      });
+    }
+  } catch (error) {
+    fail('Functions emulator preflight failed', {
+      projectId: PROJECT_ID,
+      region: REGION,
+      functionsEmulatorHost: FUNCTIONS_EMULATOR_HOST,
+      firestoreEmulatorHost: FIRESTORE_EMULATOR_HOST,
+      authEmulatorHost: AUTH_EMULATOR_HOST || '(not set)',
+      emulatorProjectId: emulatorProjectId ?? '(not detected)',
+      expectedUrls: urls,
+      error,
+    });
+  }
+};
+
 const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'POST',
@@ -347,9 +423,9 @@ const clampToWindow = (date: Date, from: string, to: string) => {
 
 const run = async () => {
   console.log('Starting reservation smoke test...');
-  console.log(`Project: ${PROJECT_ID}`);
-  console.log(`Firestore emulator: ${FIRESTORE_EMULATOR_HOST}`);
-  console.log(`Functions emulator: ${FUNCTIONS_EMULATOR_HOST}`);
+  const urls = buildFunctionUrls(FUNCTIONS_EMULATOR_HOST, PROJECT_ID, REGION);
+  logEnvAndUrls(urls);
+  await preflightFunctionsEmulator(urls);
 
   const unitId = `smoke-unit-${Date.now()}`;
   const settingsRef = db.doc(`reservation_settings/${unitId}`);
@@ -360,10 +436,7 @@ const run = async () => {
     notificationEmails: [],
   });
 
-  const createUrl = `http://${FUNCTIONS_EMULATOR_HOST}/${PROJECT_ID}/${REGION}/guestCreateReservation`;
-  const modifyUrl = `http://${FUNCTIONS_EMULATOR_HOST}/${PROJECT_ID}/${REGION}/guestModifyReservation`;
-  const cancelUrl = `http://${FUNCTIONS_EMULATOR_HOST}/${PROJECT_ID}/${REGION}/guestUpdateReservation`;
-  const adminUrl = `http://${FUNCTIONS_EMULATOR_HOST}/${PROJECT_ID}/${REGION}/adminHandleReservationAction`;
+  const { createUrl, modifyUrl, cancelUrl, adminUrl } = urls;
 
   const rawStart = nextFutureSlot(new Date(), 2);
   const startTime = clampToWindow(rawStart, '10:00', '22:00');
