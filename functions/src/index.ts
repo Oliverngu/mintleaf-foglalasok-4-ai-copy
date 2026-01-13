@@ -44,6 +44,7 @@ const RATE_LIMIT_MAX = 15;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const MIN_HEADCOUNT = 1;
 const MAX_HEADCOUNT = 30;
+const EMAIL_QUEUE_LOCK_TTL_MS = 2 * 60 * 1000;
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
 
 interface AllocationIntent {
@@ -3263,15 +3264,29 @@ const queuedEmailTemplates: Record<
 
 type QueuedTemplateKey = keyof typeof queuedEmailTemplates;
 
+type EmailQueueStatus = "pending" | "sent" | "error";
+
+type EmailQueueTimestamp =
+  | FirebaseFirestore.Timestamp
+  | Date
+  | FirebaseFirestore.FieldValue;
+
+type EmailQueueLockFields = {
+  // Lock is acquired by setting processingAt + processingBy; expires via processingExpiresAt.
+  processingAt?: EmailQueueTimestamp;
+  processingBy?: string;
+  processingExpiresAt?: EmailQueueTimestamp;
+};
+
 type EmailQueueDoc = {
   typeId: QueuedTemplateKey;
   unitId: string | null;
   payload: Record<string, any>;
-  status: "pending" | "sent" | "error";
-  createdAt?: FirebaseFirestore.Timestamp | Date | FirebaseFirestore.FieldValue;
-  sentAt?: FirebaseFirestore.Timestamp | Date | FirebaseFirestore.FieldValue;
+  status: EmailQueueStatus;
+  createdAt?: EmailQueueTimestamp;
+  sentAt?: EmailQueueTimestamp;
   errorMessage?: string;
-};
+} & EmailQueueLockFields;
 
 const isQueuedTemplateKey = (value: unknown): value is QueuedTemplateKey =>
   typeof value === "string" &&
@@ -4017,20 +4032,98 @@ export const onQueuedEmailCreated = onDocumentCreated(
     document: "email_queue/{emailId}",
   },
   async event => {
+    /*
+     * Email queue manual test checklist (emulator):
+     * - Duplicate trigger prevention: invoke the same email_queue doc twice; confirm only the
+     *   first invocation logs claimResult="claimed" and later retries log "locked" or "already_done".
+     * - Concurrency: trigger two parallel runs; confirm only one sendEmail occurs and logs "claimed".
+     * - Expired lock: set processingExpiresAt in emulator to a past timestamp, then re-trigger and
+     *   confirm the next invocation logs lockExpired=true and sends.
+     */
     // Sanity: queued email documents must include typeId/unitId/payload/status/createdAt.
-    const queued = event.data?.data();
     const emailId = event.params.emailId as string;
     const ref = db.doc(`email_queue/${emailId}`);
+    const processingBy = event.id || randomBytes(12).toString("hex");
 
+    const claim = await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      const data = snapshot.data();
+      if (!snapshot.exists) {
+        return {
+          claimResult: "already_done" as const,
+          lockExpired: false,
+          queued: data,
+        };
+      }
+
+      const status = data?.status;
+      const processingAt = data?.processingAt as Timestamp | undefined;
+      const processingExpiresAt = data?.processingExpiresAt as Timestamp | undefined;
+      const now = Timestamp.now();
+      const lockExpired = processingExpiresAt
+        ? processingExpiresAt.toMillis() <= now.toMillis()
+        : false;
+      const hasLock = !!processingAt;
+
+      if (status !== "pending") {
+        return {
+          claimResult: "already_done" as const,
+          lockExpired: false,
+          queued: data,
+        };
+      }
+
+      if (hasLock && !lockExpired) {
+        return {
+          claimResult: "locked" as const,
+          lockExpired: false,
+          queued: data,
+        };
+      }
+
+      // Lock expires after EMAIL_QUEUE_LOCK_TTL_MS to allow a later steal if needed.
+      const expiresAt = Timestamp.fromMillis(now.toMillis() + EMAIL_QUEUE_LOCK_TTL_MS);
+      transaction.update(ref, {
+        // Lock is acquired when processingAt/processingBy are set.
+        processingAt: FieldValue.serverTimestamp(),
+        processingBy,
+        processingExpiresAt: expiresAt,
+      });
+
+      return {
+        claimResult: "claimed" as const,
+        lockExpired: hasLock && lockExpired,
+        queued: data,
+      };
+    });
+
+    const queued = claim.queued ?? event.data?.data();
     const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
     const payload = queued?.payload;
     const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
+    logger.info("Queued email claim processed", {
+      emailId,
+      typeId,
+      unitId,
+      claimResult: claim.claimResult,
+      processingBy,
+      lockExpired: claim.lockExpired,
+    });
+
+    if (claim.claimResult !== "claimed") {
+      return;
+    }
+
     const payloadValid = !!payload && typeof payload === "object" && !Array.isArray(payload);
     if (!typeId || !payloadValid) {
       logger.error("Queued email missing required fields", { emailId });
       await ref.update({
         status: "error",
         errorMessage: "Queued email missing required fields",
+        // Lock is cleared on completion/error to allow manual intervention or retries.
+        processingAt: FieldValue.delete(),
+        processingBy: FieldValue.delete(),
+        processingExpiresAt: FieldValue.delete(),
       });
       return;
     }
@@ -4040,6 +4133,10 @@ export const onQueuedEmailCreated = onDocumentCreated(
       await ref.update({
         status: "error",
         errorMessage: `No template for typeId ${typeId}`,
+        // Lock is cleared on completion/error to allow manual intervention or retries.
+        processingAt: FieldValue.delete(),
+        processingBy: FieldValue.delete(),
+        processingExpiresAt: FieldValue.delete(),
       });
       return;
     }
@@ -4052,6 +4149,10 @@ export const onQueuedEmailCreated = onDocumentCreated(
       await ref.update({
         status: "sent",
         sentAt: FieldValue.serverTimestamp(),
+        // Lock is cleared after a successful send.
+        processingAt: FieldValue.delete(),
+        processingBy: FieldValue.delete(),
+        processingExpiresAt: FieldValue.delete(),
       });
       return;
     }
@@ -4084,12 +4185,20 @@ export const onQueuedEmailCreated = onDocumentCreated(
       await ref.update({
         status: "sent",
         sentAt: FieldValue.serverTimestamp(),
+        // Lock is cleared after a successful send.
+        processingAt: FieldValue.delete(),
+        processingBy: FieldValue.delete(),
+        processingExpiresAt: FieldValue.delete(),
       });
     } catch (err: any) {
       logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
       await ref.update({
         status: "error",
         errorMessage: err?.message || "Unknown error",
+        // Lock is cleared on completion/error to allow manual intervention or retries.
+        processingAt: FieldValue.delete(),
+        processingBy: FieldValue.delete(),
+        processingExpiresAt: FieldValue.delete(),
       });
     }
   }
