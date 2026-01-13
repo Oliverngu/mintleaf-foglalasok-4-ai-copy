@@ -4055,6 +4055,47 @@ const toMillis = (value: EmailQueueTimestamp | null | undefined): number | null 
   return Number.isFinite(numeric) ? numeric : null;
 };
 
+const toMillisStrict = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) return asNumber;
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  const anyValue = value as any;
+  if (typeof anyValue?.toMillis === "function") return anyValue.toMillis();
+  if (typeof anyValue?.toDate === "function") return anyValue.toDate().getTime();
+  const seconds =
+    typeof anyValue?.seconds === "number"
+      ? anyValue.seconds
+      : typeof anyValue?._seconds === "number"
+      ? anyValue._seconds
+      : null;
+  const nanos =
+    typeof anyValue?.nanoseconds === "number"
+      ? anyValue.nanoseconds
+      : typeof anyValue?.nanos === "number"
+      ? anyValue.nanos
+      : typeof anyValue?._nanoseconds === "number"
+      ? anyValue._nanoseconds
+      : null;
+  if (seconds !== null) {
+    const millis = seconds * 1000 + (nanos ? nanos / 1_000_000 : 0);
+    return Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+};
+
+const isFuture = (value: unknown): boolean => {
+  const millis = toMillisStrict(value);
+  return millis !== null && millis > Date.now();
+};
+
 const computeBackoffMs = (attemptCount: number, seed: string) => {
   const exponent = Math.max(0, attemptCount - 1);
   const baseDelay = EMAIL_QUEUE_BASE_BACKOFF_MS * 2 ** exponent;
@@ -4265,13 +4306,13 @@ const processQueuedEmail = async (params: {
     return;
   }
 
-  const nextAttemptMs = toMillis(nextAttemptAt);
-  if (nextAttemptMs && nextAttemptMs > Date.now()) {
+  if (isFuture(nextAttemptAt)) {
+    const nextAttemptMs = toMillisStrict(nextAttemptAt);
     logger.info("Queued email backoff active", {
       emailId,
       typeId: effectiveTypeId,
       unitId: effectiveUnitId,
-      nextAttemptAt: new Date(nextAttemptMs).toISOString(),
+      nextAttemptAtMs: nextAttemptMs,
     });
     await clearEmailQueueLockIfOwner(ref, processingBy);
     return;
@@ -4336,6 +4377,20 @@ const processQueuedEmail = async (params: {
     const subject = renderTemplate(template.subject, payloadData);
     const html = renderTemplate(template.html, payloadData);
 
+    const latestBeforeSend = await ref.get();
+    const beforeSendAttemptAt = latestBeforeSend.data()?.nextAttemptAt;
+    if (isFuture(beforeSendAttemptAt)) {
+      const nextAttemptMs = toMillisStrict(beforeSendAttemptAt);
+      logger.info("Queued email backoff active", {
+        emailId,
+        typeId: effectiveTypeId,
+        unitId: effectiveUnitId,
+        nextAttemptAtMs: nextAttemptMs,
+      });
+      await clearEmailQueueLockIfOwner(ref, processingBy);
+      return;
+    }
+
     await sendEmail({
       typeId: effectiveTypeId,
       unitId: effectiveUnitId || undefined,
@@ -4385,14 +4440,30 @@ export const onQueuedEmailCreated = onDocumentCreated(
      * - DLQ: cause missing fields or no recipients and confirm dlq fields are set.
      * - Idempotency: set sentAt and confirm it exits without resending.
      * - Lock cleanup: ensure processing fields clear on every exit path.
-     */
+    */
     // Sanity: queued email documents must include typeId/unitId/payload/status/createdAt.
     const emailId = event.params.emailId as string;
+    const createdData = event.data?.data();
+    const createdStatus = createdData?.status;
+    const createdNextAttemptAt = createdData?.nextAttemptAt;
+    if (createdStatus === "pending" && isFuture(createdNextAttemptAt)) {
+      const createdTypeId =
+        typeof createdData?.typeId === "string" ? createdData.typeId : null;
+      const createdUnitId =
+        typeof createdData?.unitId === "string" ? createdData.unitId : null;
+      logger.info("Queued email backoff active", {
+        emailId,
+        typeId: createdTypeId,
+        unitId: createdUnitId,
+        nextAttemptAtMs: toMillisStrict(createdNextAttemptAt),
+      });
+      return;
+    }
     const processingBy = event.id || randomBytes(12).toString("hex");
     await processQueuedEmail({
       emailId,
       processingBy,
-      queuedData: event.data?.data(),
+      queuedData: createdData,
     });
   }
 );
