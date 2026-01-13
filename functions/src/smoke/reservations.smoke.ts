@@ -228,6 +228,40 @@ const snapshotState = async (
   };
 };
 
+const assertNoCapacityDoc = async (unitId: string, dateKey: string) => {
+  const { data, base } = await getCapacityBase(unitId, dateKey);
+  const count = typeof data?.count === 'number' ? data.count : 0;
+  const totalCount = typeof data?.totalCount === 'number' ? data.totalCount : 0;
+  const byTimeSlot = data?.byTimeSlot ?? {};
+  const byTimeSlotKeys = Object.keys(byTimeSlot);
+  const byTimeSlotAllZero = byTimeSlotKeys.every(
+    slot => typeof byTimeSlot[slot] === 'number' && byTimeSlot[slot] === 0
+  );
+  const ok = base === 0 && count === 0 && totalCount === 0 && byTimeSlotAllZero;
+  if (!ok) {
+    fail('Unexpected capacity doc mutation', {
+      unitId,
+      dateKey,
+      base,
+      data,
+    });
+  }
+  return { unitId, dateKey, base, data };
+};
+
+const assertReservationDocMissing = async (unitId: string, reservationId: string) => {
+  const ref = db.collection('units').doc(unitId).collection('reservations').doc(reservationId);
+  const snap = await ref.get();
+  if (snap.exists) {
+    fail('Unexpected reservation doc created', {
+      unitId,
+      reservationId,
+      data: snap.data(),
+    });
+  }
+  return { unitId, reservationId, exists: snap.exists };
+};
+
 const assertStateUnchanged = (
   before: Awaited<ReturnType<typeof snapshotState>>,
   after: Awaited<ReturnType<typeof snapshotState>>,
@@ -250,6 +284,40 @@ const assertStateUnchanged = (
       ...extra,
     });
   }
+};
+
+const runAdminNegativeCase = async (
+  label: string,
+  adminUrl: string,
+  reservationRef: FirebaseFirestore.DocumentReference,
+  unitId: string,
+  dateKey: string,
+  payload: Record<string, unknown>,
+  adminIdToken: string,
+  sideEffectChecks: Array<() => Promise<Record<string, unknown>>> = []
+) => {
+  const before = await snapshotState(`${label}-before`, reservationRef, unitId, dateKey);
+  const beforeSideEffects = await Promise.all(sideEffectChecks.map(check => check()));
+  const response = await postJsonSafeWithAuth(adminUrl, payload, adminIdToken);
+  const afterSideEffects = await Promise.all(sideEffectChecks.map(check => check()));
+  const after = await snapshotState(`${label}-after`, reservationRef, unitId, dateKey);
+  if (response.ok) {
+    fail(`${label} unexpectedly succeeded`, {
+      response,
+      payload,
+      before,
+      after,
+      beforeSideEffects,
+      afterSideEffects,
+    });
+  }
+  assertStateUnchanged(
+    before,
+    after,
+    `${label} mutated state`,
+    { response, payload, beforeSideEffects, afterSideEffects },
+    { includeHeadcount: true }
+  );
 };
 
 const nextFutureSlot = (from: Date, offsetHours = 2) => {
@@ -731,19 +799,20 @@ const run = async () => {
       adminReusePayload,
       adminIdToken
     );
-    if (adminReuseResponse.ok) {
-      fail('Admin token reuse unexpectedly succeeded', {
-        httpStatus: adminReuseResponse.status,
-        responseText: adminReuseResponse.text,
-        request: adminReusePayload,
-      });
-    }
     const adminReuseAfterApproveAfter = await snapshotState(
       'admin-approve-token-reuse-after',
       adminReservationRef,
       adminUnitId,
       adminDateKey
     );
+    if (adminReuseResponse.ok) {
+      fail('Admin token reuse unexpectedly succeeded', {
+        response: adminReuseResponse,
+        payload: adminReusePayload,
+        before: adminReuseAfterApproveBefore,
+        after: adminReuseAfterApproveAfter,
+      });
+    }
     assertStateUnchanged(
       adminReuseAfterApproveBefore,
       adminReuseAfterApproveAfter,
@@ -753,6 +822,57 @@ const run = async () => {
         payload: adminReusePayload,
       },
       { includeHeadcount: true }
+    );
+
+    await runAdminNegativeCase(
+      'admin-approve-negative-wrong-token',
+      adminUrl,
+      adminReservationRef,
+      adminUnitId,
+      adminDateKey,
+      {
+        ...adminApprovePayload,
+        adminToken: 'wrong-token',
+      },
+      adminIdToken
+    );
+    await runAdminNegativeCase(
+      'admin-approve-negative-wrong-unit',
+      adminUrl,
+      adminReservationRef,
+      adminUnitId,
+      adminDateKey,
+      {
+        ...adminApprovePayload,
+        unitId: 'other-unit',
+      },
+      adminIdToken,
+      [() => assertNoCapacityDoc('other-unit', adminDateKey)]
+    );
+    await runAdminNegativeCase(
+      'admin-approve-negative-wrong-reservation',
+      adminUrl,
+      adminReservationRef,
+      adminUnitId,
+      adminDateKey,
+      {
+        ...adminApprovePayload,
+        reservationId: 'does-not-exist',
+      },
+      adminIdToken,
+      [() => assertReservationDocMissing(adminUnitId, 'does-not-exist')]
+    );
+    await runAdminNegativeCase(
+      'admin-approve-negative-invalid-action',
+      adminUrl,
+      adminReservationRef,
+      adminUnitId,
+      adminDateKey,
+      {
+        ...adminApprovePayload,
+        action: 'banana',
+      },
+      adminIdToken
     );
 
     const rejectStart = clampToWindow(nextFutureSlot(new Date(), 4), '10:00', '22:00');
@@ -878,19 +998,20 @@ const run = async () => {
       adminReuseRejectPayload,
       adminIdToken
     );
-    if (adminReuseRejectResponse.ok) {
-      fail('Admin token reuse unexpectedly succeeded', {
-        httpStatus: adminReuseRejectResponse.status,
-        responseText: adminReuseRejectResponse.text,
-        request: adminReuseRejectPayload,
-      });
-    }
     const adminReuseAfterRejectAfter = await snapshotState(
       'admin-reject-token-reuse-after',
       rejectReservationRef,
       adminUnitId,
       rejectDateKey
     );
+    if (adminReuseRejectResponse.ok) {
+      fail('Admin token reuse unexpectedly succeeded', {
+        response: adminReuseRejectResponse,
+        payload: adminReuseRejectPayload,
+        before: adminReuseAfterRejectBefore,
+        after: adminReuseAfterRejectAfter,
+      });
+    }
     assertStateUnchanged(
       adminReuseAfterRejectBefore,
       adminReuseAfterRejectAfter,
@@ -900,6 +1021,57 @@ const run = async () => {
         payload: adminReuseRejectPayload,
       },
       { includeHeadcount: true }
+    );
+
+    await runAdminNegativeCase(
+      'admin-reject-negative-wrong-token',
+      adminUrl,
+      rejectReservationRef,
+      adminUnitId,
+      rejectDateKey,
+      {
+        ...adminRejectPayload,
+        adminToken: 'wrong-token',
+      },
+      adminIdToken
+    );
+    await runAdminNegativeCase(
+      'admin-reject-negative-wrong-unit',
+      adminUrl,
+      rejectReservationRef,
+      adminUnitId,
+      rejectDateKey,
+      {
+        ...adminRejectPayload,
+        unitId: 'other-unit',
+      },
+      adminIdToken,
+      [() => assertNoCapacityDoc('other-unit', rejectDateKey)]
+    );
+    await runAdminNegativeCase(
+      'admin-reject-negative-wrong-reservation',
+      adminUrl,
+      rejectReservationRef,
+      adminUnitId,
+      rejectDateKey,
+      {
+        ...adminRejectPayload,
+        reservationId: 'does-not-exist',
+      },
+      adminIdToken,
+      [() => assertReservationDocMissing(adminUnitId, 'does-not-exist')]
+    );
+    await runAdminNegativeCase(
+      'admin-reject-negative-invalid-action',
+      adminUrl,
+      rejectReservationRef,
+      adminUnitId,
+      rejectDateKey,
+      {
+        ...adminRejectPayload,
+        action: 'banana',
+      },
+      adminIdToken
     );
   }
 
