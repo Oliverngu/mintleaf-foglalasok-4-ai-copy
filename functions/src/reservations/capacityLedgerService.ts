@@ -29,7 +29,10 @@ export const resolveLedgerCurrentKey = ({
   if (typeof ledgerKey === 'string' && ledgerKey) {
     return ledgerKey;
   }
-  if (reservationStartTime instanceof Date) {
+  if (
+    reservationStartTime instanceof Date &&
+    Number.isFinite(reservationStartTime.getTime())
+  ) {
     return toDateKeyLocal(reservationStartTime);
   }
   return nextDateKey;

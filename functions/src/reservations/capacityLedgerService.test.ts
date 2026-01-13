@@ -28,3 +28,13 @@ test('resolveLedgerCurrentKey prefers reservation startTime', () => {
   });
   assert.equal(result, '2025-02-03');
 });
+
+test('resolveLedgerCurrentKey falls back when date is invalid', () => {
+  const invalidDate = new Date('invalid');
+  const result = resolveLedgerCurrentKey({
+    ledgerKey: null,
+    reservationStartTime: invalidDate,
+    nextDateKey: '2025-02-04',
+  });
+  assert.equal(result, '2025-02-04');
+});
