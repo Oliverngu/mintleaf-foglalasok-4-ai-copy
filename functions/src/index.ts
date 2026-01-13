@@ -3289,7 +3289,8 @@ type EmailQueueDoc = {
 } & EmailQueueLockFields;
 
 const isQueuedTemplateKey = (value: unknown): value is QueuedTemplateKey =>
-  value in queuedEmailTemplates;
+  typeof value === "string" &&
+  Object.prototype.hasOwnProperty.call(queuedEmailTemplates, value);
 
 type UserAuthInfo = {
   role?: string;
