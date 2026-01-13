@@ -1,4 +1,5 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
@@ -45,6 +46,9 @@ const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const MIN_HEADCOUNT = 1;
 const MAX_HEADCOUNT = 30;
 const EMAIL_QUEUE_LOCK_TTL_MS = 2 * 60 * 1000;
+const EMAIL_QUEUE_MAX_ATTEMPTS = 6;
+const EMAIL_QUEUE_BASE_BACKOFF_MS = 15_000;
+const EMAIL_QUEUE_MAX_BACKOFF_MS = 10 * 60 * 1000;
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
 
 interface AllocationIntent {
@@ -3285,6 +3289,13 @@ type EmailQueueDoc = {
   status: EmailQueueStatus;
   createdAt?: EmailQueueTimestamp;
   sentAt?: EmailQueueTimestamp;
+  attemptCount?: number;
+  nextAttemptAt?: EmailQueueTimestamp | null;
+  lastErrorAt?: EmailQueueTimestamp | null;
+  lastErrorCode?: string | null;
+  dlq?: boolean;
+  dlqAt?: EmailQueueTimestamp;
+  dlqReason?: string;
   errorMessage?: string;
 } & EmailQueueLockFields;
 
@@ -3743,7 +3754,15 @@ const sendEmail = async (params: {
         toCount: toList.length,
         toDomains,
       });
-      throw new Error(`Email gateway error ${response.status}: ${text}`);
+      const errorCode =
+        response.headers.get("x-error-code") ||
+        response.headers.get("x-error-code".toUpperCase());
+      const e: any = new Error(`Email gateway error ${response.status}: ${text}`);
+      e.status = response.status;
+      if (errorCode) {
+        e.code = errorCode;
+      }
+      throw e;
     }
 
     logger.info("EMAIL GATEWAY OK", {
@@ -4026,6 +4045,328 @@ const buildDetailsCardHtml = (
   `;
 };
 
+const toMillis = (value: EmailQueueTimestamp | null | undefined): number | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value.getTime();
+  const anyValue = value as any;
+  if (typeof anyValue.toMillis === "function") return anyValue.toMillis();
+  if (typeof anyValue.toDate === "function") return anyValue.toDate().getTime();
+  const numeric = Number(anyValue);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const computeBackoffMs = (attemptCount: number, seed: string) => {
+  const exponent = Math.max(0, attemptCount - 1);
+  const baseDelay = EMAIL_QUEUE_BASE_BACKOFF_MS * 2 ** exponent;
+  const cappedDelay = Math.min(baseDelay, EMAIL_QUEUE_MAX_BACKOFF_MS);
+  const hash = createHash("sha256").update(seed).digest();
+  const jitterRatio = (hash[0] ?? 0) / 255;
+  const jitterMs = Math.round(cappedDelay * jitterRatio * 0.2);
+  return Math.min(cappedDelay + jitterMs, EMAIL_QUEUE_MAX_BACKOFF_MS);
+};
+
+const isTransientEmailError = (err: unknown) => {
+  const anyErr = err as any;
+  if (anyErr?.isPermanent) return false;
+  const status = typeof anyErr?.status === "number" ? anyErr.status : null;
+  if (status !== null) {
+    if (status === 429) return true;
+    if (status >= 500) return true;
+    if (status >= 400) return false;
+  }
+  const code = typeof anyErr?.code === "string" ? anyErr.code : null;
+  if (code && ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"].includes(code)) {
+    return true;
+  }
+  return true;
+};
+
+const extractErrorCode = (err: unknown): string | null => {
+  const anyErr = err as any;
+  if (typeof anyErr?.code === "string") return anyErr.code;
+  if (typeof anyErr?.status === "number") return String(anyErr.status);
+  return null;
+};
+
+const clearEmailQueueLock = (ref: FirebaseFirestore.DocumentReference) =>
+  ref.update({
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  });
+
+const clearEmailQueueLockIfOwner = async (
+  ref: FirebaseFirestore.DocumentReference,
+  processingBy: string
+) => {
+  await db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data();
+    if (data?.processingBy !== processingBy) return;
+    transaction.update(ref, {
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+  });
+};
+
+const markRetry = async (
+  ref: FirebaseFirestore.DocumentReference,
+  attemptCount: number,
+  emailId: string,
+  err: unknown
+) => {
+  const nextAttemptCount = attemptCount + 1;
+  const backoffMs = computeBackoffMs(nextAttemptCount, `${emailId}:${nextAttemptCount}`);
+  const nextAttemptAt = Timestamp.fromMillis(Date.now() + backoffMs);
+  await ref.update({
+    status: "pending",
+    attemptCount: nextAttemptCount,
+    nextAttemptAt,
+    lastErrorAt: FieldValue.serverTimestamp(),
+    lastErrorCode: extractErrorCode(err),
+    errorMessage: err instanceof Error ? err.message : String(err),
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  });
+};
+
+const markDlq = async (
+  ref: FirebaseFirestore.DocumentReference,
+  reason: string,
+  err?: unknown
+) => {
+  const errorMessage = err instanceof Error ? err.message : err ? String(err) : null;
+  const lastErrorCode = err ? extractErrorCode(err) : null;
+  const update: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+    status: "error",
+    dlq: true,
+    dlqAt: FieldValue.serverTimestamp(),
+    dlqReason: reason,
+    lastErrorAt: FieldValue.serverTimestamp(),
+    processingAt: FieldValue.delete(),
+    processingBy: FieldValue.delete(),
+    processingExpiresAt: FieldValue.delete(),
+  };
+  if (errorMessage) {
+    update.errorMessage = errorMessage;
+  } else {
+    update.errorMessage = FieldValue.delete();
+  }
+  if (lastErrorCode) {
+    update.lastErrorCode = lastErrorCode;
+  } else {
+    update.lastErrorCode = FieldValue.delete();
+  }
+  await ref.update(update);
+};
+
+const processQueuedEmail = async (params: {
+  emailId: string;
+  processingBy: string;
+  queuedData?: FirebaseFirestore.DocumentData;
+}) => {
+  const { emailId, processingBy, queuedData } = params;
+  const ref = db.doc(`email_queue/${emailId}`);
+
+  const claim = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.data();
+    if (!snapshot.exists) {
+      return {
+        claimResult: "already_done" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    const status = data?.status;
+    const processingAt = data?.processingAt as Timestamp | undefined;
+    const processingExpiresAt = data?.processingExpiresAt as Timestamp | undefined;
+    const now = Timestamp.now();
+    const lockExpired = processingExpiresAt
+      ? processingExpiresAt.toMillis() <= now.toMillis()
+      : false;
+    const hasLock = !!processingAt;
+
+    if (status !== "pending") {
+      return {
+        claimResult: "already_done" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    if (hasLock && !lockExpired) {
+      return {
+        claimResult: "locked" as const,
+        lockExpired: false,
+        queued: data,
+      };
+    }
+
+    // Lock expires after EMAIL_QUEUE_LOCK_TTL_MS to allow a later steal if needed.
+    const expiresAt = Timestamp.fromMillis(now.toMillis() + EMAIL_QUEUE_LOCK_TTL_MS);
+    transaction.update(ref, {
+      // Lock is acquired when processingAt/processingBy are set.
+      processingAt: FieldValue.serverTimestamp(),
+      processingBy,
+      processingExpiresAt: expiresAt,
+    });
+
+    return {
+      claimResult: "claimed" as const,
+      lockExpired: hasLock && lockExpired,
+      queued: data,
+    };
+  });
+
+  const queued = claim.queued ?? queuedData;
+  const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
+  const payload = queued?.payload;
+  const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
+  logger.info("Queued email claim processed", {
+    emailId,
+    typeId,
+    unitId,
+    claimResult: claim.claimResult,
+    processingBy,
+    lockExpired: claim.lockExpired,
+  });
+
+  if (claim.claimResult !== "claimed") {
+    return;
+  }
+
+  const latestSnapshot = await ref.get();
+  const latestQueued = latestSnapshot.data() ?? queued ?? queuedData;
+  const latestStatus = latestQueued?.status;
+  const latestSentAt = latestQueued?.sentAt as EmailQueueTimestamp | undefined;
+  const nextAttemptAt = latestQueued?.nextAttemptAt as EmailQueueTimestamp | null | undefined;
+  const attemptCount =
+    typeof latestQueued?.attemptCount === "number" ? latestQueued.attemptCount : 0;
+  const effectiveTypeId =
+    typeof latestQueued?.typeId === "string" ? latestQueued.typeId : typeId;
+  const effectivePayload = latestQueued?.payload ?? payload;
+  const effectiveUnitId =
+    typeof latestQueued?.unitId === "string" ? latestQueued.unitId : unitId;
+
+  if (latestStatus !== "pending" || latestSentAt) {
+    logger.info("Queued email already processed", {
+      emailId,
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      status: latestStatus,
+    });
+    await clearEmailQueueLockIfOwner(ref, processingBy);
+    return;
+  }
+
+  const nextAttemptMs = toMillis(nextAttemptAt);
+  if (nextAttemptMs && nextAttemptMs > Date.now()) {
+    logger.info("Queued email backoff active", {
+      emailId,
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      nextAttemptAt: new Date(nextAttemptMs).toISOString(),
+    });
+    await clearEmailQueueLockIfOwner(ref, processingBy);
+    return;
+  }
+
+  const payloadValid =
+    !!effectivePayload && typeof effectivePayload === "object" && !Array.isArray(effectivePayload);
+  if (!effectiveTypeId || !payloadValid) {
+    logger.error("Queued email missing required fields", { emailId });
+    await markDlq(ref, "missing_fields", new Error("Queued email missing required fields"));
+    return;
+  }
+
+  if (!isQueuedTemplateKey(effectiveTypeId)) {
+    logger.error("No template found for queued email", { typeId: effectiveTypeId, emailId });
+    await markDlq(
+      ref,
+      "invalid_type",
+      new Error(`No template for typeId ${String(effectiveTypeId)}`)
+    );
+    return;
+  }
+  const template = queuedEmailTemplates[effectiveTypeId];
+  const payloadData = effectivePayload as Record<string, any>;
+
+  const allowed = await shouldSendEmail(effectiveTypeId, effectiveUnitId);
+  if (!allowed) {
+    logger.info("Email sending disabled via settings", {
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId,
+      emailId,
+    });
+    await ref.update({
+      status: "sent",
+      sentAt: FieldValue.serverTimestamp(),
+      // Lock is cleared after a successful send.
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+    return;
+  }
+
+  try {
+    const recipients = await resolveQueuedEmailRecipients(
+      effectiveTypeId,
+      effectiveUnitId,
+      payloadData
+    );
+
+    if (!recipients.length) {
+      await markDlq(ref, "no_recipients", new Error("No recipients resolved for queued email"));
+      return;
+    }
+
+    logger.info("Queued email recipients resolved", {
+      typeId: effectiveTypeId,
+      emailId,
+      count: recipients.length,
+    });
+
+    const subject = renderTemplate(template.subject, payloadData);
+    const html = renderTemplate(template.html, payloadData);
+
+    await sendEmail({
+      typeId: effectiveTypeId,
+      unitId: effectiveUnitId || undefined,
+      to: recipients,
+      subject,
+      html,
+      payload: payloadData,
+    });
+
+    await ref.update({
+      status: "sent",
+      sentAt: FieldValue.serverTimestamp(),
+      // Lock is cleared after a successful send.
+      processingAt: FieldValue.delete(),
+      processingBy: FieldValue.delete(),
+      processingExpiresAt: FieldValue.delete(),
+    });
+  } catch (err: any) {
+    logger.error("Failed to process queued email", {
+      typeId: effectiveTypeId,
+      emailId,
+      message: err?.message,
+    });
+    if (attemptCount + 1 >= EMAIL_QUEUE_MAX_ATTEMPTS || !isTransientEmailError(err)) {
+      await markDlq(ref, "send_failed", err);
+      return;
+    }
+    await markRetry(ref, attemptCount, emailId, err);
+  }
+};
+
 export const onQueuedEmailCreated = onDocumentCreated(
   {
     region: REGION,
@@ -4039,167 +4380,72 @@ export const onQueuedEmailCreated = onDocumentCreated(
      * - Concurrency: trigger two parallel runs; confirm only one sendEmail occurs and logs "claimed".
      * - Expired lock: set processingExpiresAt in emulator to a past timestamp, then re-trigger and
      *   confirm the next invocation logs lockExpired=true and sends.
+     * - Backoff: set attemptCount > 0 + nextAttemptAt in the future, trigger and confirm "backoff_active".
+     * - Retry: force gateway error and confirm attemptCount increments + nextAttemptAt increases.
+     * - DLQ: cause missing fields or no recipients and confirm dlq fields are set.
+     * - Idempotency: set sentAt and confirm it exits without resending.
+     * - Lock cleanup: ensure processing fields clear on every exit path.
      */
     // Sanity: queued email documents must include typeId/unitId/payload/status/createdAt.
     const emailId = event.params.emailId as string;
-    const ref = db.doc(`email_queue/${emailId}`);
     const processingBy = event.id || randomBytes(12).toString("hex");
-
-    const claim = await db.runTransaction(async transaction => {
-      const snapshot = await transaction.get(ref);
-      const data = snapshot.data();
-      if (!snapshot.exists) {
-        return {
-          claimResult: "already_done" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      const status = data?.status;
-      const processingAt = data?.processingAt as Timestamp | undefined;
-      const processingExpiresAt = data?.processingExpiresAt as Timestamp | undefined;
-      const now = Timestamp.now();
-      const lockExpired = processingExpiresAt
-        ? processingExpiresAt.toMillis() <= now.toMillis()
-        : false;
-      const hasLock = !!processingAt;
-
-      if (status !== "pending") {
-        return {
-          claimResult: "already_done" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      if (hasLock && !lockExpired) {
-        return {
-          claimResult: "locked" as const,
-          lockExpired: false,
-          queued: data,
-        };
-      }
-
-      // Lock expires after EMAIL_QUEUE_LOCK_TTL_MS to allow a later steal if needed.
-      const expiresAt = Timestamp.fromMillis(now.toMillis() + EMAIL_QUEUE_LOCK_TTL_MS);
-      transaction.update(ref, {
-        // Lock is acquired when processingAt/processingBy are set.
-        processingAt: FieldValue.serverTimestamp(),
-        processingBy,
-        processingExpiresAt: expiresAt,
-      });
-
-      return {
-        claimResult: "claimed" as const,
-        lockExpired: hasLock && lockExpired,
-        queued: data,
-      };
-    });
-
-    const queued = claim.queued ?? event.data?.data();
-    const typeId = typeof queued?.typeId === "string" ? queued.typeId : null;
-    const payload = queued?.payload;
-    const unitId = typeof queued?.unitId === "string" ? queued.unitId : null;
-    logger.info("Queued email claim processed", {
+    await processQueuedEmail({
       emailId,
-      typeId,
-      unitId,
-      claimResult: claim.claimResult,
       processingBy,
-      lockExpired: claim.lockExpired,
+      queuedData: event.data?.data(),
+    });
+  }
+);
+
+export const onQueuedEmailScheduled = onSchedule(
+  {
+    region: REGION,
+    schedule: "every 1 minute",
+  },
+  async event => {
+    const maxBatchSize = 50;
+    const now = Timestamp.now();
+    const baseQuery = db.collection("email_queue").where("status", "==", "pending");
+
+    const [dueSnap, nullSnap, dueLegacySnap, nullLegacySnap] = await Promise.all([
+      baseQuery.where("dlq", "==", false).where("nextAttemptAt", "<=", now).get(),
+      baseQuery.where("dlq", "==", false).where("nextAttemptAt", "==", null).get(),
+      baseQuery.where("dlq", "==", null).where("nextAttemptAt", "<=", now).get(),
+      baseQuery.where("dlq", "==", null).where("nextAttemptAt", "==", null).get(),
+    ]);
+
+    const baseProcessingBy = String(event.scheduleTime ?? Date.now());
+    const seen = new Set<string>();
+    const docs = [
+      ...dueSnap.docs,
+      ...nullSnap.docs,
+      ...dueLegacySnap.docs,
+      ...nullLegacySnap.docs,
+    ];
+    for (const docSnap of docs) {
+      if (seen.has(docSnap.id)) continue;
+      seen.add(docSnap.id);
+    }
+
+    logger.info("Queued email scheduled run", {
+      dueCount: dueSnap.size,
+      nullCount: nullSnap.size,
+      dueLegacyCount: dueLegacySnap.size,
+      nullLegacyCount: nullLegacySnap.size,
+      uniqueCount: seen.size,
     });
 
-    if (claim.claimResult !== "claimed") {
-      return;
-    }
-
-    const payloadValid = !!payload && typeof payload === "object" && !Array.isArray(payload);
-    if (!typeId || !payloadValid) {
-      logger.error("Queued email missing required fields", { emailId });
-      await ref.update({
-        status: "error",
-        errorMessage: "Queued email missing required fields",
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
+    let processed = 0;
+    for (const docSnap of docs) {
+      if (processed >= maxBatchSize) break;
+      if (!seen.has(docSnap.id)) continue;
+      seen.delete(docSnap.id);
+      await processQueuedEmail({
+        emailId: docSnap.id,
+        processingBy: `${baseProcessingBy}:${docSnap.id}`,
+        queuedData: docSnap.data(),
       });
-      return;
-    }
-
-    if (!isQueuedTemplateKey(typeId)) {
-      logger.error("No template found for queued email", { typeId, emailId });
-      await ref.update({
-        status: "error",
-        errorMessage: `No template for typeId ${typeId}`,
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-      return;
-    }
-    const template = queuedEmailTemplates[typeId];
-    const payloadData = payload as Record<string, any>;
-
-    const allowed = await shouldSendEmail(typeId, unitId);
-    if (!allowed) {
-      logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
-      await ref.update({
-        status: "sent",
-        sentAt: FieldValue.serverTimestamp(),
-        // Lock is cleared after a successful send.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-      return;
-    }
-
-    try {
-      const recipients = await resolveQueuedEmailRecipients(typeId, unitId, payloadData);
-
-      if (!recipients.length) {
-        throw new Error("No recipients resolved for queued email");
-      }
-
-      logger.info("Queued email recipients resolved", {
-        typeId,
-        emailId,
-        count: recipients.length,
-      });
-
-      const subject = renderTemplate(template.subject, payloadData);
-      const html = renderTemplate(template.html, payloadData);
-
-      await sendEmail({
-        typeId,
-        unitId: unitId || undefined,
-        to: recipients,
-        subject,
-        html,
-        payload: payloadData,
-      });
-
-      await ref.update({
-        status: "sent",
-        sentAt: FieldValue.serverTimestamp(),
-        // Lock is cleared after a successful send.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
-    } catch (err: any) {
-      logger.error("Failed to process queued email", { typeId, emailId, message: err?.message });
-      await ref.update({
-        status: "error",
-        errorMessage: err?.message || "Unknown error",
-        // Lock is cleared on completion/error to allow manual intervention or retries.
-        processingAt: FieldValue.delete(),
-        processingBy: FieldValue.delete(),
-        processingExpiresAt: FieldValue.delete(),
-      });
+      processed += 1;
     }
   }
 );
