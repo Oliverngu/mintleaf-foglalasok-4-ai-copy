@@ -10,6 +10,13 @@ export type CapacityLedger = {
   lastMutationTraceId?: string | null;
 };
 
+export const toDateKeyLocal = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const countsTowardCapacity = (status: string | null | undefined): boolean => {
   if (!status) return false;
   if (status === 'cancelled' || status === 'declined' || status === 'no_show') {
@@ -45,7 +52,13 @@ export const applyCapacityLedgerTx = async ({
 
   const ledger = (reservation.capacityLedger || {}) as CapacityLedger;
   const currentApplied = ledger.applied === true;
-  const currentKey = typeof ledger.key === 'string' ? ledger.key : nextDateKey;
+  const reservationStart = reservation.startTime?.toDate
+    ? reservation.startTime.toDate()
+    : reservation.startTime instanceof Date
+    ? reservation.startTime
+    : null;
+  const fallbackKey = reservationStart ? toDateKeyLocal(reservationStart) : nextDateKey;
+  const currentKey = typeof ledger.key === 'string' ? ledger.key : fallbackKey;
   const currentCount =
     typeof ledger.count === 'number'
       ? ledger.count

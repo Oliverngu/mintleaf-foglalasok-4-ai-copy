@@ -1067,9 +1067,10 @@ export const guestModifyReservation = onRequest(
           unitId,
           nextDateKey
         );
+        const existingIncluded = countsTowardCapacity(latest.status || 'pending');
         const decisionBaseline =
           currentDateKey === nextDateKey
-            ? Math.max(0, currentCount - existingHeadcount)
+            ? Math.max(0, currentCount - (existingIncluded ? existingHeadcount : 0))
             : nextCountBase;
         const allocationDecision = decideAllocation({
           unitId,
@@ -1126,12 +1127,15 @@ export const guestModifyReservation = onRequest(
           mutationTraceId: `guest-modify-${reservationId}-${allocationDecision.auditLog.traceId}`,
         });
 
+        const oldDelta = existingIncluded ? -existingHeadcount : 0;
+        const newDelta = existingIncluded ? parsedHeadcount : 0;
+
         if (currentDateKey === nextDateKey) {
           const breakdownResult = buildBreakdownUpdate(
             currentCapData,
             [
-              { delta: -existingHeadcount, intent: oldIntent, label: 'old' },
-              { delta: parsedHeadcount, intent: newIntent, label: 'new' },
+              { delta: oldDelta, intent: oldIntent, label: 'old' },
+              { delta: newDelta, intent: newIntent, label: 'new' },
             ],
             breakdownOpts
           );
@@ -1159,12 +1163,12 @@ export const guestModifyReservation = onRequest(
         } else {
           const currentBreakdownResult = buildBreakdownUpdate(
             currentCapData,
-            [{ delta: -existingHeadcount, intent: oldIntent, label: 'old' }],
+            [{ delta: oldDelta, intent: oldIntent, label: 'old' }],
             breakdownOpts
           );
           const nextBreakdownResult = buildBreakdownUpdate(
             nextCapData,
-            [{ delta: parsedHeadcount, intent: newIntent, label: 'new' }],
+            [{ delta: newDelta, intent: newIntent, label: 'new' }],
             breakdownOpts
           );
           const currentUpdate: Record<string, any> = {
