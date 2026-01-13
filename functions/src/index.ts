@@ -1483,6 +1483,7 @@ export const guestCreateReservation = onRequest(
 
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
+        const allocationTraceId = allocationDecision.auditLog.traceId;
 
         const allocationIntentData = {
           ...allocationIntent,
@@ -1512,6 +1513,16 @@ export const guestCreateReservation = onRequest(
           allocationOverrideSetAt: null,
           allocationFinal,
           allocationFinalComputedAt: FieldValue.serverTimestamp(),
+          allocation: {
+            status: allocationDecision.decision.status,
+            reasonCode: allocationDecision.decision.reasonCode,
+            ruleApplied: allocationDecision.auditLog.ruleApplied,
+            traceId: allocationTraceId,
+            capacityKey: allocationDecision.decision.capacityKey,
+          },
+          allocationTraceId,
+          allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
+          allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -4367,7 +4378,11 @@ const processQueuedEmail = async (params: {
   const payloadValid =
     !!effectivePayload && typeof effectivePayload === "object" && !Array.isArray(effectivePayload);
   if (!effectiveTypeId || !payloadValid) {
-    logger.error("Queued email missing required fields", { emailId });
+    const missingFields = [
+      ...(effectiveTypeId ? [] : ["typeId"]),
+      ...(payloadValid ? [] : ["payload"]),
+    ];
+    logger.error("Queued email missing required fields", { emailId, missingFields });
     await markDlq(ref, "missing_fields", new Error("Queued email missing required fields"));
     return;
   }
