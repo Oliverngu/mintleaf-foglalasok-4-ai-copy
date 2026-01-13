@@ -3273,8 +3273,9 @@ type EmailQueueDoc = {
   errorMessage?: string;
 };
 
-const isQueuedTemplateKey = (value: string): value is QueuedTemplateKey =>
-  value in queuedEmailTemplates;
+const isQueuedTemplateKey = (value: unknown): value is QueuedTemplateKey =>
+  typeof value === "string" &&
+  Object.prototype.hasOwnProperty.call(queuedEmailTemplates, value);
 
 type UserAuthInfo = {
   role?: string;
