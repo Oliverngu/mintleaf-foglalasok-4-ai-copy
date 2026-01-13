@@ -12,7 +12,6 @@ import {
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
-import { computeCapacityMutationPlan } from "./reservations/capacityDelta";
 import { applyCapacityLedgerTx, countsTowardCapacity } from "./reservations/capacityLedgerService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
@@ -1087,27 +1086,6 @@ export const guestModifyReservation = onRequest(
           return { rejected: true, allocationDecision };
         }
 
-        const currentLedger = (latest.capacityLedger || {}) as {
-          applied?: boolean;
-          appliedAt?: Timestamp | null;
-        };
-        const ledgerAppliedAt =
-          currentLedger.appliedAt ?? (currentLedger.applied ? FieldValue.serverTimestamp() : null);
-        const ledgerCountsCapacity = countsTowardCapacity(latest.status || 'pending');
-
-        const mutations = computeCapacityMutationPlan({
-          oldKey: currentDateKey,
-          newKey: nextDateKey,
-          oldCount: existingHeadcount,
-          newCount: parsedHeadcount,
-          oldIncluded: true,
-          newIncluded: true,
-        });
-        const mutationByKey = new Map(mutations.map(mutation => [mutation.key, mutation.delta]));
-        const currentDelta = mutationByKey.get(currentDateKey) ?? 0;
-        const nextDelta =
-          currentDateKey === nextDateKey ? currentDelta : mutationByKey.get(nextDateKey) ?? 0;
-
         let allocationDiagnostics: AllocationDiagnostics;
         if (allocationContextReady) {
           allocationDiagnostics = computeAllocationDiagnostics(
@@ -1136,6 +1114,18 @@ export const guestModifyReservation = onRequest(
           ? { activeZoneIds, activeTableGroups }
           : undefined;
 
+        await applyCapacityLedgerTx({
+          transaction,
+          db,
+          unitId,
+          reservationRef: docRef,
+          reservationData: latest,
+          nextStatus: latest.status || 'pending',
+          nextDateKey: nextDateKey,
+          nextHeadcount: parsedHeadcount,
+          mutationTraceId: `guest-modify-${reservationId}-${allocationDecision.auditLog.traceId}`,
+        });
+
         if (currentDateKey === nextDateKey) {
           const breakdownResult = buildBreakdownUpdate(
             currentCapData,
@@ -1147,8 +1137,6 @@ export const guestModifyReservation = onRequest(
           );
           const capacityUpdate: Record<string, any> = {
             date: currentDateKey,
-            count: Math.max(0, currentCount + currentDelta),
-            totalCount: Math.max(0, currentCount + currentDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...breakdownResult.update,
           };
@@ -1171,25 +1159,21 @@ export const guestModifyReservation = onRequest(
         } else {
           const currentBreakdownResult = buildBreakdownUpdate(
             currentCapData,
-            [{ delta: currentDelta, intent: oldIntent, label: 'old' }],
+            [{ delta: -existingHeadcount, intent: oldIntent, label: 'old' }],
             breakdownOpts
           );
           const nextBreakdownResult = buildBreakdownUpdate(
             nextCapData,
-            [{ delta: nextDelta, intent: newIntent, label: 'new' }],
+            [{ delta: parsedHeadcount, intent: newIntent, label: 'new' }],
             breakdownOpts
           );
           const currentUpdate: Record<string, any> = {
             date: currentDateKey,
-            count: Math.max(0, currentCount + currentDelta),
-            totalCount: Math.max(0, currentCount + currentDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...currentBreakdownResult.update,
           };
           const nextUpdate: Record<string, any> = {
             date: nextDateKey,
-            count: Math.max(0, nextCountBase + nextDelta),
-            totalCount: Math.max(0, nextCountBase + nextDelta),
             updatedAt: FieldValue.serverTimestamp(),
             ...nextBreakdownResult.update,
           };
@@ -1240,13 +1224,6 @@ export const guestModifyReservation = onRequest(
           allocationTraceId: allocationDecision.auditLog.traceId,
           allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
           allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
-          capacityLedger: {
-            applied: ledgerCountsCapacity,
-            key: ledgerCountsCapacity ? nextDateKey : null,
-            count: ledgerCountsCapacity ? parsedHeadcount : null,
-            appliedAt: ledgerCountsCapacity ? ledgerAppliedAt : null,
-            lastMutationTraceId: allocationDecision.auditLog.traceId,
-          },
           modifiedAt: FieldValue.serverTimestamp(),
           modifiedFields,
           modifiedBy: 'guest',
