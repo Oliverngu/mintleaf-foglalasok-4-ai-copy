@@ -17,6 +17,24 @@ export const toDateKeyLocal = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+export const resolveLedgerCurrentKey = ({
+  ledgerKey,
+  reservationStartTime,
+  nextDateKey,
+}: {
+  ledgerKey?: string | null;
+  reservationStartTime?: Date | null;
+  nextDateKey: string;
+}) => {
+  if (typeof ledgerKey === 'string' && ledgerKey) {
+    return ledgerKey;
+  }
+  if (reservationStartTime instanceof Date) {
+    return toDateKeyLocal(reservationStartTime);
+  }
+  return nextDateKey;
+};
+
 export const countsTowardCapacity = (status: string | null | undefined): boolean => {
   if (!status) return false;
   if (status === 'cancelled' || status === 'declined' || status === 'no_show') {
@@ -57,8 +75,11 @@ export const applyCapacityLedgerTx = async ({
     : reservation.startTime instanceof Date
     ? reservation.startTime
     : null;
-  const fallbackKey = reservationStart ? toDateKeyLocal(reservationStart) : nextDateKey;
-  const currentKey = typeof ledger.key === 'string' ? ledger.key : fallbackKey;
+  const currentKey = resolveLedgerCurrentKey({
+    ledgerKey: ledger.key ?? null,
+    reservationStartTime: reservationStart,
+    nextDateKey,
+  });
   const currentCount =
     typeof ledger.count === 'number'
       ? ledger.count
