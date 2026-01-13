@@ -3273,10 +3273,38 @@ type EmailQueueDoc = {
   errorMessage?: string;
 };
 
-const isQueuedTemplateKey = (value: string): value is QueuedTemplateKey =>
-  value in queuedEmailTemplates;
+const isQueuedTemplateKey = (value: unknown): value is QueuedTemplateKey =>
+  typeof value === "string" &&
+  Object.prototype.hasOwnProperty.call(queuedEmailTemplates, value);
 
-const enqueueQueuedEmail = async (
+type UserAuthInfo = {
+  role?: string;
+  unitIds: string[];
+  email?: string;
+  firstName?: string;
+  fullName?: string;
+};
+
+const getUserDocForAuth = async (uid: string): Promise<UserAuthInfo> => {
+  const snap = await db.collection("users").doc(uid).get();
+  if (!snap.exists) {
+    return { unitIds: [] };
+  }
+  const data = snap.data() || {};
+  const unitIdsRaw = (data.unitIds || data.unitIDs || []) as unknown;
+  const unitIds = Array.isArray(unitIdsRaw)
+    ? unitIdsRaw.filter((id): id is string => typeof id === "string")
+    : [];
+  return {
+    role: typeof data.role === "string" ? data.role : undefined,
+    unitIds,
+    email: typeof data.email === "string" ? data.email : undefined,
+    firstName: typeof data.firstName === "string" ? data.firstName : undefined,
+    fullName: typeof data.fullName === "string" ? data.fullName : undefined,
+  };
+};
+
+const enqueueQueuedEmailInternal = async (
   type: unknown,
   unitId: string | null,
   payload: Record<string, any>
@@ -3299,6 +3327,153 @@ const enqueueQueuedEmail = async (
   };
   await db.collection("email_queue").add(doc);
 };
+
+export const enqueueQueuedEmail = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Unauthorized");
+  }
+
+  const data = request.data || {};
+  if (typeof data !== "object" || Array.isArray(data)) {
+    throw new HttpsError("invalid-argument", "Érvénytelen kérés");
+  }
+
+  const allowedKeys = new Set(["type", "unitId", "payload"]);
+  const keys = Object.keys(data);
+  if (keys.some(key => !allowedKeys.has(key))) {
+    throw new HttpsError("invalid-argument", "Érvénytelen kérés");
+  }
+
+  const { type, unitId, payload } = data as {
+    type: unknown;
+    unitId: unknown;
+    payload: unknown;
+  };
+
+  if (unitId !== null && typeof unitId !== "string") {
+    throw new HttpsError("invalid-argument", "Érvénytelen egység");
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new HttpsError("invalid-argument", "payload kötelező");
+  }
+
+  if (typeof type !== "string") {
+    throw new HttpsError("invalid-argument", "Érvénytelen típus");
+  }
+
+  const payloadValue = payload as Record<string, any>;
+  const unitIdValue = typeof unitId === "string" ? unitId : null;
+  const caller = await getUserDocForAuth(request.auth.uid);
+  const isAdmin = caller.role === "Admin";
+  const isUnitAdmin = caller.role === "Unit Admin";
+  const canManageUnit = (unitToCheck: string | null) =>
+    !!unitToCheck && (isAdmin || (isUnitAdmin && caller.unitIds.includes(unitToCheck)));
+  const belongsToUnit = (unitToCheck: string | null) =>
+    !!unitToCheck && caller.unitIds.includes(unitToCheck);
+
+  const requireString = (value: unknown, field: string): string => {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new HttpsError("invalid-argument", `Érvénytelen ${field}`);
+    }
+    return value;
+  };
+
+  const validateAllowedPayloadKeys = (allowed: string[]) => {
+    const allowedSet = new Set(allowed);
+    const payloadKeys = Object.keys(payloadValue);
+    if (payloadKeys.some(key => !allowedSet.has(key))) {
+      throw new HttpsError("invalid-argument", "Érvénytelen payload mezők");
+    }
+  };
+
+  let sanitizedPayload: Record<string, any>;
+  let sanitizedUnitId: string | null = unitIdValue;
+
+  switch (type) {
+    case "register_welcome": {
+      validateAllowedPayloadKeys(["name", "email"]);
+      if (unitIdValue !== null) {
+        throw new HttpsError("invalid-argument", "Érvénytelen egység");
+      }
+      const callerEmail = requireString(caller.email, "email");
+      const callerName = requireString(caller.firstName || caller.fullName, "name");
+      if (payloadValue.email !== callerEmail || payloadValue.name !== callerName) {
+        throw new HttpsError("permission-denied", "Nem engedélyezett");
+      }
+      sanitizedPayload = { name: callerName, email: callerEmail };
+      sanitizedUnitId = null;
+      break;
+    }
+    case "leave_request_created": {
+      validateAllowedPayloadKeys([
+        "userName",
+        "userEmail",
+        "unitName",
+        "dateRanges",
+        "note",
+        "createdAt",
+      ]);
+      if (!belongsToUnit(unitIdValue)) {
+        throw new HttpsError("permission-denied", "Nem engedélyezett");
+      }
+      sanitizedPayload = {
+        userName: requireString(payloadValue.userName, "userName"),
+        userEmail: requireString(payloadValue.userEmail, "userEmail"),
+        unitName: requireString(payloadValue.unitName, "unitName"),
+        dateRanges: requireString(payloadValue.dateRanges, "dateRanges"),
+        note: requireString(payloadValue.note, "note"),
+        createdAt: requireString(payloadValue.createdAt, "createdAt"),
+      };
+      break;
+    }
+    case "leave_request_approved":
+    case "leave_request_rejected": {
+      validateAllowedPayloadKeys([
+        "firstName",
+        "approverName",
+        "startDate",
+        "endDate",
+        "userEmail",
+      ]);
+      if (!canManageUnit(unitIdValue)) {
+        throw new HttpsError("permission-denied", "Nem engedélyezett");
+      }
+      sanitizedPayload = {
+        firstName: requireString(payloadValue.firstName, "firstName"),
+        approverName: requireString(payloadValue.approverName, "approverName"),
+        startDate: requireString(payloadValue.startDate, "startDate"),
+        endDate: requireString(payloadValue.endDate, "endDate"),
+        userEmail: requireString(payloadValue.userEmail, "userEmail"),
+      };
+      break;
+    }
+    case "schedule_published": {
+      validateAllowedPayloadKeys([
+        "unitName",
+        "weekLabel",
+        "url",
+        "editorName",
+      ]);
+      if (!canManageUnit(unitIdValue)) {
+        throw new HttpsError("permission-denied", "Nem engedélyezett");
+      }
+      sanitizedPayload = {
+        unitName: requireString(payloadValue.unitName, "unitName"),
+        weekLabel: requireString(payloadValue.weekLabel, "weekLabel"),
+        url: requireString(payloadValue.url, "url"),
+        editorName: requireString(payloadValue.editorName, "editorName"),
+      };
+      break;
+    }
+    default:
+      throw new HttpsError("permission-denied", "Nem engedélyezett");
+  }
+
+  await enqueueQueuedEmailInternal(type, sanitizedUnitId, sanitizedPayload);
+
+  return { ok: true };
+});
 
 type TemplateId = keyof typeof defaultTemplates;
 
@@ -3395,6 +3570,99 @@ const getAdminRecipientsOverride = async (
   return Array.from(recipients);
 };
 
+const getAdminRecipientsForTypeOverride = async (
+  unitId: string,
+  typeId: string
+): Promise<string[]> => {
+  const unitSettings = await getEmailSettingsForUnit(unitId);
+  const defaultSettings = await getEmailSettingsForUnit('default');
+
+  const unitSpecific = unitSettings.adminRecipients?.[typeId];
+  if (unitSpecific && unitSpecific.length > 0) {
+    return [...new Set(unitSpecific)];
+  }
+
+  const defaultSpecific = defaultSettings.adminRecipients?.[typeId];
+  if (defaultSpecific && defaultSpecific.length > 0) {
+    return [...new Set(defaultSpecific)];
+  }
+
+  return [];
+};
+
+const isEmailString = (value: unknown): value is string =>
+  typeof value === "string" && /\S+@\S+\.\S+/.test(value);
+
+const collectEmailsFromSnapshot = (
+  snap: FirebaseFirestore.QuerySnapshot
+): string[] =>
+  snap.docs
+    .map(doc => doc.data())
+    .map(data => data?.email || data?.contact?.email)
+    .filter(isEmailString);
+
+const EMAIL_RECIPIENT_CACHE_TTL_MS = 60_000;
+let cachedAdminEmails: string[] | null = null;
+let cachedAdminEmailsAt = 0;
+const cachedUnitAdminEmails = new Map<string, string[]>();
+const cachedUnitAdminEmailsAt = new Map<string, number>();
+const cachedScheduleStaffEmails = new Map<string, string[]>();
+const cachedScheduleStaffEmailsAt = new Map<string, number>();
+
+const getAdminUserEmails = async (): Promise<string[]> => {
+  if (cachedAdminEmails && Date.now() - cachedAdminEmailsAt < EMAIL_RECIPIENT_CACHE_TTL_MS) {
+    return cachedAdminEmails;
+  }
+  const snap = await db.collection("users").where("role", "==", "Admin").get();
+  cachedAdminEmails = Array.from(new Set(collectEmailsFromSnapshot(snap))).sort();
+  cachedAdminEmailsAt = Date.now();
+  return cachedAdminEmails;
+};
+
+const getUnitAdminEmails = async (unitId: string): Promise<string[]> => {
+  const cached = cachedUnitAdminEmails.get(unitId);
+  const cachedAt = cachedUnitAdminEmailsAt.get(unitId) || 0;
+  if (cached && Date.now() - cachedAt < EMAIL_RECIPIENT_CACHE_TTL_MS) {
+    return cached;
+  }
+  const snap = await db
+    .collection("users")
+    .where("role", "==", "Unit Admin")
+    .where("unitIds", "array-contains", unitId)
+    .get();
+  const emails = Array.from(new Set(collectEmailsFromSnapshot(snap))).sort();
+  cachedUnitAdminEmails.set(unitId, emails);
+  cachedUnitAdminEmailsAt.set(unitId, Date.now());
+  return emails;
+};
+
+const getScheduleStaffEmails = async (unitId: string): Promise<string[]> => {
+  const cached = cachedScheduleStaffEmails.get(unitId);
+  const cachedAt = cachedScheduleStaffEmailsAt.get(unitId) || 0;
+  if (cached && Date.now() - cachedAt < EMAIL_RECIPIENT_CACHE_TTL_MS) {
+    return cached;
+  }
+
+  const snap = await db
+    .collection("users")
+    .where("unitIds", "array-contains", unitId)
+    .get();
+
+  const emails = snap.docs
+    .map(doc => {
+      const data = doc.data();
+      const email = data?.email || data?.contact?.email;
+      const notificationsEnabled = data?.notifications?.newSchedule !== false;
+      return notificationsEnabled && isEmailString(email) ? email : null;
+    })
+    .filter((e): e is string => !!e);
+
+  const deduped = Array.from(new Set(emails)).sort();
+  cachedScheduleStaffEmails.set(unitId, deduped);
+  cachedScheduleStaffEmailsAt.set(unitId, Date.now());
+  return deduped;
+};
+
 const resolveEmailTemplate = async (
   unitId: string | null,
   typeId: TemplateId,
@@ -3426,6 +3694,22 @@ const sendEmail = async (params: {
   html: string;
   payload?: Record<string, any>;
 }) => {
+  const toList = Array.isArray(params.to) ? params.to : [params.to];
+  const normalizedEmails = toList
+    .map(email => email.trim().toLowerCase())
+    .filter(Boolean);
+  const toDomains = Array.from(
+    new Set(
+      normalizedEmails
+        .map(email => {
+          const atIndex = email.lastIndexOf("@");
+          return atIndex >= 0 ? email.slice(atIndex + 1) : "";
+        })
+        .filter((domain): domain is string => !!domain)
+    )
+  )
+    .sort()
+    .slice(0, 5);
   try {
     const response = await fetch(EMAIL_GATEWAY_URL, {
       method: "POST",
@@ -3441,7 +3725,8 @@ const sendEmail = async (params: {
         body: text,
         typeId: params.typeId,
         unitId: params.unitId,
-        to: params.to,
+        toCount: toList.length,
+        toDomains,
       });
       throw new Error(`Email gateway error ${response.status}: ${text}`);
     }
@@ -3450,13 +3735,15 @@ const sendEmail = async (params: {
       status: response.status,
       typeId: params.typeId,
       unitId: params.unitId,
-      to: params.to,
+      toCount: toList.length,
+      toDomains,
     });
   } catch (err: any) {
     logger.error("sendEmail() FAILED", {
       typeId: params.typeId,
       unitId: params.unitId,
-      to: params.to,
+      toCount: toList.length,
+      toDomains,
       message: err?.message,
       stack: err?.stack,
     });
@@ -3470,47 +3757,65 @@ const resolveQueuedEmailRecipients = async (
   payload: Record<string, any>
 ): Promise<string[]> => {
   if (typeId === "leave_request_created") {
-    if (Array.isArray(payload.adminEmails) && payload.adminEmails.length) {
-      return payload.adminEmails;
-    }
-    if (unitId) {
-      const recipients = await getAdminRecipientsOverride(
-        unitId,
-        typeId,
-        []
-      );
-      return recipients;
-    }
-    return [];
+    if (!unitId) return [];
+    const [adminEmails, unitAdminEmails, overrideEmails] = await Promise.all([
+      getAdminUserEmails(),
+      getUnitAdminEmails(unitId),
+      getAdminRecipientsOverride(unitId, typeId, []),
+    ]);
+    logger.info("Queued email recipient counts", {
+      typeId,
+      unitId,
+      adminCount: adminEmails.length,
+      unitAdminCount: unitAdminEmails.length,
+      overrideCount: overrideEmails.length,
+    });
+    return Array.from(new Set([...adminEmails, ...unitAdminEmails, ...overrideEmails])).sort();
   }
 
   if (typeId === "schedule_published") {
-    if (Array.isArray(payload.recipients) && payload.recipients.length) {
-      return payload.recipients;
-    }
-    if (unitId) {
-      const recipients = await getAdminRecipientsOverride(
-        unitId,
-        typeId,
-        []
-      );
-      return recipients;
-    }
-    return [];
+    if (!unitId) return [];
+    const [staffEmails, overrideEmails] = await Promise.all([
+      getScheduleStaffEmails(unitId),
+      getAdminRecipientsForTypeOverride(unitId, typeId),
+    ]);
+    // Schedule notices are sent to staff; admin overrides are limited to explicit type overrides.
+    logger.info("Queued email recipient counts", {
+      typeId,
+      unitId,
+      staffCount: staffEmails.length,
+      overrideCount: overrideEmails.length,
+    });
+    return Array.from(new Set([...staffEmails, ...overrideEmails])).sort();
   }
 
   if (typeId === "leave_request_approved" || typeId === "leave_request_rejected") {
-    if (typeof payload.userEmail === "string" && payload.userEmail) {
+    if (isEmailString(payload.userEmail)) {
+      logger.info("Queued email recipient counts", {
+        typeId,
+        unitId,
+        userCount: 1,
+      });
       return [payload.userEmail];
     }
-    if (typeof payload.email === "string" && payload.email) {
+    if (isEmailString(payload.email)) {
+      logger.info("Queued email recipient counts", {
+        typeId,
+        unitId,
+        userCount: 1,
+      });
       return [payload.email];
     }
     return [];
   }
 
   if (typeId === "register_welcome") {
-    if (typeof payload.email === "string" && payload.email) {
+    if (isEmailString(payload.email)) {
+      logger.info("Queued email recipient counts", {
+        typeId,
+        unitId,
+        userCount: 1,
+      });
       return [payload.email];
     }
     return [];
@@ -3739,15 +4044,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
       return;
     }
     const template = queuedEmailTemplates[typeId];
-
-    if (!template) {
-      logger.error("No template found for queued email", { typeId, emailId });
-      await ref.update({
-        status: "error",
-        errorMessage: `No template for typeId ${typeId}`,
-      });
-      return;
-    }
+    const payloadData = payload as Record<string, any>;
 
     const allowed = await shouldSendEmail(typeId, unitId);
     if (!allowed) {
@@ -3760,14 +4057,20 @@ export const onQueuedEmailCreated = onDocumentCreated(
     }
 
     try {
-      const recipients = await resolveQueuedEmailRecipients(typeId, unitId, payload);
+      const recipients = await resolveQueuedEmailRecipients(typeId, unitId, payloadData);
 
       if (!recipients.length) {
         throw new Error("No recipients resolved for queued email");
       }
 
-      const subject = renderTemplate(template.subject, payload);
-      const html = renderTemplate(template.html, payload);
+      logger.info("Queued email recipients resolved", {
+        typeId,
+        emailId,
+        count: recipients.length,
+      });
+
+      const subject = renderTemplate(template.subject, payloadData);
+      const html = renderTemplate(template.html, payloadData);
 
       await sendEmail({
         typeId,
@@ -3775,7 +4078,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
         to: recipients,
         subject,
         html,
-        payload,
+        payload: payloadData,
       });
 
       await ref.update({

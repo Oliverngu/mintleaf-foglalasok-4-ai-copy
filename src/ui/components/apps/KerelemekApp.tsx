@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Request, User, Unit } from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
-import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot, addDoc } from 'firebase/firestore';
+import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot } from 'firebase/firestore';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
+import { enqueueQueuedEmail } from '../../../core/services/emailQueueService';
 
 interface KerelemekAppProps {
   requests: Request[];
@@ -270,20 +271,14 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
           )
           .join('');
 
-        await addDoc(collection(db, 'email_queue'), {
-          typeId: 'leave_request_created',
-          unitId: unitIdForRequest || null,
-          payload: {
-            userName: currentUser.fullName,
-            userEmail: currentUser.email,
-            unitName: allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység',
-            dateRanges: dateRangesHtml,
-            note: note || 'Nincs megjegyzés.',
-            createdAt: new Date().toLocaleString('hu-HU'),
-            adminEmails: legacyAdminEmails,
-          },
-          createdAt: serverTimestamp(),
-          status: 'pending',
+        await enqueueQueuedEmail('leave_request_created', unitIdForRequest || null, {
+          userName: currentUser.fullName,
+          userEmail: currentUser.email,
+          unitName: allUnits.find(u => u.id === unitIdForRequest)?.name || 'Ismeretlen egység',
+          dateRanges: dateRangesHtml,
+          note: note || 'Nincs megjegyzés.',
+          createdAt: new Date().toLocaleString('hu-HU'),
+          adminEmails: legacyAdminEmails,
         });
 
     } catch (err) {
@@ -309,18 +304,12 @@ export const KerelemekApp: React.FC<KerelemekAppProps> = ({ requests, loading, e
         const requestUser = allUsers.find(u => u.id === request.userId);
         if (requestUser && requestUser.email) {
           const typeId = status === 'approved' ? 'leave_request_approved' : 'leave_request_rejected';
-          await addDoc(collection(db, 'email_queue'), {
-            typeId,
-            unitId: request.unitId || null,
-            payload: {
-              firstName: requestUser.firstName,
-              approverName: currentUser.fullName,
-              startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
-              endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
-              userEmail: requestUser.email,
-            },
-            createdAt: serverTimestamp(),
-            status: 'pending',
+          await enqueueQueuedEmail(typeId, request.unitId || null, {
+            firstName: requestUser.firstName,
+            approverName: currentUser.fullName,
+            startDate: request.startDate.toDate().toLocaleDateString('hu-HU'),
+            endDate: request.endDate.toDate().toLocaleDateString('hu-HU'),
+            userEmail: requestUser.email,
           });
         }
     } catch (err) {

@@ -25,7 +25,6 @@ import {
   orderBy,
   writeBatch,
   updateDoc,
-  addDoc,
   deleteDoc,
   setDoc,
   query,
@@ -38,6 +37,7 @@ import PlusIcon from '../../../../components/icons/PlusIcon';
 import DownloadIcon from '../../../../components/icons/DownloadIcon';
 import { generateExcelExport } from './ExportModal';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
+import { enqueueQueuedEmail } from '../../../core/services/emailQueueService';
 import html2canvas from 'html2canvas';
 import ColorPicker from '../common/ColorPicker';
 import ImageIcon from '../../../../components/icons/ImageIcon';
@@ -3155,18 +3155,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const publicScheduleUrl = window.location?.href || '';
 
       if (recipients.length > 0) {
-        await addDoc(collection(db, 'email_queue'), {
-          typeId: 'schedule_published',
-          unitId,
-          payload: {
-            unitName,
-            weekLabel,
-            url: publicScheduleUrl,
-            editorName: currentUser.fullName,
-            recipients
-          },
-          createdAt: serverTimestamp(),
-          status: 'pending'
+        await enqueueQueuedEmail('schedule_published', unitId, {
+          unitName,
+          weekLabel,
+          url: publicScheduleUrl,
+          editorName: currentUser.fullName,
+          recipients
         });
       }
     }
