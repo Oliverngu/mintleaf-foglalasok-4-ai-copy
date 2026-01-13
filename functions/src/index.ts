@@ -9,6 +9,8 @@ import {
   computeAllocationDecisionForBooking,
   writeAllocationDecisionLogForBooking,
 } from "./allocation";
+import { decideAllocation } from "./reservations/allocationEngine";
+import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -1461,11 +1463,23 @@ export const guestCreateReservation = onRequest(
             ? settings.dailyCapacity
             : undefined;
         const limit = limitFromDoc ?? limitFromSettings;
-        const nextCount = currentCount + headcount;
 
-        if (typeof limit === 'number' && nextCount > limit) {
-          throw new Error('CAPACITY_FULL');
+        const allocationDecision = decideAllocation({
+          unitId,
+          dateKey: effectiveDateKey,
+          startTime,
+          endTime,
+          partySize: headcount,
+          capacitySnapshot: { currentCount, limit },
+          settings: { bookableWindow: settings.bookableWindow ?? null },
+          overrides: null,
+        });
+
+        if (allocationDecision.decision.status !== 'accepted') {
+          return { bookingId: null, allocationDecision };
         }
+
+        const nextCount = allocationDecision.capacityEffects.nextTotal;
 
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
@@ -1588,8 +1602,25 @@ export const guestCreateReservation = onRequest(
           message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
         });
 
-        return { bookingId: referenceCode };
+        return { bookingId: referenceCode, allocationDecision };
       });
+
+      const allocationDecision = createResult.allocationDecision;
+      const auditLog = {
+        ...allocationDecision.auditLog,
+        reservationId: createResult.bookingId ?? null,
+        traceId: createResult.bookingId ?? allocationDecision.auditLog.traceId,
+      };
+      await writeAllocationAuditLog(db, auditLog);
+
+      if (allocationDecision.decision.status !== 'accepted') {
+        if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
+          res.status(409).json({ error: 'capacity_full' });
+          return;
+        }
+        res.status(400).json({ error: 'reservation_not_available' });
+        return;
+      }
 
       const bookingForEmail: BookingRecord = {
         unitId,
