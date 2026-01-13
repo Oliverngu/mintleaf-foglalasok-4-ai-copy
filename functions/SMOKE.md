@@ -22,3 +22,4 @@ Notes:
 - The script fails fast if `FIRESTORE_EMULATOR_HOST` is not set.
 - You can override the Functions emulator host with `FUNCTIONS_EMULATOR_HOST`.
 - Project id can be set via `PROJECT_ID`, `FIREBASE_PROJECT_ID`, or `GCLOUD_PROJECT`.
+- The script selects a start time two hours in the future and clamps it into the `bookableWindow`.
