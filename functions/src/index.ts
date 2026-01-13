@@ -4055,6 +4055,17 @@ const toMillis = (value: EmailQueueTimestamp | null | undefined): number | null 
   return Number.isFinite(numeric) ? numeric : null;
 };
 
+const asFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
 const toMillisStrict = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.getTime();
@@ -4070,22 +4081,25 @@ const toMillisStrict = (value: unknown): number | null => {
   const anyValue = value as any;
   if (typeof anyValue?.toMillis === "function") return anyValue.toMillis();
   if (typeof anyValue?.toDate === "function") return anyValue.toDate().getTime();
+
+  const wrappedTimestamp = typeof anyValue?.timestampValue === "string"
+    ? anyValue.timestampValue
+    : null;
+  if (wrappedTimestamp) {
+    const parsed = Date.parse(wrappedTimestamp);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
   const seconds =
-    typeof anyValue?.seconds === "number"
-      ? anyValue.seconds
-      : typeof anyValue?._seconds === "number"
-      ? anyValue._seconds
-      : null;
+    asFiniteNumber(anyValue?.seconds) ??
+    asFiniteNumber(anyValue?._seconds);
   const nanos =
-    typeof anyValue?.nanoseconds === "number"
-      ? anyValue.nanoseconds
-      : typeof anyValue?.nanos === "number"
-      ? anyValue.nanos
-      : typeof anyValue?._nanoseconds === "number"
-      ? anyValue._nanoseconds
-      : null;
+    asFiniteNumber(anyValue?.nanoseconds) ??
+    asFiniteNumber(anyValue?.nanos) ??
+    asFiniteNumber(anyValue?._nanoseconds);
   if (seconds !== null) {
-    const millis = seconds * 1000 + (nanos ? nanos / 1_000_000 : 0);
+    const nanosValue = nanos !== null ? nanos : 0;
+    const millis = seconds * 1000 + nanosValue / 1_000_000;
     return Number.isFinite(millis) ? millis : null;
   }
   return null;
@@ -4313,6 +4327,7 @@ const processQueuedEmail = async (params: {
       typeId: effectiveTypeId,
       unitId: effectiveUnitId,
       nextAttemptAtMs: nextAttemptMs,
+      stage: "processEarly",
     });
     await clearEmailQueueLockIfOwner(ref, processingBy);
     return;
@@ -4386,6 +4401,7 @@ const processQueuedEmail = async (params: {
         typeId: effectiveTypeId,
         unitId: effectiveUnitId,
         nextAttemptAtMs: nextAttemptMs,
+        stage: "preSend",
       });
       await clearEmailQueueLockIfOwner(ref, processingBy);
       return;
@@ -4456,6 +4472,7 @@ export const onQueuedEmailCreated = onDocumentCreated(
         typeId: createdTypeId,
         unitId: createdUnitId,
         nextAttemptAtMs: toMillisStrict(createdNextAttemptAt),
+        stage: "onCreated",
       });
       return;
     }
