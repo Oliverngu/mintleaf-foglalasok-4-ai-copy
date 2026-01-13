@@ -13,6 +13,7 @@ import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
 import { computeCapacityMutationPlan } from "./reservations/capacityDelta";
+import { applyCapacityLedgerTx, countsTowardCapacity } from "./reservations/capacityLedgerService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -567,29 +568,24 @@ export const guestUpdateReservation = onRequest(
             return { alreadyCancelled: true };
           }
 
-          if (latest.startTime && latest.headcount > 0) {
-            const startDate = latest.startTime.toDate();
-            const dateKey = toDateKey(startDate);
-            const capacityRef = db
-              .collection('units')
-              .doc(unitId)
-              .collection('reservation_capacity')
-              .doc(dateKey);
-            const capacitySnap = await transaction.get(capacityRef);
-            const currentCount = capacitySnap.exists
-              ? (capacitySnap.data()?.count as number) || 0
-              : 0;
-            const nextCount = Math.max(0, currentCount - (latest.headcount || 0));
-            transaction.set(
-              capacityRef,
-              {
-                date: dateKey,
-                count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-          }
+          const startDate = latest.startTime?.toDate
+            ? latest.startTime.toDate()
+            : latest.startTime instanceof Date
+            ? latest.startTime
+            : null;
+          const dateKey = startDate ? toDateKey(startDate) : toDateKey(new Date());
+
+          await applyCapacityLedgerTx({
+            transaction,
+            db,
+            unitId,
+            reservationRef: docRef,
+            reservationData: latest,
+            nextStatus: 'cancelled',
+            nextDateKey: dateKey,
+            nextHeadcount: Number(latest.headcount || 0),
+            mutationTraceId: `guest-cancel-${docRef.id}`,
+          });
 
           transaction.update(docRef, {
             status: 'cancelled',
@@ -1091,6 +1087,14 @@ export const guestModifyReservation = onRequest(
           return { rejected: true, allocationDecision };
         }
 
+        const currentLedger = (latest.capacityLedger || {}) as {
+          applied?: boolean;
+          appliedAt?: Timestamp | null;
+        };
+        const ledgerAppliedAt =
+          currentLedger.appliedAt ?? (currentLedger.applied ? FieldValue.serverTimestamp() : null);
+        const ledgerCountsCapacity = countsTowardCapacity(latest.status || 'pending');
+
         const mutations = computeCapacityMutationPlan({
           oldKey: currentDateKey,
           newKey: nextDateKey,
@@ -1236,6 +1240,13 @@ export const guestModifyReservation = onRequest(
           allocationTraceId: allocationDecision.auditLog.traceId,
           allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
           allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
+          capacityLedger: {
+            applied: ledgerCountsCapacity,
+            key: ledgerCountsCapacity ? nextDateKey : null,
+            count: ledgerCountsCapacity ? parsedHeadcount : null,
+            appliedAt: ledgerCountsCapacity ? ledgerAppliedAt : null,
+            lastMutationTraceId: allocationDecision.auditLog.traceId,
+          },
           modifiedAt: FieldValue.serverTimestamp(),
           modifiedFields,
           modifiedBy: 'guest',
@@ -1547,6 +1558,7 @@ export const guestCreateReservation = onRequest(
         const reservationRef = reservationsRef.doc();
         const referenceCode = reservationRef.id;
         const allocationTraceId = allocationDecision.auditLog.traceId;
+        const countsCapacity = countsTowardCapacity(status);
 
         const allocationIntentData = {
           ...allocationIntent,
@@ -1586,6 +1598,13 @@ export const guestCreateReservation = onRequest(
           allocationTraceId,
           allocationCapacityBefore: allocationDecision.auditLog.capacityBefore,
           allocationCapacityAfter: allocationDecision.auditLog.capacityAfter ?? null,
+          capacityLedger: {
+            applied: countsCapacity,
+            key: countsCapacity ? effectiveDateKey : null,
+            count: countsCapacity ? headcount : null,
+            appliedAt: countsCapacity ? FieldValue.serverTimestamp() : null,
+            lastMutationTraceId: allocationTraceId,
+          },
           contact: {
             phoneE164: reservation.contact?.phoneE164 || '',
             email: String(reservation.contact?.email || '').toLowerCase(),
@@ -1990,7 +2009,26 @@ export const adminHandleReservationAction = onRequest(
           throw new Error('NOT_FOUND');
         }
 
+        const bookingStart = booking.startTime?.toDate
+          ? booking.startTime.toDate()
+          : booking.startTime instanceof Date
+          ? booking.startTime
+          : null;
+        const bookingDateKey = bookingStart ? toDateKey(bookingStart) : toDateKey(new Date());
+
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
+        await applyCapacityLedgerTx({
+          transaction,
+          db,
+          unitId,
+          reservationRef: docRef,
+          reservationData: booking,
+          nextStatus: status,
+          nextDateKey: bookingDateKey,
+          nextHeadcount: Number(booking.headcount || 0),
+          mutationTraceId: `admin-action-${docRef.id}-${status}`,
+        });
+
         const update: Record<string, any> = {
           status,
           adminActionUsedAt: FieldValue.serverTimestamp(),
@@ -5324,25 +5362,22 @@ export const onReservationStatusChange = onDocumentUpdated(
                 ? after.startTime
                 : new Date(after.startTime as any);
             const dateKey = toDateKey(startDate);
-            const capacityRef = db
+            const reservationRef = db
               .collection('units')
               .doc(unitId)
-              .collection('reservation_capacity')
-              .doc(dateKey);
-            const capacitySnap = await transaction.get(capacityRef);
-            const currentCount = capacitySnap.exists
-              ? (capacitySnap.data()?.count as number) || 0
-              : 0;
-            const nextCount = Math.max(0, currentCount - (after.headcount || 0));
-            transaction.set(
-              capacityRef,
-              {
-                date: dateKey,
-                count: nextCount,
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
+              .collection('reservations')
+              .doc(bookingId);
+            await applyCapacityLedgerTx({
+              transaction,
+              db,
+              unitId,
+              reservationRef,
+              reservationData: after as Record<string, any>,
+              nextStatus: 'cancelled',
+              nextDateKey: dateKey,
+              nextHeadcount: Number(after.headcount || 0),
+              mutationTraceId: `admin-cancel-${bookingId}`,
+            });
           })
           .catch(err =>
             logger.error("Failed to adjust capacity after admin cancel", { unitId, err })
