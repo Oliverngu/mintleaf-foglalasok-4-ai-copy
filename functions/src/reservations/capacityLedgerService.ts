@@ -4,8 +4,11 @@ import { computeCapacityMutationPlan } from './capacityDelta';
 import {
   applyCapacityDelta,
   normalizeCapacityDoc,
+  normalizeCapacityForWrite,
   slotKeyFromReservation,
 } from './capacityDocContract';
+import { CAPACITY_INVARIANT_REASONS } from './capacityInvariantReasons';
+import type { CapacityInvariantReason } from './capacityInvariantReasons';
 
 export type CapacityLedger = {
   applied?: boolean;
@@ -13,6 +16,77 @@ export type CapacityLedger = {
   count?: number | null;
   appliedAt?: Timestamp | null;
   lastMutationTraceId?: string | null;
+};
+
+const warnedCapacityInvariantKeys = new Set<string>();
+const warnedCapacityReplayKeys = new Set<string>();
+
+export const shouldWarnCapacityInvariant = ({
+  reasons,
+  prevHadSlots,
+  unitId,
+  dateKey,
+  mutationTraceId,
+}: {
+  reasons: CapacityInvariantReason[];
+  prevHadSlots: boolean;
+  unitId: string;
+  dateKey: string;
+  mutationTraceId?: string | null;
+}) => {
+  if (reasons.length === 0) return false;
+  const severe = reasons.includes(CAPACITY_INVARIANT_REASONS.totalCountInvalid);
+  if (!prevHadSlots && !severe) return false;
+  const key = `${unitId}/${dateKey}/${mutationTraceId ?? 'no-trace'}`;
+  if (warnedCapacityInvariantKeys.has(key)) return false;
+  warnedCapacityInvariantKeys.add(key);
+  return true;
+};
+
+export const isLedgerReplay = ({
+  ledger,
+  desiredIncluded,
+  desiredKey,
+  desiredCount,
+  mutationTraceId,
+}: {
+  ledger: CapacityLedger;
+  desiredIncluded: boolean;
+  desiredKey: string;
+  desiredCount: number;
+  mutationTraceId?: string | null;
+}) => {
+  if (!mutationTraceId) return false;
+  if (ledger.lastMutationTraceId !== mutationTraceId) return false;
+  if (ledger.applied !== desiredIncluded) return false;
+  if (desiredIncluded) {
+    return ledger.key === desiredKey && ledger.count === desiredCount;
+  }
+  return ledger.key == null && ledger.count == null;
+};
+
+export const shouldSkipCapacityMutation = ({
+  mutationTraceId,
+  capacityTraceId,
+}: {
+  mutationTraceId?: string | null;
+  capacityTraceId?: string | null;
+}) => Boolean(mutationTraceId && capacityTraceId && mutationTraceId === capacityTraceId);
+
+const shouldWarnCapacityReplay = ({
+  unitId,
+  reservationId,
+  mutationTraceId,
+}: {
+  unitId: string;
+  reservationId: string;
+  mutationTraceId?: string | null;
+}) => {
+  if (!mutationTraceId) return false;
+  const key = `${unitId}/${reservationId}/${mutationTraceId}`;
+  if (warnedCapacityReplayKeys.has(key)) return false;
+  warnedCapacityReplayKeys.add(key);
+  return true;
 };
 
 export const toDateKeyLocal = (date: Date) => {
@@ -101,6 +175,32 @@ export const applyCapacityLedgerTx = async ({
   const desiredKey = nextDateKey;
   const desiredCount = nextHeadcount;
 
+  if (
+    isLedgerReplay({
+      ledger,
+      desiredIncluded,
+      desiredKey,
+      desiredCount,
+      mutationTraceId,
+    })
+  ) {
+    if (
+      shouldWarnCapacityReplay({
+        unitId,
+        reservationId: reservationRef.id,
+        mutationTraceId,
+      })
+    ) {
+      console.warn(
+        `[capacity-replay] unitId=${unitId} reservationId=${reservationRef.id} ` +
+          `traceId=${mutationTraceId} desiredKey=${desiredKey} desiredCount=${desiredCount} ` +
+          `desiredIncluded=${desiredIncluded} ledgerKey=${ledger.key ?? 'null'} ` +
+          `ledgerCount=${ledger.count ?? 'null'} ledgerApplied=${ledger.applied ?? 'null'}`
+      );
+    }
+    return;
+  }
+
   const mutations = computeCapacityMutationPlan({
     oldKey: currentKey,
     newKey: desiredKey,
@@ -121,35 +221,52 @@ export const applyCapacityLedgerTx = async ({
       .collection('reservation_capacity')
       .doc(mutation.key);
     const capacitySnap = await transaction.get(capacityRef);
-    const prevDoc = normalizeCapacityDoc(capacitySnap.exists ? capacitySnap.data() || {} : {});
+    const capacityData = capacitySnap.exists ? capacitySnap.data() || {} : {};
+    if (
+      shouldSkipCapacityMutation({
+        mutationTraceId,
+        capacityTraceId: (capacityData.lastMutationTraceId as string | null | undefined) ?? null,
+      })
+    ) {
+      continue;
+    }
+    const prevDoc = normalizeCapacityDoc(capacityData);
     const nextDoc = applyCapacityDelta(prevDoc, {
       totalDelta: mutation.totalDelta,
       slotDeltas: mutation.slotDeltas,
     });
+    const normalized = normalizeCapacityForWrite(nextDoc);
     const update: Record<string, unknown> = {
       date: mutation.key,
-      totalCount: nextDoc.totalCount,
+      totalCount: normalized.payload.totalCount,
       updatedAt: FieldValue.serverTimestamp(),
+      count: normalized.payload.count ?? normalized.payload.totalCount,
     };
-    update.count = nextDoc.totalCount;
+    if (mutationTraceId) {
+      update.lastMutationTraceId = mutationTraceId;
+    }
     const prevHadSlots = !!prevDoc.byTimeSlot;
-    if (nextDoc.totalCount === 0) {
-      if (prevHadSlots) {
-        update.byTimeSlot = FieldValue.delete();
-      }
-    } else if (nextDoc.byTimeSlot) {
-      const slotValues = Object.values(nextDoc.byTimeSlot);
-      const slotsValid = slotValues.every(
-        value => typeof value === 'number' && Number.isFinite(value) && value >= 0
-      );
-      const slotSum = slotValues.reduce((acc, value) => acc + value, 0);
-      if (slotsValid && slotSum === nextDoc.totalCount) {
-        update.byTimeSlot = nextDoc.byTimeSlot;
-      } else if (prevHadSlots) {
-        update.byTimeSlot = FieldValue.delete();
-      }
-    } else if (prevHadSlots) {
+    if (normalized.payload.byTimeSlot) {
+      update.byTimeSlot = normalized.payload.byTimeSlot;
+    } else if (normalized.deletesByTimeSlot && prevHadSlots) {
       update.byTimeSlot = FieldValue.delete();
+    }
+    if (
+      shouldWarnCapacityInvariant({
+        reasons: normalized.reasons,
+        prevHadSlots,
+        unitId,
+        dateKey: mutation.key,
+        mutationTraceId,
+      })
+    ) {
+      const slotKeys = mutation.slotDeltas ? Object.keys(mutation.slotDeltas) : [];
+      const slotKey = slotKeys.length === 1 ? slotKeys[0] : null;
+      const slotInfo = slotKey ? ` slotKey=${slotKey}` : '';
+      console.warn(
+        `[capacity-invariant] unitId=${unitId} dateKey=${mutation.key}${slotInfo} ` +
+          `reasons=${JSON.stringify(normalized.reasons)}`
+      );
     }
     transaction.set(capacityRef, update, { merge: true });
   }

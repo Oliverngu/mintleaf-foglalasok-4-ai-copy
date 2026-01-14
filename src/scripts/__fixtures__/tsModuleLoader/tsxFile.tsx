@@ -1,0 +1,1 @@
+export const tsxFile = <div />;
