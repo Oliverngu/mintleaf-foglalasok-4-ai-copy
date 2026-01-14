@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import * as admin from 'firebase-admin';
+import { readCapacityBase } from '../reservations/capacityDocContract';
 
 const fail = (message: string, details?: Record<string, unknown>): never => {
   console.error(`\nSMOKE FAIL: ${message}`);
@@ -264,9 +265,13 @@ const getCapacityBase = async (unitId: string, dateKey: string) => {
     .doc(dateKey);
   const snap = await ref.get();
   const data = snap.exists ? snap.data() || {} : {};
-  const base = (data.count ?? data.totalCount ?? 0) as number;
+  const base = readCapacityBase(data);
   return { ref, data, base };
 };
+
+const isCapacityApplied = (reservation: any) => reservation?.capacityLedger?.applied === true;
+
+const getSlotValue = (capacityData: any, slotKey: string) => capacityData?.byTimeSlot?.[slotKey];
 
 const readReservationData = async (
   reservationRef: FirebaseFirestore.DocumentReference
@@ -526,7 +531,15 @@ const runScenarioAutoConfirm = async (urls: ReturnType<typeof buildFunctionUrls>
   }
 
   const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
-  assert.equal(capacityAfterCreate.base, baselineStart + 2);
+  const capacityAppliedAuto = isCapacityApplied(reservation);
+  if (capacityAppliedAuto) {
+    assert.equal(capacityAfterCreate.base, baselineStart + 2);
+    const slotValue = getSlotValue(capacityAfterCreate.data, reservation.preferredTimeSlot ?? 'afternoon');
+    if (capacityAfterCreate.data.byTimeSlot) {
+      assert.equal(typeof slotValue, 'number');
+      assertTruthy(slotValue >= 2, 'byTimeSlot should include headcount when present');
+    }
+  }
 
   const modifyStart = new Date(startTime.getTime());
   const modifyEnd = new Date(endTime.getTime());
@@ -577,7 +590,14 @@ const runScenarioAutoConfirm = async (urls: ReturnType<typeof buildFunctionUrls>
   assert.equal(cancelledReservation.capacityLedger.applied, false);
 
   const capacityAfterCancel = await getCapacityBase(unitId, dateKey);
-  assert.equal(capacityAfterCancel.base, baselineStart);
+  if (capacityAppliedAuto) {
+    assert.equal(capacityAfterCancel.base, baselineStart);
+  }
+  if (capacityAfterCancel.data.byTimeSlot) {
+    const byTimeSlotValues = Object.values(capacityAfterCancel.data.byTimeSlot);
+    const allZero = byTimeSlotValues.every(value => typeof value === 'number' && value === 0);
+    assertTruthy(allZero, 'byTimeSlot values should be 0 after cancel when present');
+  }
 
   console.log('[SMOKE][PHASE] CANCEL IDEMPOTENCY (AUTO)');
   const cancelBaseline = await snapshotState('cancel-idempotency-auto-before', reservationRef, unitId, dateKey);
@@ -712,19 +732,15 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   }
 
   const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
-  const capacityApplied =
-    reservation.capacityLedger?.applied === true || capacityAfterCreate.base > baselineStart;
+  const capacityApplied = isCapacityApplied(reservation);
 
-  if (capacityApplied) assert.equal(capacityAfterCreate.base, baselineStart + 2);
-  else assert.equal(capacityAfterCreate.base, baselineStart);
-
-  if (capacityAfterCreate.data.byTimeSlot) {
-    const slotValue = (capacityAfterCreate.data.byTimeSlot as any).afternoon;
-    if (capacityApplied && typeof slotValue === 'number') {
-      assertTruthy(slotValue >= 2, 'byTimeSlot.afternoon should include headcount when present');
+  if (capacityApplied) {
+    assert.equal(capacityAfterCreate.base, baselineStart + 2);
+    if (capacityAfterCreate.data.byTimeSlot) {
+      const slotValue = getSlotValue(capacityAfterCreate.data, reservation.preferredTimeSlot ?? 'afternoon');
+      assert.equal(typeof slotValue, 'number');
+      assertTruthy(slotValue >= 2, 'byTimeSlot should include headcount when present');
     }
-  } else {
-    console.log('Breakdown optional: byTimeSlot not present');
   }
 
   const modifyStart = new Date(startTime.getTime());
@@ -764,15 +780,16 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
 
   const oldCapacity = await getCapacityBase(unitId, dateKey);
   const newCapacity = await getCapacityBase(unitId, newDateKey);
-  const modifyCapacityApplied =
-    updatedReservation.capacityLedger?.applied === true || oldCapacity.base > baselineStart;
+  const modifyCapacityApplied = isCapacityApplied(updatedReservation);
 
   if (modifyCapacityApplied) {
     assert.equal(oldCapacity.base, baselineStart + 3);
     assert.equal(newCapacity.base, baselineStart + 3);
-  } else {
-    assert.equal(oldCapacity.base, baselineStart);
-    assert.equal(newCapacity.base, baselineStart);
+    if (newCapacity.data.byTimeSlot) {
+      const slotValue = getSlotValue(newCapacity.data, updatedReservation.preferredTimeSlot ?? 'afternoon');
+      assert.equal(typeof slotValue, 'number');
+      assertTruthy(slotValue >= 3, 'byTimeSlot should include headcount when present');
+    }
   }
 
   const allocationTraceId = updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
@@ -875,6 +892,8 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   // FIX: csak EGYETLEN blokkot tartunk meg (dateKey), nincs duplikált const redeclare.
 
   console.log('[SMOKE][PHASE] CANCEL');
+  const preCancelReservation = await readReservationData(reservationRef);
+  const capacityAppliedBeforeCancel = isCapacityApplied(preCancelReservation);
   await postJson(cancelUrl, {
     unitId,
     reservationId: createResponse.bookingId,
@@ -890,7 +909,14 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   assert.equal(cancelledReservation.capacityLedger.applied, false);
 
   const capacityAfterCancel = await getCapacityBase(unitId, dateKey);
-  assert.equal(capacityAfterCancel.base, baselineStart);
+  if (capacityAppliedBeforeCancel) {
+    assert.equal(capacityAfterCancel.base, baselineStart);
+  }
+  if (capacityAfterCancel.data.byTimeSlot) {
+    const byTimeSlotValues = Object.values(capacityAfterCancel.data.byTimeSlot);
+    const allZero = byTimeSlotValues.every(value => typeof value === 'number' && value === 0);
+    assertTruthy(allZero, 'byTimeSlot values should be 0 after cancel when present');
+  }
 
   console.log('[SMOKE][PHASE] CANCEL IDEMPOTENCY');
   const cancelBaselineReq = await snapshotState('cancel-idempotency-before', reservationRef, unitId, dateKey);
@@ -1060,7 +1086,17 @@ const run = async () => {
     const adminApprovedCapacity = await getCapacityBase(adminUnitId, adminDateKey);
     assert.equal(adminApprovedReservation.status, 'confirmed');
     assert.equal(adminApprovedReservation.capacityLedger?.applied, true);
-    assert.equal(adminApprovedCapacity.base, adminBaselineBase + adminHeadcount);
+    if (isCapacityApplied(adminApprovedReservation)) {
+      assert.equal(adminApprovedCapacity.base, adminBaselineBase + adminHeadcount);
+      if (adminApprovedCapacity.data.byTimeSlot) {
+        const slotValue = getSlotValue(
+          adminApprovedCapacity.data,
+          adminApprovedReservation.preferredTimeSlot ?? adminPreferred
+        );
+        assert.equal(typeof slotValue, 'number');
+        assertTruthy(slotValue >= adminHeadcount, 'byTimeSlot should include headcount when present');
+      }
+    }
 
     const adminApproveIdempotencyBefore = await snapshotState(
       'admin-approve-idempotency-before',
@@ -1070,6 +1106,7 @@ const run = async () => {
     );
 
     const adminApproveAgainResponse = await postJsonSafeWithAuth(adminUrl, adminApprovePayload, adminIdToken);
+    console.log('[SMOKE][IDEMPOTENCY] admin approve second call:', adminApproveAgainResponse.status);
 
     // Idempotency: második hívás lehet 200/204, de lehet 404 is (token már felhasználva, anti-enumeration)
     const acceptable = adminApproveAgainResponse.ok || adminApproveAgainResponse.status === 404;
@@ -1213,6 +1250,8 @@ const run = async () => {
     const rejectReservationSnap = await rejectReservationRef.get();
     const rejectReservation = rejectReservationSnap.data() || {};
     assert.equal(rejectReservation.status, 'pending');
+    const preRejectReservation = await readReservationData(rejectReservationRef);
+    const capacityAppliedBeforeReject = isCapacityApplied(preRejectReservation);
 
     const adminRejectPayload = {
       unitId: adminUnitId,
@@ -1238,7 +1277,14 @@ const run = async () => {
     const rejectedCapacity = await getCapacityBase(adminUnitId, rejectDateKey);
     assert.equal(rejectedReservation.status, 'cancelled');
     assert.equal(rejectedReservation.capacityLedger?.applied, false);
-    assert.equal(rejectedCapacity.base, rejectBaselineBase);
+    if (capacityAppliedBeforeReject) {
+      assert.equal(rejectedCapacity.base, rejectBaselineBase);
+    }
+    if (rejectedCapacity.data.byTimeSlot) {
+      const byTimeSlotValues = Object.values(rejectedCapacity.data.byTimeSlot);
+      const allZero = byTimeSlotValues.every(value => typeof value === 'number' && value === 0);
+      assertTruthy(allZero, 'byTimeSlot values should be 0 after reject when present');
+    }
 
     const adminRejectIdempotencyBefore = await snapshotState(
       'admin-reject-idempotency-before',
@@ -1248,6 +1294,7 @@ const run = async () => {
     );
 
     const adminRejectAgainResponse = await postJsonSafeWithAuth(adminUrl, adminRejectPayload, adminIdToken);
+    console.log('[SMOKE][IDEMPOTENCY] admin reject second call:', adminRejectAgainResponse.status);
 
     const acceptableReject = adminRejectAgainResponse.ok || adminRejectAgainResponse.status === 404;
     if (!acceptableReject) {

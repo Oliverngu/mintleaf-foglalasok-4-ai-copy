@@ -11,7 +11,7 @@ test('same day increase headcount', () => {
     oldIncluded: true,
     newIncluded: true,
   });
-  assert.deepEqual(mutations, [{ key: '2025-01-01', delta: 2 }]);
+  assert.deepEqual(mutations, [{ key: '2025-01-01', totalDelta: 2 }]);
 });
 
 test('same day remove when no longer included', () => {
@@ -23,7 +23,7 @@ test('same day remove when no longer included', () => {
     oldIncluded: true,
     newIncluded: false,
   });
-  assert.deepEqual(mutations, [{ key: '2025-01-01', delta: -3 }]);
+  assert.deepEqual(mutations, [{ key: '2025-01-01', totalDelta: -3 }]);
 });
 
 test('same day add when newly included', () => {
@@ -35,7 +35,7 @@ test('same day add when newly included', () => {
     oldIncluded: false,
     newIncluded: true,
   });
-  assert.deepEqual(mutations, [{ key: '2025-01-01', delta: 2 }]);
+  assert.deepEqual(mutations, [{ key: '2025-01-01', totalDelta: 2 }]);
 });
 
 test('same day no-op when both excluded', () => {
@@ -60,8 +60,8 @@ test('move to different day when included', () => {
     newIncluded: true,
   });
   assert.deepEqual(mutations, [
-    { key: '2025-01-01', delta: -2 },
-    { key: '2025-01-02', delta: 3 },
+    { key: '2025-01-01', totalDelta: -2 },
+    { key: '2025-01-02', totalDelta: 3 },
   ]);
 });
 
@@ -74,7 +74,7 @@ test('move to different day remove only', () => {
     oldIncluded: true,
     newIncluded: false,
   });
-  assert.deepEqual(mutations, [{ key: '2025-01-01', delta: -4 }]);
+  assert.deepEqual(mutations, [{ key: '2025-01-01', totalDelta: -4 }]);
 });
 
 test('move to different day add only', () => {
@@ -86,7 +86,7 @@ test('move to different day add only', () => {
     oldIncluded: false,
     newIncluded: true,
   });
-  assert.deepEqual(mutations, [{ key: '2025-01-02', delta: 5 }]);
+  assert.deepEqual(mutations, [{ key: '2025-01-02', totalDelta: 5 }]);
 });
 
 test('move to different day no-op when excluded', () => {
@@ -99,4 +99,53 @@ test('move to different day no-op when excluded', () => {
     newIncluded: false,
   });
   assert.deepEqual(mutations, []);
+});
+
+test('includes slotKey for headcount mutations when provided', () => {
+  const mutations = computeCapacityMutationPlan({
+    oldKey: '2025-01-01',
+    newKey: '2025-01-01',
+    oldCount: 1,
+    newCount: 3,
+    oldIncluded: true,
+    newIncluded: true,
+    oldSlotKey: 'afternoon',
+    newSlotKey: 'afternoon',
+  });
+  assert.deepEqual(mutations, [
+    { key: '2025-01-01', totalDelta: 2, slotDeltas: { afternoon: 2 } },
+  ]);
+});
+
+test('same day slot change moves counts without changing total', () => {
+  const mutations = computeCapacityMutationPlan({
+    oldKey: '2025-01-01',
+    newKey: '2025-01-01',
+    oldCount: 2,
+    newCount: 2,
+    oldIncluded: true,
+    newIncluded: true,
+    oldSlotKey: 'afternoon',
+    newSlotKey: 'evening',
+  });
+  assert.deepEqual(mutations, [
+    { key: '2025-01-01', totalDelta: 0, slotDeltas: { afternoon: -2, evening: 2 } },
+  ]);
+});
+
+test('cross-day keeps slot deltas on each day', () => {
+  const mutations = computeCapacityMutationPlan({
+    oldKey: '2025-01-01',
+    newKey: '2025-01-02',
+    oldCount: 2,
+    newCount: 3,
+    oldIncluded: true,
+    newIncluded: true,
+    oldSlotKey: 'afternoon',
+    newSlotKey: 'evening',
+  });
+  assert.deepEqual(mutations, [
+    { key: '2025-01-01', totalDelta: -2, slotDeltas: { afternoon: -2 } },
+    { key: '2025-01-02', totalDelta: 3, slotDeltas: { evening: 3 } },
+  ]);
 });

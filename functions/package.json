@@ -10,13 +10,15 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "smoke:reservations": "node lib/smoke/reservations.smoke.js",
-    "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js"
+    "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js",
+    "test:unit": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "firebase-admin": "^12.5.0",
     "firebase-functions": "^6.2.0"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.8.2"
   }
 }
