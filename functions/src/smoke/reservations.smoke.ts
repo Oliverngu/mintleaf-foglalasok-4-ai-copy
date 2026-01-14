@@ -362,6 +362,23 @@ const assertStateUnchanged = (
   }
 };
 
+const preferredSlotFromDate = (d: Date): 'afternoon' | 'evening' => {
+  // EU/Budapest télen UTC+1 → a smoke úgyis ISO-t küld, backend meg jellemzően local slot-ot számol.
+  // Egyszerű, stabil szabály: 16:00 előtt afternoon, utána evening.
+  const hour = d.getHours();
+  return hour < 16 ? 'afternoon' : 'evening';
+};
+
+const withSafeReservationDefaults = (r: any) => ({
+  locale: 'hu',
+  occasion: '',
+  source: '',
+  customData: {},
+  seatingPreference: 'any',
+  contact: { email: r?.contact?.email ?? 'smoke-admin@example.com', phoneE164: r?.contact?.phoneE164 ?? '' },
+  ...r,
+});
+
 const runAdminNegativeCase = async (
   label: string,
   adminUrl: string,
