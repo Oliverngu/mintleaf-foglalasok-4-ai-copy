@@ -22,6 +22,20 @@ const usage = () => {
   );
 };
 
+const allowedFlags = new Set([
+  '--apply',
+  '--dry-run',
+  '--yes',
+  '--help',
+]);
+const allowedPrefixes = [
+  '--limit=',
+  '--unitId=',
+  '--from=',
+  '--to=',
+  '--projectId=',
+];
+
 const getArgValue = (flag: string) => {
   const match = process.argv.find(arg => arg.startsWith(`${flag}=`));
   return match ? match.split('=')[1] : undefined;
@@ -30,6 +44,18 @@ const getArgValue = (flag: string) => {
 const parseLimit = (value: string | undefined, fallback: number) => {
   const parsed = value ? Number(value) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const resolveProjectId = (argProjectId?: string) => {
+  if (argProjectId) return argProjectId;
+  const envProjectId =
+    process.env.PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.GCLOUD_PROJECT ||
+    undefined;
+  if (envProjectId) return envProjectId;
+  if (process.env.FIRESTORE_EMULATOR_HOST) return 'demo-mintleaf';
+  return undefined;
 };
 
 export const buildCapacityWrite = (rawDoc: unknown): CleanupPlan | null => {
@@ -49,6 +75,18 @@ export const buildCapacityWrite = (rawDoc: unknown): CleanupPlan | null => {
 };
 
 const main = async () => {
+  const unknownFlags = process.argv.filter(
+    arg =>
+      arg.startsWith('--') &&
+      !allowedFlags.has(arg) &&
+      !allowedPrefixes.some(prefix => arg.startsWith(prefix))
+  );
+  if (unknownFlags.length > 0) {
+    console.error(`[capacity-cleanup] unknown flags: ${unknownFlags.join(', ')}`);
+    usage();
+    process.exit(1);
+  }
+
   const apply = process.argv.includes('--apply');
   const dryRun = process.argv.includes('--dry-run') || !apply;
   const confirmed = process.argv.includes('--yes');
@@ -56,17 +94,14 @@ const main = async () => {
   const unitId = getArgValue('--unitId');
   const from = getArgValue('--from');
   const to = getArgValue('--to');
+  const argProjectId = getArgValue('--projectId');
 
   if (process.argv.includes('--help')) {
     usage();
     process.exit(0);
   }
 
-  const projectId =
-    process.env.PROJECT_ID ||
-    process.env.FIREBASE_PROJECT_ID ||
-    process.env.GCLOUD_PROJECT ||
-    undefined;
+  const projectId = resolveProjectId(argProjectId);
 
   console.log(
     `[capacity-cleanup] start mode=${dryRun ? 'dry-run' : 'apply'} ` +
@@ -118,6 +153,7 @@ const main = async () => {
   let batchesCommitted = 0;
   let batch: FirebaseFirestore.WriteBatch | null = null;
   let batchSize = 0;
+  let batchUnitId: string | null = null;
 
   const flushBatch = async () => {
     if (!batch || batchSize === 0) return;
@@ -127,10 +163,14 @@ const main = async () => {
     committedWrites += commits;
     batch = null;
     batchSize = 0;
+    batchUnitId = null;
   };
 
   for (const currentUnitId of unitIds) {
     if (remaining <= 0) break;
+    if (!dryRun) {
+      await flushBatch();
+    }
     let lastDocId: string | null = null;
     while (remaining > 0) {
       let query = db
@@ -173,9 +213,11 @@ const main = async () => {
           if (dryRun) {
             dryRunPlanned += 1;
           } else {
-            if (!batch) {
+            if (!batch || batchUnitId !== currentUnitId) {
+              await flushBatch();
               batch = db.batch();
               batchSize = 0;
+              batchUnitId = currentUnitId;
             }
             batch.set(docSnap.ref, payload, { merge: true });
             batchSize += 1;
@@ -213,7 +255,9 @@ const main = async () => {
   console.log('[capacity-cleanup] summary', summary);
 };
 
-main().catch(err => {
-  console.error('[capacity-cleanup] failed', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('[capacity-cleanup] failed', err);
+    process.exit(1);
+  });
+}
