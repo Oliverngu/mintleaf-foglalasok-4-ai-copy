@@ -30,7 +30,15 @@ export const normalizeCapacityDoc = (data: unknown): CapacityDoc => {
   const baseCount = readCapacityBase(record);
   const totalCount = Math.max(0, baseCount);
   const count = totalCount;
-  const byTimeSlot = normalizeByTimeSlot(record.byTimeSlot);
+  let byTimeSlot = normalizeByTimeSlot(record.byTimeSlot);
+  if (totalCount === 0) {
+    byTimeSlot = undefined;
+  } else if (byTimeSlot) {
+    const sum = Object.values(byTimeSlot).reduce((acc, value) => acc + value, 0);
+    if (sum !== totalCount) {
+      byTimeSlot = undefined;
+    }
+  }
   return {
     totalCount,
     count,
@@ -65,8 +73,12 @@ export const applyCapacityDelta = (
     }
   }
   if (nextByTimeSlot) {
-    const sum = Object.values(nextByTimeSlot).reduce((acc, value) => acc + value, 0);
-    if (sum === 0 || sum !== nextTotal) {
+    const slotValues = Object.values(nextByTimeSlot);
+    const slotsValid = slotValues.every(
+      value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    );
+    const sum = slotValues.reduce((acc, value) => acc + value, 0);
+    if (!slotsValid || sum === 0 || sum !== nextTotal) {
       nextByTimeSlot = undefined;
     }
   }

@@ -6,6 +6,7 @@ import {
   readCapacityBase,
   slotKeyFromReservation,
 } from './capacityDocContract';
+import { normalizeCapacitySnapshot } from './capacityCleanup';
 
 test('readCapacityBase prefers totalCount then count', () => {
   assert.equal(readCapacityBase({ totalCount: 5, count: 9 }), 5);
@@ -21,6 +22,24 @@ test('normalizeCapacityDoc hydrates totals and filters byTimeSlot', () => {
   assert.equal(normalized.totalCount, 2);
   assert.equal(normalized.count, 2);
   assert.deepEqual(normalized.byTimeSlot, { afternoon: 2, night: 0 });
+});
+
+test('normalizeCapacityDoc drops byTimeSlot when totalCount is zero', () => {
+  const normalized = normalizeCapacityDoc({
+    totalCount: 0,
+    byTimeSlot: { afternoon: 1 },
+  });
+  assert.equal(normalized.totalCount, 0);
+  assert.equal(normalized.byTimeSlot, undefined);
+});
+
+test('normalizeCapacityDoc drops byTimeSlot when sum mismatches total', () => {
+  const normalized = normalizeCapacityDoc({
+    totalCount: 3,
+    byTimeSlot: { afternoon: 1, evening: 1 },
+  });
+  assert.equal(normalized.totalCount, 3);
+  assert.equal(normalized.byTimeSlot, undefined);
 });
 
 test('normalizeCapacityDoc mirrors count to totalCount', () => {
@@ -83,8 +102,30 @@ test('applyCapacityDelta ignores zero and non-finite slot deltas', () => {
   assert.deepEqual(next.byTimeSlot, { afternoon: 2, evening: 2 });
 });
 
+test('normalizeCapacitySnapshot drops invalid slot breakdowns', () => {
+  const result = normalizeCapacitySnapshot({
+    totalCount: 2,
+    count: 2,
+    byTimeSlot: { afternoon: -1, evening: 1 },
+  });
+  assert.deepEqual(result.update, { totalCount: 2, count: 2, byTimeSlot: undefined });
+});
+
+test('normalizeCapacitySnapshot clears slots when totalCount is zero', () => {
+  const result = normalizeCapacitySnapshot({
+    totalCount: 0,
+    count: 0,
+    byTimeSlot: { afternoon: 1 },
+  });
+  assert.deepEqual(result.update, { totalCount: 0, count: 0, byTimeSlot: undefined });
+});
+
 test('slotKeyFromReservation prefers allocation intent then preferredTimeSlot', () => {
   assert.equal(slotKeyFromReservation({ allocationIntent: { timeSlot: 'evening' } }), 'evening');
   assert.equal(slotKeyFromReservation({ preferredTimeSlot: 'afternoon' }), 'afternoon');
+  assert.equal(
+    slotKeyFromReservation({ allocationIntent: { timeSlot: ' ' }, preferredTimeSlot: 'night' }),
+    'night'
+  );
   assert.equal(slotKeyFromReservation({}), '');
 });
