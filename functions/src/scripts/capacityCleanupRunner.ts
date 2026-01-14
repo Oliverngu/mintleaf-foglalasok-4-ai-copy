@@ -47,6 +47,16 @@ const main = async () => {
     process.env.GCLOUD_PROJECT ||
     undefined;
 
+  console.log(
+    `[capacity-cleanup] start mode=${dryRun ? 'dry-run' : 'apply'} ` +
+      `projectId=${projectId ?? 'null'} unitId=${unitId ?? 'all'} ` +
+      `from=${from ?? 'null'} to=${to ?? 'null'} limit=${limit}`
+  );
+  if (!dryRun && !projectId) {
+    console.error('[capacity-cleanup] missing projectId for apply mode');
+    process.exit(1);
+  }
+
   admin.initializeApp(projectId ? { projectId } : undefined);
   const db = admin.firestore();
 
