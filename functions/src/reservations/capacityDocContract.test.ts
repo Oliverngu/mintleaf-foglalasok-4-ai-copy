@@ -108,7 +108,10 @@ test('normalizeCapacitySnapshot drops invalid slot breakdowns', () => {
     count: 2,
     byTimeSlot: { afternoon: -1, evening: 1 },
   });
-  assert.deepEqual(result.update, { totalCount: 2, count: 2, byTimeSlot: undefined });
+  assert.deepEqual(result, {
+    update: { totalCount: 2, count: 2 },
+    deletes: ['byTimeSlot'],
+  });
 });
 
 test('normalizeCapacitySnapshot clears slots when totalCount is zero', () => {
@@ -117,7 +120,17 @@ test('normalizeCapacitySnapshot clears slots when totalCount is zero', () => {
     count: 0,
     byTimeSlot: { afternoon: 1 },
   });
-  assert.deepEqual(result.update, { totalCount: 0, count: 0, byTimeSlot: undefined });
+  assert.deepEqual(result, {
+    update: { totalCount: 0, count: 0 },
+    deletes: ['byTimeSlot'],
+  });
+});
+
+test('normalizeCapacitySnapshot omits update when no slot cleanup is needed', () => {
+  const unchanged = normalizeCapacitySnapshot({ totalCount: 2, count: 2 });
+  assert.deepEqual(unchanged, {});
+  const adjusted = normalizeCapacitySnapshot({ totalCount: 2, count: 1 });
+  assert.deepEqual(adjusted, { update: { totalCount: 2, count: 2 } });
 });
 
 test('slotKeyFromReservation prefers allocation intent then preferredTimeSlot', () => {

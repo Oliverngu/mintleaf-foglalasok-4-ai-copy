@@ -1,7 +1,11 @@
-import { FieldValue } from 'firebase-admin/firestore';
 import { normalizeCapacityDoc } from './capacityDocContract';
 
 type CapacityUpdate = Record<string, unknown>;
+
+export type CapacityCleanupResult = {
+  update?: CapacityUpdate;
+  deletes?: Array<'byTimeSlot'>;
+};
 
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -15,27 +19,20 @@ const toPlainByTimeSlot = (value: unknown): Record<string, number> | undefined =
   return Object.fromEntries(entries) as Record<string, number>;
 };
 
-const buildUpdate = (
-  normalized: ReturnType<typeof normalizeCapacityDoc>,
-  hadByTimeSlot: boolean
-): CapacityUpdate => {
+const buildUpdate = (normalized: ReturnType<typeof normalizeCapacityDoc>): CapacityUpdate => {
   const update: CapacityUpdate = {
     totalCount: normalized.totalCount,
     count: normalized.totalCount,
   };
   if (normalized.byTimeSlot) {
     update.byTimeSlot = normalized.byTimeSlot;
-  } else if (hadByTimeSlot) {
-    update.byTimeSlot = FieldValue.delete();
-  } else {
-    update.byTimeSlot = undefined;
   }
   return update;
 };
 
 export const normalizeCapacitySnapshot = (
   rawDoc: unknown
-): { update?: CapacityUpdate } => {
+): CapacityCleanupResult => {
   const normalized = normalizeCapacityDoc(rawDoc);
   const record = rawDoc && typeof rawDoc === 'object' ? (rawDoc as Record<string, unknown>) : {};
   const hadByTimeSlot = !!record.byTimeSlot;
@@ -43,7 +40,7 @@ export const normalizeCapacitySnapshot = (
   const rawCount = isNumber(record.count) ? record.count : undefined;
   const rawSlots = toPlainByTimeSlot(record.byTimeSlot);
 
-  const normalizedUpdate = buildUpdate(normalized, hadByTimeSlot);
+  const normalizedUpdate = buildUpdate(normalized);
 
   const rawSlotSum = rawSlots
     ? Object.values(rawSlots).reduce((acc, value) => acc + value, 0)
@@ -62,5 +59,10 @@ export const normalizeCapacitySnapshot = (
   if (!needsUpdate) {
     return {};
   }
-  return { update: normalizedUpdate };
+  const deletes: CapacityCleanupResult['deletes'] =
+    hadByTimeSlot && !normalized.byTimeSlot ? ['byTimeSlot'] : undefined;
+  return {
+    update: normalizedUpdate,
+    ...(deletes ? { deletes } : {}),
+  };
 };
