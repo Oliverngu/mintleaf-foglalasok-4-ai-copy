@@ -460,13 +460,9 @@ const clampToWindow = (date: Date, from: string, to: string) => {
   return clamped;
 };
 
-const run = async () => {
-  console.log('Starting reservation smoke test...');
-  const urls = buildFunctionUrls(FUNCTIONS_EMULATOR_HOST, PROJECT_ID, REGION);
-  logEnvAndUrls(urls);
-  await preflightFunctionsEmulator(urls);
-
-  const unitId = `smoke-unit-${Date.now()}`;
+const runScenarioAutoConfirm = async (urls: ReturnType<typeof buildFunctionUrls>) => {
+  console.log('[SMOKE][SCENARIO] AUTO-CONFIRM');
+  const unitId = `smoke-auto-unit-${Date.now()}`;
   const settingsRef = db.doc(`reservation_settings/${unitId}`);
   await settingsRef.set({
     reservationMode: 'auto',
@@ -475,7 +471,7 @@ const run = async () => {
     notificationEmails: [],
   });
 
-  const { createUrl, modifyUrl, cancelUrl, adminUrl } = urls;
+  const { createUrl, modifyUrl, cancelUrl } = urls;
 
   const rawStart = nextFutureSlot(new Date(), 2);
   const startTime = clampToWindow(rawStart, '10:00', '22:00');
@@ -483,7 +479,191 @@ const run = async () => {
   const dateKey = dateKeyFromDate(startTime);
   const { base: baselineStart } = await getCapacityBase(unitId, dateKey);
 
-  console.log('[SMOKE][PHASE] CREATE');
+  console.log('[SMOKE][PHASE] CREATE (AUTO)');
+  const createResponse = await postJson<{ bookingId: string; manageToken: string }>(createUrl, {
+    unitId,
+    reservation: {
+      name: 'Smoke Auto Confirm',
+      headcount: 2,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      preferredTimeSlot: 'afternoon',
+      seatingPreference: 'any',
+      contact: { email: 'smoke@example.com' },
+    },
+  });
+
+  assertTruthy(createResponse.bookingId, 'Expected bookingId from guestCreateReservation');
+  if (!createResponse.manageToken) {
+    fail('manageToken missing from guestCreateReservation response', {
+      responseKeys: Object.keys(createResponse),
+    });
+  }
+
+  const reservationRef = db
+    .collection('units')
+    .doc(unitId)
+    .collection('reservations')
+    .doc(createResponse.bookingId);
+
+  await delay(200);
+  const reservationSnap = await reservationRef.get();
+  assertTruthy(reservationSnap.exists, 'Reservation document missing after create');
+  const reservation = await readReservationData(reservationRef);
+  assertTruthy(reservation.capacityLedger, 'capacityLedger missing on reservation');
+  assertTruthy(reservation.capacityLedger.applied === true, 'capacityLedger.applied should be true');
+  assertTruthy(reservation.capacityLedger.key, 'capacityLedger.key missing');
+  console.log(`[SMOKE] post-create status (auto): ${reservation.status ?? 'unknown'}`);
+  if (reservation.status !== 'confirmed') {
+    fail('Auto-confirm scenario did not create confirmed reservation', {
+      status: reservation.status,
+      reservation,
+    });
+  }
+
+  const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
+  assert.equal(capacityAfterCreate.base, baselineStart + 2);
+
+  const modifyStart = new Date(startTime.getTime());
+  const modifyEnd = new Date(endTime.getTime());
+  const newDateKey = dateKeyFromDate(modifyStart);
+
+  const modifyPayload = {
+    unitId,
+    reservationId: createResponse.bookingId,
+    manageToken: createResponse.manageToken,
+    headcount: 3,
+    startTimeMs: modifyStart.getTime(),
+    endTimeMs: modifyEnd.getTime(),
+  };
+
+  console.log('[SMOKE][PHASE] MODIFY NEGATIVE (AUTO)');
+  await runGuestModifyNegativeCase(
+    'modify-after-auto-confirm-old-date',
+    modifyUrl,
+    reservationRef,
+    unitId,
+    dateKey,
+    modifyPayload,
+    [400, 403]
+  );
+  await runGuestModifyNegativeCase(
+    'modify-after-auto-confirm-new-date',
+    modifyUrl,
+    reservationRef,
+    unitId,
+    newDateKey,
+    modifyPayload,
+    [400, 403]
+  );
+
+  console.log('[SMOKE][PHASE] CANCEL (AUTO)');
+  await postJson(cancelUrl, {
+    unitId,
+    reservationId: createResponse.bookingId,
+    manageToken: createResponse.manageToken,
+    action: 'cancel',
+  });
+
+  await delay(200);
+  const cancelledSnap = await reservationRef.get();
+  const cancelledReservation = cancelledSnap.data() || {};
+  assert.equal(cancelledReservation.status, 'cancelled');
+  assertTruthy(cancelledReservation.capacityLedger, 'capacityLedger missing after cancel');
+  assert.equal(cancelledReservation.capacityLedger.applied, false);
+
+  const capacityAfterCancel = await getCapacityBase(unitId, newDateKey);
+  assert.equal(capacityAfterCancel.base, baselineStart);
+
+  console.log('[SMOKE][PHASE] CANCEL IDEMPOTENCY (AUTO)');
+  const cancelBaseline = await snapshotState('cancel-idempotency-auto-before', reservationRef, unitId, newDateKey);
+  const cancelPayload = {
+    unitId,
+    reservationId: createResponse.bookingId,
+    manageToken: createResponse.manageToken,
+    action: 'cancel',
+  };
+  const secondCancel = await postJsonSafe(cancelUrl, cancelPayload);
+  if (!secondCancel.ok) {
+    const latestData = await readReservationData(reservationRef);
+    fail('Second cancel HTTP failed', {
+      httpStatus: secondCancel.status,
+      responseText: secondCancel.text,
+      request: cancelPayload,
+      reservationStatus: latestData.status,
+      reservationStartTime: latestData.startTime,
+    });
+  }
+  const cancelAfter = await snapshotState('cancel-idempotency-auto-after', reservationRef, unitId, newDateKey);
+  assertStateUnchanged(
+    cancelBaseline,
+    cancelAfter,
+    'Cancel idempotency failed',
+    {
+      secondCancel,
+      cancelPayload,
+      beforeBase: cancelBaseline.capacityBase,
+      afterBase: cancelAfter.capacityBase,
+    }
+  );
+
+  console.log('[SMOKE][PHASE] MODIFY AFTER CANCEL (AUTO)');
+  const cancelledBaseline = await snapshotState('modify-after-cancel-auto-before', reservationRef, unitId, newDateKey);
+  const forbiddenAfterCancelPayload = {
+    unitId,
+    reservationId: createResponse.bookingId,
+    manageToken: createResponse.manageToken,
+    headcount: 5,
+    startTimeMs: modifyStart.getTime(),
+    endTimeMs: modifyEnd.getTime(),
+  };
+  const forbiddenAfterCancelResp = await postJsonSafe(modifyUrl, forbiddenAfterCancelPayload);
+  if (forbiddenAfterCancelResp.ok) {
+    const afterSnap = await readReservationData(reservationRef);
+    fail('Modify after cancel unexpectedly succeeded', {
+      httpStatus: forbiddenAfterCancelResp.status,
+      responseText: forbiddenAfterCancelResp.text,
+      request: forbiddenAfterCancelPayload,
+      beforeReservation: cancelledBaseline.rawReservation,
+      afterReservation: afterSnap,
+    });
+  }
+
+  const cancelledAfter = await snapshotState('modify-after-cancel-auto-after', reservationRef, unitId, newDateKey);
+  assertStateUnchanged(
+    cancelledBaseline,
+    cancelledAfter,
+    'Modify after cancel mutated state',
+    {
+      httpStatus: forbiddenAfterCancelResp.status,
+      responseText: forbiddenAfterCancelResp.text,
+      request: forbiddenAfterCancelPayload,
+      beforeBase: cancelledBaseline.capacityBase,
+      afterBase: cancelledAfter.capacityBase,
+    }
+  );
+};
+
+const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUrls>) => {
+  console.log('[SMOKE][SCENARIO] REQUEST/PENDING');
+  const unitId = `smoke-request-unit-${Date.now()}`;
+  const settingsRef = db.doc(`reservation_settings/${unitId}`);
+  await settingsRef.set({
+    reservationMode: 'request',
+    dailyCapacity: 10,
+    bookableWindow: { from: '10:00', to: '22:00' },
+    notificationEmails: [],
+  });
+
+  const { createUrl, modifyUrl, cancelUrl } = urls;
+
+  const rawStart = nextFutureSlot(new Date(), 2);
+  const startTime = clampToWindow(rawStart, '10:00', '22:00');
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+  const dateKey = dateKeyFromDate(startTime);
+  const { base: baselineStart } = await getCapacityBase(unitId, dateKey);
+
+  console.log('[SMOKE][PHASE] CREATE (REQUEST)');
   const createResponse = await postJson<{ bookingId: string; manageToken: string }>(createUrl, {
     unitId,
     reservation: {
@@ -517,7 +697,14 @@ const run = async () => {
   assertTruthy(reservation.capacityLedger, 'capacityLedger missing on reservation');
   assertTruthy(reservation.capacityLedger.applied === true, 'capacityLedger.applied should be true');
   assertTruthy(reservation.capacityLedger.key, 'capacityLedger.key missing');
-  console.log(`[SMOKE] post-create status: ${reservation.status ?? 'unknown'}`);
+  console.log(`[SMOKE] post-create status (request): ${reservation.status ?? 'unknown'}`);
+  const validRequestStatuses = new Set(['pending', 'requested']);
+  if (!reservation.status || !validRequestStatuses.has(reservation.status)) {
+    fail('Request scenario did not create pending/requested reservation', {
+      status: reservation.status,
+      reservation,
+    });
+  }
 
   const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
   assert.equal(capacityAfterCreate.base, baselineStart + 2);
@@ -542,145 +729,115 @@ const run = async () => {
     startTimeMs: modifyStart.getTime(),
     endTimeMs: modifyEnd.getTime(),
   };
-  const modifiableStatuses = new Set(['pending', 'requested']);
-  const reservationStatus = reservation.status ?? 'unknown';
-  const canModify = reservation.status ? modifiableStatuses.has(reservation.status) : false;
-  if (!reservation.status) {
-    console.warn('[SMOKE][WARN] post-create status missing; defaulting to modify-negative path');
+
+  console.log('[SMOKE][PHASE] MODIFY');
+  const modifyResponse = await postJsonSafe(modifyUrl, modifyPayload);
+  if (!modifyResponse.ok) {
+    const latestData = await readReservationData(reservationRef);
+    fail('guestModifyReservation failed', {
+      httpStatus: modifyResponse.status,
+      responseText: modifyResponse.text,
+      request: modifyPayload,
+      reservationStatus: latestData.status,
+      reservationStartTime: latestData.startTime,
+    });
   }
-  if (canModify) {
-    console.log('[SMOKE][PHASE] MODIFY');
-    const modifyResponse = await postJsonSafe(modifyUrl, modifyPayload);
-    if (!modifyResponse.ok) {
-      const latestData = await readReservationData(reservationRef);
-      fail('guestModifyReservation failed', {
-        httpStatus: modifyResponse.status,
-        responseText: modifyResponse.text,
-        request: modifyPayload,
-        reservationStatus: latestData.status,
-        reservationStartTime: latestData.startTime,
-      });
-    }
 
-    await delay(200);
-    const updatedReservation = await readReservationData(reservationRef);
-    assert.equal(updatedReservation.headcount, 3);
-    assertTruthy(updatedReservation.capacityLedger, 'capacityLedger missing after modify');
+  await delay(200);
+  const updatedReservation = await readReservationData(reservationRef);
+  assert.equal(updatedReservation.headcount, 3);
+  assertTruthy(updatedReservation.capacityLedger, 'capacityLedger missing after modify');
 
-    const oldCapacity = await getCapacityBase(unitId, dateKey);
-    const newCapacity = await getCapacityBase(unitId, newDateKey);
-    assert.equal(oldCapacity.base, baselineStart + 3);
-    assert.equal(newCapacity.base, baselineStart + 3);
+  const oldCapacity = await getCapacityBase(unitId, dateKey);
+  const newCapacity = await getCapacityBase(unitId, newDateKey);
+  assert.equal(oldCapacity.base, baselineStart + 3);
+  assert.equal(newCapacity.base, baselineStart + 3);
 
-    const allocationTraceId =
-      updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
-    assertTruthy(allocationTraceId, 'allocation trace id missing');
+  const allocationTraceId =
+    updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
+  assertTruthy(allocationTraceId, 'allocation trace id missing');
 
-    const allocationLogId = `${unitId}_${newDateKey}_${allocationTraceId}`;
-    const allocationLogSnap = await db.collection('allocation_logs').doc(allocationLogId).get();
-    if (!allocationLogSnap.exists) {
-      const fallbackSnap = await db
-        .collection('allocation_logs')
-        .where('unitId', '==', unitId)
-        .where('traceId', '==', allocationTraceId)
-        .get();
-      if (fallbackSnap.empty) {
-        console.warn('WARN: allocation log not found by deterministic id or fallback query');
-      } else {
-        console.log('Allocation log found via query:', fallbackSnap.docs[0].id);
-      }
+  const allocationLogId = `${unitId}_${newDateKey}_${allocationTraceId}`;
+  const allocationLogSnap = await db.collection('allocation_logs').doc(allocationLogId).get();
+  if (!allocationLogSnap.exists) {
+    const fallbackSnap = await db
+      .collection('allocation_logs')
+      .where('unitId', '==', unitId)
+      .where('traceId', '==', allocationTraceId)
+      .get();
+    if (fallbackSnap.empty) {
+      console.warn('WARN: allocation log not found by deterministic id or fallback query');
     } else {
-      console.log('Allocation log found:', allocationLogId);
+      console.log('Allocation log found via query:', fallbackSnap.docs[0].id);
     }
-
-    console.log('[SMOKE][PHASE] MODIFY IDEMPOTENCY');
-    const modifyBaselineOld = await snapshotState(
-      'modify-idempotency-old-before',
-      reservationRef,
-      unitId,
-      dateKey
-    );
-    const modifyBaselineNew = await snapshotState(
-      'modify-idempotency-new-before',
-      reservationRef,
-      unitId,
-      newDateKey
-    );
-    const secondModify = await postJsonSafe(modifyUrl, modifyPayload);
-    if (!secondModify.ok) {
-      const latestData = await readReservationData(reservationRef);
-      fail('Second modify HTTP failed', {
-        httpStatus: secondModify.status,
-        responseText: secondModify.text,
-        request: modifyPayload,
-        reservationStatus: latestData.status,
-        reservationStartTime: latestData.startTime,
-      });
-    }
-
-    await delay(200);
-    const modifyAfterOld = await snapshotState(
-      'modify-idempotency-old-after',
-      reservationRef,
-      unitId,
-      dateKey
-    );
-    const modifyAfterNew = await snapshotState(
-      'modify-idempotency-new-after',
-      reservationRef,
-      unitId,
-      newDateKey
-    );
-    assertStateUnchanged(
-      modifyBaselineOld,
-      modifyAfterOld,
-      'Modify idempotency mutated old day',
-      {
-        secondModify,
-        request: modifyPayload,
-        beforeBase: modifyBaselineOld.capacityBase,
-        afterBase: modifyAfterOld.capacityBase,
-      },
-      { includeHeadcount: true }
-    );
-    assertStateUnchanged(
-      modifyBaselineNew,
-      modifyAfterNew,
-      'Modify idempotency mutated new day',
-      {
-        secondModify,
-        request: modifyPayload,
-        beforeBase: modifyBaselineNew.capacityBase,
-        afterBase: modifyAfterNew.capacityBase,
-      },
-      { includeHeadcount: true }
-    );
   } else {
-    console.log(
-      `[SMOKE][PHASE] MODIFY SKIPPED (status=${reservationStatus}); running modify-negative`
-    );
-    await runGuestModifyNegativeCase(
-      'modify-after-create-confirmed-old-date',
-      modifyUrl,
-      reservationRef,
-      unitId,
-      dateKey,
-      modifyPayload,
-      [400]
-    );
-    await runGuestModifyNegativeCase(
-      'modify-after-create-confirmed-new-date',
-      modifyUrl,
-      reservationRef,
-      unitId,
-      newDateKey,
-      modifyPayload,
-      [400]
-    );
+    console.log('Allocation log found:', allocationLogId);
   }
+
+  console.log('[SMOKE][PHASE] MODIFY IDEMPOTENCY');
+  const modifyBaselineOld = await snapshotState(
+    'modify-idempotency-old-before',
+    reservationRef,
+    unitId,
+    dateKey
+  );
+  const modifyBaselineNew = await snapshotState(
+    'modify-idempotency-new-before',
+    reservationRef,
+    unitId,
+    newDateKey
+  );
+  const secondModify = await postJsonSafe(modifyUrl, modifyPayload);
+  if (!secondModify.ok) {
+    const latestData = await readReservationData(reservationRef);
+    fail('Second modify HTTP failed', {
+      httpStatus: secondModify.status,
+      responseText: secondModify.text,
+      request: modifyPayload,
+      reservationStatus: latestData.status,
+      reservationStartTime: latestData.startTime,
+    });
+  }
+
+  await delay(200);
+  const modifyAfterOld = await snapshotState(
+    'modify-idempotency-old-after',
+    reservationRef,
+    unitId,
+    dateKey
+  );
+  const modifyAfterNew = await snapshotState(
+    'modify-idempotency-new-after',
+    reservationRef,
+    unitId,
+    newDateKey
+  );
+  assertStateUnchanged(
+    modifyBaselineOld,
+    modifyAfterOld,
+    'Modify idempotency mutated old day',
+    {
+      secondModify,
+      request: modifyPayload,
+      beforeBase: modifyBaselineOld.capacityBase,
+      afterBase: modifyAfterOld.capacityBase,
+    },
+    { includeHeadcount: true }
+  );
+  assertStateUnchanged(
+    modifyBaselineNew,
+    modifyAfterNew,
+    'Modify idempotency mutated new day',
+    {
+      secondModify,
+      request: modifyPayload,
+      beforeBase: modifyBaselineNew.capacityBase,
+      afterBase: modifyAfterNew.capacityBase,
+    },
+    { includeHeadcount: true }
+  );
 
   console.log('[SMOKE][PHASE] FORBIDDEN MODIFY');
-  // Forbidden modify smoke
   await reservationRef.update({
     status: 'confirmed',
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -799,6 +956,18 @@ const run = async () => {
       afterBase: cancelledAfter.capacityBase,
     }
   );
+};
+
+const run = async () => {
+  console.log('Starting reservation smoke test...');
+  const urls = buildFunctionUrls(FUNCTIONS_EMULATOR_HOST, PROJECT_ID, REGION);
+  logEnvAndUrls(urls);
+  await preflightFunctionsEmulator(urls);
+
+  await runScenarioAutoConfirm(urls);
+  await runScenarioRequestPending(urls);
+
+  const { createUrl, adminUrl } = urls;
 
   const adminIdToken = await getAdminIdToken();
   if (!adminIdToken) {
