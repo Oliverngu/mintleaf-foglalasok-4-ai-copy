@@ -32,3 +32,15 @@ test('buildCapacityWrite returns null when no cleanup is needed', () => {
   });
   assert.equal(plan, null);
 });
+
+test('buildCapacityWrite includes byTimeSlot when normalized keeps it', () => {
+  const plan = buildCapacityWrite({
+    totalCount: 2,
+    count: 1,
+    byTimeSlot: { afternoon: 2 },
+  });
+  assert.deepEqual(plan, {
+    payload: { totalCount: 2, count: 2, byTimeSlot: { afternoon: 2 } },
+    deletesSlots: false,
+  });
+});

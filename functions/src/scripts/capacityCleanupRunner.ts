@@ -27,7 +27,7 @@ export const buildCapacityWrite = (rawDoc: unknown): CleanupPlan | null => {
   let deletesSlots = false;
   if (result.deletes?.includes('byTimeSlot')) {
     deletesSlots = true;
-  } else if ('byTimeSlot' in result.update) {
+  } else if (Object.prototype.hasOwnProperty.call(result.update, 'byTimeSlot')) {
     payload.byTimeSlot = result.update.byTimeSlot;
   }
   return { payload, deletesSlots };
@@ -96,8 +96,8 @@ const main = async () => {
         if (plan.deletesSlots) {
           payload.byTimeSlot = admin.firestore.FieldValue.delete();
         }
-        const logLine = `[capacity-cleanup] ${currentUnitId}/${docSnap.id} ` +
-          `${dryRun ? 'dry-run' : 'apply'} keys=${Object.keys(payload).join(',')}`;
+        const mode = dryRun ? 'dry-run' : 'apply';
+        const logLine = `[capacity-cleanup] ${currentUnitId}/${docSnap.id} ${mode} keys=${Object.keys(payload).join(',')}`;
         console.log(logLine);
         if (dryRun) {
           dryRunPlanned += 1;
