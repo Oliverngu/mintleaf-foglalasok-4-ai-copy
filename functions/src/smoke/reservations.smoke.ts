@@ -1032,11 +1032,21 @@ const run = async () => {
     const adminUnitId = `smoke-admin-unit-${Date.now()}`;
     const adminSettingsRef = db.doc(`reservation_settings/${adminUnitId}`);
     await adminSettingsRef.set({
-      reservationMode: 'request',
-      dailyCapacity: 10,
-      bookableWindow: { from: '10:00', to: '22:00' },
-      notificationEmails: [],
-    });
+  reservationMode: 'request',
+  dailyCapacity: 10,
+  bookableWindow: { from: '10:00', to: '22:00' },
+  notificationEmails: [],
+});
+
+// barrier: várjuk meg, hogy a settings biztosan olvasható legyen, különben create flakey/500
+await delay(200);
+const settingsSnap = await adminSettingsRef.get();
+if (!settingsSnap.exists) {
+  fail('Admin scenario settings doc missing after set()', {
+    adminUnitId,
+    path: adminSettingsRef.path,
+  });
+}
 
     const adminStart = clampToWindow(nextFutureSlot(new Date(), 3), '10:00', '22:00');
     const adminEnd = new Date(adminStart.getTime() + 60 * 60 * 1000);
@@ -1115,25 +1125,22 @@ const adminCreateResponse = await postJson<{ bookingId: string; manageToken: str
     );
 
     const adminApproveAgainResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminApprovePayload,
-      adminIdToken
-    );
+  adminUrl,
+  adminApprovePayload,
+  adminIdToken
+);
 
-    // Idempotency: second approve may intentionally fail because adminToken is one-time use.
-    // Accept common “already handled / not found / forbidden” statuses, but still assert state unchanged.
-    const allowedIdempotencyStatuses = new Set([200, 400, 403, 404]);
-
-    if (!allowedIdempotencyStatuses.has(adminApproveAgainResponse.status)) {
-      const latestSnap = await adminReservationRef.get();
-      fail('Admin approve idempotency unexpected HTTP status', {
-        httpStatus: adminApproveAgainResponse.status,
-        responseText: adminApproveAgainResponse.text,
-        request: adminApprovePayload,
-        reservation: latestSnap.data(),
-        allowedStatuses: Array.from(allowedIdempotencyStatuses),
-      });
-    }
+// Idempotency: második hívás lehet 200/204, de lehet 404 is (token már felhasználva, anti-enumeration)
+const acceptable = adminApproveAgainResponse.ok || adminApproveAgainResponse.status === 404;
+if (!acceptable) {
+  const latestSnap = await adminReservationRef.get();
+  fail('Admin approve idempotency unexpected HTTP status', {
+    httpStatus: adminApproveAgainResponse.status,
+    responseText: adminApproveAgainResponse.text,
+    request: adminApprovePayload,
+    reservation: latestSnap.data(),
+  });
+}
 
     const adminApproveIdempotencyAfter = await snapshotState(
       'admin-approve-idempotency-after',
