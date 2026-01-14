@@ -4,6 +4,7 @@ import { computeCapacityMutationPlan } from './capacityDelta';
 import {
   applyCapacityDelta,
   normalizeCapacityDoc,
+  normalizeCapacityForWrite,
   slotKeyFromReservation,
 } from './capacityDocContract';
 
@@ -13,6 +14,30 @@ export type CapacityLedger = {
   count?: number | null;
   appliedAt?: Timestamp | null;
   lastMutationTraceId?: string | null;
+};
+
+const warnedCapacityInvariantKeys = new Set<string>();
+
+export const shouldWarnCapacityInvariant = ({
+  reasons,
+  prevHadSlots,
+  unitId,
+  dateKey,
+  mutationTraceId,
+}: {
+  reasons: string[];
+  prevHadSlots: boolean;
+  unitId: string;
+  dateKey: string;
+  mutationTraceId?: string | null;
+}) => {
+  if (reasons.length === 0) return false;
+  const severe = reasons.includes('totalCount-invalid');
+  if (!prevHadSlots && !severe) return false;
+  const key = `${unitId}/${dateKey}/${mutationTraceId ?? 'no-trace'}`;
+  if (warnedCapacityInvariantKeys.has(key)) return false;
+  warnedCapacityInvariantKeys.add(key);
+  return true;
 };
 
 export const toDateKeyLocal = (date: Date) => {
@@ -126,30 +151,35 @@ export const applyCapacityLedgerTx = async ({
       totalDelta: mutation.totalDelta,
       slotDeltas: mutation.slotDeltas,
     });
+    const normalized = normalizeCapacityForWrite(nextDoc);
     const update: Record<string, unknown> = {
       date: mutation.key,
-      totalCount: nextDoc.totalCount,
+      totalCount: normalized.payload.totalCount,
       updatedAt: FieldValue.serverTimestamp(),
+      count: normalized.payload.count ?? normalized.payload.totalCount,
     };
-    update.count = nextDoc.totalCount;
     const prevHadSlots = !!prevDoc.byTimeSlot;
-    if (nextDoc.totalCount === 0) {
-      if (prevHadSlots) {
-        update.byTimeSlot = FieldValue.delete();
-      }
-    } else if (nextDoc.byTimeSlot) {
-      const slotValues = Object.values(nextDoc.byTimeSlot);
-      const slotsValid = slotValues.every(
-        value => typeof value === 'number' && Number.isFinite(value) && value >= 0
-      );
-      const slotSum = slotValues.reduce((acc, value) => acc + value, 0);
-      if (slotsValid && slotSum === nextDoc.totalCount) {
-        update.byTimeSlot = nextDoc.byTimeSlot;
-      } else if (prevHadSlots) {
-        update.byTimeSlot = FieldValue.delete();
-      }
-    } else if (prevHadSlots) {
+    if (normalized.payload.byTimeSlot) {
+      update.byTimeSlot = normalized.payload.byTimeSlot;
+    } else if (normalized.deletesByTimeSlot && prevHadSlots) {
       update.byTimeSlot = FieldValue.delete();
+    }
+    if (
+      shouldWarnCapacityInvariant({
+        reasons: normalized.reasons,
+        prevHadSlots,
+        unitId,
+        dateKey: mutation.key,
+        mutationTraceId,
+      })
+    ) {
+      const slotKeys = mutation.slotDeltas ? Object.keys(mutation.slotDeltas) : [];
+      const slotKey = slotKeys.length === 1 ? slotKeys[0] : null;
+      const slotInfo = slotKey ? ` slotKey=${slotKey}` : '';
+      console.warn(
+        `[capacity-invariant] unitId=${unitId} dateKey=${mutation.key}${slotInfo} ` +
+          `reasons=${JSON.stringify(normalized.reasons)}`
+      );
     }
     transaction.set(capacityRef, update, { merge: true });
   }

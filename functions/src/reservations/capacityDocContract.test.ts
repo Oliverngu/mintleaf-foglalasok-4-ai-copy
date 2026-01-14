@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyCapacityDelta,
+  normalizeCapacityForWrite,
   normalizeCapacityDoc,
   readCapacityBase,
   slotKeyFromReservation,
@@ -100,6 +101,55 @@ test('applyCapacityDelta ignores zero and non-finite slot deltas', () => {
   );
   assert.equal(next.totalCount, 4);
   assert.deepEqual(next.byTimeSlot, { afternoon: 2, evening: 2 });
+});
+
+test('normalizeCapacityForWrite fixes count mismatch', () => {
+  const result = normalizeCapacityForWrite({ totalCount: 3, count: 1 });
+  assert.equal(result.payload.totalCount, 3);
+  assert.equal(result.payload.count, 3);
+  assert.ok(result.reasons.includes('count-mismatch'));
+});
+
+test('normalizeCapacityForWrite drops invalid byTimeSlot values', () => {
+  const result = normalizeCapacityForWrite({
+    totalCount: 2,
+    count: 2,
+    byTimeSlot: { afternoon: -1, evening: 3 },
+  });
+  assert.equal(result.payload.byTimeSlot, undefined);
+  assert.equal(result.deletesByTimeSlot, true);
+  assert.ok(result.reasons.includes('byTimeSlot-invalid'));
+});
+
+test('normalizeCapacityForWrite drops byTimeSlot on sum mismatch', () => {
+  const result = normalizeCapacityForWrite({
+    totalCount: 3,
+    count: 3,
+    byTimeSlot: { afternoon: 1, evening: 1 },
+  });
+  assert.equal(result.payload.byTimeSlot, undefined);
+  assert.ok(result.reasons.includes('byTimeSlot-sum-mismatch'));
+});
+
+test('normalizeCapacityForWrite clamps negative totals', () => {
+  const result = normalizeCapacityForWrite({
+    totalCount: -2,
+    count: -2,
+    byTimeSlot: { afternoon: 1 },
+  });
+  assert.equal(result.payload.totalCount, 0);
+  assert.equal(result.payload.byTimeSlot, undefined);
+  assert.ok(result.reasons.includes('totalCount-invalid'));
+});
+
+test('normalizeCapacityForWrite drops byTimeSlot when totalCount is zero', () => {
+  const result = normalizeCapacityForWrite({
+    totalCount: 0,
+    count: 0,
+    byTimeSlot: { afternoon: 1 },
+  });
+  assert.equal(result.payload.byTimeSlot, undefined);
+  assert.ok(result.reasons.includes('byTimeSlot-removed-zero'));
 });
 
 test('normalizeCapacitySnapshot drops invalid slot breakdowns', () => {
