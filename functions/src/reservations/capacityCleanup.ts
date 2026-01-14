@@ -13,7 +13,7 @@ const isNumber = (value: unknown): value is number =>
 const toPlainByTimeSlot = (value: unknown): Record<string, number> | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const entries = Object.entries(value as Record<string, unknown>).filter(
-    ([, slotValue]) => isNumber(slotValue)
+    ([, slotValue]) => isNumber(slotValue) && slotValue >= 0
   );
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries) as Record<string, number>;
@@ -38,21 +38,24 @@ export const normalizeCapacitySnapshot = (
   const hadByTimeSlot = !!record.byTimeSlot;
   const rawTotal = isNumber(record.totalCount) ? record.totalCount : undefined;
   const rawCount = isNumber(record.count) ? record.count : undefined;
-  const rawSlots = toPlainByTimeSlot(record.byTimeSlot);
+  const compareSlots = hadByTimeSlot || !!normalized.byTimeSlot;
+  const rawSlots = compareSlots ? toPlainByTimeSlot(record.byTimeSlot) : undefined;
 
   const normalizedUpdate = buildUpdate(normalized);
 
-  const rawSlotSum = rawSlots
-    ? Object.values(rawSlots).reduce((acc, value) => acc + value, 0)
-    : undefined;
-  const normalizedSlotSum = normalized.byTimeSlot
-    ? Object.values(normalized.byTimeSlot).reduce((acc, value) => acc + value, 0)
-    : undefined;
+  const rawSlotSum =
+    compareSlots && rawSlots
+      ? Object.values(rawSlots).reduce((acc, value) => acc + value, 0)
+      : undefined;
+  const normalizedSlotSum =
+    compareSlots && normalized.byTimeSlot
+      ? Object.values(normalized.byTimeSlot).reduce((acc, value) => acc + value, 0)
+      : undefined;
 
   const needsUpdate =
     rawTotal !== normalized.totalCount ||
     rawCount !== normalized.totalCount ||
-    rawSlotSum !== normalizedSlotSum ||
+    (compareSlots && rawSlotSum !== normalizedSlotSum) ||
     (hadByTimeSlot && !normalized.byTimeSlot) ||
     (!hadByTimeSlot && !!normalized.byTimeSlot);
 

@@ -114,6 +114,18 @@ test('normalizeCapacitySnapshot drops invalid slot breakdowns', () => {
   });
 });
 
+test('normalizeCapacitySnapshot ignores negative slots in raw sum checks', () => {
+  const result = normalizeCapacitySnapshot({
+    totalCount: 0,
+    count: 0,
+    byTimeSlot: { afternoon: -3 },
+  });
+  assert.deepEqual(result, {
+    update: { totalCount: 0, count: 0 },
+    deletes: ['byTimeSlot'],
+  });
+});
+
 test('normalizeCapacitySnapshot clears slots when totalCount is zero', () => {
   const result = normalizeCapacitySnapshot({
     totalCount: 0,
