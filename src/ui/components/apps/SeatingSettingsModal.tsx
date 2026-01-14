@@ -1,6 +1,6 @@
 import { FirebaseError } from 'firebase/app';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../../../core/firebase/config';
 import {
   Floorplan,
@@ -30,6 +30,10 @@ import {
   updateTable,
   updateZone,
 } from '../../../core/services/seatingAdminService';
+import {
+  normalizeFloorplanDimensions,
+  normalizeTableGeometry,
+} from '../../../core/utils/seatingNormalize';
 
 interface SeatingSettingsModalProps {
   unitId: string;
@@ -70,6 +74,36 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const isDev = process.env.NODE_ENV !== 'production';
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
+    {}
+  );
+  const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
+  const [savingById, setSavingById] = useState<Record<string, boolean>>({});
+  const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
+    {}
+  );
+  const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
+  const [lastSavedRotById, setLastSavedRotById] = useState<Record<string, number>>({});
+  const lastSavedRotByIdRef = useRef<Record<string, number>>({});
+  const [dragState, setDragState] = useState<{
+    tableId: string;
+    pointerStartX: number;
+    pointerStartY: number;
+    tableStartX: number;
+    tableStartY: number;
+    width: number;
+    height: number;
+    mode: 'move' | 'rotate';
+    tableStartRot: number;
+    floorplanWidth: number;
+    floorplanHeight: number;
+    gridSize: number;
+    snapToGrid: boolean;
+  } | null>(null);
+  const rafPosId = useRef<number | null>(null);
+  const rafRotId = useRef<number | null>(null);
+  const prevActiveFloorplanIdRef = useRef<string | null>(null);
 
   const [zoneForm, setZoneForm] = useState<{
     id?: string;
@@ -92,6 +126,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     w: number;
     h: number;
     radius: number;
+    x: number;
+    y: number;
+    rot: number;
     snapToGrid: boolean;
     locked: boolean;
   }>({
@@ -106,6 +143,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     w: 80,
     h: 60,
     radius: 40,
+    x: 0,
+    y: 0,
+    rot: 0,
     snapToGrid: true,
     locked: false,
   });
@@ -127,6 +167,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     backgroundImageUrl: '',
     isActive: true,
   });
+
+
+  useEffect(() => {
+    if (!isDev) return;
+    if (floorplans.length === 0 && tables.length === 0) return;
+    const normalizedFloorplans = floorplans.map(plan => ({
+      id: plan.id,
+      ...normalizeFloorplanDimensions(plan),
+    }));
+    const normalizedTables = tables.slice(0, 3).map(table => ({
+      id: table.id,
+      ...normalizeTableGeometry(table, {
+        rectWidth: 80,
+        rectHeight: 60,
+        circleRadius: 40,
+      }),
+    }));
+    console.debug('[seating] normalized geometry snapshot', {
+      floorplans: normalizedFloorplans,
+      tables: normalizedTables,
+    });
+  }, [floorplans, isDev, tables]);
 
   useEffect(() => {
     let isMounted = true;
@@ -276,6 +338,87 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return visibleFloorplans[0]?.id ?? '';
   }, [settings?.activeFloorplanId, visibleFloorplans]);
+
+  const activeFloorplan = useMemo(
+    () => floorplans.find(plan => plan.id === resolvedActiveFloorplanId) ?? null,
+    [floorplans, resolvedActiveFloorplanId]
+  );
+  const { width: floorplanWidth, height: floorplanHeight } =
+    normalizeFloorplanDimensions(activeFloorplan);
+  const editorGridSize =
+    (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
+      ? activeFloorplan.gridSize
+      : floorplanForm.gridSize) || 20;
+  const editorTables = useMemo(() => {
+    if (!activeFloorplan) return [] as Table[];
+    return tables.filter(
+      table => !table.floorplanId || table.floorplanId === activeFloorplan.id
+    );
+  }, [activeFloorplan, tables]);
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), max);
+  const applyGrid = (value: number, gridSize: number) =>
+    gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
+  const normalizeRotation = (value: number) => {
+    const wrapped = ((value % 360) + 360) % 360;
+    return wrapped > 180 ? wrapped - 360 : wrapped;
+  };
+  const snapRotation = (value: number, step = 5) => Math.round(value / step) * step;
+
+  const setLastSaved = (
+    updater:
+      | Record<string, { x: number; y: number }>
+      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
+  ) => {
+    setLastSavedById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedByIdRef.current = next;
+      return next;
+    });
+  };
+
+  const setLastSavedRot = (
+    updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)
+  ) => {
+    setLastSavedRotById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedRotByIdRef.current = next;
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const prev = prevActiveFloorplanIdRef.current;
+    const next = activeFloorplan?.id ?? null;
+    if (prev === null && next === null) {
+      return;
+    }
+    if (prev === null && next !== null) {
+      prevActiveFloorplanIdRef.current = next;
+      return;
+    }
+    if (prev !== next) {
+      setSelectedTableId(null);
+      setDraftPositions({});
+      setDraftRotations({});
+      setSavingById({});
+      setLastSaved({});
+      setLastSavedRot({});
+      setDragState(null);
+    }
+    prevActiveFloorplanIdRef.current = next;
+  }, [activeFloorplan?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (rafPosId.current !== null) {
+        cancelAnimationFrame(rafPosId.current);
+      }
+      if (rafRotId.current !== null) {
+        cancelAnimationFrame(rafRotId.current);
+      }
+    };
+  }, []);
 
   const handleSettingsSave = async () => {
     if (!settings) return;
@@ -488,6 +631,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const width = tableForm.w;
       const height = tableForm.h;
       const radius = tableForm.radius;
+      const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
+      const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
+      const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
       const payload = {
         name: tableForm.name.trim(),
         zoneId: tableForm.zoneId,
@@ -500,6 +646,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         ...(isRect && Number.isFinite(width) ? { w: width } : {}),
         ...(isRect && Number.isFinite(height) ? { h: height } : {}),
         ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
+        x,
+        y,
+        rot,
         snapToGrid: tableForm.snapToGrid,
         locked: tableForm.locked,
       };
@@ -521,6 +670,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         w: 80,
         h: 60,
         radius: 40,
+        x: 0,
+        y: 0,
+        rot: 0,
         snapToGrid: true,
         locked: false,
       });
@@ -529,6 +681,189 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       console.error('Error saving table:', err);
       setError('Nem sikerült menteni az asztalt.');
     }
+  };
+
+  const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) => {
+    const draft = draftPositions[table.id];
+    const baseX = draft?.x ?? geometry.x;
+    const baseY = draft?.y ?? geometry.y;
+    const maxX = Math.max(0, floorplanWidth - geometry.w);
+    const maxY = Math.max(0, floorplanHeight - geometry.h);
+    return {
+      x: clamp(baseX, 0, maxX),
+      y: clamp(baseY, 0, maxY),
+    };
+  };
+
+  const updateDraftPosition = (tableId: string, x: number, y: number) => {
+    if (rafPosId.current !== null) {
+      cancelAnimationFrame(rafPosId.current);
+    }
+    rafPosId.current = requestAnimationFrame(() => {
+      setDraftPositions(current => ({
+        ...current,
+        [tableId]: { x, y },
+      }));
+      rafPosId.current = null;
+    });
+  };
+
+  const updateDraftRotation = (tableId: string, rot: number) => {
+    if (rafRotId.current !== null) {
+      cancelAnimationFrame(rafRotId.current);
+    }
+    rafRotId.current = requestAnimationFrame(() => {
+      setDraftRotations(current => ({
+        ...current,
+        [tableId]: rot,
+      }));
+      rafRotId.current = null;
+    });
+  };
+
+  const finalizeDrag = async (tableId: string, x: number, y: number) => {
+    setSavingById(current => ({ ...current, [tableId]: true }));
+    try {
+      await updateTable(unitId, tableId, { x, y });
+      setLastSaved(current => ({ ...current, [tableId]: { x, y } }));
+    } catch (err) {
+      console.error('Error updating table position:', err);
+      setError('Nem sikerült menteni az asztal pozícióját.');
+      setDraftPositions(current => {
+        const fallback = lastSavedByIdRef.current[tableId];
+        if (!fallback) {
+          return current;
+        }
+        return { ...current, [tableId]: fallback };
+      });
+    } finally {
+      setSavingById(current => ({ ...current, [tableId]: false }));
+    }
+  };
+
+  const finalizeRotation = async (tableId: string, rot: number) => {
+    setSavingById(current => ({ ...current, [tableId]: true }));
+    try {
+      await updateTable(unitId, tableId, { rot });
+      setLastSavedRot(current => ({ ...current, [tableId]: rot }));
+    } catch (err) {
+      console.error('Error updating table rotation:', err);
+      setError('Nem sikerült menteni az asztal forgatását.');
+      setDraftRotations(current => {
+        const fallback = lastSavedRotByIdRef.current[tableId];
+        if (fallback === undefined) {
+          return current;
+        }
+        return { ...current, [tableId]: fallback };
+      });
+    } finally {
+      setSavingById(current => ({ ...current, [tableId]: false }));
+    }
+  };
+
+  const handleTablePointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+    table: Table,
+    geometry: ReturnType<typeof normalizeTableGeometry>
+  ) => {
+    if (!activeFloorplan) return;
+    if (table.locked) return;
+    event.preventDefault();
+    setSelectedTableId(table.id);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const position = getRenderPosition(table, geometry);
+    const renderRot = draftRotations[table.id] ?? geometry.rot;
+    const mode = event.shiftKey ? 'rotate' : 'move';
+    setDragState({
+      tableId: table.id,
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      tableStartX: position.x,
+      tableStartY: position.y,
+      width: geometry.w,
+      height: geometry.h,
+      mode,
+      tableStartRot: renderRot,
+      floorplanWidth,
+      floorplanHeight,
+      gridSize: editorGridSize,
+      snapToGrid: table.snapToGrid ?? false,
+    });
+    setLastSaved(current =>
+      current[table.id] ? current : { ...current, [table.id]: position }
+    );
+    setLastSavedRot(current =>
+      current[table.id] !== undefined ? current : { ...current, [table.id]: renderRot }
+    );
+  };
+
+  const handleTablePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragState) return;
+    event.preventDefault();
+    const deltaX = event.clientX - dragState.pointerStartX;
+    const deltaY = event.clientY - dragState.pointerStartY;
+    if (dragState.mode === 'rotate') {
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
+      updateDraftRotation(dragState.tableId, snapRotation(nextRot));
+      return;
+    }
+    let nextX = dragState.tableStartX + deltaX;
+    let nextY = dragState.tableStartY + deltaY;
+    if (dragState.snapToGrid) {
+      nextX = applyGrid(nextX, dragState.gridSize);
+      nextY = applyGrid(nextY, dragState.gridSize);
+    }
+    const maxX = Math.max(0, dragState.floorplanWidth - dragState.width);
+    const maxY = Math.max(0, dragState.floorplanHeight - dragState.height);
+    nextX = clamp(nextX, 0, maxX);
+    nextY = clamp(nextY, 0, maxY);
+    updateDraftPosition(dragState.tableId, nextX, nextY);
+  };
+
+  const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragState) return;
+    event.preventDefault();
+    const deltaX = event.clientX - dragState.pointerStartX;
+    const deltaY = event.clientY - dragState.pointerStartY;
+    const tableId = dragState.tableId;
+    if (dragState.mode === 'rotate') {
+      const nextRot = normalizeRotation(dragState.tableStartRot + deltaX * 0.5);
+      const snappedRot = snapRotation(nextRot);
+      updateDraftRotation(tableId, snappedRot);
+      setDragState(null);
+      void finalizeRotation(tableId, snappedRot);
+      return;
+    }
+    let nextX = dragState.tableStartX + deltaX;
+    let nextY = dragState.tableStartY + deltaY;
+    if (dragState.snapToGrid) {
+      nextX = applyGrid(nextX, dragState.gridSize);
+      nextY = applyGrid(nextY, dragState.gridSize);
+    }
+    const maxX = Math.max(0, dragState.floorplanWidth - dragState.width);
+    const maxY = Math.max(0, dragState.floorplanHeight - dragState.height);
+    nextX = clamp(nextX, 0, maxX);
+    nextY = clamp(nextY, 0, maxY);
+    updateDraftPosition(tableId, nextX, nextY);
+    setDragState(null);
+    void finalizeDrag(tableId, nextX, nextY);
+  };
+
+  const handleTablePointerCancel = () => {
+    if (!dragState) return;
+    const tableId = dragState.tableId;
+    if (dragState.mode === 'rotate') {
+      const fallbackRot = lastSavedRotByIdRef.current[tableId];
+      if (fallbackRot !== undefined) {
+        setDraftRotations(current => ({ ...current, [tableId]: fallbackRot }));
+      }
+    } else {
+      const fallback = lastSavedByIdRef.current[tableId];
+      if (fallback) {
+        setDraftPositions(current => ({ ...current, [tableId]: fallback }));
+      }
+    }
+    setDragState(null);
   };
 
   const handleComboSubmit = async () => {
@@ -662,45 +997,200 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Mentés
           </button>
           <div className="space-y-2 text-sm">
-            {visibleFloorplans.map(plan => (
-              <div key={plan.id} className="flex items-center justify-between border rounded p-2">
-                <div>
-                  {plan.name} ({plan.width}×{plan.height})
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleActivateFloorplan(plan.id)}
-                    className="text-blue-600"
-                  >
-                    {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await deleteFloorplan(unitId, plan.id);
-                      const nextFloorplans = await listFloorplans(unitId);
-                      const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
-                      if (resolvedActiveFloorplanId === plan.id) {
-                        const nextActiveId = nextVisible[0]?.id ?? '';
-                        if (nextActiveId !== resolvedActiveFloorplanId) {
-                          await updateSeatingSettings(unitId, { activeFloorplanId: nextActiveId });
-                          setSettings(current => ({
-                            ...(current ?? {}),
-                            activeFloorplanId: nextActiveId,
-                          }));
+            {visibleFloorplans.map(plan => {
+              const { width, height } = normalizeFloorplanDimensions(plan);
+              return (
+                <div key={plan.id} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    {plan.name} ({width}×{height})
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleActivateFloorplan(plan.id)}
+                      className="text-blue-600"
+                    >
+                      {resolvedActiveFloorplanId === plan.id ? 'Aktív' : 'Aktivál'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await deleteFloorplan(unitId, plan.id);
+                        const nextFloorplans = await listFloorplans(unitId);
+                        const nextVisible = nextFloorplans.filter(item => item.isActive !== false);
+                        if (resolvedActiveFloorplanId === plan.id) {
+                          const nextActiveId = nextVisible[0]?.id ?? '';
+                          if (nextActiveId !== resolvedActiveFloorplanId) {
+                            await updateSeatingSettings(unitId, {
+                              activeFloorplanId: nextActiveId,
+                            });
+                            setSettings(current => ({
+                              ...(current ?? {}),
+                              activeFloorplanId: nextActiveId,
+                            }));
+                          }
                         }
-                      }
-                      setFloorplans(nextFloorplans);
-                    }}
-                    className="text-red-600"
-                  >
-                    Törlés
-                  </button>
+                        setFloorplans(nextFloorplans);
+                      }}
+                      className="text-red-600"
+                    >
+                      Törlés
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="space-y-3 border rounded-lg p-4">
+          <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
+          {!activeFloorplan ? (
+            <div className="text-sm text-[var(--color-text-secondary)]">
+              Nincs aktív alaprajz kiválasztva.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="text-xs text-[var(--color-text-secondary)]">
+                Grid: {editorGridSize}px • Shift + húzás = forgatás
+              </div>
+              <div className="overflow-auto">
+                <div
+                  className="relative border border-gray-200 rounded-lg"
+                  style={{ width: floorplanWidth, height: floorplanHeight }}
+                >
+                  {activeFloorplan.backgroundImageUrl && (
+                    <img
+                      src={activeFloorplan.backgroundImageUrl}
+                      alt={activeFloorplan.name}
+                      className="absolute inset-0 w-full h-full object-contain"
+                    />
+                  )}
+                  {editorTables.map(table => {
+                    const geometry = normalizeTableGeometry(table, {
+                      rectWidth: 80,
+                      rectHeight: 60,
+                      circleRadius: 40,
+                    });
+                    const position = getRenderPosition(table, geometry);
+                    const renderRot = draftRotations[table.id] ?? geometry.rot;
+                    const isSelected = selectedTableId === table.id;
+                    const isSaving = Boolean(savingById[table.id]);
+
+                    return (
+                      <div
+                        key={table.id}
+                        className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none"
+                        style={{
+                          left: position.x,
+                          top: position.y,
+                          width: geometry.w,
+                          height: geometry.h,
+                          borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                          border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
+                          backgroundColor: 'rgba(255,255,255,0.9)',
+                          transform: `rotate(${renderRot}deg)`,
+                          boxShadow: isSelected
+                            ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
+                            : '0 1px 3px rgba(0,0,0,0.1)',
+                          touchAction: 'none',
+                        }}
+                        onClick={() => setSelectedTableId(table.id)}
+                        onPointerDown={event => handleTablePointerDown(event, table, geometry)}
+                        onPointerMove={handleTablePointerMove}
+                        onPointerUp={handleTablePointerUp}
+                        onPointerCancel={handleTablePointerCancel}
+                      >
+                        <span>{table.name}</span>
+                        <div className="flex gap-1 mt-1">
+                          {table.locked && (
+                            <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
+                          )}
+                          {table.canCombine && (
+                            <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
+                          )}
+                          {isSaving && (
+                            <span className="px-1 rounded bg-blue-100 text-[9px]">Saving...</span>
+                          )}
+                          {isSelected && (
+                            <span className="px-1 rounded bg-gray-100 text-[9px]">
+                              {Math.round(renderRot)}°
+                            </span>
+                          )}
+                        </div>
+                        {isSelected && !table.locked && (
+                          <div className="flex gap-1 mt-1">
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                              onClick={event => {
+                                event.stopPropagation();
+                                const nextRot = normalizeRotation(renderRot - 5);
+                                updateDraftRotation(table.id, nextRot);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, nextRot);
+                              }}
+                            >
+                              ↺
+                            </button>
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                              onClick={event => {
+                                event.stopPropagation();
+                                const nextRot = normalizeRotation(renderRot + 5);
+                                updateDraftRotation(table.id, nextRot);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, nextRot);
+                              }}
+                            >
+                              ↻
+                            </button>
+                            <button
+                              type="button"
+                              className="px-1 rounded bg-gray-100 text-[9px]"
+                              onPointerDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                              onClick={event => {
+                                event.stopPropagation();
+                                updateDraftRotation(table.id, 0);
+                                setLastSavedRot(current => ({
+                                  ...current,
+                                  [table.id]:
+                                    current[table.id] !== undefined ? current[table.id] : renderRot,
+                                }));
+                                void finalizeRotation(table.id, 0);
+                              }}
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </section>
 
         <section className="space-y-3 border rounded-lg p-4">
@@ -1134,22 +1624,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <button
                     type="button"
                     onClick={() =>
-                      setTableForm({
-                        id: table.id,
-                        name: table.name,
-                        zoneId: table.zoneId,
-                        minCapacity: table.minCapacity,
-                        capacityMax: table.capacityMax,
-                        isActive: table.isActive,
-                        canSeatSolo: table.canSeatSolo ?? false,
-                        floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
-                        shape: table.shape ?? 'rect',
-                        w: table.w ?? 80,
-                        h: table.h ?? 60,
-                        radius: table.radius ?? 40,
-                        snapToGrid: table.snapToGrid ?? true,
-                        locked: table.locked ?? false,
-                      })
+                      (() => {
+                        const geometry = normalizeTableGeometry(table, {
+                          rectWidth: 80,
+                          rectHeight: 60,
+                          circleRadius: 40,
+                        });
+                        setTableForm({
+                          id: table.id,
+                          name: table.name,
+                          zoneId: table.zoneId,
+                          minCapacity: table.minCapacity,
+                          capacityMax: table.capacityMax,
+                          isActive: table.isActive,
+                          canSeatSolo: table.canSeatSolo ?? false,
+                          floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
+                          shape: geometry.shape,
+                          w: geometry.w,
+                          h: geometry.h,
+                          radius: geometry.radius,
+                          x: geometry.x,
+                          y: geometry.y,
+                          rot: geometry.rot,
+                          snapToGrid: table.snapToGrid ?? true,
+                          locked: table.locked ?? false,
+                        });
+                      })()
                     }
                     className="text-blue-600"
                   >
