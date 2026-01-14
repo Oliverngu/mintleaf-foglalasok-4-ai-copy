@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Unit,
   ReservationSetting,
@@ -28,6 +28,10 @@ import {
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
 import { formatTimeSlot } from '../../utils/timeSlot';
+import {
+  normalizeReservationError,
+  type ReservationError,
+} from '../../utils/normalizeReservationError';
 
 type Locale = 'hu' | 'en';
 
@@ -225,7 +229,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [errorState, setErrorState] = useState<ReservationError | null>(null);
   const [locale, setLocale] = useState<Locale>('hu');
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -251,6 +255,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [capacityByDate, setCapacityByDate] = useState<
     Map<string, ReservationCapacity>
   >(new Map());
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
+  const localeRef = useRef(locale);
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
@@ -267,8 +273,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   }, []);
 
   useEffect(() => {
+    localeRef.current = locale;
+  }, [locale]);
+
+  useEffect(() => {
     if (!unitId) {
-      setError('Hiányzik az egység azonosítója.');
+      setErrorState({
+        kind: 'invalid',
+        messagePublic: 'Hiányzik az egység azonosítója.',
+        retryable: false,
+      });
       setLoading(false);
       return;
     }
@@ -317,7 +331,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         }
       } catch (err) {
         console.error('Error fetching reservation settings:', err);
-        setError('Hiba a foglalási beállítások betöltésekor.');
+        setErrorState({
+          kind: 'server',
+          messagePublic: translations[localeRef.current].genericError,
+          retryable: true,
+        });
       } finally {
         setLoading(false);
       }
@@ -438,10 +456,28 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDate || !formData.startTime || !unit || !settings) return;
+    setErrorState(null);
+
+    if (!selectedDate || !formData.startTime || !unit || !settings) {
+      setErrorState({
+        kind: 'invalid',
+        messagePublic: t.errorRequired,
+        retryable: false,
+      });
+      return;
+    }
+
+    const headcount = Number.parseInt(formData.headcount, 10);
+    if (!Number.isFinite(headcount) || headcount < 1) {
+      setErrorState({
+        kind: 'invalid',
+        messagePublic: t.errorRequired,
+        retryable: false,
+      });
+      return;
+    }
 
     setIsSubmitting(true);
-    setError('');
 
     let startDateTime: Date;
     let endDateTime: Date;
@@ -477,7 +513,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       const baseReservation = {
         unitId,
         name: formData.name,
-        headcount: parseInt(formData.headcount, 10),
+        headcount,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         contact: {
@@ -519,10 +555,22 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       );
 
       if (!response.ok) {
-        if (response.status === 409) {
-          throw new Error('DAILY_LIMIT_REACHED');
-        }
-        throw new Error(t.genericError);
+        const normalized = await normalizeReservationError({
+          response,
+          messages: {
+            invalid: t.errorRequired,
+            conflict: t.errorDailyLimitReached,
+            rate_limited: t.actionFailed,
+            unauthorized: t.actionFailed,
+            not_found: t.actionFailed,
+            server: t.genericError,
+            network: t.actionFailed,
+            timeout: t.actionFailed,
+            unknown: t.genericError,
+          },
+        });
+        setErrorState(normalized);
+        return;
       }
 
       const payload = await response.json();
@@ -543,15 +591,21 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       // A backend (onReservationCreated / onReservationStatusChange) intézi.
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
-      if (err instanceof Error) {
-        if (err.message === 'DAILY_LIMIT_REACHED') {
-          setError(t.errorDailyLimitReached);
-        } else {
-          setError(err.message);
-        }
-      } else {
-        setError(t.genericError);
-      }
+      const normalized = await normalizeReservationError({
+        error: err,
+        messages: {
+          invalid: t.errorRequired,
+          conflict: t.errorDailyLimitReached,
+          rate_limited: t.actionFailed,
+          unauthorized: t.actionFailed,
+          not_found: t.actionFailed,
+          server: t.genericError,
+          network: t.actionFailed,
+          timeout: t.actionFailed,
+          unknown: t.genericError,
+        },
+      });
+      setErrorState(normalized);
     } finally {
       setIsSubmitting(false);
     }
@@ -618,7 +672,15 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
     watermarkText,
   };
 
-  if (error && step !== 2) {
+  useEffect(() => {
+    if (errorState && errorBannerRef.current) {
+      errorBannerRef.current.focus();
+    }
+  }, [errorState, step]);
+
+  const retryLabel = locale === 'hu' ? 'Próbáld újra' : 'Try again';
+
+  if (errorState && step !== 2) {
     return (
       <PublicReservationLayout
         {...baseLayoutProps}
@@ -633,13 +695,25 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
           </h2>
         }
         body={
-          <p
-            className={`mt-2 ${
-              isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
-            }`}
-          >
-            {error}
-          </p>
+          <div ref={errorBannerRef} tabIndex={-1} aria-live="assertive">
+            <p
+              className={`mt-2 ${
+                isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+              }`}
+            >
+              {errorState.messagePublic}
+            </p>
+            {errorState.retryable && (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className={`mt-4 ${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`}
+                style={{ backgroundColor: 'var(--color-primary)' }}
+              >
+                {retryLabel}
+              </button>
+            )}
+          </div>
         }
       />
     );
@@ -725,7 +799,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 setFormData={setFormData}
                 onBack={() => {
                   setStep(1);
-                  setError('');
+                  setErrorState(null);
                 }}
                 onSubmit={handleSubmit}
                 isSubmitting={isSubmitting}
@@ -733,7 +807,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 themeProps={themeClassProps}
                 t={t}
                 locale={locale}
-                error={error}
+                error={errorState}
+                onRetry={() => setErrorState(null)}
                 buttonClasses={{
                   primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
                   secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
@@ -947,7 +1022,8 @@ interface Step2DetailsProps {
   themeProps: any;
   t: any;
   locale: Locale;
-  error: string;
+  error: ReservationError | null;
+  onRetry: () => void;
   buttonClasses: { primary: string; secondary: string };
   unit: Unit;
 }
@@ -964,6 +1040,7 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   t,
   locale,
   error,
+  onRetry,
   buttonClasses,
   unit,
 }) => {
@@ -972,6 +1049,7 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     phone: '',
     email: '',
   });
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
 
   const timeSlotOptions = [
     '11:00-13:00',
@@ -1061,6 +1139,12 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
 
+  useEffect(() => {
+    if (error && errorBannerRef.current) {
+      errorBannerRef.current.focus();
+    }
+  }, [error]);
+
   return (
     <div
       className={`p-6 ${themeProps.radiusClass} ${themeProps.shadowClass}`}
@@ -1074,8 +1158,24 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
         {t.step2Title}
       </h2>
       {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm">
-          {error}
+        <div
+          ref={errorBannerRef}
+          role="alert"
+          aria-live="assertive"
+          tabIndex={-1}
+          className="p-4 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm flex flex-col gap-3"
+        >
+          <span>{error.messagePublic}</span>
+          {error.retryable && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className={`${buttonClasses.primary} ${themeProps.radiusClass} text-sm`}
+              style={{ backgroundColor: 'var(--color-primary)' }}
+            >
+              {locale === 'hu' ? 'Próbáld újra' : 'Try again'}
+            </button>
+          )}
         </div>
       )}
       {hasTimeWindowInfo && (

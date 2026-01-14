@@ -9,11 +9,13 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "capacity:cleanup:dry": "tsx src/scripts/capacityCleanupRunner.ts --dry-run",
-    "capacity:cleanup:apply": "tsx src/scripts/capacityCleanupRunner.ts --apply --yes",
+    "capacity:cleanup:dry": "npm exec -- tsx src/scripts/capacityCleanupRunner.ts --dry-run",
+    "capacity:cleanup:apply": "npm exec -- tsx src/scripts/capacityCleanupRunner.ts --apply --yes",
+    "capacity:sanity:scan": "npm exec -- tsx src/scripts/capacitySanityScan.ts",
     "smoke:reservations": "node lib/smoke/reservations.smoke.js",
     "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js",
-    "test:unit": "tsx --test src/**/*.test.ts"
+    "test:unit": "node src/scripts/unitTestRunner.mjs",
+    "test:contract": "node src/scripts/testContractRunner.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.5.0",
