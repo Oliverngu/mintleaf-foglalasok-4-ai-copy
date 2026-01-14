@@ -1044,22 +1044,22 @@ const run = async () => {
     const { base: adminBaselineBase } = await getCapacityBase(adminUnitId, adminDateKey);
     const adminHeadcount = 2;
 
-    const adminCreateResponse = await postJson<{
-      bookingId: string;
-      manageToken: string;
-      adminActionToken?: string;
-    }>(createUrl, {
-      unitId: adminUnitId,
-      reservation: {
-        name: 'Smoke Admin Approve',
-        headcount: adminHeadcount,
-        startTime: adminStart.toISOString(),
-        endTime: adminEnd.toISOString(),
-        preferredTimeSlot: 'afternoon',
-        seatingPreference: 'any',
-        contact: { email: 'smoke-admin@example.com', phoneE164: '' },
-      },
-    });
+    const adminPreferred = preferredSlotFromDate(adminStart);
+
+const adminCreateResponse = await postJson<{ bookingId: string; manageToken: string; adminActionToken: string }>(
+  createUrl,
+  {
+    unitId: adminUnitId,
+    reservation: withSafeReservationDefaults({
+      name: 'Smoke Admin Reject',
+      headcount: 3,
+      startTime: adminStart.toISOString(),
+      endTime: adminEnd.toISOString(),
+      preferredTimeSlot: adminPreferred,
+      contact: { email: 'smoke-admin@example.com', phoneE164: '' },
+    }),
+  }
+);
 
     if (!adminCreateResponse.adminActionToken) {
       fail('adminActionToken missing from guestCreateReservation response', {
