@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCapacityWrite } from './capacityCleanupRunner';
+import { buildCapacityWrite, validateDateKey } from './capacityCleanupRunner';
 
 test('buildCapacityWrite returns delete when slots are invalid', () => {
   const plan = buildCapacityWrite({
@@ -43,4 +43,12 @@ test('buildCapacityWrite includes byTimeSlot when normalized keeps it', () => {
     payload: { totalCount: 2, count: 2, byTimeSlot: { afternoon: 2 } },
     deletesSlots: false,
   });
+});
+
+test('validateDateKey enforces YYYY-MM-DD', () => {
+  assert.equal(validateDateKey('2024-01-05'), true);
+  assert.equal(validateDateKey('2024-1-05'), false);
+  assert.equal(validateDateKey('2024-13-01'), true);
+  assert.equal(validateDateKey(''), false);
+  assert.equal(validateDateKey(undefined), false);
 });

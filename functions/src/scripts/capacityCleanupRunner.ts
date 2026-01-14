@@ -7,6 +7,9 @@ type CleanupPlan = {
   deletesSlots: boolean;
 };
 
+export const validateDateKey = (value: string | undefined) =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 const getArgValue = (flag: string) => {
   const match = process.argv.find(arg => arg.startsWith(`${flag}=`));
   return match ? match.split('=')[1] : undefined;
@@ -36,6 +39,7 @@ export const buildCapacityWrite = (rawDoc: unknown): CleanupPlan | null => {
 const main = async () => {
   const apply = process.argv.includes('--apply');
   const dryRun = process.argv.includes('--dry-run') || !apply;
+  const confirmed = process.argv.includes('--yes');
   const limit = parseLimit(getArgValue('--limit'), 200);
   const unitId = getArgValue('--unitId');
   const from = getArgValue('--from');
@@ -52,8 +56,24 @@ const main = async () => {
       `projectId=${projectId ?? 'null'} unitId=${unitId ?? 'all'} ` +
       `from=${from ?? 'null'} to=${to ?? 'null'} limit=${limit}`
   );
+  if (from && !validateDateKey(from)) {
+    console.error('[capacity-cleanup] invalid from dateKey; expected YYYY-MM-DD');
+    process.exit(1);
+  }
+  if (to && !validateDateKey(to)) {
+    console.error('[capacity-cleanup] invalid to dateKey; expected YYYY-MM-DD');
+    process.exit(1);
+  }
+  if (from && to && from > to) {
+    console.error('[capacity-cleanup] invalid date range: from is after to');
+    process.exit(1);
+  }
   if (!dryRun && !projectId) {
     console.error('[capacity-cleanup] missing projectId for apply mode');
+    process.exit(1);
+  }
+  if (!dryRun && !confirmed) {
+    console.error('[capacity-cleanup] missing --yes confirmation for apply mode');
     process.exit(1);
   }
 
@@ -75,6 +95,9 @@ const main = async () => {
   let deletedByTimeSlot = 0;
   let appliedWrites = 0;
   let dryRunPlanned = 0;
+  let batchesCommitted = 0;
+  let batch: FirebaseFirestore.WriteBatch | null = null;
+  let batchSize = 0;
 
   for (const currentUnitId of unitIds) {
     if (remaining <= 0) break;
@@ -119,13 +142,27 @@ const main = async () => {
           if (dryRun) {
             dryRunPlanned += 1;
           } else {
-            await docSnap.ref.set(payload, { merge: true });
+            if (!batch) {
+              batch = db.batch();
+              batchSize = 0;
+            }
+            batch.set(docSnap.ref, payload, { merge: true });
+            batchSize += 1;
             appliedWrites += 1;
+            if (batchSize >= 250) {
+              await batch.commit();
+              batchesCommitted += 1;
+              batch = null;
+            }
           }
         }
         if (remaining <= 0) break;
       }
     }
+  }
+  if (batch && batchSize > 0) {
+    await batch.commit();
+    batchesCommitted += 1;
   }
 
   const summary = {
@@ -135,6 +172,7 @@ const main = async () => {
     deletedByTimeSlot,
     appliedWrites,
     dryRunPlanned,
+    batchesCommitted,
     dryRun,
     limit,
     unitId: unitId ?? null,
