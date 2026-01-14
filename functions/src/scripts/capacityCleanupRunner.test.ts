@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCapacityWrite, validateDateKey } from './capacityCleanupRunner';
+import { buildCapacityWrite, resolveProjectId, validateDateKey } from './capacityCleanupRunner';
 
 test('buildCapacityWrite returns delete when slots are invalid', () => {
   const plan = buildCapacityWrite({
@@ -51,4 +51,18 @@ test('validateDateKey enforces YYYY-MM-DD', () => {
   assert.equal(validateDateKey('2024-13-01'), true);
   assert.equal(validateDateKey(''), false);
   assert.equal(validateDateKey(undefined), false);
+});
+
+test('resolveProjectId prefers CLI arg', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  process.env.PROJECT_ID = 'env-project';
+  try {
+    assert.equal(resolveProjectId('cli-project'), 'cli-project');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+  }
 });

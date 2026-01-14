@@ -46,7 +46,7 @@ const parseLimit = (value: string | undefined, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const resolveProjectId = (argProjectId?: string) => {
+export const resolveProjectId = (argProjectId?: string) => {
   if (argProjectId) return argProjectId;
   const envProjectId =
     process.env.PROJECT_ID ||
