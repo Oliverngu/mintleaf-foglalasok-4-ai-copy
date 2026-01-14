@@ -122,23 +122,33 @@ export const applyCapacityLedgerTx = async ({
       .doc(mutation.key);
     const capacitySnap = await transaction.get(capacityRef);
     const prevDoc = normalizeCapacityDoc(capacitySnap.exists ? capacitySnap.data() || {} : {});
-    const allowSlotDeltas =
-      typeof mutationTraceId === 'string' ? !mutationTraceId.includes('modify') : true;
     const nextDoc = applyCapacityDelta(prevDoc, {
       totalDelta: mutation.totalDelta,
-      slotDeltas: allowSlotDeltas ? mutation.slotDeltas : undefined,
+      slotDeltas: mutation.slotDeltas,
     });
     const update: Record<string, unknown> = {
       date: mutation.key,
       totalCount: nextDoc.totalCount,
       updatedAt: FieldValue.serverTimestamp(),
     };
-    if (typeof nextDoc.count === 'number') {
-      update.count = nextDoc.count;
-    }
-    if (nextDoc.byTimeSlot) {
-      update.byTimeSlot = nextDoc.byTimeSlot;
-    } else if (prevDoc.byTimeSlot) {
+    update.count = nextDoc.totalCount;
+    const prevHadSlots = !!prevDoc.byTimeSlot;
+    if (nextDoc.totalCount === 0) {
+      if (prevHadSlots) {
+        update.byTimeSlot = FieldValue.delete();
+      }
+    } else if (nextDoc.byTimeSlot) {
+      const slotValues = Object.values(nextDoc.byTimeSlot);
+      const slotsValid = slotValues.every(
+        value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+      );
+      const slotSum = slotValues.reduce((acc, value) => acc + value, 0);
+      if (slotsValid && slotSum === nextDoc.totalCount) {
+        update.byTimeSlot = nextDoc.byTimeSlot;
+      } else if (prevHadSlots) {
+        update.byTimeSlot = FieldValue.delete();
+      }
+    } else if (prevHadSlots) {
       update.byTimeSlot = FieldValue.delete();
     }
     transaction.set(capacityRef, update, { merge: true });
