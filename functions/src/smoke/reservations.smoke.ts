@@ -417,6 +417,15 @@ const runGuestModifyNegativeCase = async (
       after,
     });
   }
+  if (expectedHttpStatuses.length > 0 && !expectedHttpStatuses.includes(response.status)) {
+    fail(`${label} unexpected status`, {
+      response,
+      payload,
+      expectedHttpStatuses,
+      before,
+      after,
+    });
+  }
   assertStateUnchanged(
     before,
     after,
@@ -533,7 +542,12 @@ const run = async () => {
     startTimeMs: modifyStart.getTime(),
     endTimeMs: modifyEnd.getTime(),
   };
-  const canModify = reservation.status === 'pending' || (!reservation.status && reservation.capacityLedger);
+  const modifiableStatuses = new Set(['pending', 'requested']);
+  const reservationStatus = reservation.status ?? 'unknown';
+  const canModify = reservation.status ? modifiableStatuses.has(reservation.status) : false;
+  if (!reservation.status) {
+    console.warn('[SMOKE][WARN] post-create status missing; defaulting to modify-negative path');
+  }
   if (canModify) {
     console.log('[SMOKE][PHASE] MODIFY');
     const modifyResponse = await postJsonSafe(modifyUrl, modifyPayload);
@@ -643,10 +657,19 @@ const run = async () => {
     );
   } else {
     console.log(
-      `[SMOKE][PHASE] MODIFY SKIPPED (status=${reservation.status ?? 'unknown'}); running modify-negative`
+      `[SMOKE][PHASE] MODIFY SKIPPED (status=${reservationStatus}); running modify-negative`
     );
     await runGuestModifyNegativeCase(
-      'modify-after-create-confirmed',
+      'modify-after-create-confirmed-old-date',
+      modifyUrl,
+      reservationRef,
+      unitId,
+      dateKey,
+      modifyPayload,
+      [400]
+    );
+    await runGuestModifyNegativeCase(
+      'modify-after-create-confirmed-new-date',
       modifyUrl,
       reservationRef,
       unitId,
