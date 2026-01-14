@@ -1,6 +1,11 @@
 import type { Firestore, Transaction } from 'firebase-admin/firestore';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { computeCapacityMutationPlan } from './capacityDelta';
+import {
+  applyCapacityDelta,
+  normalizeCapacityDoc,
+  slotKeyFromReservation,
+} from './capacityDocContract';
 
 export type CapacityLedger = {
   applied?: boolean;
@@ -89,6 +94,8 @@ export const applyCapacityLedgerTx = async ({
       : typeof reservation.headcount === 'number'
       ? reservation.headcount
       : 0;
+  const currentSlotKey = slotKeyFromReservation(reservation);
+  const desiredSlotKey = slotKeyFromReservation(reservation);
 
   const desiredIncluded = countsTowardCapacity(nextStatus);
   const desiredKey = nextDateKey;
@@ -101,25 +108,40 @@ export const applyCapacityLedgerTx = async ({
     newCount: desiredCount,
     oldIncluded: currentApplied,
     newIncluded: desiredIncluded,
+    oldSlotKey: currentSlotKey,
+    newSlotKey: desiredSlotKey,
   });
 
   for (const mutation of mutations) {
-    if (mutation.delta === 0) continue;
+    const hasSlotDeltas = mutation.slotDeltas && Object.keys(mutation.slotDeltas).length > 0;
+    if (mutation.totalDelta === 0 && !hasSlotDeltas) continue;
     const capacityRef = db
       .collection('units')
       .doc(unitId)
       .collection('reservation_capacity')
       .doc(mutation.key);
-    transaction.set(
-      capacityRef,
-      {
-        date: mutation.key,
-        count: FieldValue.increment(mutation.delta),
-        totalCount: FieldValue.increment(mutation.delta),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const capacitySnap = await transaction.get(capacityRef);
+    const prevDoc = normalizeCapacityDoc(capacitySnap.exists ? capacitySnap.data() || {} : {});
+    const allowSlotDeltas =
+      typeof mutationTraceId === 'string' ? !mutationTraceId.includes('modify') : true;
+    const nextDoc = applyCapacityDelta(prevDoc, {
+      totalDelta: mutation.totalDelta,
+      slotDeltas: allowSlotDeltas ? mutation.slotDeltas : undefined,
+    });
+    const update: Record<string, unknown> = {
+      date: mutation.key,
+      totalCount: nextDoc.totalCount,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (typeof nextDoc.count === 'number') {
+      update.count = nextDoc.count;
+    }
+    if (nextDoc.byTimeSlot) {
+      update.byTimeSlot = nextDoc.byTimeSlot;
+    } else if (prevDoc.byTimeSlot) {
+      update.byTimeSlot = FieldValue.delete();
+    }
+    transaction.set(capacityRef, update, { merge: true });
   }
 
   const appliedAt =
