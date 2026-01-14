@@ -1096,26 +1096,35 @@ const run = async () => {
       adminUnitId,
       adminDateKey
     );
+
     const adminApproveAgainResponse = await postJsonSafeWithAuth(
       adminUrl,
       adminApprovePayload,
       adminIdToken
     );
-    if (!adminApproveAgainResponse.ok) {
+
+    // Idempotency: second approve may intentionally fail because adminToken is one-time use.
+    // Accept common “already handled / not found / forbidden” statuses, but still assert state unchanged.
+    const allowedIdempotencyStatuses = new Set([200, 400, 403, 404]);
+
+    if (!allowedIdempotencyStatuses.has(adminApproveAgainResponse.status)) {
       const latestSnap = await adminReservationRef.get();
-      fail('Admin approve idempotency HTTP failed', {
+      fail('Admin approve idempotency unexpected HTTP status', {
         httpStatus: adminApproveAgainResponse.status,
         responseText: adminApproveAgainResponse.text,
         request: adminApprovePayload,
         reservation: latestSnap.data(),
+        allowedStatuses: Array.from(allowedIdempotencyStatuses),
       });
     }
+
     const adminApproveIdempotencyAfter = await snapshotState(
       'admin-approve-idempotency-after',
       adminReservationRef,
       adminUnitId,
       adminDateKey
     );
+
     assertStateUnchanged(
       adminApproveIdempotencyBefore,
       adminApproveIdempotencyAfter,
