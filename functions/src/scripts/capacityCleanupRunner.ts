@@ -68,45 +68,53 @@ const main = async () => {
 
   for (const currentUnitId of unitIds) {
     if (remaining <= 0) break;
-    let query = db
-      .collection('units')
-      .doc(currentUnitId)
-      .collection('reservation_capacity')
-      .orderBy(FieldPath.documentId());
-    if (from) {
-      query = query.where(FieldPath.documentId(), '>=', from);
-    }
-    if (to) {
-      query = query.where(FieldPath.documentId(), '<=', to);
-    }
-    const capacitySnap = await query.limit(remaining).get();
-    for (const docSnap of capacitySnap.docs) {
-      scanned += 1;
-      remaining -= 1;
-      const raw = docSnap.data();
-      const plan = buildCapacityWrite(raw);
-      if (!plan) {
-        skipped += 1;
-      } else {
-        changed += 1;
-        if (plan.deletesSlots) {
-          deletedByTimeSlot += 1;
-        }
-        const payload: Record<string, unknown> = { ...plan.payload };
-        if (plan.deletesSlots) {
-          payload.byTimeSlot = admin.firestore.FieldValue.delete();
-        }
-        const mode = dryRun ? 'dry-run' : 'apply';
-        const logLine = `[capacity-cleanup] ${currentUnitId}/${docSnap.id} ${mode} keys=${Object.keys(payload).join(',')}`;
-        console.log(logLine);
-        if (dryRun) {
-          dryRunPlanned += 1;
-        } else {
-          await docSnap.ref.set(payload, { merge: true });
-          appliedWrites += 1;
-        }
+    let lastDocId: string | null = null;
+    while (remaining > 0) {
+      let query = db
+        .collection('units')
+        .doc(currentUnitId)
+        .collection('reservation_capacity')
+        .orderBy(FieldPath.documentId());
+      if (from) {
+        query = query.where(FieldPath.documentId(), '>=', from);
       }
-      if (remaining <= 0) break;
+      if (to) {
+        query = query.where(FieldPath.documentId(), '<=', to);
+      }
+      if (lastDocId) {
+        query = query.startAfter(lastDocId);
+      }
+      const capacitySnap = await query.limit(remaining).get();
+      if (capacitySnap.empty) break;
+      for (const docSnap of capacitySnap.docs) {
+        scanned += 1;
+        remaining -= 1;
+        lastDocId = docSnap.id;
+        const raw = docSnap.data();
+        const plan = buildCapacityWrite(raw);
+        if (!plan) {
+          skipped += 1;
+        } else {
+          changed += 1;
+          if (plan.deletesSlots) {
+            deletedByTimeSlot += 1;
+          }
+          const payload: Record<string, unknown> = { ...plan.payload };
+          if (plan.deletesSlots) {
+            payload.byTimeSlot = admin.firestore.FieldValue.delete();
+          }
+          const mode = dryRun ? 'dry-run' : 'apply';
+          const logLine = `[capacity-cleanup] ${currentUnitId}/${docSnap.id} ${mode} deletesSlots=${plan.deletesSlots} keys=${Object.keys(payload).join(',')}`;
+          console.log(logLine);
+          if (dryRun) {
+            dryRunPlanned += 1;
+          } else {
+            await docSnap.ref.set(payload, { merge: true });
+            appliedWrites += 1;
+          }
+        }
+        if (remaining <= 0) break;
+      }
     }
   }
 
