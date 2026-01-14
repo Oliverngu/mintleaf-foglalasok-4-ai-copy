@@ -10,6 +10,18 @@ type CleanupPlan = {
 export const validateDateKey = (value: string | undefined) =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+const usage = () => {
+  console.log('[capacity-cleanup] usage:');
+  console.log('  dry-run (all units, limit):');
+  console.log('    tsx src/scripts/capacityCleanupRunner.ts --dry-run --limit=200');
+  console.log('  apply (all units, requires project id + --yes):');
+  console.log('    tsx src/scripts/capacityCleanupRunner.ts --apply --yes --limit=200');
+  console.log('  apply (single unit + date range):');
+  console.log(
+    '    tsx src/scripts/capacityCleanupRunner.ts --apply --yes --unitId=UNIT --from=YYYY-MM-DD --to=YYYY-MM-DD'
+  );
+};
+
 const getArgValue = (flag: string) => {
   const match = process.argv.find(arg => arg.startsWith(`${flag}=`));
   return match ? match.split('=')[1] : undefined;
@@ -45,6 +57,11 @@ const main = async () => {
   const from = getArgValue('--from');
   const to = getArgValue('--to');
 
+  if (process.argv.includes('--help')) {
+    usage();
+    process.exit(0);
+  }
+
   const projectId =
     process.env.PROJECT_ID ||
     process.env.FIREBASE_PROJECT_ID ||
@@ -70,10 +87,12 @@ const main = async () => {
   }
   if (!dryRun && !projectId) {
     console.error('[capacity-cleanup] missing projectId for apply mode');
+    usage();
     process.exit(1);
   }
   if (!dryRun && !confirmed) {
     console.error('[capacity-cleanup] missing --yes confirmation for apply mode');
+    usage();
     process.exit(1);
   }
 
@@ -93,11 +112,22 @@ const main = async () => {
   let changed = 0;
   let skipped = 0;
   let deletedByTimeSlot = 0;
-  let appliedWrites = 0;
+  let plannedWrites = 0;
+  let committedWrites = 0;
   let dryRunPlanned = 0;
   let batchesCommitted = 0;
   let batch: FirebaseFirestore.WriteBatch | null = null;
   let batchSize = 0;
+
+  const flushBatch = async () => {
+    if (!batch || batchSize === 0) return;
+    const commits = batchSize;
+    await batch.commit();
+    batchesCommitted += 1;
+    committedWrites += commits;
+    batch = null;
+    batchSize = 0;
+  };
 
   for (const currentUnitId of unitIds) {
     if (remaining <= 0) break;
@@ -129,6 +159,7 @@ const main = async () => {
           skipped += 1;
         } else {
           changed += 1;
+          plannedWrites += 1;
           if (plan.deletesSlots) {
             deletedByTimeSlot += 1;
           }
@@ -148,21 +179,20 @@ const main = async () => {
             }
             batch.set(docSnap.ref, payload, { merge: true });
             batchSize += 1;
-            appliedWrites += 1;
             if (batchSize >= 250) {
-              await batch.commit();
-              batchesCommitted += 1;
-              batch = null;
+              await flushBatch();
             }
           }
         }
         if (remaining <= 0) break;
       }
     }
+    if (!dryRun) {
+      await flushBatch();
+    }
   }
-  if (batch && batchSize > 0) {
-    await batch.commit();
-    batchesCommitted += 1;
+  if (!dryRun) {
+    await flushBatch();
   }
 
   const summary = {
@@ -170,7 +200,8 @@ const main = async () => {
     changed,
     skipped,
     deletedByTimeSlot,
-    appliedWrites,
+    plannedWrites,
+    committedWrites,
     dryRunPlanned,
     batchesCommitted,
     dryRun,
