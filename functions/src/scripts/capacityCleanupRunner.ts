@@ -120,8 +120,8 @@ const main = async () => {
     console.error('[capacity-cleanup] invalid date range: from is after to');
     process.exit(1);
   }
-  if (!dryRun && !projectId) {
-    console.error('[capacity-cleanup] missing projectId for apply mode');
+  if (!projectId) {
+    console.error('[capacity-cleanup] missing projectId (set PROJECT_ID or use --projectId)');
     usage();
     process.exit(1);
   }
