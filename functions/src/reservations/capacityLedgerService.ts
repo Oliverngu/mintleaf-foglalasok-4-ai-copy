@@ -16,6 +16,30 @@ export type CapacityLedger = {
   lastMutationTraceId?: string | null;
 };
 
+const warnedCapacityInvariantKeys = new Set<string>();
+
+export const shouldWarnCapacityInvariant = ({
+  reasons,
+  prevHadSlots,
+  unitId,
+  dateKey,
+  mutationTraceId,
+}: {
+  reasons: string[];
+  prevHadSlots: boolean;
+  unitId: string;
+  dateKey: string;
+  mutationTraceId?: string | null;
+}) => {
+  if (reasons.length === 0) return false;
+  const severe = reasons.includes('totalCount-invalid');
+  if (!prevHadSlots && !severe) return false;
+  const key = `${unitId}/${dateKey}/${mutationTraceId ?? 'no-trace'}`;
+  if (warnedCapacityInvariantKeys.has(key)) return false;
+  warnedCapacityInvariantKeys.add(key);
+  return true;
+};
+
 export const toDateKeyLocal = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -140,7 +164,15 @@ export const applyCapacityLedgerTx = async ({
     } else if (normalized.deletesByTimeSlot && prevHadSlots) {
       update.byTimeSlot = FieldValue.delete();
     }
-    if (normalized.reasons.length > 0) {
+    if (
+      shouldWarnCapacityInvariant({
+        reasons: normalized.reasons,
+        prevHadSlots,
+        unitId,
+        dateKey: mutation.key,
+        mutationTraceId,
+      })
+    ) {
       const slotKeys = mutation.slotDeltas ? Object.keys(mutation.slotDeltas) : [];
       const slotKey = slotKeys.length === 1 ? slotKeys[0] : null;
       const slotInfo = slotKey ? ` slotKey=${slotKey}` : '';

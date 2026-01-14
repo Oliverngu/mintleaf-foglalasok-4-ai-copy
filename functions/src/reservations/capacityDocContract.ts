@@ -74,23 +74,18 @@ export const normalizeCapacityForWrite = (data: unknown): CapacityWriteNormaliza
   const hasByTimeSlot = Object.prototype.hasOwnProperty.call(record, 'byTimeSlot');
   let byTimeSlot: Record<string, number> | undefined;
   if (hasByTimeSlot) {
-    if (!record.byTimeSlot || typeof record.byTimeSlot !== 'object') {
-      reasons.push('byTimeSlot-invalid');
-    } else if (totalCount === 0) {
+    if (totalCount === 0) {
       reasons.push('byTimeSlot-removed-zero');
     } else {
-      const slotValues = Object.values(record.byTimeSlot as Record<string, unknown>);
-      const slotsValid = slotValues.every(
-        value => typeof value === 'number' && Number.isFinite(value) && value >= 0
-      );
-      if (!slotsValid) {
+      const normalizedSlots = normalizeByTimeSlot(record.byTimeSlot);
+      if (!normalizedSlots) {
         reasons.push('byTimeSlot-invalid');
       } else {
-        const sum = slotValues.reduce((acc, value) => acc + value, 0);
+        const sum = Object.values(normalizedSlots).reduce((acc, value) => acc + value, 0);
         if (sum !== totalCount) {
           reasons.push('byTimeSlot-sum-mismatch');
         } else {
-          byTimeSlot = record.byTimeSlot as Record<string, number>;
+          byTimeSlot = normalizedSlots;
         }
       }
     }
