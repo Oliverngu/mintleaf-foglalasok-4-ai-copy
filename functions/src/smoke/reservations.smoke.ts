@@ -1040,7 +1040,7 @@ const run = async () => {
         endTime: adminEnd.toISOString(),
         preferredTimeSlot: 'afternoon',
         seatingPreference: 'any',
-        contact: { email: 'smoke-admin@example.com' },
+        contact: { email: 'smoke-admin@example.com', phoneE164: '' },
       },
     });
 
