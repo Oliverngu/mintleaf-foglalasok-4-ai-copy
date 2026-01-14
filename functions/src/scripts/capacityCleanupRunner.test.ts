@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCapacityWrite, resolveProjectId, validateDateKey } from './capacityCleanupRunner';
+import {
+  buildCapacityWrite,
+  canApplyWithProject,
+  getProjectIdSource,
+  parseArgs,
+  resolveProjectId,
+  validateDateKey,
+} from './capacityCleanupRunner';
 
 test('buildCapacityWrite returns delete when slots are invalid', () => {
   const plan = buildCapacityWrite({
@@ -65,4 +72,163 @@ test('resolveProjectId prefers CLI arg', () => {
       process.env.PROJECT_ID = originalProjectId;
     }
   }
+});
+
+test('resolveProjectId falls back to env vars', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  process.env.PROJECT_ID = 'env-project';
+  try {
+    assert.equal(resolveProjectId(undefined), 'env-project');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('resolveProjectId falls back to emulator default', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  delete process.env.PROJECT_ID;
+  process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+  try {
+    assert.equal(resolveProjectId(undefined), 'demo-mintleaf');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('parseArgs uses last duplicate value', () => {
+  const args = parseArgs(['--limit=200', '--limit=50']);
+  assert.equal(args.limit, '50');
+});
+
+test('parseArgs reads projectId', () => {
+  const args = parseArgs(['--projectId=mintleaf-74d27']);
+  assert.equal(args.projectId, 'mintleaf-74d27');
+});
+
+test('parseArgs reports unknown flags', () => {
+  const args = parseArgs(['--not-real']);
+  assert.deepEqual(args.unknownFlags, ['--not-real']);
+});
+
+test('parseArgs ignores empty projectId', () => {
+  const args = parseArgs(['--projectId=']);
+  assert.equal(args.projectId, undefined);
+});
+
+test('getProjectIdSource prefers cli', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  process.env.PROJECT_ID = 'env-project';
+  process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+  try {
+    assert.equal(getProjectIdSource('cli-project'), 'cli');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('getProjectIdSource prefers env over emulator', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  process.env.PROJECT_ID = 'env-project';
+  process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+  try {
+    assert.equal(getProjectIdSource(undefined), 'env');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('getProjectIdSource uses emulator fallback', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  delete process.env.PROJECT_ID;
+  process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+  try {
+    assert.equal(getProjectIdSource(undefined), 'emulator');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('getProjectIdSource returns none when no sources', () => {
+  const originalProjectId = process.env.PROJECT_ID;
+  const originalEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  delete process.env.PROJECT_ID;
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  try {
+    assert.equal(getProjectIdSource(undefined), 'none');
+  } finally {
+    if (originalProjectId === undefined) {
+      delete process.env.PROJECT_ID;
+    } else {
+      process.env.PROJECT_ID = originalProjectId;
+    }
+    if (originalEmulatorHost === undefined) {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    } else {
+      process.env.FIRESTORE_EMULATOR_HOST = originalEmulatorHost;
+    }
+  }
+});
+
+test('canApplyWithProject rejects emulator default', () => {
+  assert.equal(canApplyWithProject('demo-mintleaf', 'emulator'), false);
+});
+
+test('canApplyWithProject rejects undefined projectId', () => {
+  assert.equal(canApplyWithProject(undefined, 'cli'), false);
+});
+
+test('canApplyWithProject allows cli/env real projectId', () => {
+  assert.equal(canApplyWithProject('mintleaf-74d27', 'cli'), true);
+  assert.equal(canApplyWithProject('mintleaf-74d27', 'env'), true);
 });

@@ -12,14 +12,9 @@ export const validateDateKey = (value: string | undefined) =>
 
 const usage = () => {
   console.log('[capacity-cleanup] usage:');
-  console.log('  dry-run (all units, limit):');
-  console.log('    tsx src/scripts/capacityCleanupRunner.ts --dry-run --limit=200');
-  console.log('  apply (all units, requires project id + --yes):');
-  console.log('    tsx src/scripts/capacityCleanupRunner.ts --apply --yes --limit=200');
-  console.log('  apply (single unit + date range):');
-  console.log(
-    '    tsx src/scripts/capacityCleanupRunner.ts --apply --yes --unitId=UNIT --from=YYYY-MM-DD --to=YYYY-MM-DD'
-  );
+  console.log('  tsx src/scripts/capacityCleanupRunner.ts --dry-run [--limit=200]');
+  console.log('  tsx src/scripts/capacityCleanupRunner.ts --apply --yes [--projectId=ID]');
+  console.log('  tsx src/scripts/capacityCleanupRunner.ts --apply --yes --unitId=UNIT --from=YYYY-MM-DD --to=YYYY-MM-DD');
 };
 
 const allowedFlags = new Set([
@@ -28,17 +23,67 @@ const allowedFlags = new Set([
   '--yes',
   '--help',
 ]);
-const allowedPrefixes = [
-  '--limit=',
-  '--unitId=',
-  '--from=',
-  '--to=',
-  '--projectId=',
-];
 
-const getArgValue = (flag: string) => {
-  const match = process.argv.find(arg => arg.startsWith(`${flag}=`));
-  return match ? match.split('=')[1] : undefined;
+type ParsedArgs = {
+  apply: boolean;
+  dryRun: boolean;
+  confirmed: boolean;
+  help: boolean;
+  limit?: string;
+  unitId?: string;
+  from?: string;
+  to?: string;
+  projectId?: string;
+  unknownFlags: string[];
+};
+
+export const parseArgs = (argv: string[]): ParsedArgs => {
+  const parsed: ParsedArgs = {
+    apply: false,
+    dryRun: false,
+    confirmed: false,
+    help: false,
+    unknownFlags: [],
+  };
+
+  for (const arg of argv) {
+    if (allowedFlags.has(arg)) {
+      if (arg === '--apply') parsed.apply = true;
+      if (arg === '--dry-run') parsed.dryRun = true;
+      if (arg === '--yes') parsed.confirmed = true;
+      if (arg === '--help') parsed.help = true;
+      continue;
+    }
+
+    if (arg.startsWith('--limit=')) {
+      parsed.limit = arg.split('=')[1];
+      continue;
+    }
+    if (arg.startsWith('--unitId=')) {
+      parsed.unitId = arg.split('=')[1];
+      continue;
+    }
+    if (arg.startsWith('--from=')) {
+      parsed.from = arg.split('=')[1];
+      continue;
+    }
+    if (arg.startsWith('--to=')) {
+      parsed.to = arg.split('=')[1];
+      continue;
+    }
+    if (arg.startsWith('--projectId=')) {
+      const value = arg.split('=')[1];
+      if (value) {
+        parsed.projectId = value;
+      }
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      parsed.unknownFlags.push(arg);
+    }
+  }
+
+  return parsed;
 };
 
 const parseLimit = (value: string | undefined, fallback: number) => {
@@ -46,13 +91,32 @@ const parseLimit = (value: string | undefined, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const getEnvProjectId = () =>
+  process.env.PROJECT_ID ||
+  process.env.FIREBASE_PROJECT_ID ||
+  process.env.GCLOUD_PROJECT ||
+  undefined;
+
+export const getProjectIdSource = (argProjectId?: string) => {
+  if (argProjectId) return 'cli';
+  if (getEnvProjectId()) return 'env';
+  if (process.env.FIRESTORE_EMULATOR_HOST) return 'emulator';
+  return 'none';
+};
+
+export const canApplyWithProject = (
+  projectId: string | undefined,
+  source: 'cli' | 'env' | 'emulator' | 'none'
+) => {
+  if (!projectId) return false;
+  if (source === 'emulator') return false;
+  if (projectId === 'demo-mintleaf') return false;
+  return true;
+};
+
 export const resolveProjectId = (argProjectId?: string) => {
   if (argProjectId) return argProjectId;
-  const envProjectId =
-    process.env.PROJECT_ID ||
-    process.env.FIREBASE_PROJECT_ID ||
-    process.env.GCLOUD_PROJECT ||
-    undefined;
+  const envProjectId = getEnvProjectId();
   if (envProjectId) return envProjectId;
   if (process.env.FIRESTORE_EMULATOR_HOST) return 'demo-mintleaf';
   return undefined;
@@ -75,37 +139,34 @@ export const buildCapacityWrite = (rawDoc: unknown): CleanupPlan | null => {
 };
 
 const main = async () => {
-  const unknownFlags = process.argv.filter(
-    arg =>
-      arg.startsWith('--') &&
-      !allowedFlags.has(arg) &&
-      !allowedPrefixes.some(prefix => arg.startsWith(prefix))
-  );
-  if (unknownFlags.length > 0) {
-    console.error(`[capacity-cleanup] unknown flags: ${unknownFlags.join(', ')}`);
+  const args = parseArgs(process.argv.slice(2));
+  if (args.unknownFlags.length > 0) {
+    console.error(`[capacity-cleanup] unknown flags: ${args.unknownFlags.join(', ')}`);
     usage();
     process.exit(1);
   }
 
-  const apply = process.argv.includes('--apply');
-  const dryRun = process.argv.includes('--dry-run') || !apply;
-  const confirmed = process.argv.includes('--yes');
-  const limit = parseLimit(getArgValue('--limit'), 200);
-  const unitId = getArgValue('--unitId');
-  const from = getArgValue('--from');
-  const to = getArgValue('--to');
-  const argProjectId = getArgValue('--projectId');
+  const apply = args.apply;
+  const dryRun = args.dryRun || !apply;
+  const confirmed = args.confirmed;
+  const limit = parseLimit(args.limit, 200);
+  const unitId = args.unitId;
+  const from = args.from;
+  const to = args.to;
+  const argProjectId = args.projectId;
 
-  if (process.argv.includes('--help')) {
+  if (args.help) {
     usage();
     process.exit(0);
   }
 
   const projectId = resolveProjectId(argProjectId);
+  const projectIdSource = getProjectIdSource(argProjectId);
 
   console.log(
     `[capacity-cleanup] start mode=${dryRun ? 'dry-run' : 'apply'} ` +
-      `projectId=${projectId ?? 'null'} unitId=${unitId ?? 'all'} ` +
+      `projectId=${projectId ?? 'null'} projectIdSource=${projectIdSource} ` +
+      `unitId=${unitId ?? 'all'} ` +
       `from=${from ?? 'null'} to=${to ?? 'null'} limit=${limit}`
   );
   if (from && !validateDateKey(from)) {
@@ -128,6 +189,12 @@ const main = async () => {
   if (!dryRun && !confirmed) {
     console.error('[capacity-cleanup] missing --yes confirmation for apply mode');
     usage();
+    process.exit(1);
+  }
+  if (!dryRun && !canApplyWithProject(projectId, projectIdSource)) {
+    console.error(
+      '[capacity-cleanup] apply mode cannot run against emulator default projectId'
+    );
     process.exit(1);
   }
 

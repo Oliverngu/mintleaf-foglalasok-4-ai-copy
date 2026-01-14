@@ -11,6 +11,7 @@
     "build": "tsc --project tsconfig.json",
     "capacity:cleanup:dry": "tsx src/scripts/capacityCleanupRunner.ts --dry-run",
     "capacity:cleanup:apply": "tsx src/scripts/capacityCleanupRunner.ts --apply --yes",
+    "capacity:sanity:scan": "tsx src/scripts/capacitySanityScan.ts",
     "smoke:reservations": "node lib/smoke/reservations.smoke.js",
     "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js",
     "test:unit": "tsx --test src/**/*.test.ts"
