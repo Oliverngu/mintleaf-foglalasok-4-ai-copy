@@ -4,6 +4,12 @@ export interface CapacityDoc {
   byTimeSlot?: Record<string, number>;
 }
 
+export type CapacityWriteNormalization = {
+  payload: CapacityDoc;
+  deletesByTimeSlot: boolean;
+  reasons: string[];
+};
+
 export const readCapacityBase = (data: unknown): number => {
   if (!data || typeof data !== 'object') return 0;
   const record = data as Record<string, unknown>;
@@ -43,6 +49,63 @@ export const normalizeCapacityDoc = (data: unknown): CapacityDoc => {
     totalCount,
     count,
     ...(byTimeSlot ? { byTimeSlot } : {}),
+  };
+};
+
+export const normalizeCapacityForWrite = (data: unknown): CapacityWriteNormalization => {
+  const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const rawTotal = typeof record.totalCount === 'number' ? record.totalCount : undefined;
+  const rawCount = typeof record.count === 'number' ? record.count : undefined;
+  const reasons: string[] = [];
+
+  let totalCount = Number.isFinite(rawTotal)
+    ? rawTotal
+    : Number.isFinite(rawCount)
+    ? rawCount
+    : 0;
+  if (!Number.isFinite(totalCount) || totalCount < 0) {
+    reasons.push('totalCount-invalid');
+    totalCount = 0;
+  }
+  if (rawCount !== totalCount) {
+    reasons.push('count-mismatch');
+  }
+
+  const hasByTimeSlot = Object.prototype.hasOwnProperty.call(record, 'byTimeSlot');
+  let byTimeSlot: Record<string, number> | undefined;
+  if (hasByTimeSlot) {
+    if (!record.byTimeSlot || typeof record.byTimeSlot !== 'object') {
+      reasons.push('byTimeSlot-invalid');
+    } else if (totalCount === 0) {
+      reasons.push('byTimeSlot-removed-zero');
+    } else {
+      const slotValues = Object.values(record.byTimeSlot as Record<string, unknown>);
+      const slotsValid = slotValues.every(
+        value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+      );
+      if (!slotsValid) {
+        reasons.push('byTimeSlot-invalid');
+      } else {
+        const sum = slotValues.reduce((acc, value) => acc + value, 0);
+        if (sum !== totalCount) {
+          reasons.push('byTimeSlot-sum-mismatch');
+        } else {
+          byTimeSlot = record.byTimeSlot as Record<string, number>;
+        }
+      }
+    }
+  }
+
+  const payload: CapacityDoc = {
+    totalCount,
+    count: totalCount,
+    ...(byTimeSlot ? { byTimeSlot } : {}),
+  };
+
+  return {
+    payload,
+    deletesByTimeSlot: hasByTimeSlot && !byTimeSlot,
+    reasons,
   };
 };
 
