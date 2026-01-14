@@ -131,7 +131,7 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   }
   try {
     return JSON.parse(text) as T;
-  } catch (err) {
+  } catch {
     fail('Invalid JSON response', {
       url,
       status: response.status,
@@ -201,9 +201,8 @@ const postJsonRaw = async (url: string, body: unknown) => {
 };
 
 const getAdminIdToken = async (): Promise<string | null> => {
-  if (!AUTH_EMULATOR_HOST) {
-    return null;
-  }
+  if (!AUTH_EMULATOR_HOST) return null;
+
   const emulatorUrl = AUTH_EMULATOR_HOST.startsWith('http')
     ? AUTH_EMULATOR_HOST
     : `http://${AUTH_EMULATOR_HOST}`;
@@ -245,10 +244,9 @@ const getAdminIdToken = async (): Promise<string | null> => {
   }
   return signInResponse.json.idToken as string;
 };
+
 const assertTruthy = (condition: unknown, message: string) => {
-  if (!condition) {
-    fail(message);
-  }
+  if (!condition) fail(message);
 };
 
 const dateKeyFromDate = (date: Date) => {
@@ -278,8 +276,8 @@ const readReservationData = async (
   const startTime = data.startTime?.toDate?.()
     ? data.startTime.toDate()
     : data.startTime instanceof Date
-    ? data.startTime
-    : data.startTime;
+      ? data.startTime
+      : data.startTime;
   return { ...data, startTime };
 };
 
@@ -311,16 +309,11 @@ const assertNoCapacityDoc = async (unitId: string, dateKey: string) => {
   const byTimeSlot = data?.byTimeSlot ?? {};
   const byTimeSlotKeys = Object.keys(byTimeSlot);
   const byTimeSlotAllZero = byTimeSlotKeys.every(
-    slot => typeof byTimeSlot[slot] === 'number' && byTimeSlot[slot] === 0
+    slot => typeof (byTimeSlot as any)[slot] === 'number' && (byTimeSlot as any)[slot] === 0
   );
   const ok = base === 0 && count === 0 && totalCount === 0 && byTimeSlotAllZero;
   if (!ok) {
-    fail('Unexpected capacity doc mutation', {
-      unitId,
-      dateKey,
-      base,
-      data,
-    });
+    fail('Unexpected capacity doc mutation', { unitId, dateKey, base, data });
   }
   return { unitId, dateKey, base, data };
 };
@@ -354,17 +347,11 @@ const assertStateUnchanged = (
     (includeHeadcount && before.headcount !== after.headcount);
 
   if (mismatched) {
-    fail(context, {
-      before,
-      after,
-      ...extra,
-    });
+    fail(context, { before, after, ...extra });
   }
 };
 
 const preferredSlotFromDate = (d: Date): 'afternoon' | 'evening' => {
-  // EU/Budapest télen UTC+1 → a smoke úgyis ISO-t küld, backend meg jellemzően local slot-ot számol.
-  // Egyszerű, stabil szabály: 16:00 előtt afternoon, utána evening.
   const hour = d.getHours();
   return hour < 16 ? 'afternoon' : 'evening';
 };
@@ -375,7 +362,10 @@ const withSafeReservationDefaults = (r: any) => ({
   source: '',
   customData: {},
   seatingPreference: 'any',
-  contact: { email: r?.contact?.email ?? 'smoke-admin@example.com', phoneE164: r?.contact?.phoneE164 ?? '' },
+  contact: {
+    email: r?.contact?.email ?? 'smoke-admin@example.com',
+    phoneE164: r?.contact?.phoneE164 ?? '',
+  },
   ...r,
 });
 
@@ -532,10 +522,7 @@ const runScenarioAutoConfirm = async (urls: ReturnType<typeof buildFunctionUrls>
   assertTruthy(reservation.capacityLedger.key, 'capacityLedger.key missing');
   console.log(`[SMOKE] post-create status (auto): ${reservation.status ?? 'unknown'}`);
   if (reservation.status !== 'confirmed') {
-    fail('Auto-confirm scenario did not create confirmed reservation', {
-      status: reservation.status,
-      reservation,
-    });
+    fail('Auto-confirm scenario did not create confirmed reservation', { status: reservation.status, reservation });
   }
 
   const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
@@ -717,27 +704,22 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
     `[SMOKE] post-create status (request): ${reservation.status ?? 'unknown'}; ` +
       `ledger.applied=${reservation.capacityLedger?.applied ?? 'unknown'}`
   );
+
   const validRequestStatuses = new Set(['pending', 'requested']);
-  if (!reservation.status) {
-    console.warn('[SMOKE][WARN] post-create status missing in request scenario');
-  }
+  if (!reservation.status) console.warn('[SMOKE][WARN] post-create status missing in request scenario');
   if (!reservation.status || !validRequestStatuses.has(reservation.status)) {
-    fail('Request scenario did not create pending/requested reservation', {
-      status: reservation.status,
-      reservation,
-    });
+    fail('Request scenario did not create pending/requested reservation', { status: reservation.status, reservation });
   }
 
   const capacityAfterCreate = await getCapacityBase(unitId, dateKey);
   const capacityApplied =
     reservation.capacityLedger?.applied === true || capacityAfterCreate.base > baselineStart;
-  if (capacityApplied) {
-    assert.equal(capacityAfterCreate.base, baselineStart + 2);
-  } else {
-    assert.equal(capacityAfterCreate.base, baselineStart);
-  }
+
+  if (capacityApplied) assert.equal(capacityAfterCreate.base, baselineStart + 2);
+  else assert.equal(capacityAfterCreate.base, baselineStart);
+
   if (capacityAfterCreate.data.byTimeSlot) {
-    const slotValue = capacityAfterCreate.data.byTimeSlot.afternoon;
+    const slotValue = (capacityAfterCreate.data.byTimeSlot as any).afternoon;
     if (capacityApplied && typeof slotValue === 'number') {
       assertTruthy(slotValue >= 2, 'byTimeSlot.afternoon should include headcount when present');
     }
@@ -773,14 +755,9 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
 
   await delay(200);
   const updatedReservation = await readReservationData(reservationRef);
-  if (!updatedReservation.status) {
-    console.warn('[SMOKE][WARN] post-modify status missing in request scenario');
-  }
+  if (!updatedReservation.status) console.warn('[SMOKE][WARN] post-modify status missing in request scenario');
   if (updatedReservation.status && !validRequestStatuses.has(updatedReservation.status)) {
-    fail('Reservation became non-modifiable after modify', {
-      status: updatedReservation.status,
-      reservation: updatedReservation,
-    });
+    fail('Reservation became non-modifiable after modify', { status: updatedReservation.status, reservation: updatedReservation });
   }
   assert.equal(updatedReservation.headcount, 3);
   assertTruthy(updatedReservation.capacityLedger, 'capacityLedger missing after modify');
@@ -789,6 +766,7 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   const newCapacity = await getCapacityBase(unitId, newDateKey);
   const modifyCapacityApplied =
     updatedReservation.capacityLedger?.applied === true || oldCapacity.base > baselineStart;
+
   if (modifyCapacityApplied) {
     assert.equal(oldCapacity.base, baselineStart + 3);
     assert.equal(newCapacity.base, baselineStart + 3);
@@ -797,8 +775,7 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
     assert.equal(newCapacity.base, baselineStart);
   }
 
-  const allocationTraceId =
-    updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
+  const allocationTraceId = updatedReservation.allocationTraceId || updatedReservation.allocation?.traceId;
   if (!allocationTraceId) {
     console.warn('WARN: allocation trace id missing', {
       reservationId: createResponse.bookingId,
@@ -814,11 +791,8 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
         .where('unitId', '==', unitId)
         .where('traceId', '==', allocationTraceId)
         .get();
-      if (fallbackSnap.empty) {
-        console.warn('WARN: allocation log not found by deterministic id or fallback query');
-      } else {
-        console.log('Allocation log found via query:', fallbackSnap.docs[0].id);
-      }
+      if (fallbackSnap.empty) console.warn('WARN: allocation log not found by deterministic id or fallback query');
+      else console.log('Allocation log found via query:', fallbackSnap.docs[0].id);
     } else {
       console.log('Allocation log found:', allocationLogId);
     }
@@ -826,18 +800,9 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
 
   console.log('[SMOKE][PHASE] MODIFY IDEMPOTENCY');
   if (updatedReservation.status && validRequestStatuses.has(updatedReservation.status)) {
-    const modifyBaselineOld = await snapshotState(
-      'modify-idempotency-old-before',
-      reservationRef,
-      unitId,
-      dateKey
-    );
-    const modifyBaselineNew = await snapshotState(
-      'modify-idempotency-new-before',
-      reservationRef,
-      unitId,
-      newDateKey
-    );
+    const modifyBaselineOld = await snapshotState('modify-idempotency-old-before', reservationRef, unitId, dateKey);
+    const modifyBaselineNew = await snapshotState('modify-idempotency-new-before', reservationRef, unitId, newDateKey);
+
     const secondModify = await postJsonSafe(modifyUrl, modifyPayload);
     if (!secondModify.ok) {
       const latestData = await readReservationData(reservationRef);
@@ -851,40 +816,21 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
     }
 
     await delay(200);
-    const modifyAfterOld = await snapshotState(
-      'modify-idempotency-old-after',
-      reservationRef,
-      unitId,
-      dateKey
-    );
-    const modifyAfterNew = await snapshotState(
-      'modify-idempotency-new-after',
-      reservationRef,
-      unitId,
-      newDateKey
-    );
+    const modifyAfterOld = await snapshotState('modify-idempotency-old-after', reservationRef, unitId, dateKey);
+    const modifyAfterNew = await snapshotState('modify-idempotency-new-after', reservationRef, unitId, newDateKey);
+
     assertStateUnchanged(
       modifyBaselineOld,
       modifyAfterOld,
       'Modify idempotency mutated old day',
-      {
-        secondModify,
-        request: modifyPayload,
-        beforeBase: modifyBaselineOld.capacityBase,
-        afterBase: modifyAfterOld.capacityBase,
-      },
+      { secondModify, request: modifyPayload, beforeBase: modifyBaselineOld.capacityBase, afterBase: modifyAfterOld.capacityBase },
       { includeHeadcount: true }
     );
     assertStateUnchanged(
       modifyBaselineNew,
       modifyAfterNew,
       'Modify idempotency mutated new day',
-      {
-        secondModify,
-        request: modifyPayload,
-        beforeBase: modifyBaselineNew.capacityBase,
-        afterBase: modifyAfterNew.capacityBase,
-      },
+      { secondModify, request: modifyPayload, beforeBase: modifyBaselineNew.capacityBase, afterBase: modifyAfterNew.capacityBase },
       { includeHeadcount: true }
     );
   } else {
@@ -925,6 +871,9 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
     request: forbiddenPayload,
   });
 
+  // ===== CANCEL + IDEMPOTENCY + MODIFY AFTER CANCEL =====
+  // FIX: csak EGYETLEN blokkot tartunk meg (dateKey), nincs duplikált const redeclare.
+
   console.log('[SMOKE][PHASE] CANCEL');
   await postJson(cancelUrl, {
     unitId,
@@ -941,51 +890,43 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   assert.equal(cancelledReservation.capacityLedger.applied, false);
 
   const capacityAfterCancel = await getCapacityBase(unitId, dateKey);
-assert.equal(capacityAfterCancel.base, baselineStart);
-
-const cancelBaseline = await snapshotState('cancel-idempotency-before', reservationRef, unitId, dateKey);
-// ...
-const cancelAfter = await snapshotState('cancel-idempotency-after', reservationRef, unitId, dateKey);
-
-const cancelledBaseline = await snapshotState('modify-after-cancel-before', reservationRef, unitId, dateKey);
-// ...
-const cancelledAfter = await snapshotState('modify-after-cancel-after', reservationRef, unitId, dateKey);
+  assert.equal(capacityAfterCancel.base, baselineStart);
 
   console.log('[SMOKE][PHASE] CANCEL IDEMPOTENCY');
-  const cancelBaseline = await snapshotState('cancel-idempotency-before', reservationRef, unitId, newDateKey);
-  const cancelPayload = {
+  const cancelBaselineReq = await snapshotState('cancel-idempotency-before', reservationRef, unitId, dateKey);
+  const cancelPayloadReq = {
     unitId,
     reservationId: createResponse.bookingId,
     manageToken: createResponse.manageToken,
     action: 'cancel',
   };
-  const secondCancel = await postJsonSafe(cancelUrl, cancelPayload);
-  if (!secondCancel.ok) {
+  const secondCancelReq = await postJsonSafe(cancelUrl, cancelPayloadReq);
+  if (!secondCancelReq.ok) {
     const latestData = await readReservationData(reservationRef);
     fail('Second cancel HTTP failed', {
-      httpStatus: secondCancel.status,
-      responseText: secondCancel.text,
-      request: cancelPayload,
+      httpStatus: secondCancelReq.status,
+      responseText: secondCancelReq.text,
+      request: cancelPayloadReq,
       reservationStatus: latestData.status,
       reservationStartTime: latestData.startTime,
     });
   }
-  const cancelAfter = await snapshotState('cancel-idempotency-after', reservationRef, unitId, newDateKey);
+  const cancelAfterReq = await snapshotState('cancel-idempotency-after', reservationRef, unitId, dateKey);
   assertStateUnchanged(
-    cancelBaseline,
-    cancelAfter,
+    cancelBaselineReq,
+    cancelAfterReq,
     'Cancel idempotency failed',
     {
-      secondCancel,
-      cancelPayload,
-      beforeBase: cancelBaseline.capacityBase,
-      afterBase: cancelAfter.capacityBase,
+      secondCancel: secondCancelReq,
+      cancelPayload: cancelPayloadReq,
+      beforeBase: cancelBaselineReq.capacityBase,
+      afterBase: cancelAfterReq.capacityBase,
     }
   );
 
   console.log('[SMOKE][PHASE] MODIFY AFTER CANCEL');
-  const cancelledBaseline = await snapshotState('modify-after-cancel-before', reservationRef, unitId, newDateKey);
-  const forbiddenAfterCancelPayload = {
+  const cancelledBaselineReq = await snapshotState('modify-after-cancel-before', reservationRef, unitId, dateKey);
+  const forbiddenAfterCancelPayloadReq = {
     unitId,
     reservationId: createResponse.bookingId,
     manageToken: createResponse.manageToken,
@@ -993,29 +934,29 @@ const cancelledAfter = await snapshotState('modify-after-cancel-after', reservat
     startTimeMs: modifyStart.getTime(),
     endTimeMs: modifyEnd.getTime(),
   };
-  const forbiddenAfterCancelResp = await postJsonSafe(modifyUrl, forbiddenAfterCancelPayload);
-  if (forbiddenAfterCancelResp.ok) {
+  const forbiddenAfterCancelRespReq = await postJsonSafe(modifyUrl, forbiddenAfterCancelPayloadReq);
+  if (forbiddenAfterCancelRespReq.ok) {
     const afterSnap = await readReservationData(reservationRef);
     fail('Modify after cancel unexpectedly succeeded', {
-      httpStatus: forbiddenAfterCancelResp.status,
-      responseText: forbiddenAfterCancelResp.text,
-      request: forbiddenAfterCancelPayload,
-      beforeReservation: cancelledBaseline.rawReservation,
+      httpStatus: forbiddenAfterCancelRespReq.status,
+      responseText: forbiddenAfterCancelRespReq.text,
+      request: forbiddenAfterCancelPayloadReq,
+      beforeReservation: cancelledBaselineReq.rawReservation,
       afterReservation: afterSnap,
     });
   }
 
-  const cancelledAfter = await snapshotState('modify-after-cancel-after', reservationRef, unitId, newDateKey);
+  const cancelledAfterReq = await snapshotState('modify-after-cancel-after', reservationRef, unitId, dateKey);
   assertStateUnchanged(
-    cancelledBaseline,
-    cancelledAfter,
+    cancelledBaselineReq,
+    cancelledAfterReq,
     'Modify after cancel mutated state',
     {
-      httpStatus: forbiddenAfterCancelResp.status,
-      responseText: forbiddenAfterCancelResp.text,
-      request: forbiddenAfterCancelPayload,
-      beforeBase: cancelledBaseline.capacityBase,
-      afterBase: cancelledAfter.capacityBase,
+      httpStatus: forbiddenAfterCancelRespReq.status,
+      responseText: forbiddenAfterCancelRespReq.text,
+      request: forbiddenAfterCancelPayloadReq,
+      beforeBase: cancelledBaselineReq.capacityBase,
+      afterBase: cancelledAfterReq.capacityBase,
     }
   );
 };
@@ -1037,24 +978,22 @@ const run = async () => {
   } else {
     console.log('[SMOKE][PHASE] ADMIN');
     console.log('Auth emulator detected, running admin approval smoke');
+
     const adminUnitId = `smoke-admin-unit-${Date.now()}`;
     const adminSettingsRef = db.doc(`reservation_settings/${adminUnitId}`);
     await adminSettingsRef.set({
-  reservationMode: 'request',
-  dailyCapacity: 10,
-  bookableWindow: { from: '10:00', to: '22:00' },
-  notificationEmails: [],
-});
+      reservationMode: 'request',
+      dailyCapacity: 10,
+      bookableWindow: { from: '10:00', to: '22:00' },
+      notificationEmails: [],
+    });
 
-// barrier: várjuk meg, hogy a settings biztosan olvasható legyen, különben create flakey/500
-await delay(200);
-const settingsSnap = await adminSettingsRef.get();
-if (!settingsSnap.exists) {
-  fail('Admin scenario settings doc missing after set()', {
-    adminUnitId,
-    path: adminSettingsRef.path,
-  });
-}
+    // barrier: várjuk meg, hogy a settings biztosan olvasható legyen, különben create flakey/500
+    await delay(200);
+    const settingsSnap = await adminSettingsRef.get();
+    if (!settingsSnap.exists) {
+      fail('Admin scenario settings doc missing after set()', { adminUnitId, path: adminSettingsRef.path });
+    }
 
     const adminStart = clampToWindow(nextFutureSlot(new Date(), 3), '10:00', '22:00');
     const adminEnd = new Date(adminStart.getTime() + 60 * 60 * 1000);
@@ -1064,20 +1003,21 @@ if (!settingsSnap.exists) {
 
     const adminPreferred = preferredSlotFromDate(adminStart);
 
-const adminCreateResponse = await postJson<{ bookingId: string; manageToken: string; adminActionToken: string }>(
-  createUrl,
-  {
-    unitId: adminUnitId,
-    reservation: withSafeReservationDefaults({
-      name: 'Smoke Admin Reject',
-      headcount: adminHeadcount,
-      startTime: adminStart.toISOString(),
-      endTime: adminEnd.toISOString(),
-      preferredTimeSlot: adminPreferred,
-      contact: { email: 'smoke-admin@example.com', phoneE164: '' },
-    }),
-  }
-);
+    const adminCreateResponse = await postJson<{
+      bookingId: string;
+      manageToken: string;
+      adminActionToken: string;
+    }>(createUrl, {
+      unitId: adminUnitId,
+      reservation: withSafeReservationDefaults({
+        name: 'Smoke Admin Approve',
+        headcount: adminHeadcount,
+        startTime: adminStart.toISOString(),
+        endTime: adminEnd.toISOString(),
+        preferredTimeSlot: adminPreferred,
+        contact: { email: 'smoke-admin@example.com', phoneE164: '' },
+      }),
+    });
 
     if (!adminCreateResponse.adminActionToken) {
       fail('adminActionToken missing from guestCreateReservation response', {
@@ -1102,11 +1042,8 @@ const adminCreateResponse = await postJson<{ bookingId: string; manageToken: str
       adminToken: adminCreateResponse.adminActionToken,
       action: 'approve',
     };
-    const adminApproveResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminApprovePayload,
-      adminIdToken
-    );
+
+    const adminApproveResponse = await postJsonSafeWithAuth(adminUrl, adminApprovePayload, adminIdToken);
     if (!adminApproveResponse.ok) {
       const latestSnap = await adminReservationRef.get();
       fail('Admin approve failed', {
@@ -1132,23 +1069,19 @@ const adminCreateResponse = await postJson<{ bookingId: string; manageToken: str
       adminDateKey
     );
 
-    const adminApproveAgainResponse = await postJsonSafeWithAuth(
-  adminUrl,
-  adminApprovePayload,
-  adminIdToken
-);
+    const adminApproveAgainResponse = await postJsonSafeWithAuth(adminUrl, adminApprovePayload, adminIdToken);
 
-// Idempotency: második hívás lehet 200/204, de lehet 404 is (token már felhasználva, anti-enumeration)
-const acceptable = adminApproveAgainResponse.ok || adminApproveAgainResponse.status === 404;
-if (!acceptable) {
-  const latestSnap = await adminReservationRef.get();
-  fail('Admin approve idempotency unexpected HTTP status', {
-    httpStatus: adminApproveAgainResponse.status,
-    responseText: adminApproveAgainResponse.text,
-    request: adminApprovePayload,
-    reservation: latestSnap.data(),
-  });
-}
+    // Idempotency: második hívás lehet 200/204, de lehet 404 is (token már felhasználva, anti-enumeration)
+    const acceptable = adminApproveAgainResponse.ok || adminApproveAgainResponse.status === 404;
+    if (!acceptable) {
+      const latestSnap = await adminReservationRef.get();
+      fail('Admin approve idempotency unexpected HTTP status', {
+        httpStatus: adminApproveAgainResponse.status,
+        responseText: adminApproveAgainResponse.text,
+        request: adminApprovePayload,
+        reservation: latestSnap.data(),
+      });
+    }
 
     const adminApproveIdempotencyAfter = await snapshotState(
       'admin-approve-idempotency-after',
@@ -1161,10 +1094,7 @@ if (!acceptable) {
       adminApproveIdempotencyBefore,
       adminApproveIdempotencyAfter,
       'Admin approve idempotency failed',
-      {
-        response: adminApproveAgainResponse,
-        payload: adminApprovePayload,
-      },
+      { response: adminApproveAgainResponse, payload: adminApprovePayload },
       { includeHeadcount: true }
     );
 
@@ -1180,11 +1110,7 @@ if (!acceptable) {
       adminToken: adminCreateResponse.adminActionToken,
       action: 'reject',
     };
-    const adminReuseResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminReusePayload,
-      adminIdToken
-    );
+    const adminReuseResponse = await postJsonSafeWithAuth(adminUrl, adminReusePayload, adminIdToken);
     const adminReuseAfterApproveAfter = await snapshotState(
       'admin-approve-token-reuse-after',
       adminReservationRef,
@@ -1203,10 +1129,7 @@ if (!acceptable) {
       adminReuseAfterApproveBefore,
       adminReuseAfterApproveAfter,
       'Admin token reuse mutated state',
-      {
-        response: adminReuseResponse,
-        payload: adminReusePayload,
-      },
+      { response: adminReuseResponse, payload: adminReusePayload },
       { includeHeadcount: true }
     );
 
@@ -1216,10 +1139,7 @@ if (!acceptable) {
       adminReservationRef,
       adminUnitId,
       adminDateKey,
-      {
-        ...adminApprovePayload,
-        adminToken: 'wrong-token',
-      },
+      { ...adminApprovePayload, adminToken: 'wrong-token' },
       adminIdToken
     );
     await runAdminNegativeCase(
@@ -1228,10 +1148,7 @@ if (!acceptable) {
       adminReservationRef,
       adminUnitId,
       adminDateKey,
-      {
-        ...adminApprovePayload,
-        unitId: 'other-unit',
-      },
+      { ...adminApprovePayload, unitId: 'other-unit' },
       adminIdToken,
       [() => assertNoCapacityDoc('other-unit', adminDateKey)]
     );
@@ -1241,10 +1158,7 @@ if (!acceptable) {
       adminReservationRef,
       adminUnitId,
       adminDateKey,
-      {
-        ...adminApprovePayload,
-        reservationId: 'does-not-exist',
-      },
+      { ...adminApprovePayload, reservationId: 'does-not-exist' },
       adminIdToken,
       [() => assertReservationDocMissing(adminUnitId, 'does-not-exist')]
     );
@@ -1254,12 +1168,11 @@ if (!acceptable) {
       adminReservationRef,
       adminUnitId,
       adminDateKey,
-      {
-        ...adminApprovePayload,
-        action: 'banana',
-      },
+      { ...adminApprovePayload, action: 'banana' },
       adminIdToken
     );
+
+    // ===== REJECT FLOW =====
 
     const rejectStart = clampToWindow(nextFutureSlot(new Date(), 4), '10:00', '22:00');
     const rejectEnd = new Date(rejectStart.getTime() + 60 * 60 * 1000);
@@ -1307,11 +1220,8 @@ if (!acceptable) {
       adminToken: rejectCreateResponse.adminActionToken,
       action: 'reject',
     };
-    const adminRejectResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminRejectPayload,
-      adminIdToken
-    );
+
+    const adminRejectResponse = await postJsonSafeWithAuth(adminUrl, adminRejectPayload, adminIdToken);
     if (!adminRejectResponse.ok) {
       const latestSnap = await rejectReservationRef.get();
       fail('Admin reject failed', {
@@ -1336,16 +1246,11 @@ if (!acceptable) {
       adminUnitId,
       rejectDateKey
     );
-    const adminRejectAgainResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminRejectPayload,
-      adminIdToken
-    );
-    const acceptableReject = 
-      adminRejectAgainResponse.ok ||
-      adminRejectAgainResponse.status === 404;
-    
-      if (!acceptableReject)  {
+
+    const adminRejectAgainResponse = await postJsonSafeWithAuth(adminUrl, adminRejectPayload, adminIdToken);
+
+    const acceptableReject = adminRejectAgainResponse.ok || adminRejectAgainResponse.status === 404;
+    if (!acceptableReject) {
       const latestSnap = await rejectReservationRef.get();
       fail('Admin reject idempotency HTTP failed', {
         httpStatus: adminRejectAgainResponse.status,
@@ -1354,6 +1259,7 @@ if (!acceptable) {
         reservation: latestSnap.data(),
       });
     }
+
     const adminRejectIdempotencyAfter = await snapshotState(
       'admin-reject-idempotency-after',
       rejectReservationRef,
@@ -1364,10 +1270,7 @@ if (!acceptable) {
       adminRejectIdempotencyBefore,
       adminRejectIdempotencyAfter,
       'Admin reject idempotency failed',
-      {
-        response: adminRejectAgainResponse,
-        payload: adminRejectPayload,
-      },
+      { response: adminRejectAgainResponse, payload: adminRejectPayload },
       { includeHeadcount: true }
     );
 
@@ -1383,11 +1286,7 @@ if (!acceptable) {
       adminToken: rejectCreateResponse.adminActionToken,
       action: 'approve',
     };
-    const adminReuseRejectResponse = await postJsonSafeWithAuth(
-      adminUrl,
-      adminReuseRejectPayload,
-      adminIdToken
-    );
+    const adminReuseRejectResponse = await postJsonSafeWithAuth(adminUrl, adminReuseRejectPayload, adminIdToken);
     const adminReuseAfterRejectAfter = await snapshotState(
       'admin-reject-token-reuse-after',
       rejectReservationRef,
@@ -1406,10 +1305,7 @@ if (!acceptable) {
       adminReuseAfterRejectBefore,
       adminReuseAfterRejectAfter,
       'Admin token reuse mutated state',
-      {
-        response: adminReuseRejectResponse,
-        payload: adminReuseRejectPayload,
-      },
+      { response: adminReuseRejectResponse, payload: adminReuseRejectPayload },
       { includeHeadcount: true }
     );
 
@@ -1419,10 +1315,7 @@ if (!acceptable) {
       rejectReservationRef,
       adminUnitId,
       rejectDateKey,
-      {
-        ...adminRejectPayload,
-        adminToken: 'wrong-token',
-      },
+      { ...adminRejectPayload, adminToken: 'wrong-token' },
       adminIdToken
     );
     await runAdminNegativeCase(
@@ -1431,10 +1324,7 @@ if (!acceptable) {
       rejectReservationRef,
       adminUnitId,
       rejectDateKey,
-      {
-        ...adminRejectPayload,
-        unitId: 'other-unit',
-      },
+      { ...adminRejectPayload, unitId: 'other-unit' },
       adminIdToken,
       [() => assertNoCapacityDoc('other-unit', rejectDateKey)]
     );
@@ -1444,10 +1334,7 @@ if (!acceptable) {
       rejectReservationRef,
       adminUnitId,
       rejectDateKey,
-      {
-        ...adminRejectPayload,
-        reservationId: 'does-not-exist',
-      },
+      { ...adminRejectPayload, reservationId: 'does-not-exist' },
       adminIdToken,
       [() => assertReservationDocMissing(adminUnitId, 'does-not-exist')]
     );
@@ -1457,10 +1344,7 @@ if (!acceptable) {
       rejectReservationRef,
       adminUnitId,
       rejectDateKey,
-      {
-        ...adminRejectPayload,
-        action: 'banana',
-      },
+      { ...adminRejectPayload, action: 'banana' },
       adminIdToken
     );
   }
