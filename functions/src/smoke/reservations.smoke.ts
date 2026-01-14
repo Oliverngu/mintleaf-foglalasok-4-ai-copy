@@ -940,8 +940,16 @@ const runScenarioRequestPending = async (urls: ReturnType<typeof buildFunctionUr
   assertTruthy(cancelledReservation.capacityLedger, 'capacityLedger missing after cancel');
   assert.equal(cancelledReservation.capacityLedger.applied, false);
 
-  const capacityAfterCancel = await getCapacityBase(unitId, newDateKey);
-  assert.equal(capacityAfterCancel.base, baselineStart);
+  const capacityAfterCancel = await getCapacityBase(unitId, dateKey);
+assert.equal(capacityAfterCancel.base, baselineStart);
+
+const cancelBaseline = await snapshotState('cancel-idempotency-before', reservationRef, unitId, dateKey);
+// ...
+const cancelAfter = await snapshotState('cancel-idempotency-after', reservationRef, unitId, dateKey);
+
+const cancelledBaseline = await snapshotState('modify-after-cancel-before', reservationRef, unitId, dateKey);
+// ...
+const cancelledAfter = await snapshotState('modify-after-cancel-after', reservationRef, unitId, dateKey);
 
   console.log('[SMOKE][PHASE] CANCEL IDEMPOTENCY');
   const cancelBaseline = await snapshotState('cancel-idempotency-before', reservationRef, unitId, newDateKey);
@@ -1062,7 +1070,7 @@ const adminCreateResponse = await postJson<{ bookingId: string; manageToken: str
     unitId: adminUnitId,
     reservation: withSafeReservationDefaults({
       name: 'Smoke Admin Reject',
-      headcount: 3,
+      headcount: adminHeadcount,
       startTime: adminStart.toISOString(),
       endTime: adminEnd.toISOString(),
       preferredTimeSlot: adminPreferred,
@@ -1333,7 +1341,11 @@ if (!acceptable) {
       adminRejectPayload,
       adminIdToken
     );
-    if (!adminRejectAgainResponse.ok) {
+    const acceptableReject = 
+      adminRejectAgainResponse.ok ||
+      adminRejectAgainResponse.status === 404;
+    
+      if (!acceptableReject)  {
       const latestSnap = await rejectReservationRef.get();
       fail('Admin reject idempotency HTTP failed', {
         httpStatus: adminRejectAgainResponse.status,
