@@ -1246,7 +1246,7 @@ const run = async () => {
         headcount: rejectHeadcount,
         startTime: rejectStart.toISOString(),
         endTime: rejectEnd.toISOString(),
-        preferredTimeSlot: 'evening',
+        preferredTimeSlot: 'afternoon',
         seatingPreference: 'any',
         contact: { email: 'smoke-admin-reject@example.com' },
       },
