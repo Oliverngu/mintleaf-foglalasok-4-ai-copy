@@ -1330,18 +1330,22 @@ export const guestModifyReservation = onRequest(
       }
 
       try {
-        const decision = await computeAllocationDecisionForBooking({
-          unitId,
-          bookingId: reservationId,
-          startDate: startTime,
-          endDate: endTime,
-          partySize: parsedHeadcount,
-        });
+        const decision = {
+          zoneId: allocationDecision.decision.assignedZoneId ?? null,
+          tableIds: [],
+          reason: null,
+          reasonCode: allocationDecision.decision.reasonCode,
+          allocationMode: null,
+          allocationStrategy: null,
+        };
+        const allocationDisabled =
+          decision.reason === 'ALLOCATION_DISABLED' ||
+          decision.reasonCode === 'ALLOCATION_DISABLED';
         const allocationRecord = buildAllocationRecord({
           decision,
           traceId: `alloc-${reservationId}`,
           decidedAtMs: Date.now(),
-          enabled: decision.reason !== 'ALLOCATION_DISABLED',
+          enabled: !allocationDisabled,
           computedForStartTimeMs: startTime.getTime(),
           computedForEndTimeMs: endTime.getTime(),
           computedForHeadcount: parsedHeadcount,
