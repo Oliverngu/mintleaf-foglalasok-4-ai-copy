@@ -2089,6 +2089,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       unsubscribers.push(attachListener('unitId', unitIdQuery));
     }
     allAttached = true;
+    if (expected === 0) {
+      setIsDataLoading(false);
+    }
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
