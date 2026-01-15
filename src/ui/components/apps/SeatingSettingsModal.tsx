@@ -805,7 +805,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, []);
 
   const handleSettingsSave = async () => {
-    if (!settings) return;
+    if (!settings || actionSavingRef.current['settings-save']) return;
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
     normalizedSettingsRef.current = null;
@@ -1621,6 +1621,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleClose = useCallback(() => {
+    if (isDirty && !actionSavingRef.current['settings-save']) {
+      const ok = window.confirm('Vannak nem mentett változások. Biztos bezárod?');
+      if (!ok) {
+        return;
+      }
+    }
     const drag = dragStateRef.current;
     if (drag) {
       abortDragRef.current(drag);
@@ -1632,7 +1638,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     actionSavingRef.current = {};
     setActionSaving({});
     onClose();
-  }, [onClose]);
+  }, [isDirty, onClose]);
 
   const tabs = [
     { id: 'overview', label: 'Áttekintés' },
@@ -2856,6 +2862,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     </div>
   );
 
+  const isSaving = Boolean(actionSaving['settings-save']);
+  const canSave = isDirty && !isSaving;
+  const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
+
   const focusTabById = (tabId: string) => {
     const focus = () => {
       if (typeof document === 'undefined') {
@@ -2932,7 +2942,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <div
             role="tablist"
             aria-label="Ültetés beállítások fülek"
-            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
+            className="relative flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
           >
             {tabs.map(tab => (
               <button
@@ -2954,6 +2964,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 {tab.label}
               </button>
             ))}
+            {isDirty && (
+              <span
+                aria-hidden="true"
+                className="absolute right-1 top-1 h-2 w-2 rounded-full bg-blue-500"
+              />
+            )}
           </div>
         </div>
         <div className="pt-4 pb-24">
@@ -3010,7 +3026,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         <div className="sticky bottom-0 bg-white pt-3 pb-2 border-t flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-gray-500">
-            A Mentés minden fül változásait elmenti.
+            {isSaving
+              ? 'Mentés folyamatban...'
+              : isDirty
+              ? 'Nem mentett változások'
+              : 'Minden mentve'}
           </div>
           <div className="flex items-center gap-3">
             {saveFeedback && <span className="text-xs text-green-600">{saveFeedback}</span>}
@@ -3018,9 +3038,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               type="button"
               onClick={event => handleActionButtonClick(event, handleSettingsSave)}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-              disabled={!isDirty || actionSaving['settings-save']}
+              disabled={!canSave}
             >
-              {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
+              {saveLabel}
             </button>
           </div>
         </div>
