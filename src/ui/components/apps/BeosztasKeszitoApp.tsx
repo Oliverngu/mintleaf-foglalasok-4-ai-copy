@@ -4180,6 +4180,53 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         overflow: exportSettings.useRoundedCorners ? 'hidden' : 'visible'
       } as CSSStyleDeclaration);
 
+      const exportUnitName =
+        activeUnitIds.length === 1
+          ? allUnits.find(u => u.id === activeUnitIds[0])?.name ||
+            'Ismeretlen egység'
+          : 'Több egység';
+      const weekRange = `${weekDays[0].toLocaleDateString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })} – ${weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })}`;
+      const headerTextColor = getContrastingTextColor(
+        exportSettings.dayHeaderBgColor
+      );
+      const exportHeader = document.createElement('div');
+      Object.assign(exportHeader.style, {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        padding: '10px 12px',
+        background: exportSettings.dayHeaderBgColor,
+        color: headerTextColor,
+        borderBottom: `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`
+      } as CSSStyleDeclaration);
+      const headerRow = document.createElement('div');
+      Object.assign(headerRow.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontWeight: '800'
+      } as CSSStyleDeclaration);
+      const headerLeft = document.createElement('div');
+      headerLeft.textContent = exportUnitName;
+      const headerRight = document.createElement('div');
+      headerRight.textContent = weekRange;
+      headerRow.appendChild(headerLeft);
+      headerRow.appendChild(headerRight);
+      const headerSub = document.createElement('div');
+      headerSub.textContent =
+        viewMode === 'published' ? 'Publikált' : 'Piszkozat';
+      headerSub.style.fontWeight = '500';
+      exportHeader.appendChild(headerRow);
+      exportHeader.appendChild(headerSub);
+
       const tableClone =
         exportRef.current.cloneNode(true) as HTMLDivElement;
 
@@ -4193,6 +4240,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.remove();
         });
 
+      exportInnerWrapper.appendChild(exportHeader);
       exportInnerWrapper.appendChild(tableClone);
       exportContainer.appendChild(exportInnerWrapper);
       document.body.appendChild(exportContainer);
@@ -4352,7 +4400,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const rawWidth =
         (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
       const rawHeight =
-        (gridNode?.scrollHeight || tableClone.scrollHeight || 0) + paddingPx;
+        (exportInnerWrapper.scrollHeight ||
+          gridNode?.scrollHeight ||
+          tableClone.scrollHeight ||
+          0) + paddingPx;
       const finalWidth = Math.ceil(
         rawWidth + borderCompensation + safetyPadding
       );
