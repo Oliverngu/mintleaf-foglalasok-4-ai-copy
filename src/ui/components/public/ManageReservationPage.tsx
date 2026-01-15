@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Unit, Booking, PublicBookingDTO, ReservationSetting } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
@@ -10,6 +10,10 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
+import { normalizeSubmitError, type SubmitError } from '../../utils/normalizeSubmitError';
+import { getOnlineStatus } from '../../utils/getOnlineStatus';
+import { logTokenPresence } from '../../utils/logTokenPresence';
+import { v4 as uuidv4 } from 'uuid';
 
 type Locale = 'hu' | 'en';
 
@@ -45,13 +49,16 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [locale, setLocale] = useState<Locale>('hu');
+  const [actionState, setActionState] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle');
+  const [actionError, setActionError] = useState<SubmitError | null>(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [adminToken, setAdminToken] = useState<string | null>(null);
   const [adminAction, setAdminAction] = useState<'approve' | 'reject' | null>(
     null
   );
   const [actionMessage, setActionMessage] = useState('');
-  const [actionError, setActionError] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [hashedAdminToken, setHashedAdminToken] = useState<string | null>(null);
   const [isHashingAdminToken, setIsHashingAdminToken] = useState(false);
@@ -64,6 +71,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
+  const actionErrorRef = useRef<HTMLDivElement | null>(null);
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || null, settings?.uiTheme),
@@ -72,6 +80,36 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const isMinimalGlassTheme = settings?.theme?.id === 'minimal_glass';
   const t = translations[locale];
+  const isSubmittingAction = actionState === 'submitting';
+
+  useEffect(() => {
+    if (actionError && actionErrorRef.current) {
+      actionErrorRef.current.focus();
+    }
+  }, [actionError]);
+
+  const createTraceId = () =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : uuidv4();
+
+  const reportActionError = (
+    traceId: string,
+    context: { action: string },
+    errorInput: Parameters<typeof normalizeSubmitError>[0]
+  ) => {
+    const normalized = normalizeSubmitError({
+      ...errorInput,
+      traceId,
+      isOnline: getOnlineStatus(),
+      locale,
+    });
+    setActionError(normalized);
+    setActionState('error');
+    console.log(
+      `[manage-action] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage} action=${context.action}`
+    );
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -195,9 +233,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     !!bookingRecord?.adminActionUsedAtMs;
 
   const isAdminTokenValid = isAdminTokenMatch(booking, hashedAdminToken);
-  const isAdminTokenInvalid =
-    !!adminToken &&
-    (!isAdminTokenValid || isAdminTokenExpired(booking) || isAdminTokenUsed(booking));
   const isModifyLocked =
     !booking?.startTimeMs || booking?.status !== 'pending';
 
@@ -326,16 +361,31 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const handleAdminDecision = async (decision: 'approve' | 'reject') => {
     if (!booking || !unit) return;
+    if (isSubmittingAction) return;
+    const traceId = createTraceId();
+    const tokenPresence = logTokenPresence(adminToken);
+    console.log(
+      `[manage-action] start traceId=${traceId} token=${tokenPresence} action=${decision}`
+    );
     if (!adminToken || isAdminTokenExpired(booking) || isAdminTokenUsed(booking)) {
-      setActionError(t.invalidAdminToken);
+      reportActionError(
+        traceId,
+        { action: decision },
+        { error: new Error('invalid token') }
+      );
       return;
     }
     if (!isAdminTokenValid) {
-      setActionError(t.invalidAdminToken);
+      reportActionError(
+        traceId,
+        { action: decision },
+        { error: new Error('invalid token') }
+      );
       return;
     }
     setIsProcessingAction(true);
-    setActionError('');
+    setActionError(null);
+    setActionState('submitting');
     try {
       const nextStatus = decision === 'approve' ? 'confirmed' : 'cancelled';
       const response = await fetch(
@@ -355,10 +405,12 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
 
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('ADMIN_TOKEN_INVALID');
-        }
-        throw new Error('ADMIN_ACTION_FAILED');
+        reportActionError(
+          traceId,
+          { action: decision },
+          { response }
+        );
+        return;
       }
       await writeDecisionLog(nextStatus);
 
@@ -377,29 +429,41 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       setActionMessage(
         decision === 'approve' ? t.reservationApproved : t.reservationRejected
       );
+      setActionState('success');
+      console.log(`[manage-action] success traceId=${traceId} action=${decision}`);
     } catch (actionErr) {
       console.error('Error handling admin decision:', actionErr);
-      if (actionErr instanceof Error) {
-        const errorType = actionErr.message;
-        if (errorType === 'ADMIN_TOKEN_INVALID') {
-          setActionError(t.invalidAdminToken);
-          return;
-        }
-      }
-      setActionError(t.actionFailed);
+      reportActionError(
+        traceId,
+        { action: decision },
+        { error: actionErr }
+      );
     } finally {
       setIsProcessingAction(false);
+      setActionState((prev) => (prev === 'submitting' ? 'idle' : prev));
     }
   };
 
   const handleCancelReservation = async () => {
     if (!booking || !unit) return;
+    if (isSubmittingAction) return;
+    const traceId = createTraceId();
+    const tokenPresence = logTokenPresence(manageToken);
+    console.log(
+      `[manage-action] start traceId=${traceId} token=${tokenPresence} action=cancel`
+    );
     if (!manageToken) {
-      setError(t.invalidManageLink);
+      reportActionError(
+        traceId,
+        { action: 'cancel' },
+        { error: new Error('invalid link') }
+      );
       return;
     }
     setIsCancelling(true);
     setCancelError('');
+    setActionError(null);
+    setActionState('submitting');
     try {
       const response = await fetch(
         `${FUNCTIONS_BASE_URL}/guestUpdateReservation`,
@@ -419,12 +483,11 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
 
       if (!response.ok) {
-        if (response.status === 403 || response.status === 404) {
-          setError(t.invalidManageLink);
-          return;
-        }
-        const payload = await response.json().catch(() => ({}));
-        setCancelError(payload?.error || t.cancelFailed);
+        reportActionError(
+          traceId,
+          { action: 'cancel' },
+          { response }
+        );
         return;
       }
 
@@ -442,11 +505,18 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
       setIsCancelModalOpen(false);
       setCancelReason('');
+      setActionState('success');
+      console.log(`[manage-action] success traceId=${traceId} action=cancel`);
     } catch (err) {
       console.error('Error cancelling reservation:', err);
-      setCancelError(t.cancelFailed);
+      reportActionError(
+        traceId,
+        { action: 'cancel' },
+        { error: err }
+      );
     } finally {
       setIsCancelling(false);
+      setActionState((prev) => (prev === 'submitting' ? 'idle' : prev));
     }
   };
 
@@ -459,12 +529,23 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const handleModifyReservation = async () => {
     if (!booking || !unit) return;
+    if (isSubmittingAction) return;
+    const traceId = createTraceId();
+    const tokenPresence = logTokenPresence(manageToken);
+    console.log(
+      `[manage-action] start traceId=${traceId} token=${tokenPresence} action=modify`
+    );
     if (!manageToken) {
-      setModifyError(t.invalidManageLink);
+      reportActionError(
+        traceId,
+        { action: 'modify' },
+        { error: new Error('invalid link') }
+      );
       return;
     }
     setModifyError('');
     setModifySuccess('');
+    setActionError(null);
 
     const nextHeadcount = Number(modifyHeadcount);
     if (!Number.isFinite(nextHeadcount)) {
@@ -502,6 +583,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       return;
     }
 
+    setActionState('submitting');
     setIsSavingModification(true);
     try {
       const response = await fetch(
@@ -523,16 +605,19 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
       );
 
       if (!response.ok) {
-        if (response.status === 403 || response.status === 404) {
-          setModifyError(t.invalidManageLink);
-          return;
+        if (response.status === 409) {
+          const payload = await response.json().catch(() => ({}));
+          if (payload?.error === 'capacity_full') {
+            setModifyError(t.errorCapacityFull);
+            setActionState((prev) => (prev === 'submitting' ? 'idle' : prev));
+            return;
+          }
         }
-        const payload = await response.json().catch(() => ({}));
-        if (response.status === 409 && payload?.error === 'capacity_full') {
-          setModifyError(t.errorCapacityFull);
-          return;
-        }
-        setModifyError(payload?.error || t.actionFailed);
+        reportActionError(
+          traceId,
+          { action: 'modify' },
+          { response }
+        );
         return;
       }
 
@@ -548,11 +633,18 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           : null
       );
       setModifySuccess(t.modifySuccess);
+      setActionState('success');
+      console.log(`[manage-action] success traceId=${traceId} action=modify`);
     } catch (err) {
       console.error('Error modifying reservation:', err);
-      setModifyError(t.actionFailed);
+      reportActionError(
+        traceId,
+        { action: 'modify' },
+        { error: err }
+      );
     } finally {
       setIsSavingModification(false);
+      setActionState((prev) => (prev === 'submitting' ? 'idle' : prev));
     }
   };
 
@@ -687,6 +779,36 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
 
   const bodySection = (
     <div className="flex flex-col gap-6 min-h-full" style={{ color: theme.colors.textPrimary }}>
+      {actionError && (
+        <div
+          ref={actionErrorRef}
+          role="alert"
+          aria-live="assertive"
+          tabIndex={-1}
+          className="p-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm flex flex-col gap-3"
+        >
+          <div>
+            <p className="text-base font-bold">{actionError.userTitle}</p>
+            <p className="mt-1">{actionError.userMessage}</p>
+          </div>
+          {actionError.debugId && (
+            <p className="text-xs font-medium">
+              {locale === 'hu' ? 'Hiba azonosító' : 'Error ID'}: {actionError.debugId}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setActionError(null);
+              setActionState('idle');
+            }}
+            className={`${baseButtonClasses.primary} ${theme.radiusClass} text-sm`}
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          >
+            {locale === 'hu' ? 'Próbáld újra' : 'Try again'}
+          </button>
+        </div>
+      )}
       <div
         className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 pb-4 border-b"
         style={{ borderColor: `${theme.colors.surface}60` }}
@@ -815,22 +937,6 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
           {booking.status === 'pending' &&
             adminToken &&
             !isHashingAdminToken &&
-            isAdminTokenInvalid && (
-              <div
-                className={`p-3 border ${theme.radiusClass} text-sm`}
-                style={{
-                  backgroundColor: `${theme.colors.danger}10`,
-                  color: theme.colors.danger,
-                  borderColor: `${theme.colors.danger}50`,
-                }}
-              >
-                {t.invalidAdminToken}
-              </div>
-            )}
-
-          {booking.status === 'pending' &&
-            adminToken &&
-            !isHashingAdminToken &&
             isAdminTokenValid &&
             !isAdminTokenExpired(booking) &&
             !isAdminTokenUsed(booking) && (
@@ -855,25 +961,13 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                     {actionMessage}
                   </p>
                 )}
-                {actionError && (
-                  <p
-                    className={`text-sm p-2 ${theme.radiusClass} border`}
-                    style={{
-                      color: theme.colors.danger,
-                      backgroundColor: theme.colors.surface,
-                      borderColor: `${theme.colors.danger}40`,
-                    }}
-                  >
-                    {actionError}
-                  </p>
-                )}
                 {!actionMessage && (
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button
                       onClick={() => handleAdminDecision('approve')}
                       className={`${baseButtonClasses.primary} flex-1`}
                       style={{ backgroundColor: theme.colors.primary }}
-                      disabled={isProcessingAction}
+                      disabled={isProcessingAction || isSubmittingAction}
                     >
                       {t.adminApprove}
                     </button>
@@ -881,7 +975,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                       onClick={() => handleAdminDecision('reject')}
                       className={`${baseButtonClasses.primary} flex-1`}
                       style={{ backgroundColor: theme.colors.danger }}
-                      disabled={isProcessingAction}
+                      disabled={isProcessingAction || isSubmittingAction}
                     >
                       {t.adminReject}
                     </button>
@@ -920,7 +1014,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                   max={MAX_HEADCOUNT}
                   value={modifyHeadcount}
                   onChange={(event) => setModifyHeadcount(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification}
+                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
                   className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
                   style={{
                     backgroundColor: theme.colors.surface,
@@ -943,7 +1037,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                   max={settings?.bookableWindow?.to}
                   value={modifyStartTime}
                   onChange={(event) => setModifyStartTime(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification}
+                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
                   className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
                   style={{
                     backgroundColor: theme.colors.surface,
@@ -961,7 +1055,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                   max={settings?.bookableWindow?.to}
                   value={modifyEndTime}
                   onChange={(event) => setModifyEndTime(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification}
+                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
                   className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
                   style={{
                     backgroundColor: theme.colors.surface,
@@ -983,7 +1077,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             )}
             <button
               onClick={handleModifyReservation}
-              disabled={isModifyLocked || isSavingModification}
+              disabled={isModifyLocked || isSavingModification || isSubmittingAction}
               className={`${baseButtonClasses.primary} w-full mt-4`}
               style={{
                 backgroundColor: isModifyLocked ? theme.colors.surface : theme.colors.primary,
@@ -1017,7 +1111,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 onClick={() => setIsCancelModalOpen(true)}
                 className={`${baseButtonClasses.primary} w-full mt-4`}
                 style={{ backgroundColor: theme.colors.danger }}
-                disabled={isCancelling}
+                disabled={isCancelling || isSubmittingAction}
               >
                 {isCancelling ? t.cancelling : t.cancelReservation}
               </button>
@@ -1072,7 +1166,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 }}
                 rows={3}
                 placeholder={t.cancelReasonPlaceholder}
-                disabled={isCancelling}
+                disabled={isCancelling || isSubmittingAction}
               />
             </div>
             <div className="flex justify-center gap-4">
@@ -1084,6 +1178,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                   color: theme.colors.textPrimary,
                   borderColor: theme.colors.surface,
                 }}
+                disabled={isCancelling || isSubmittingAction}
               >
                 {t.noKeep}
               </button>
@@ -1091,7 +1186,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 onClick={handleCancelReservation}
                 className={`${baseButtonClasses.primary}`}
                 style={{ backgroundColor: theme.colors.danger }}
-                disabled={isCancelling}
+                disabled={isCancelling || isSubmittingAction}
               >
                 {isCancelling ? t.cancelling : t.yesCancel}
               </button>
