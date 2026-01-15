@@ -2929,7 +2929,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
-      onClick={handleClose}
+      onClick={event => {
+        if (event.target === event.currentTarget) {
+          handleClose();
+        }
+      }}
     >
       <div
         className="rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 space-y-6"
@@ -2937,17 +2941,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">Ültetés beállítások</h2>
-          <button onClick={handleClose} className="text-sm text-gray-500">
+          <button onClick={handleClose} className="flex items-center gap-2 text-sm text-gray-500">
+            {isDirty && (
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 rounded-full bg-blue-400"
+              />
+            )}
             Bezárás
           </button>
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white relative">
+        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white">
           <div
             role="tablist"
             aria-label="Ültetés beállítások fülek"
-            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1 pr-6"
+            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
           >
             {tabs.map(tab => (
               <button
@@ -2970,12 +2980,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </button>
             ))}
           </div>
-          {isDirty && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute right-6 top-3 h-2 w-2 rounded-full bg-blue-400"
-            />
-          )}
         </div>
         <div className="pt-4 pb-24">
           {activeTab === 'overview' && (
@@ -3030,14 +3034,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           )}
         </div>
         <div className="sticky bottom-0 bg-white pt-3 pb-2 border-t flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
             {isSaving
               ? 'Mentés folyamatban...'
               : isDirty
               ? 'Nem mentett változások'
               : 'Minden mentve'}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" aria-live="polite" aria-atomic="true">
             {saveFeedback && <span className="text-xs text-green-600">{saveFeedback}</span>}
             <button
               type="button"
