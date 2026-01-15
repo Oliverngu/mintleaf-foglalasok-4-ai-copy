@@ -23,13 +23,17 @@ import {
   doc,
   onSnapshot,
   orderBy,
+  where,
   writeBatch,
   updateDoc,
   addDoc,
   deleteDoc,
   setDoc,
   query,
-  getDoc
+  getDoc,
+  DocumentData,
+  Query,
+  QueryDocumentSnapshot
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PencilIcon from '../../../../components/icons/PencilIcon';
@@ -1229,29 +1233,37 @@ interface ExportConfirmationModalProps {
   type: 'PNG' | 'Excel';
   onClose: () => void;
   onConfirm: () => Promise<void>;
+  onExportingChange: (isExporting: boolean) => void;
   exportSettings: ExportStyleSettings;
   unitName: string;
   hideEmptyUsersOnExport: boolean;
   onToggleHideEmptyUsers: (value: boolean) => void;
+  pngScale: 1 | 2 | 3;
+  onScaleChange: (value: 1 | 2 | 3) => void;
 }
 
 const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
   type,
   onClose,
   onConfirm,
+  onExportingChange,
   exportSettings,
   unitName,
   hideEmptyUsersOnExport,
-  onToggleHideEmptyUsers
+  onToggleHideEmptyUsers,
+  pngScale,
+  onScaleChange
 }) => {
   const [isExporting, setIsExporting] = useState(false);
 
   const handleConfirmClick = async () => {
     setIsExporting(true);
+    onExportingChange(true);
     try {
       await onConfirm();
     } catch (err) {
       setIsExporting(false);
+      onExportingChange(false);
     }
   };
 
@@ -1432,7 +1444,23 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
               <span className="font-semibold">Formátum:</span> {type}
             </div>
             {type === 'PNG' && (
-              <div className="mt-1">
+              <div className="mt-1 space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700">
+                    Felbontás
+                  </label>
+                  <select
+                    value={pngScale}
+                    onChange={e =>
+                      onScaleChange(Number(e.target.value) as 1 | 2 | 3)
+                    }
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  >
+                    <option value={1}>1x</option>
+                    <option value={2}>2x – ajánlott</option>
+                    <option value={3}>3x</option>
+                  </select>
+                </div>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input
                     type="checkbox"
@@ -1514,6 +1542,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
+  const [staffWarning, setStaffWarning] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
@@ -1603,12 +1632,34 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  const [pngExportScale, setPngExportScale] = useState<1 | 2 | 3>(2);
+  const [isPngExportConfirming, setIsPngExportConfirming] = useState(false);
   const [isPngExportRenderMode, setIsPngExportRenderMode] =
     useState(false);
   const [pngHideEmptyUsers, setPngHideEmptyUsers] = useState(false);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
+  const getUserUnitIds = useCallback(
+    (user: { unitIds?: string[]; unitIDs?: string[]; unitId?: string }) => {
+      if (Array.isArray(user.unitIds) && user.unitIds.length > 0) {
+        return user.unitIds;
+      }
+      if (Array.isArray(user.unitIDs) && user.unitIDs.length > 0) {
+        return user.unitIDs;
+      }
+      if (typeof user.unitId === 'string' && user.unitId) {
+        return [user.unitId];
+      }
+      return [];
+    },
+    []
+  );
+  const currentUserUnitIds = useMemo(
+    () => getUserUnitIds(currentUser),
+    [currentUser, getUserUnitIds]
+  );
+  const isAdminUser = currentUser.role === 'Admin';
 
   const clearToastTimers = useCallback(() => {
     if (successToastTimeoutRef.current) {
@@ -1930,23 +1981,117 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
-      setAllAppUsers(
-        snapshot.docs.map(docSnap => {
-          const data = docSnap.data() as any;
-          const lastName = data.lastName || '';
-          const firstName = data.firstName || '';
-          return {
-            id: docSnap.id,
-            ...data,
-            fullName:
-              data.fullName ||
-              `${lastName} ${firstName}`.trim()
-          } as User;
-        })
+    if (activeUnitIds.length === 0) {
+      setAllAppUsers([]);
+      setStaffWarning(null);
+      setIsDataLoading(false);
+      return () => undefined;
+    }
+
+    const hasUnitAccess =
+      isAdminUser ||
+      activeUnitIds.some(unitId => currentUserUnitIds.includes(unitId));
+    if (!hasUnitAccess) {
+      setAllAppUsers([]);
+      setStaffWarning(
+        'Nincs jogosultságod az adott egység munkatársainak megtekintéséhez.'
       );
       setIsDataLoading(false);
+      return () => undefined;
+    }
+
+    setIsDataLoading(true);
+    setStaffWarning(null);
+    // Staff list must be unit-filtered; global reads are forbidden.
+    const sourceMaps = new Map<string, Map<string, User>>();
+    let expected = 0;
+    let settled = 0;
+    let allAttached = false;
+    const settledKeys = new Set<string>();
+    const mergeAndSetUsers = () => {
+      const merged = new Map<string, User>();
+      sourceMaps.forEach(map => {
+        map.forEach((value, id) => merged.set(id, value));
+      });
+      setAllAppUsers(Array.from(merged.values()));
+    };
+    const toUser = (docSnap: QueryDocumentSnapshot<DocumentData>) => {
+      const data = docSnap.data() as any;
+      const lastName = data.lastName || '';
+      const firstName = data.firstName || '';
+      return {
+        id: docSnap.id,
+        ...data,
+        fullName: data.fullName || `${lastName} ${firstName}`.trim()
+      } as User;
+    };
+    const attachListener = (key: string, queryRef: Query<DocumentData>) => {
+      const map = new Map<string, User>();
+      sourceMaps.set(key, map);
+      expected += 1;
+      return onSnapshot(
+        queryRef,
+        snapshot => {
+          map.clear();
+          snapshot.docs.forEach(docSnap => {
+            map.set(docSnap.id, toUser(docSnap));
+          });
+          mergeAndSetUsers();
+          if (!settledKeys.has(key)) {
+            settledKeys.add(key);
+            settled += 1;
+          }
+          if (allAttached && settled === expected) {
+            setIsDataLoading(false);
+          }
+        },
+        error => {
+          console.error('Failed to load staff list:', error);
+          if (!settledKeys.has(key)) {
+            settledKeys.add(key);
+            settled += 1;
+          }
+          if (allAttached && settled === expected) {
+            setIsDataLoading(false);
+          }
+        }
+      );
+    };
+
+    const unsubscribers: Array<() => void> = [];
+    const unitChunks: string[][] = [];
+    for (let i = 0; i < activeUnitIds.length; i += 10) {
+      unitChunks.push(activeUnitIds.slice(i, i + 10));
+    }
+    unitChunks.forEach((chunk, index) => {
+      const unitIdsQuery = query(
+        collection(db, 'users'),
+        where('unitIds', 'array-contains-any', chunk)
+      );
+      unsubscribers.push(
+        attachListener(`unitIds:${index}`, unitIdsQuery)
+      );
+
+      const unitIDsQuery = query(
+        collection(db, 'users'),
+        where('unitIDs', 'array-contains-any', chunk)
+      );
+      unsubscribers.push(
+        attachListener(`unitIDs:${index}`, unitIDsQuery)
+      );
     });
+
+    if (activeUnitIds.length <= 10) {
+      const unitIdQuery = query(
+        collection(db, 'users'),
+        where('unitId', 'in', activeUnitIds)
+      );
+      unsubscribers.push(attachListener('unitId', unitIdQuery));
+    }
+    allAttached = true;
+    if (expected === 0) {
+      setIsDataLoading(false);
+    }
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
@@ -1961,10 +2106,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
 
     return () => {
-      unsubUsers();
+      unsubscribers.forEach(unsub => unsub());
       unsubPositions();
+      sourceMaps.clear();
+      settledKeys.clear();
     };
-  }, []);
+  }, [activeUnitIds, currentUserUnitIds, isAdminUser]);
 
   useEffect(() => {
     if (weekSettings) {
@@ -2098,12 +2245,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
     return allAppUsers
       .filter(
-        u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+        u =>
+          getUserUnitIds(u).some(uid => activeUnitIds.includes(uid))
       )
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds]);
+  }, [allAppUsers, activeUnitIds, getUserUnitIds]);
 
   useEffect(() => {
     if (!settingsDocId) return;
@@ -4103,12 +4251,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, []);
 
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-  const handlePngExport = async (hideEmptyUsers: boolean): Promise<void> => {
+  const handlePngExport = async (
+    hideEmptyUsers: boolean,
+    scale: 1 | 2 | 3
+  ): Promise<void> => {
     setIsPngExportRenderMode(true);
     setPngHideEmptyUsers(hideEmptyUsers);
     setIsPngExporting(true);
 
     let exportContainer: HTMLDivElement | null = null;
+    let exportInnerWrapper: HTMLDivElement | null = null;
+    const SHOW_EXPORT_HEADER = false;
 
     try {
       await waitForExportLayout();
@@ -4117,7 +4270,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         throw new Error('Export container ref not found');
       }
 
+      const existingExportContainer = document.querySelector(
+        '[data-export-container="png"]'
+      );
+      if (existingExportContainer?.parentElement) {
+        existingExportContainer.parentElement.removeChild(
+          existingExportContainer
+        );
+      }
+
       exportContainer = document.createElement('div');
+      exportContainer.dataset.exportContainer = 'png';
       Object.assign(exportContainer.style, {
         position: 'absolute',
         left: '-9999px',
@@ -4126,6 +4289,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         padding: '0px',
         display: 'inline-block',
         overflow: 'visible'
+      } as CSSStyleDeclaration);
+
+      exportInnerWrapper = document.createElement('div');
+      Object.assign(exportInnerWrapper.style, {
+        display: 'inline-block',
+        backgroundColor: '#ffffff',
+        borderRadius: exportSettings.useRoundedCorners
+          ? `${exportSettings.borderRadius}px`
+          : '0px',
+        overflow: exportSettings.useRoundedCorners ? 'hidden' : 'visible'
       } as CSSStyleDeclaration);
 
       const tableClone =
@@ -4141,40 +4314,60 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.remove();
         });
 
-      exportContainer.appendChild(tableClone);
+      if (SHOW_EXPORT_HEADER) {
+        const exportUnitName =
+          activeUnitIds.length === 1
+            ? allUnits.find(u => u.id === activeUnitIds[0])?.name ||
+              'Ismeretlen egység'
+            : 'Több egység';
+        const weekRange = `${weekDays[0].toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })} – ${weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })}`;
+        const headerTextColor = getContrastingTextColor(
+          exportSettings.dayHeaderBgColor
+        );
+        const exportHeader = document.createElement('div');
+        Object.assign(exportHeader.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          padding: '10px 12px',
+          background: exportSettings.dayHeaderBgColor,
+          color: headerTextColor,
+          borderBottom: `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`
+        } as CSSStyleDeclaration);
+        const headerRow = document.createElement('div');
+        Object.assign(headerRow.style, {
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontWeight: '800'
+        } as CSSStyleDeclaration);
+        const headerLeft = document.createElement('div');
+        headerLeft.textContent = exportUnitName;
+        const headerRight = document.createElement('div');
+        headerRight.textContent = weekRange;
+        headerRow.appendChild(headerLeft);
+        headerRow.appendChild(headerRight);
+        const headerSub = document.createElement('div');
+        headerSub.textContent =
+          viewMode === 'published' ? 'Publikált' : 'Piszkozat';
+        headerSub.style.fontWeight = '500';
+        exportHeader.appendChild(headerRow);
+        exportHeader.appendChild(headerSub);
+        exportInnerWrapper.appendChild(exportHeader);
+      }
+      exportInnerWrapper.appendChild(tableClone);
+      exportContainer.appendChild(exportInnerWrapper);
       document.body.appendChild(exportContainer);
 
       await waitForCloneLayout();
-
-      const measuredColumnWidths = Array.from(
-        tableClone.querySelectorAll<HTMLTableElement>('table')
-      ).map(table => {
-        const headerCells = Array.from(
-          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
-        );
-
-        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
-      });
-
-      const dayHeaderTextColor = getContrastingTextColor(
-        exportSettings.dayHeaderBgColor
-      );
-      const nameHeaderTextColor = getContrastingTextColor(
-        exportSettings.nameColumnColor
-      );
-
-      tableClone
-        .querySelectorAll<HTMLTableCellElement>('thead th')
-        .forEach((th, idx) => {
-          const isNameHeader = idx === 0;
-          const bg = isNameHeader
-            ? exportSettings.nameColumnColor
-            : exportSettings.dayHeaderBgColor;
-          th.style.background = bg;
-          th.style.color = isNameHeader
-            ? nameHeaderTextColor
-            : dayHeaderTextColor;
-        });
 
       tableClone
         .querySelectorAll<HTMLElement>('.sticky')
@@ -4194,20 +4387,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.style.bottom = 'auto';
         });
 
-      tableClone.querySelectorAll<HTMLElement>('*').forEach(el => {
-        el.style.transform = 'none';
-        el.style.filter = 'none';
-        el.style.backdropFilter = 'none';
-        el.style.boxShadow = 'none';
-      });
-
-      tableClone
-        .querySelectorAll<HTMLDivElement>('.weekday-header')
-        .forEach(div => {
-          div.style.background = exportSettings.dayHeaderBgColor;
-          div.style.color = dayHeaderTextColor;
-        });
-
       tableClone
         .querySelectorAll<HTMLTableCellElement>('tbody td')
         .forEach(td => {
@@ -4218,6 +4397,85 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         });
 
       tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          const rowText = (row.textContent || '').toLowerCase();
+          const summaryTokens = [
+            'összes',
+            'összesen',
+            'óra',
+            'óraszám',
+            'heti',
+            'napi'
+          ];
+          if (summaryTokens.some(token => rowText.includes(token))) {
+            row.remove();
+          }
+        });
+      const hoursSelectors = [
+        '.hours',
+        '.hour-badge',
+        '[data-hours]',
+        '[data-summary]',
+        '.total-hours'
+      ];
+      tableClone
+        .querySelectorAll<HTMLElement>(hoursSelectors.join(','))
+        .forEach(el => el.remove());
+      tableClone
+        .querySelectorAll<HTMLElement>('span, small, div')
+        .forEach(el => {
+          const text = (el.textContent || '').trim();
+          if (!text || text.length > 10) return;
+          const isHours =
+            /^\d+(\.\d+)?\s*h$/i.test(text) ||
+            /^\d+(\.\d+)?\s*óra$/i.test(text);
+          if (isHours) {
+            el.remove();
+          }
+        });
+
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('th, td')
+        .forEach(cell => {
+          cell.style.verticalAlign = 'middle';
+        });
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          if (row.querySelector('td[colSpan]')) return;
+          const cells = Array.from(row.querySelectorAll<HTMLTableCellElement>('td'));
+          cells.slice(1).forEach(cell => {
+            if (
+              cell.classList.contains('day-off-cell') ||
+              cell.classList.contains('leave-cell')
+            ) {
+              return;
+            }
+            cell.style.display = 'table-cell';
+            if (!/\d{2}:\d{2}/.test(cell.textContent || '')) {
+              return;
+            }
+            const elementChild = cell.firstElementChild as HTMLElement | null;
+            if (elementChild) {
+              elementChild.style.display = 'flex';
+              elementChild.style.alignItems = 'center';
+              elementChild.style.justifyContent = 'center';
+              elementChild.style.height = '100%';
+              return;
+            }
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.alignItems = 'center';
+            wrapper.style.justifyContent = 'center';
+            wrapper.style.height = '100%';
+            while (cell.firstChild) {
+              wrapper.appendChild(cell.firstChild);
+            }
+            cell.appendChild(wrapper);
+          });
+        });
 
       tableClone.style.width = 'fit-content';
       tableClone.style.maxWidth = 'none';
@@ -4238,88 +4496,36 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         gridNode.style.maxWidth = 'none';
       }
 
-      const clonedTables = Array.from(
-        tableClone.querySelectorAll<HTMLTableElement>('table')
-      );
-
-      clonedTables.forEach((table, idx) => {
-        const widths = measuredColumnWidths[idx];
-        if (widths && widths.length) {
-          table.querySelectorAll('colgroup').forEach(colgroup => colgroup.remove());
-          const colgroup = document.createElement('colgroup');
-          widths.forEach(width => {
-            const col = document.createElement('col');
-            col.style.width = `${width}px`;
-            colgroup.appendChild(col);
-          });
-          table.insertBefore(colgroup, table.firstChild);
-        }
-
-        table.style.tableLayout = 'fixed';
-        table.style.borderCollapse = 'collapse';
-      });
-
-      const zebraBase = exportSettings.zebraColor;
-      const zebraDelta = exportSettings.zebraStrength / 5;
-      const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-      const nameBase = exportSettings.nameColumnColor;
-      const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
-
-      tableClone
-        .querySelectorAll<HTMLTableCellElement>('th, td')
-        .forEach(cell => {
-          cell.style.borderWidth = '0.5px';
-        });
-
       const paddingPx = 0;
+      const borderCompensation = Math.max(
+        0,
+        exportSettings.gridThickness * 2
+      );
+      const safetyPadding =
+        exportSettings.gridThickness >= 2 ? 2 : 0;
       const rawWidth =
         (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
-      const finalWidth = Math.ceil(rawWidth);
+      const rawHeight =
+        (exportInnerWrapper.scrollHeight ||
+          gridNode?.scrollHeight ||
+          tableClone.scrollHeight ||
+          0) + paddingPx;
+      const finalWidth = Math.ceil(
+        rawWidth + borderCompensation + safetyPadding
+      );
+      const finalHeight = Math.ceil(
+        rawHeight + borderCompensation + safetyPadding
+      );
       exportContainer.style.width = `${finalWidth}px`;
-
-      let dataRowIndex = 0;
-      tableClone
-        .querySelectorAll<HTMLTableRowElement>('tbody tr')
-        .forEach(row => {
-          const isCategoryRow = row.querySelector('td[colSpan]');
-          const isSummaryRow = row.classList.contains('summary-row');
-          if (isCategoryRow || isSummaryRow) return;
-
-          const isAltRow = dataRowIndex % 2 === 1;
-          const rowBg = isAltRow ? zebraAlt : zebraBase;
-          const rowText = getContrastingTextColor(rowBg);
-          row.style.background = rowBg;
-          row.style.color = rowText;
-
-          const nameCell = row.querySelector('td');
-          if (nameCell) {
-            const nameBg = isAltRow ? nameAlt : nameBase;
-            nameCell.style.background = nameBg;
-            nameCell.style.color = getContrastingTextColor(nameBg);
-          }
-
-          row
-            .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
-            .forEach(td => {
-              if (
-                !td.classList.contains('day-off-cell') &&
-                !td.classList.contains('leave-cell')
-              ) {
-                td.style.background = rowBg;
-                td.style.color = rowText;
-              }
-            });
-
-          dataRowIndex += 1;
-        });
+      exportContainer.style.height = `${finalHeight}px`;
 
       const canvas = await html2canvas(exportContainer, {
         useCORS: true,
-        scale: 2,
         backgroundColor: '#ffffff',
         logging: false,
-        windowWidth: exportContainer.scrollWidth,
-        windowHeight: exportContainer.scrollHeight
+        scale,
+        windowWidth: finalWidth,
+        windowHeight: finalHeight
       });
 
       const link = document.createElement('a');
@@ -4350,6 +4556,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
+    setIsPngExportConfirming(false);
     setClickGuardUntil(Date.now() + 500);
   };
 
@@ -4751,7 +4958,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 onClick={() =>
                   setExportConfirmation({ type: 'PNG' })
                 }
-                disabled={isPngExporting}
+                disabled={isPngExporting || isPngExportConfirming}
                 className="p-2 rounded-full hover:bg-gray-200"
                 title="Exportálás PNG-be"
               >
@@ -4793,6 +5000,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           </div>
         </div>
       </div>
+
+      {staffWarning && !isAdminUser && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {staffWarning}
+        </div>
+      )}
 
       {canManage && showSettings && (
         <div
@@ -4954,7 +5167,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 />
               )}
             </div>
-            <div className="p-4 bg-gray-50 flex justify-between items_center rounded-b-2xl">
+            <div className="p-4 bg-gray-50 flex justify-between items-center rounded-b-2xl">
               <button
                 onClick={() =>
                   setExportSettings(DEFAULT_EXPORT_SETTINGS)
@@ -5049,6 +5262,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <ExportConfirmationModal
           type={exportConfirmation.type}
           onClose={closeExportWithGuard}
+          onExportingChange={isExporting => {
+            if (exportConfirmation.type === 'PNG') {
+              setIsPngExportConfirming(isExporting);
+            }
+          }}
           exportSettings={exportSettings}
           unitName={
             activeUnitIds.length === 1
@@ -5060,10 +5278,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           onToggleHideEmptyUsers={value =>
             setHideEmptyUsersOnExport(value)
           }
+          pngScale={pngExportScale}
+          onScaleChange={setPngExportScale}
           onConfirm={async () => {
             try {
               if (exportConfirmation.type === 'PNG') {
-                await handlePngExport(hideEmptyUsersOnExport);
+                await handlePngExport(
+                  hideEmptyUsersOnExport,
+                  pngExportScale
+                );
                 setSuccessToast('PNG export sikeres!');
               } else {
                 // Excel export
