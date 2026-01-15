@@ -805,7 +805,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, []);
 
   const handleSettingsSave = async () => {
-    if (!settings || actionSavingRef.current['settings-save']) return;
+    if (!settings || actionSavingRef.current['settings-save'] || actionSaving['settings-save']) {
+      return;
+    }
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
     normalizedSettingsRef.current = null;
@@ -1621,7 +1623,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleClose = useCallback(() => {
-    if (isDirty && !actionSavingRef.current['settings-save']) {
+    const isSavingNow = Boolean(
+      actionSavingRef.current['settings-save'] || actionSaving['settings-save']
+    );
+    if (typeof window !== 'undefined' && isDirty && !isSavingNow) {
       const ok = window.confirm('Vannak nem mentett változások. Biztos bezárod?');
       if (!ok) {
         return;
@@ -1638,7 +1643,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     actionSavingRef.current = {};
     setActionSaving({});
     onClose();
-  }, [isDirty, onClose]);
+  }, [actionSaving, isDirty, onClose]);
 
   const tabs = [
     { id: 'overview', label: 'Áttekintés' },
@@ -2938,11 +2943,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white">
+        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white relative">
           <div
             role="tablist"
             aria-label="Ültetés beállítások fülek"
-            className="relative flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
+            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1 pr-6"
           >
             {tabs.map(tab => (
               <button
@@ -2964,13 +2969,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 {tab.label}
               </button>
             ))}
-            {isDirty && (
-              <span
-                aria-hidden="true"
-                className="absolute right-1 top-1 h-2 w-2 rounded-full bg-blue-500"
-              />
-            )}
           </div>
+          {isDirty && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute right-6 top-3 h-2 w-2 rounded-full bg-blue-400"
+            />
+          )}
         </div>
         <div className="pt-4 pb-24">
           {activeTab === 'overview' && (
@@ -3037,7 +3042,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <button
               type="button"
               onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+              className={`px-4 py-2 rounded-lg text-sm disabled:opacity-50 ${
+                canSave ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+              }`}
               disabled={!canSave}
             >
               {saveLabel}
