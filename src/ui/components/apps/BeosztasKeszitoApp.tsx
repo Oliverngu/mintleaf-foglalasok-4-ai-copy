@@ -23,13 +23,17 @@ import {
   doc,
   onSnapshot,
   orderBy,
+  where,
   writeBatch,
   updateDoc,
   addDoc,
   deleteDoc,
   setDoc,
   query,
-  getDoc
+  getDoc,
+  DocumentData,
+  Query,
+  QueryDocumentSnapshot
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PencilIcon from '../../../../components/icons/PencilIcon';
@@ -1538,6 +1542,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
+  const [staffWarning, setStaffWarning] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
@@ -1635,6 +1640,26 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
+  const getUserUnitIds = useCallback(
+    (user: { unitIds?: string[]; unitIDs?: string[]; unitId?: string }) => {
+      if (Array.isArray(user.unitIds) && user.unitIds.length > 0) {
+        return user.unitIds;
+      }
+      if (Array.isArray(user.unitIDs) && user.unitIDs.length > 0) {
+        return user.unitIDs;
+      }
+      if (typeof user.unitId === 'string' && user.unitId) {
+        return [user.unitId];
+      }
+      return [];
+    },
+    []
+  );
+  const currentUserUnitIds = useMemo(
+    () => getUserUnitIds(currentUser),
+    [currentUser, getUserUnitIds]
+  );
+  const isAdminUser = currentUser.role === 'Admin';
 
   const clearToastTimers = useCallback(() => {
     if (successToastTimeoutRef.current) {
@@ -1956,23 +1981,90 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
-      setAllAppUsers(
-        snapshot.docs.map(docSnap => {
-          const data = docSnap.data() as any;
-          const lastName = data.lastName || '';
-          const firstName = data.firstName || '';
-          return {
-            id: docSnap.id,
-            ...data,
-            fullName:
-              data.fullName ||
-              `${lastName} ${firstName}`.trim()
-          } as User;
-        })
+    if (activeUnitIds.length === 0) {
+      setAllAppUsers([]);
+      setStaffWarning(null);
+      setIsDataLoading(false);
+      return () => undefined;
+    }
+
+    const hasUnitAccess =
+      isAdminUser ||
+      activeUnitIds.some(unitId => currentUserUnitIds.includes(unitId));
+    if (!hasUnitAccess) {
+      setAllAppUsers([]);
+      setStaffWarning(
+        'Nincs jogosultságod az adott egység munkatársainak megtekintéséhez.'
       );
       setIsDataLoading(false);
-    });
+      return () => undefined;
+    }
+
+    setStaffWarning(null);
+    // Staff list must be unit-filtered; global reads are forbidden.
+    const sourceMaps = {
+      unitIds: new Map<string, User>(),
+      unitIDs: new Map<string, User>(),
+      unitId: new Map<string, User>()
+    };
+    const mergeAndSetUsers = () => {
+      const merged = new Map<string, User>();
+      Object.values(sourceMaps).forEach(map => {
+        map.forEach((value, id) => merged.set(id, value));
+      });
+      setAllAppUsers(Array.from(merged.values()));
+    };
+    const toUser = (docSnap: QueryDocumentSnapshot<DocumentData>) => {
+      const data = docSnap.data() as any;
+      const lastName = data.lastName || '';
+      const firstName = data.firstName || '';
+      return {
+        id: docSnap.id,
+        ...data,
+        fullName: data.fullName || `${lastName} ${firstName}`.trim()
+      } as User;
+    };
+    const attachListener = (
+      key: keyof typeof sourceMaps,
+      queryRef: Query<DocumentData>
+    ) =>
+      onSnapshot(
+        queryRef,
+        snapshot => {
+          const map = sourceMaps[key];
+          map.clear();
+          snapshot.docs.forEach(docSnap => {
+            map.set(docSnap.id, toUser(docSnap));
+          });
+          mergeAndSetUsers();
+          setIsDataLoading(false);
+        },
+        error => {
+          console.error('Failed to load staff list:', error);
+          setIsDataLoading(false);
+        }
+      );
+
+    const unsubscribers: Array<() => void> = [];
+    const unitIdsQuery = query(
+      collection(db, 'users'),
+      where('unitIds', 'array-contains-any', activeUnitIds)
+    );
+    unsubscribers.push(attachListener('unitIds', unitIdsQuery));
+
+    const unitIDsQuery = query(
+      collection(db, 'users'),
+      where('unitIDs', 'array-contains-any', activeUnitIds)
+    );
+    unsubscribers.push(attachListener('unitIDs', unitIDsQuery));
+
+    if (activeUnitIds.length <= 10) {
+      const unitIdQuery = query(
+        collection(db, 'users'),
+        where('unitId', 'in', activeUnitIds)
+      );
+      unsubscribers.push(attachListener('unitId', unitIdQuery));
+    }
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
@@ -1987,10 +2079,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
 
     return () => {
-      unsubUsers();
+      unsubscribers.forEach(unsub => unsub());
       unsubPositions();
     };
-  }, []);
+  }, [activeUnitIds, currentUserUnitIds, isAdminUser]);
 
   useEffect(() => {
     if (weekSettings) {
@@ -2124,12 +2216,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
     return allAppUsers
       .filter(
-        u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
+        u =>
+          getUserUnitIds(u).some(uid => activeUnitIds.includes(uid))
       )
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds]);
+  }, [allAppUsers, activeUnitIds, getUserUnitIds]);
 
   useEffect(() => {
     if (!settingsDocId) return;
@@ -4878,6 +4971,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           </div>
         </div>
       </div>
+
+      {staffWarning && !isAdminUser && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {staffWarning}
+        </div>
+      )}
 
       {canManage && showSettings && (
         <div
