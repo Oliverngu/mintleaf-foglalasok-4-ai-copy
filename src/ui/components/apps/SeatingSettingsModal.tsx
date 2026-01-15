@@ -63,6 +63,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [isDirty, setIsDirty] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const lastSavedSnapshotRef = useRef<string | null>(null);
+  const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<
@@ -129,7 +130,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       allocationEnabled: base.allocationEnabled,
       allocationMode: base.allocationMode,
       allocationStrategy: base.allocationStrategy,
-      defaultZoneId: base.defaultZoneId,
+      defaultZoneId: normalizeOptionalString(base.defaultZoneId ?? ''),
       zonePriority: base.zonePriority,
       overflowZones: base.overflowZones,
       allowCrossZoneCombinations: base.allowCrossZoneCombinations,
@@ -807,7 +808,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!settings) return;
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
-    let normalizedSettings: SeatingSettings | null = null;
+    normalizedSettingsRef.current = null;
     const emergencyZoneIds =
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
@@ -848,14 +849,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
         };
         await updateSeatingSettings(unitId, payload);
-        normalizedSettings = payload;
+        normalizedSettingsRef.current = ensureSettings(payload);
         didSave = true;
       },
     });
     if (didSave && isMountedRef.current) {
-      if (normalizedSettings) {
-        setSettings(normalizedSettings);
-        lastSavedSnapshotRef.current = createSettingsSnapshot(normalizedSettings);
+      const normalized = normalizedSettingsRef.current;
+      if (normalized) {
+        setSettings(normalized);
+        lastSavedSnapshotRef.current = createSettingsSnapshot(normalized);
       } else {
         lastSavedSnapshotRef.current = snapshot;
       }
