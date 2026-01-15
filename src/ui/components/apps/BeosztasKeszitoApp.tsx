@@ -2000,9 +2000,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return () => undefined;
     }
 
+    setIsDataLoading(true);
     setStaffWarning(null);
     // Staff list must be unit-filtered; global reads are forbidden.
     const sourceMaps = new Map<string, Map<string, User>>();
+    let gotAnySnapshot = false;
     const mergeAndSetUsers = () => {
       const merged = new Map<string, User>();
       sourceMaps.forEach(map => {
@@ -2026,6 +2028,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return onSnapshot(
         queryRef,
         snapshot => {
+          gotAnySnapshot = true;
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));
@@ -2035,7 +2038,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         },
         error => {
           console.error('Failed to load staff list:', error);
-          setIsDataLoading(false);
+          if (!gotAnySnapshot) {
+            setIsDataLoading(false);
+          }
         }
       );
     };
@@ -2086,6 +2091,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       unsubscribers.forEach(unsub => unsub());
       unsubPositions();
+      sourceMaps.clear();
     };
   }, [activeUnitIds, currentUserUnitIds, isAdminUser]);
 
