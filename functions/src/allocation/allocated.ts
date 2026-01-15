@@ -1,4 +1,11 @@
-import type { AllocationDecision } from './types';
+export type AllocationDecisionSummary = {
+  zoneId?: string | null;
+  tableIds?: string[];
+  reason?: string | null;
+  reasonCode?: string | null;
+  allocationMode?: string | null;
+  allocationStrategy?: string | null;
+};
 
 export type AllocationRecord = {
   zoneId: string | null;
@@ -7,27 +14,53 @@ export type AllocationRecord = {
   decidedAtMs: number;
   strategy: string | null;
   diagnosticsSummary: string;
+  computedForStartTimeMs: number;
+  computedForEndTimeMs: number;
+  computedForHeadcount: number;
+  algoVersion: string;
 };
 
 export const buildAllocationRecord = ({
   decision,
   traceId,
   decidedAtMs,
+  enabled,
+  computedForStartTimeMs,
+  computedForEndTimeMs,
+  computedForHeadcount,
+  algoVersion,
 }: {
-  decision: AllocationDecision;
+  decision: AllocationDecisionSummary;
   traceId: string;
   decidedAtMs: number;
+  enabled: boolean;
+  computedForStartTimeMs: number;
+  computedForEndTimeMs: number;
+  computedForHeadcount: number;
+  algoVersion: string;
 }): AllocationRecord | null => {
-  if (decision.reason === 'ALLOCATION_DISABLED') {
+  if (!enabled) {
+    return null;
+  }
+
+  const zoneId = decision.zoneId ?? null;
+  const tableIds = decision.tableIds ?? [];
+  const diagnosticsSummary = decision.reason ?? decision.reasonCode ?? 'UNKNOWN';
+
+  if (!zoneId && tableIds.length === 0) {
     return null;
   }
 
   return {
-    zoneId: decision.zoneId ?? null,
-    tableIds: decision.tableIds ?? [],
+    zoneId,
+    tableIds,
     traceId,
     decidedAtMs,
     strategy: decision.allocationStrategy ?? decision.allocationMode ?? null,
-    diagnosticsSummary: decision.reason,
+    diagnosticsSummary,
+    computedForStartTimeMs,
+    computedForEndTimeMs,
+    computedForHeadcount,
+    algoVersion,
   };
 };

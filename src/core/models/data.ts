@@ -149,6 +149,10 @@ export interface Booking {
     decidedAtMs?: number;
     strategy?: string | null;
     diagnosticsSummary?: string;
+    computedForStartTimeMs?: number;
+    computedForEndTimeMs?: number;
+    computedForHeadcount?: number;
+    algoVersion?: string;
   };
 }
 

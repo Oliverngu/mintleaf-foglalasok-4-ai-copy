@@ -1341,6 +1341,11 @@ export const guestModifyReservation = onRequest(
           decision,
           traceId: `alloc-${reservationId}`,
           decidedAtMs: Date.now(),
+          enabled: decision.reason !== 'ALLOCATION_DISABLED',
+          computedForStartTimeMs: startTime.getTime(),
+          computedForEndTimeMs: endTime.getTime(),
+          computedForHeadcount: parsedHeadcount,
+          algoVersion: 'alloc-v1',
         });
         if (allocationRecord) {
           await db
@@ -1759,6 +1764,11 @@ export const guestCreateReservation = onRequest(
           decision,
           traceId: `alloc-${createResult.bookingId}`,
           decidedAtMs: Date.now(),
+          enabled: decision.reason !== 'ALLOCATION_DISABLED',
+          computedForStartTimeMs: startTime.getTime(),
+          computedForEndTimeMs: endTime.getTime(),
+          computedForHeadcount: headcount,
+          algoVersion: 'alloc-v1',
         });
         if (allocationRecord) {
           await db
