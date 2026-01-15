@@ -773,16 +773,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        handleClose();
+      if (event.key !== 'Escape') {
+        return;
       }
+      if (actionSavingRef.current['settings-save'] || actionSaving['settings-save']) {
+        return;
+      }
+      handleClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleClose]);
+  }, [actionSaving, handleClose]);
 
   useEffect(() => {
     return () => {
