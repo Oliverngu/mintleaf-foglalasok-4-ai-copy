@@ -63,6 +63,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [isDirty, setIsDirty] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const lastSavedSnapshotRef = useRef<string | null>(null);
+  const lastSavedSettingsRef = useRef<SeatingSettings | null>(null);
   const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
@@ -453,6 +454,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         lastSavedSnapshotRef.current = settingsData
           ? createSettingsSnapshot(settingsData)
           : null;
+        lastSavedSettingsRef.current = settingsData ? ensureSettings(settingsData) : null;
         setIsDirty(false);
         setSaveFeedback(null);
       } catch (err) {
@@ -505,6 +507,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const timeoutId = setTimeout(() => setSaveFeedback(null), 2500);
     return () => clearTimeout(timeoutId);
   }, [saveFeedback]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const activeButton = document.getElementById(`seating-tab-${activeTab}`);
+    activeButton?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [activeTab]);
 
   const emergencyZoneOptions = useMemo(
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
@@ -879,6 +889,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (normalized) {
         setSettings(normalized);
         lastSavedSnapshotRef.current = createSettingsSnapshot(normalized);
+        lastSavedSettingsRef.current = normalized;
       } else {
         lastSavedSnapshotRef.current = snapshot;
       }
@@ -1663,6 +1674,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setActionSaving({});
     onClose();
   }, [actionSaving, isDirty, onClose]);
+
+  const handleResetChanges = () => {
+    if (isSaving || !isDirty) {
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      const ok = window.confirm('Visszaállítod az utolsó mentett állapotot?');
+      if (!ok) {
+        return;
+      }
+    }
+    const saved = lastSavedSettingsRef.current;
+    if (!saved) {
+      return;
+    }
+    setSettings(saved);
+    lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
+    setIsDirty(false);
+    setSaveFeedback(null);
+    setError(null);
+    setSuccess(null);
+  };
 
   const tabs = [
     { id: 'overview', label: 'Áttekintés' },
@@ -2962,8 +2995,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         className="rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 space-y-6"
         onClick={event => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Ültetés beállítások</h2>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-xl font-bold">Ültetés beállítások</h2>
+            <div className="text-xs text-gray-500">
+              Egység: {unitId.slice(0, 8)}… •{' '}
+              {isSaving
+                ? 'Mentés folyamatban...'
+                : isDirty
+                ? 'Nem mentett változások'
+                : 'Minden mentve'}
+            </div>
+          </div>
           <button onClick={handleClose} className="flex items-center gap-2 text-sm text-gray-500">
             {isDirty && (
               <span
@@ -2976,7 +3019,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white">
+        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white relative">
           <div
             role="tablist"
             aria-label="Ültetés beállítások fülek"
@@ -3003,6 +3046,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </button>
             ))}
           </div>
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white to-transparent" />
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white to-transparent" />
         </div>
         <div className="pt-4 pb-24">
           {activeTab === 'overview' && (
@@ -3069,6 +3114,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <span role="status" className="text-xs text-green-600">
                 {saveFeedback}
               </span>
+            )}
+            {isDirty && !isSaving && (
+              <button
+                type="button"
+                onClick={handleResetChanges}
+                className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm"
+              >
+                Visszaállítás
+              </button>
             )}
             <button
               type="button"
