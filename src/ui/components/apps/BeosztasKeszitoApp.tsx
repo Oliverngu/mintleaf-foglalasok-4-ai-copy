@@ -2032,6 +2032,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return onSnapshot(
         queryRef,
         snapshot => {
+          console.log('[staff]', key, 'docs=', snapshot.size);
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));
@@ -2046,6 +2047,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           }
         },
         error => {
+          console.warn('[staff]', key, 'error=', error?.code || error);
           console.error('Failed to load staff list:', error);
           if (!settledKeys.has(key)) {
             settledKeys.add(key);
