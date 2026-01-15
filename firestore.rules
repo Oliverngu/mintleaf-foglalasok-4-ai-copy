@@ -18,15 +18,33 @@ service cloud.firestore {
       return d.role;
     }
 
-    // unitIds + unitIDs (legacy) egyesítése
-    function userUnits() {
-      let d = userData();
+    // unitIds + unitIDs (legacy) + unitId egyesítése
+    function unitsFromData(d) {
       let u1 = d.unitIds;
       let u2 = d.unitIDs;
+      let u3 = d.unitId;
 
-      return u1 != null
+      return u1 is list
         ? u1
-        : (u2 != null ? u2 : []);
+        : (u1 is string
+          ? [u1]
+          : (u2 is list
+            ? u2
+            : (u2 is string
+              ? [u2]
+              : (u3 is string ? [u3] : []))));
+    }
+
+    function userUnits() {
+      return unitsFromData(userData());
+    }
+
+    function sharesUnitWithUserDoc() {
+      let targetUnits = unitsFromData(resource.data);
+      return isSignedIn()
+        && userUnits().size() > 0
+        && targetUnits.size() > 0
+        && userUnits().hasAny(targetUnits);
     }
 
     // <<< ITT VOLT A HIBA
@@ -68,7 +86,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       // ADMIN is láthassa a többieket, különben nem lesz staff lista
-      allow read: if isSelf(userId) || isAdmin();
+      allow read: if isSelf(userId) || isAdmin() || sharesUnitWithUserDoc();
 
       allow create: if isAdmin()
         || (
