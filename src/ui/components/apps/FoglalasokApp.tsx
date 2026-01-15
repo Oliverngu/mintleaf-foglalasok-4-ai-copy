@@ -1123,7 +1123,6 @@ const BookingSeatingPanel: React.FC<{
   unitId: string;
   zones: Zone[];
   tables: Table[];
-  isAdmin: boolean;
   highlightTableIds: string[];
   highlightZoneId: string | null;
   isFloorplanOpen: boolean;
@@ -1138,7 +1137,6 @@ const BookingSeatingPanel: React.FC<{
   unitId,
   zones,
   tables,
-  isAdmin,
   highlightTableIds,
   highlightZoneId,
   isFloorplanOpen,
@@ -1149,35 +1147,31 @@ const BookingSeatingPanel: React.FC<{
     title="Ültetés"
     description="Asztalok kiosztása és ellenőrzés az asztaltérképen."
   >
-    {isAdmin && (
-      <div className="rounded-lg border border-gray-200 bg-white/70">
-        <button
-          type="button"
-          onClick={onToggleFloorplan}
-          className="w-full text-left px-3 py-2 text-sm font-semibold"
-        >
-          {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
-        </button>
-        {isFloorplanOpen && (
-          <div className="px-3 pb-3">
-            <FloorplanViewer
-              unitId={unitId}
-              highlightTableIds={highlightTableIds}
-              highlightZoneId={highlightZoneId}
-            />
-          </div>
-        )}
-      </div>
-    )}
-    {isAdmin && (
-      <BookingSeatingEditor
-        booking={booking}
-        unitId={unitId}
-        zones={zones}
-        tables={tables}
-        onSeatingSaved={onSeatingSaved}
-      />
-    )}
+    <div className="rounded-lg border border-gray-200 bg-white/70">
+      <button
+        type="button"
+        onClick={onToggleFloorplan}
+        className="w-full text-left px-3 py-2 text-sm font-semibold"
+      >
+        {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
+      </button>
+      {isFloorplanOpen && (
+        <div className="px-3 pb-3">
+          <FloorplanViewer
+            unitId={unitId}
+            highlightTableIds={highlightTableIds}
+            highlightZoneId={highlightZoneId}
+          />
+        </div>
+      )}
+    </div>
+    <BookingSeatingEditor
+      booking={booking}
+      unitId={unitId}
+      zones={zones}
+      tables={tables}
+      onSeatingSaved={onSeatingSaved}
+    />
   </SectionCard>
 );
 
@@ -1217,6 +1211,20 @@ const BookingDetailsModal: React.FC<{
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
   const [openAllocationId, setOpenAllocationId] = useState<string | null>(null);
   const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -1388,6 +1396,7 @@ const BookingDetailsModal: React.FC<{
           <CollapsibleSection
             title="Napi napló"
             description="Az adott naphoz tartozó események"
+            defaultOpen={false}
           >
             {dayLogsLoading ? (
               <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
@@ -1511,22 +1520,23 @@ const BookingDetailsModal: React.FC<{
                           )}
                         </SectionCard>
                       )}
-                      <BookingSeatingPanel
-                        booking={booking}
-                        unitId={unitId}
-                        zones={zones}
-                        tables={tables}
-                        isAdmin={isAdmin}
-                        highlightTableIds={highlightTableIds}
-                        highlightZoneId={highlightZoneId}
-                        isFloorplanOpen={isFloorplanOpen}
-                        onToggleFloorplan={() =>
-                          setOpenFloorplanBookingId(current =>
-                            current === booking.id ? null : booking.id
-                          )
-                        }
-                        onSeatingSaved={update => onSeatingSaved(booking.id, update)}
-                      />
+                      {isAdmin && (
+                        <BookingSeatingPanel
+                          booking={booking}
+                          unitId={unitId}
+                          zones={zones}
+                          tables={tables}
+                          highlightTableIds={highlightTableIds}
+                          highlightZoneId={highlightZoneId}
+                          isFloorplanOpen={isFloorplanOpen}
+                          onToggleFloorplan={() =>
+                            setOpenFloorplanBookingId(current =>
+                              current === booking.id ? null : booking.id
+                            )
+                          }
+                          onSeatingSaved={update => onSeatingSaved(booking.id, update)}
+                        />
+                      )}
                     </div>
                   {isAdmin && (
                     <button
