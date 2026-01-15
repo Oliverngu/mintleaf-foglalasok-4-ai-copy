@@ -4139,6 +4139,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     let exportContainer: HTMLDivElement | null = null;
     let exportInnerWrapper: HTMLDivElement | null = null;
+    const SHOW_EXPORT_HEADER = false;
 
     try {
       await waitForExportLayout();
@@ -4172,60 +4173,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       Object.assign(exportInnerWrapper.style, {
         display: 'inline-block',
         backgroundColor: '#ffffff',
-        fontFamily:
-          'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         borderRadius: exportSettings.useRoundedCorners
           ? `${exportSettings.borderRadius}px`
           : '0px',
         overflow: exportSettings.useRoundedCorners ? 'hidden' : 'visible'
       } as CSSStyleDeclaration);
-
-      const exportUnitName =
-        activeUnitIds.length === 1
-          ? allUnits.find(u => u.id === activeUnitIds[0])?.name ||
-            'Ismeretlen egység'
-          : 'Több egység';
-      const weekRange = `${weekDays[0].toLocaleDateString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })} – ${weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })}`;
-      const headerTextColor = getContrastingTextColor(
-        exportSettings.dayHeaderBgColor
-      );
-      const exportHeader = document.createElement('div');
-      Object.assign(exportHeader.style, {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
-        padding: '10px 12px',
-        background: exportSettings.dayHeaderBgColor,
-        color: headerTextColor,
-        borderBottom: `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`
-      } as CSSStyleDeclaration);
-      const headerRow = document.createElement('div');
-      Object.assign(headerRow.style, {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        fontWeight: '800'
-      } as CSSStyleDeclaration);
-      const headerLeft = document.createElement('div');
-      headerLeft.textContent = exportUnitName;
-      const headerRight = document.createElement('div');
-      headerRight.textContent = weekRange;
-      headerRow.appendChild(headerLeft);
-      headerRow.appendChild(headerRight);
-      const headerSub = document.createElement('div');
-      headerSub.textContent =
-        viewMode === 'published' ? 'Publikált' : 'Piszkozat';
-      headerSub.style.fontWeight = '500';
-      exportHeader.appendChild(headerRow);
-      exportHeader.appendChild(headerSub);
 
       const tableClone =
         exportRef.current.cloneNode(true) as HTMLDivElement;
@@ -4240,53 +4192,60 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.remove();
         });
 
-      exportInnerWrapper.appendChild(exportHeader);
+      if (SHOW_EXPORT_HEADER) {
+        const exportUnitName =
+          activeUnitIds.length === 1
+            ? allUnits.find(u => u.id === activeUnitIds[0])?.name ||
+              'Ismeretlen egység'
+            : 'Több egység';
+        const weekRange = `${weekDays[0].toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })} – ${weekDays[weekDays.length - 1].toLocaleDateString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })}`;
+        const headerTextColor = getContrastingTextColor(
+          exportSettings.dayHeaderBgColor
+        );
+        const exportHeader = document.createElement('div');
+        Object.assign(exportHeader.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          padding: '10px 12px',
+          background: exportSettings.dayHeaderBgColor,
+          color: headerTextColor,
+          borderBottom: `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`
+        } as CSSStyleDeclaration);
+        const headerRow = document.createElement('div');
+        Object.assign(headerRow.style, {
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontWeight: '800'
+        } as CSSStyleDeclaration);
+        const headerLeft = document.createElement('div');
+        headerLeft.textContent = exportUnitName;
+        const headerRight = document.createElement('div');
+        headerRight.textContent = weekRange;
+        headerRow.appendChild(headerLeft);
+        headerRow.appendChild(headerRight);
+        const headerSub = document.createElement('div');
+        headerSub.textContent =
+          viewMode === 'published' ? 'Publikált' : 'Piszkozat';
+        headerSub.style.fontWeight = '500';
+        exportHeader.appendChild(headerRow);
+        exportHeader.appendChild(headerSub);
+        exportInnerWrapper.appendChild(exportHeader);
+      }
       exportInnerWrapper.appendChild(tableClone);
       exportContainer.appendChild(exportInnerWrapper);
       document.body.appendChild(exportContainer);
 
       await waitForCloneLayout();
-
-      const measuredColumnWidths = Array.from(
-        tableClone.querySelectorAll<HTMLTableElement>('table')
-      ).map(table => {
-        const headerCells = Array.from(
-          table.querySelectorAll<HTMLTableCellElement>('thead tr:first-child th')
-        );
-
-        return headerCells.map(cell => Math.round(cell.getBoundingClientRect().width));
-      });
-
-      const dayHeaderTextColor = getContrastingTextColor(
-        exportSettings.dayHeaderBgColor
-      );
-      const nameHeaderTextColor = getContrastingTextColor(
-        exportSettings.nameColumnColor
-      );
-      const categoryTextColor = getContrastingTextColor(
-        exportSettings.categoryHeaderBgColor
-      );
-      const cellPadding =
-        exportSettings.fontSizeCell <= 11 ? '5px 6px' : '6px 8px';
-
-      tableClone
-        .querySelectorAll<HTMLTableCellElement>('thead th')
-        .forEach((th, idx) => {
-          const isNameHeader = idx === 0;
-          const bg = isNameHeader
-            ? exportSettings.nameColumnColor
-            : exportSettings.dayHeaderBgColor;
-          th.style.background = bg;
-          th.style.color = isNameHeader
-            ? nameHeaderTextColor
-            : dayHeaderTextColor;
-          th.style.fontSize = `${exportSettings.fontSizeHeader}px`;
-          th.style.lineHeight = '1.15';
-          th.style.verticalAlign = 'middle';
-          th.style.padding = cellPadding;
-          th.style.minHeight = '34px';
-          th.style.whiteSpace = 'nowrap';
-        });
 
       tableClone
         .querySelectorAll<HTMLElement>('.sticky')
@@ -4306,20 +4265,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.style.bottom = 'auto';
         });
 
-      tableClone.querySelectorAll<HTMLElement>('*').forEach(el => {
-        el.style.transform = 'none';
-        el.style.filter = 'none';
-        el.style.backdropFilter = 'none';
-        el.style.boxShadow = 'none';
-      });
-
-      tableClone
-        .querySelectorAll<HTMLDivElement>('.weekday-header')
-        .forEach(div => {
-          div.style.background = exportSettings.dayHeaderBgColor;
-          div.style.color = dayHeaderTextColor;
-        });
-
       tableClone
         .querySelectorAll<HTMLTableCellElement>('tbody td')
         .forEach(td => {
@@ -4327,13 +4272,47 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
             td.textContent = '';
           }
-          td.style.fontSize = `${exportSettings.fontSizeCell}px`;
-          td.style.lineHeight = '1.15';
-          td.style.verticalAlign = 'middle';
-          td.style.padding = cellPadding;
         });
 
       tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          const rowText = (row.textContent || '').toLowerCase();
+          const summaryTokens = [
+            'összes',
+            'összesen',
+            'óra',
+            'óraszám',
+            'heti',
+            'napi'
+          ];
+          if (summaryTokens.some(token => rowText.includes(token))) {
+            row.remove();
+          }
+        });
+      const hoursSelectors = [
+        '.hours',
+        '.hour-badge',
+        '[data-hours]',
+        '[data-summary]',
+        '.total-hours'
+      ];
+      tableClone
+        .querySelectorAll<HTMLElement>(hoursSelectors.join(','))
+        .forEach(el => el.remove());
+      tableClone
+        .querySelectorAll<HTMLElement>('span, small, div')
+        .forEach(el => {
+          const text = (el.textContent || '').trim();
+          if (!text || text.length > 10) return;
+          const isHours =
+            /^\d+(\.\d+)?\s*h$/i.test(text) ||
+            /^\d+(\.\d+)?\s*óra$/i.test(text);
+          if (isHours) {
+            el.remove();
+          }
+        });
 
       tableClone.style.width = 'fit-content';
       tableClone.style.maxWidth = 'none';
@@ -4353,42 +4332,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         gridNode.style.width = 'fit-content';
         gridNode.style.maxWidth = 'none';
       }
-
-      const clonedTables = Array.from(
-        tableClone.querySelectorAll<HTMLTableElement>('table')
-      );
-
-      clonedTables.forEach((table, idx) => {
-        const widths = measuredColumnWidths[idx];
-        if (widths && widths.length) {
-          table.querySelectorAll('colgroup').forEach(colgroup => colgroup.remove());
-          const colgroup = document.createElement('colgroup');
-          widths.forEach(width => {
-            const col = document.createElement('col');
-            col.style.width = `${width}px`;
-            colgroup.appendChild(col);
-          });
-          table.insertBefore(colgroup, table.firstChild);
-        }
-
-        table.style.tableLayout = 'fixed';
-        table.style.borderCollapse = 'collapse';
-        table.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
-      });
-
-      const zebraBase = exportSettings.zebraColor;
-      const zebraDelta = exportSettings.zebraStrength / 5;
-      const zebraAlt = adjustColor(exportSettings.zebraColor, -zebraDelta);
-      const nameBase = exportSettings.nameColumnColor;
-      const nameAlt = adjustColor(exportSettings.nameColumnColor, -zebraDelta);
-
-      tableClone
-        .querySelectorAll<HTMLTableCellElement>('th, td')
-        .forEach(cell => {
-          cell.style.borderWidth = `${exportSettings.gridThickness}px`;
-          cell.style.borderColor = exportSettings.gridColor;
-          cell.style.borderStyle = 'solid';
-        });
 
       const paddingPx = 0;
       const borderCompensation = Math.max(
@@ -4412,60 +4355,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       );
       exportContainer.style.width = `${finalWidth}px`;
       exportContainer.style.height = `${finalHeight}px`;
-
-      let dataRowIndex = 0;
-      tableClone
-        .querySelectorAll<HTMLTableRowElement>('tbody tr')
-        .forEach(row => {
-          const isCategoryRow = row.querySelector('td[colSpan]');
-          const isSummaryRow = row.classList.contains('summary-row');
-          if (isCategoryRow || isSummaryRow) return;
-
-          const isAltRow = dataRowIndex % 2 === 1;
-          const rowBg = isAltRow ? zebraAlt : zebraBase;
-          const rowText = getContrastingTextColor(rowBg);
-          row.style.background = rowBg;
-          row.style.color = rowText;
-
-          const nameCell = row.querySelector('td');
-          if (nameCell) {
-            const nameBg = isAltRow ? nameAlt : nameBase;
-            nameCell.style.background = nameBg;
-            nameCell.style.color = getContrastingTextColor(nameBg);
-          }
-
-          row
-            .querySelectorAll<HTMLTableCellElement>('td:not(:first-child)')
-            .forEach(td => {
-              if (
-                !td.classList.contains('day-off-cell') &&
-                !td.classList.contains('leave-cell')
-              ) {
-                td.style.background = rowBg;
-                td.style.color = rowText;
-              }
-            });
-
-          dataRowIndex += 1;
-        });
-
-      tableClone
-        .querySelectorAll<HTMLTableRowElement>('tbody tr')
-        .forEach(row => {
-          const categoryCell = row.querySelector('td[colSpan]');
-          if (!categoryCell) return;
-          row.style.background = exportSettings.categoryHeaderBgColor;
-          row.style.color = categoryTextColor;
-          row.style.fontWeight = 'bold';
-          row.style.textAlign = 'left';
-          row.querySelectorAll<HTMLTableCellElement>('td').forEach(cell => {
-            cell.style.background = exportSettings.categoryHeaderBgColor;
-            cell.style.color = categoryTextColor;
-            cell.style.fontWeight = 'bold';
-            cell.style.textAlign = 'left';
-            cell.style.borderBottomWidth = `${exportSettings.gridThickness + 1}px`;
-          });
-        });
 
       const canvas = await html2canvas(exportContainer, {
         useCORS: true,
