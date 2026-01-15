@@ -2028,13 +2028,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return onSnapshot(
         queryRef,
         snapshot => {
+          const first = !gotAnySnapshot;
           gotAnySnapshot = true;
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));
           });
           mergeAndSetUsers();
-          setIsDataLoading(false);
+          if (first) {
+            setIsDataLoading(false);
+          }
         },
         error => {
           console.error('Failed to load staff list:', error);
