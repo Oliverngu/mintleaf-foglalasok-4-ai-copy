@@ -60,6 +60,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const lastSavedSnapshotRef = useRef<string | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<
@@ -82,6 +85,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
   };
+  const sortSnapshotKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(sortSnapshotKeys);
+    }
+    if (value && typeof value === 'object') {
+      return Object.keys(value as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          acc[key] = sortSnapshotKeys((value as Record<string, unknown>)[key]);
+          return acc;
+        }, {});
+    }
+    return value;
+  };
   const ensureSettings = (prev: SeatingSettings | null): SeatingSettings => ({
     ...(prev ?? {}),
     bufferMinutes: prev?.bufferMinutes ?? 15,
@@ -102,6 +119,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       weekdays: prev?.emergencyZones?.weekdays ?? [],
     },
   });
+  const createSettingsSnapshot = (value: SeatingSettings | null) =>
+    JSON.stringify(sortSnapshotKeys(ensureSettings(value)));
   const isDev = process.env.NODE_ENV !== 'production';
   const debugSeating =
     isDev ||
@@ -408,6 +427,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setTables(tablesData);
         setCombos(combosData);
         setFloorplans(floorplansData);
+        lastSavedSnapshotRef.current = settingsData
+          ? createSettingsSnapshot(settingsData)
+          : null;
+        setIsDirty(false);
+        setSaveFeedback(null);
       } catch (err) {
         if (isAbortError(err)) {
           return;
@@ -437,6 +461,27 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     setActiveTab('overview');
   }, [unitId]);
+
+  useEffect(() => {
+    if (!lastSavedSnapshotRef.current) {
+      setIsDirty(false);
+      return;
+    }
+    const snapshot = createSettingsSnapshot(settings);
+    const nextDirty = snapshot !== lastSavedSnapshotRef.current;
+    setIsDirty(nextDirty);
+    if (nextDirty) {
+      setSaveFeedback(null);
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    if (!saveFeedback) {
+      return;
+    }
+    const timeoutId = setTimeout(() => setSaveFeedback(null), 2500);
+    return () => clearTimeout(timeoutId);
+  }, [saveFeedback]);
 
   const emergencyZoneOptions = useMemo(
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
@@ -738,6 +783,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSettingsSave = async () => {
     if (!settings) return;
+    const snapshot = createSettingsSnapshot(settings);
+    let didSave = false;
     const emergencyZoneIds =
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
@@ -779,8 +826,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
         };
         await updateSeatingSettings(unitId, payload);
+        didSave = true;
       },
     });
+    if (didSave && isMountedRef.current) {
+      lastSavedSnapshotRef.current = snapshot;
+      setIsDirty(false);
+      setSaveFeedback('Mentve');
+    }
   };
 
   const runSeatingSmokeTest = async () => {
@@ -1561,7 +1614,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const renderOverviewPanel = () => (
     <div className="space-y-6">
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">Alap beállítások</h3>
+        <h3 className="font-semibold">Foglalás alapok</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex flex-col gap-1">
             Buffer (perc)
@@ -1618,6 +1671,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             />
             VIP engedélyezve
           </label>
+        </div>
+      </section>
+
+      <section className="space-y-3 border rounded-lg p-4">
+        <h3 className="font-semibold">Automatikus ültetés (allokáció)</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex items-center gap-2 text-sm col-span-2">
             <input
               type="checkbox"
@@ -1629,7 +1688,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }))
               }
             />
-            Seating allocation enabled
+            Automatikus ültetés engedélyezése
           </label>
           <label className="flex flex-col gap-1">
             Allokáció mód
@@ -1648,6 +1707,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <option value="floorplan">Alaprajz</option>
               <option value="hybrid">Hibrid</option>
             </select>
+            <span className="text-xs text-gray-500">
+              Kapacitás: legjobb asztal • Alaprajz: térképes kiosztás • Hibrid: vegyes.
+            </span>
           </label>
           <label className="flex flex-col gap-1">
             Allokációs stratégia
@@ -1666,6 +1728,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <option value="minWaste">Min waste</option>
               <option value="priorityZoneFirst">Zóna prioritás</option>
             </select>
+            <span className="text-xs text-gray-500">
+              Best fit: legjobb illeszkedés • Min waste: minimális pazarlás • Zóna prioritás: sorrend szerint.
+            </span>
           </label>
           <label className="flex flex-col gap-1">
             Alapértelmezett zóna
@@ -2832,31 +2897,33 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div
-          role="tablist"
-          aria-label="Ültetés beállítások fülek"
-          className="flex flex-wrap gap-2 border-b pb-2"
-        >
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              id={`seating-tab-${tab.id}`}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              aria-controls={`seating-tabpanel-${tab.id}`}
-              tabIndex={activeTab === tab.id ? 0 : -1}
-              onClick={() => setActiveTab(tab.id)}
-              onKeyDown={handleTabsKeyDown}
-              className={`px-3 py-1.5 rounded-full text-sm border ${
-                activeTab === tab.id
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white">
+          <div
+            role="tablist"
+            aria-label="Ültetés beállítások fülek"
+            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
+          >
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                id={`seating-tab-${tab.id}`}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls={`seating-tabpanel-${tab.id}`}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={handleTabsKeyDown}
+                className={`px-1 py-1 text-sm font-medium border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  activeTab === tab.id
+                    ? 'border-blue-600 text-blue-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="pt-4 pb-24">
           {activeTab === 'overview' && (
@@ -2864,7 +2931,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               role="tabpanel"
               id="seating-tabpanel-overview"
               aria-labelledby="seating-tab-overview"
-              tabIndex={0}
+              tabIndex={-1}
             >
               {renderOverviewPanel()}
             </div>
@@ -2874,7 +2941,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               role="tabpanel"
               id="seating-tabpanel-zones"
               aria-labelledby="seating-tab-zones"
-              tabIndex={0}
+              tabIndex={-1}
             >
               {renderZonesPanel()}
             </div>
@@ -2884,7 +2951,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               role="tabpanel"
               id="seating-tabpanel-tables"
               aria-labelledby="seating-tab-tables"
-              tabIndex={0}
+              tabIndex={-1}
             >
               {renderTablesPanel()}
             </div>
@@ -2894,7 +2961,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               role="tabpanel"
               id="seating-tabpanel-combinations"
               aria-labelledby="seating-tab-combinations"
-              tabIndex={0}
+              tabIndex={-1}
             >
               {renderCombinationsPanel()}
             </div>
@@ -2904,21 +2971,27 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               role="tabpanel"
               id="seating-tabpanel-floorplans"
               aria-labelledby="seating-tab-floorplans"
-              tabIndex={0}
+              tabIndex={-1}
             >
               {renderFloorplansPanel()}
             </div>
           )}
         </div>
-        <div className="sticky bottom-0 bg-white pt-4 pb-2 border-t flex justify-end">
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['settings-save']}
-          >
-            {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
-          </button>
+        <div className="sticky bottom-0 bg-white pt-3 pb-2 border-t flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-gray-500">
+            A Mentés minden fül változásait elmenti.
+          </div>
+          <div className="flex items-center gap-3">
+            {saveFeedback && <span className="text-xs text-green-600">{saveFeedback}</span>}
+            <button
+              type="button"
+              onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+              disabled={!isDirty || actionSaving['settings-save']}
+            >
+              {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
