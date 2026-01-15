@@ -82,6 +82,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
   };
+  const ensureSettings = (prev: SeatingSettings | null): SeatingSettings => ({
+    ...(prev ?? {}),
+    bufferMinutes: prev?.bufferMinutes ?? 15,
+    defaultDurationMinutes: prev?.defaultDurationMinutes ?? 120,
+    holdTableMinutesOnLate: prev?.holdTableMinutesOnLate ?? 15,
+    vipEnabled: prev?.vipEnabled ?? true,
+    allocationEnabled: prev?.allocationEnabled ?? false,
+    allocationMode: prev?.allocationMode ?? 'capacity',
+    allocationStrategy: prev?.allocationStrategy ?? 'bestFit',
+    defaultZoneId: prev?.defaultZoneId ?? '',
+    zonePriority: prev?.zonePriority ?? [],
+    overflowZones: prev?.overflowZones ?? [],
+    allowCrossZoneCombinations: prev?.allowCrossZoneCombinations ?? false,
+    emergencyZones: {
+      enabled: prev?.emergencyZones?.enabled ?? false,
+      zoneIds: prev?.emergencyZones?.zoneIds ?? [],
+      activeRule: prev?.emergencyZones?.activeRule ?? 'always',
+      weekdays: prev?.emergencyZones?.weekdays ?? [],
+    },
+  });
   const isDev = process.env.NODE_ENV !== 'production';
   const debugSeating =
     isDev ||
@@ -413,6 +433,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       isMounted = false;
     };
   }, [isAbortError, isDev, isPermissionDenied, unitId]);
+
+  useEffect(() => {
+    setActiveTab('overview');
+  }, [unitId]);
 
   const emergencyZoneOptions = useMemo(
     () => zones.filter(zone => zone.isActive && zone.isEmergency),
@@ -875,8 +899,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
         const nextFloorplans = await listFloorplans(unitId);
         setFloorplans(nextFloorplans);
-        setSettings(current => ({
-          ...(current ?? {}),
+        setSettings(prev => ({
+          ...ensureSettings(prev),
           activeFloorplanId: floorplanId,
         }));
       },
@@ -925,8 +949,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             await updateSeatingSettings(unitId, {
               activeFloorplanId: nextActiveId,
             });
-            setSettings(current => ({
-              ...(current ?? {}),
+            setSettings(prev => ({
+              ...ensureSettings(prev),
               activeFloorplanId: nextActiveId,
             }));
           }
@@ -1546,8 +1570,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               className="border rounded p-2"
               value={settings?.bufferMinutes ?? 15}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   bufferMinutes: Number(event.target.value),
                 }))
               }
@@ -1560,8 +1584,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               className="border rounded p-2"
               value={settings?.defaultDurationMinutes ?? 120}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   defaultDurationMinutes: Number(event.target.value),
                 }))
               }
@@ -1574,8 +1598,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               className="border rounded p-2"
               value={settings?.holdTableMinutesOnLate ?? 15}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   holdTableMinutesOnLate: Number(event.target.value),
                 }))
               }
@@ -1586,8 +1610,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               type="checkbox"
               checked={settings?.vipEnabled ?? true}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   vipEnabled: event.target.checked,
                 }))
               }
@@ -1599,8 +1623,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               type="checkbox"
               checked={settings?.allocationEnabled ?? false}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   allocationEnabled: event.target.checked,
                 }))
               }
@@ -1614,8 +1638,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               value={settings?.allocationMode ?? 'capacity'}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   allocationMode: event.target.value as SeatingSettings['allocationMode'],
                 }))
               }
@@ -1632,8 +1656,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               value={settings?.allocationStrategy ?? 'bestFit'}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   allocationStrategy: event.target.value as SeatingSettings['allocationStrategy'],
                 }))
               }
@@ -1650,8 +1674,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               value={settings?.defaultZoneId ?? ''}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
+                setSettings(prev => ({
+                  ...ensureSettings(prev),
                   defaultZoneId: event.target.value,
                 }))
               }
@@ -1665,14 +1689,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             </select>
           </label>
         </div>
-        <button
-          type="button"
-          onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-          disabled={actionSaving['settings-save']}
-        >
-          {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
-        </button>
       </section>
 
       <div className="space-y-3 border rounded-lg p-4">
@@ -1706,13 +1722,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             className="text-xs text-blue-600 disabled:opacity-40"
                             disabled={!settings?.allocationEnabled || index === 0}
                             onClick={() =>
-                              setSettings(current => {
-                                const list = [...(current?.zonePriority ?? [])];
+                              setSettings(prev => {
+                                const list = [...(ensureSettings(prev).zonePriority ?? [])];
                                 if (index <= 0) {
-                                  return current;
+                                  return prev;
                                 }
                                 [list[index - 1], list[index]] = [list[index], list[index - 1]];
-                                return { ...(current ?? {}), zonePriority: list };
+                                return { ...ensureSettings(prev), zonePriority: list };
                               })
                             }
                           >
@@ -1726,13 +1742,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               index === (settings?.zonePriority ?? []).length - 1
                             }
                             onClick={() =>
-                              setSettings(current => {
-                                const list = [...(current?.zonePriority ?? [])];
+                              setSettings(prev => {
+                                const list = [...(ensureSettings(prev).zonePriority ?? [])];
                                 if (index >= list.length - 1) {
-                                  return current;
+                                  return prev;
                                 }
                                 [list[index], list[index + 1]] = [list[index + 1], list[index]];
-                                return { ...(current ?? {}), zonePriority: list };
+                                return { ...ensureSettings(prev), zonePriority: list };
                               })
                             }
                           >
@@ -1743,9 +1759,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             className="text-xs text-red-600"
                             disabled={!settings?.allocationEnabled}
                             onClick={() =>
-                              setSettings(current => ({
-                                ...(current ?? {}),
-                                zonePriority: (current?.zonePriority ?? []).filter(
+                              setSettings(prev => ({
+                                ...ensureSettings(prev),
+                                zonePriority: (ensureSettings(prev).zonePriority ?? []).filter(
                                   id => id !== zoneId
                                 ),
                               }))
@@ -1763,25 +1779,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="border rounded p-2 text-sm"
                     value={zonePriorityAdd}
                     disabled={!settings?.allocationEnabled}
-                    onChange={event => {
-                      const nextZoneId = event.target.value;
-                      setZonePriorityAdd(nextZoneId);
-                      if (!nextZoneId) {
-                        return;
+                  onChange={event => {
+                    const nextZoneId = event.target.value;
+                    setZonePriorityAdd(nextZoneId);
+                    if (!nextZoneId) {
+                      return;
+                    }
+                    setSettings(prev => {
+                      const currentList = ensureSettings(prev).zonePriority ?? [];
+                      if (currentList.includes(nextZoneId)) {
+                        return prev;
                       }
-                      setSettings(current => {
-                        const currentList = current?.zonePriority ?? [];
-                        if (currentList.includes(nextZoneId)) {
-                          return current;
-                        }
-                        return {
-                          ...(current ?? {}),
-                          zonePriority: [...currentList, nextZoneId],
-                        };
-                      });
-                      setZonePriorityAdd('');
-                    }}
-                  >
+                      return {
+                        ...ensureSettings(prev),
+                        zonePriority: [...currentList, nextZoneId],
+                      };
+                    });
+                    setZonePriorityAdd('');
+                  }}
+                >
                     <option value="">Zóna hozzáadása</option>
                     {activeZones
                       .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
@@ -1800,18 +1816,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <label key={zone.id} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
-                        checked={(settings?.overflowZones ?? []).includes(zone.id)}
-                        disabled={!settings?.allocationEnabled}
-                        onChange={event =>
-                          setSettings(current => {
-                            const currentList = current?.overflowZones ?? [];
-                            const nextList = event.target.checked
-                              ? Array.from(new Set([...currentList, zone.id]))
-                              : currentList.filter(id => id !== zone.id);
-                            return { ...(current ?? {}), overflowZones: nextList };
-                          })
-                        }
-                      />
+                      checked={(settings?.overflowZones ?? []).includes(zone.id)}
+                      disabled={!settings?.allocationEnabled}
+                      onChange={event =>
+                        setSettings(prev => {
+                          const currentList = ensureSettings(prev).overflowZones ?? [];
+                          const nextList = event.target.checked
+                            ? Array.from(new Set([...currentList, zone.id]))
+                            : currentList.filter(id => id !== zone.id);
+                          return { ...ensureSettings(prev), overflowZones: nextList };
+                        })
+                      }
+                    />
                       {zone.name}
                     </label>
                   ))}
@@ -1820,15 +1836,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <label className="flex items-center gap-2 text-sm col-span-2">
                 <input
                   type="checkbox"
-                  checked={settings?.allowCrossZoneCombinations ?? false}
-                  disabled={!settings?.allocationEnabled}
-                  onChange={event =>
-                    setSettings(current => ({
-                      ...(current ?? {}),
-                      allowCrossZoneCombinations: event.target.checked,
-                    }))
-                  }
-                />
+                checked={settings?.allowCrossZoneCombinations ?? false}
+                disabled={!settings?.allocationEnabled}
+                onChange={event =>
+                  setSettings(prev => ({
+                    ...ensureSettings(prev),
+                    allowCrossZoneCombinations: event.target.checked,
+                  }))
+                }
+              />
                 Kombinált asztalok engedélyezése zónák között
               </label>
             </div>
@@ -1839,10 +1855,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   type="checkbox"
                   checked={settings?.emergencyZones?.enabled ?? false}
                   onChange={event =>
-                    setSettings(current => ({
-                      ...(current ?? {}),
+                    setSettings(prev => ({
+                      ...ensureSettings(prev),
                       emergencyZones: {
-                        ...(current?.emergencyZones ?? {}),
+                        ...(ensureSettings(prev).emergencyZones ?? {}),
                         enabled: event.target.checked,
                       },
                     }))
@@ -1862,10 +1878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         event.currentTarget.selectedOptions,
                         option => option.value
                       );
-                      setSettings(current => ({
-                        ...(current ?? {}),
+                      setSettings(prev => ({
+                        ...ensureSettings(prev),
                         emergencyZones: {
-                          ...(current?.emergencyZones ?? {}),
+                          ...(ensureSettings(prev).emergencyZones ?? {}),
                           zoneIds: values,
                         },
                       }));
@@ -1884,10 +1900,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="border rounded p-2 w-full"
                     value={settings?.emergencyZones?.activeRule ?? 'always'}
                     onChange={event =>
-                      setSettings(current => ({
-                        ...(current ?? {}),
+                      setSettings(prev => ({
+                        ...ensureSettings(prev),
                         emergencyZones: {
-                          ...(current?.emergencyZones ?? {}),
+                          ...(ensureSettings(prev).emergencyZones ?? {}),
                           activeRule: event.target.value as 'always' | 'byWeekday',
                         },
                       }))
@@ -1912,9 +1928,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               ? [...current, day.value]
                               : current.filter(value => value !== day.value);
                             setSettings(prev => ({
-                              ...(prev ?? {}),
+                              ...ensureSettings(prev),
                               emergencyZones: {
-                                ...(prev?.emergencyZones ?? {}),
+                                ...(ensureSettings(prev).emergencyZones ?? {}),
                                 weekdays: next,
                               },
                             }));
@@ -1926,14 +1942,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-                disabled={actionSaving['settings-save']}
-              >
-                {actionSaving['settings-save'] ? 'Mentés...' : 'Emergency beállítások mentése'}
-              </button>
             </section>
           </div>
         )}
@@ -2396,8 +2404,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             className="border rounded p-2"
             value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
             onChange={event =>
-              setSettings(current => ({
-                ...(current ?? {}),
+              setSettings(prev => ({
+                ...ensureSettings(prev),
                 activeFloorplanId: event.target.value,
               }))
             }
@@ -2768,11 +2776,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div className="flex flex-wrap gap-2 border-b pb-2">
+        <div
+          role="tablist"
+          aria-label="Ültetés beállítások fülek"
+          className="flex flex-wrap gap-2 border-b pb-2"
+        >
           {tabs.map(tab => (
             <button
               key={tab.id}
               type="button"
+              id={`seating-tab-${tab.id}`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`seating-tabpanel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-1.5 rounded-full text-sm border ${
                 activeTab === tab.id
@@ -2785,11 +2802,66 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ))}
         </div>
         <div className="pt-4">
-          {activeTab === 'overview' && renderOverviewPanel()}
-          {activeTab === 'zones' && renderZonesPanel()}
-          {activeTab === 'tables' && renderTablesPanel()}
-          {activeTab === 'combinations' && renderCombinationsPanel()}
-          {activeTab === 'floorplans' && renderFloorplansPanel()}
+          {activeTab === 'overview' && (
+            <div
+              role="tabpanel"
+              id="seating-tabpanel-overview"
+              aria-labelledby="seating-tab-overview"
+              tabIndex={0}
+            >
+              {renderOverviewPanel()}
+            </div>
+          )}
+          {activeTab === 'zones' && (
+            <div
+              role="tabpanel"
+              id="seating-tabpanel-zones"
+              aria-labelledby="seating-tab-zones"
+              tabIndex={0}
+            >
+              {renderZonesPanel()}
+            </div>
+          )}
+          {activeTab === 'tables' && (
+            <div
+              role="tabpanel"
+              id="seating-tabpanel-tables"
+              aria-labelledby="seating-tab-tables"
+              tabIndex={0}
+            >
+              {renderTablesPanel()}
+            </div>
+          )}
+          {activeTab === 'combinations' && (
+            <div
+              role="tabpanel"
+              id="seating-tabpanel-combinations"
+              aria-labelledby="seating-tab-combinations"
+              tabIndex={0}
+            >
+              {renderCombinationsPanel()}
+            </div>
+          )}
+          {activeTab === 'floorplans' && (
+            <div
+              role="tabpanel"
+              id="seating-tabpanel-floorplans"
+              aria-labelledby="seating-tab-floorplans"
+              tabIndex={0}
+            >
+              {renderFloorplansPanel()}
+            </div>
+          )}
+        </div>
+        <div className="sticky bottom-0 bg-white pt-4 pb-2 border-t flex justify-end">
+          <button
+            type="button"
+            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+            disabled={actionSaving['settings-save']}
+          >
+            {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
+          </button>
         </div>
       </div>
     </div>
