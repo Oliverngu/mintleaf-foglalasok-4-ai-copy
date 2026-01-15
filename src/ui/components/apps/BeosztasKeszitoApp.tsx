@@ -4331,13 +4331,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             ) {
               return;
             }
-            cell.style.textAlign = 'center';
             cell.style.display = 'table-cell';
-            cell.style.lineHeight = '1.2';
-            if (!cell.style.paddingTop && !cell.style.paddingBottom) {
-              cell.style.paddingTop = '1px';
-              cell.style.paddingBottom = '1px';
+            if (!/\d{2}:\d{2}/.test(cell.textContent || '')) {
+              return;
             }
+            const elementChild = cell.firstElementChild as HTMLElement | null;
+            if (elementChild) {
+              elementChild.style.display = 'flex';
+              elementChild.style.alignItems = 'center';
+              elementChild.style.justifyContent = 'center';
+              elementChild.style.height = '100%';
+              return;
+            }
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.alignItems = 'center';
+            wrapper.style.justifyContent = 'center';
+            wrapper.style.height = '100%';
+            while (cell.firstChild) {
+              wrapper.appendChild(cell.firstChild);
+            }
+            cell.appendChild(wrapper);
           });
         });
 
