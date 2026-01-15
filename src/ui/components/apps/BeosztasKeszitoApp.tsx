@@ -2088,56 +2088,22 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       );
     };
 
-    const unsubscribers: Array<() => void> = [];
-    const unitChunks: string[][] = [];
-    for (let i = 0; i < activeUnitIds.length; i += 10) {
-      unitChunks.push(activeUnitIds.slice(i, i + 10));
-    }
-    unitChunks.forEach((chunk, index) => {
-      const unitIdsQuery = query(
-        collection(db, 'unit_staff', unitId, 'users')
-      );
-      unsubscribers.push(
-        attachListener(`unitIdsArr:${index}`, unitIdsQuery)
-      );
+    // --- Staff list from unit_staff (safe + simple) ---
+const unsubscribers: Array<() => void> = [];
 
-      const unitIDsQuery = query(
-        collection(db, 'unit_staff', unitId, 'users')
-      );
-      unsubscribers.push(
-        attachListener(`unitIDsArr:${index}`, unitIDsQuery)
-      );
+activeUnitIds.forEach(unitId => {
+  const q = query(collection(db, 'unit_staff', unitId, 'users'));
+  unsubscribers.push(
+    attachListener(`unitStaff:${unitId}`, q)
+  );
+});
 
-      const unitIdsStringQuery = query(
-        collection(db, 'users'),
-        where('unitIds', 'in', chunk)
-      );
-      unsubscribers.push(
-        attachListener(`unitIdsStr:${index}`, unitIdsStringQuery)
-      );
-
-      const unitIDsStringQuery = query(
-        collection(db, 'users'),
-        where('unitIDs', 'in', chunk)
-      );
-      unsubscribers.push(
-        attachListener(`unitIDsStr:${index}`, unitIDsStringQuery)
-      );
-
-      const unitIdQuery = query(
-        collection(db, 'users'),
-        where('unitId', 'in', chunk)
-      );
-      unsubscribers.push(
-        attachListener(`unitIdStr:${index}`, unitIdQuery)
-      );
-    });
-    allAttached = true;
-    if (expected === 0) {
-      setIsDataLoading(false);
-    } else if (settled === expected) {
-      setIsDataLoading(false);
-    }
+allAttached = true;
+if (expected === 0) {
+  setIsDataLoading(false);
+} else if (settled === expected) {
+  setIsDataLoading(false);
+}
 
     if (activeUnitIds.length <= 10) {
       const unitIdQuery = query(
