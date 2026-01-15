@@ -119,8 +119,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       weekdays: prev?.emergencyZones?.weekdays ?? [],
     },
   });
-  const createSettingsSnapshot = (value: SeatingSettings | null) =>
-    JSON.stringify(sortSnapshotKeys(ensureSettings(value)));
+  const createSettingsSnapshot = (value: SeatingSettings | null) => {
+    const base = ensureSettings(value);
+    const snapshot = {
+      bufferMinutes: base.bufferMinutes,
+      defaultDurationMinutes: base.defaultDurationMinutes,
+      holdTableMinutesOnLate: base.holdTableMinutesOnLate,
+      vipEnabled: base.vipEnabled,
+      allocationEnabled: base.allocationEnabled,
+      allocationMode: base.allocationMode,
+      allocationStrategy: base.allocationStrategy,
+      defaultZoneId: base.defaultZoneId,
+      zonePriority: base.zonePriority,
+      overflowZones: base.overflowZones,
+      allowCrossZoneCombinations: base.allowCrossZoneCombinations,
+      emergencyZones: {
+        enabled: base.emergencyZones?.enabled,
+        zoneIds: base.emergencyZones?.zoneIds,
+        activeRule: base.emergencyZones?.activeRule,
+        weekdays: base.emergencyZones?.weekdays,
+      },
+      activeFloorplanId: base.activeFloorplanId,
+    };
+    return JSON.stringify(sortSnapshotKeys(snapshot));
+  };
   const isDev = process.env.NODE_ENV !== 'production';
   const debugSeating =
     isDev ||
@@ -785,6 +807,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!settings) return;
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
+    let normalizedSettings: SeatingSettings | null = null;
     const emergencyZoneIds =
       settings.emergencyZones?.zoneIds?.filter(zoneId =>
         emergencyZoneOptions.some(zone => zone.id === zoneId)
@@ -804,7 +827,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       key: 'settings-save',
       errorMessage: 'Nem sikerült menteni a beállításokat.',
       errorContext: 'Error saving seating settings:',
-      successMessage: 'Beállítások mentve.',
       action: async () => {
         const { activeFloorplanId, ...restSettings } = settings;
         const payload: SeatingSettings = {
@@ -826,13 +848,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(activeFloorplanId !== undefined ? { activeFloorplanId } : {}),
         };
         await updateSeatingSettings(unitId, payload);
+        normalizedSettings = payload;
         didSave = true;
       },
     });
     if (didSave && isMountedRef.current) {
-      lastSavedSnapshotRef.current = snapshot;
+      if (normalizedSettings) {
+        setSettings(normalizedSettings);
+        lastSavedSnapshotRef.current = createSettingsSnapshot(normalizedSettings);
+      } else {
+        lastSavedSnapshotRef.current = snapshot;
+      }
       setIsDirty(false);
       setSaveFeedback('Mentve');
+      setSuccess(null);
     }
   };
 
