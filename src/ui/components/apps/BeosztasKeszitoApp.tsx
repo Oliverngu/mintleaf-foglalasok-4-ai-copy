@@ -4314,6 +4314,28 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           }
         });
 
+      tableClone
+        .querySelectorAll<HTMLTableCellElement>('th, td')
+        .forEach(cell => {
+          cell.style.verticalAlign = 'middle';
+        });
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          if (row.querySelector('td[colSpan]')) return;
+          const cells = Array.from(row.querySelectorAll<HTMLTableCellElement>('td'));
+          cells.slice(1).forEach(cell => {
+            if (
+              cell.classList.contains('day-off-cell') ||
+              cell.classList.contains('leave-cell')
+            ) {
+              return;
+            }
+            cell.style.textAlign = 'center';
+            cell.style.display = 'table-cell';
+          });
+        });
+
       tableClone.style.width = 'fit-content';
       tableClone.style.maxWidth = 'none';
       tableClone.style.overflow = 'visible';
