@@ -889,6 +889,292 @@ const AllocationPanel: React.FC<{
   );
 };
 
+const SectionCard: React.FC<{
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ title, description, actions, children }) => (
+  <div
+    className="rounded-xl border border-gray-100 p-3 space-y-2"
+    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+        {description && (
+          <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+        )}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+    <div>{children}</div>
+  </div>
+);
+
+const CollapsibleSection: React.FC<{
+  title: string;
+  description?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}> = ({ title, description, defaultOpen = false, children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div
+      className="rounded-xl border border-gray-100 p-3 space-y-2"
+      style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="w-full text-left flex items-center justify-between gap-2"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+          {description && (
+            <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+          )}
+        </div>
+        <span className="text-xs text-[var(--color-text-secondary)]">
+          {open ? 'Bezár' : 'Megnyit'}
+        </span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+};
+
+const BookingSummaryCard: React.FC<{
+  booking: Booking;
+  resolveSeatingPreferenceLabel: (value?: Booking['seatingPreference']) => string;
+}> = ({ booking, resolveSeatingPreferenceLabel }) => (
+  <SectionCard title="Összefoglaló">
+    <div className="space-y-2 text-sm text-[var(--color-text-secondary)]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-semibold text-[var(--color-text-main)]">
+          {booking.name} ({booking.headcount} fő)
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+            {booking.status || '—'}
+          </span>
+          {booking.allocationFinal?.locked && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+              LOCKED
+            </span>
+          )}
+        </div>
+      </div>
+      <p className="font-semibold text-[var(--color-text-secondary)]">
+        {booking.startTime
+          .toDate()
+          .toLocaleTimeString('hu-HU', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}{' '}
+        -{' '}
+        {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </p>
+      <div className="grid gap-1 md:grid-cols-2">
+        <p>Alkalom: {booking.occasion || '—'}</p>
+        <p>Forrás: {booking.source || '—'}</p>
+      </div>
+      {booking.notes && <p>Megjegyzés: {booking.notes}</p>}
+      <div className="grid gap-1 md:grid-cols-2">
+        <p>
+          Preferált idősáv: {booking.preferredTimeSlot || 'Nincs megadva'}
+        </p>
+        <p>
+          Ülés preferencia: {resolveSeatingPreferenceLabel(booking.seatingPreference)}
+        </p>
+      </div>
+    </div>
+  </SectionCard>
+);
+
+const AllocationDecisionChain: React.FC<{
+  booking: Booking;
+  resolveZoneName: (zoneId?: string | null) => string;
+  resolveTableNames: (tableIds?: string[]) => string;
+}> = ({ booking, resolveZoneName, resolveTableNames }) => {
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const intentLabel =
+    booking.allocationIntent?.timeSlot ||
+    booking.allocationIntent?.zoneId ||
+    booking.allocationIntent?.tableGroup
+      ? `timeSlot=${formatTimeSlot(booking.allocationIntent?.timeSlot, {
+          mode: 'raw+label',
+          locale: TIME_SLOT_LOCALE,
+        })}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${
+          booking.allocationIntent?.tableGroup || '—'
+        }`
+      : 'Nincs adat';
+  const overrideLabel = booking.allocationOverride?.enabled
+    ? `zoneId=${booking.allocationOverride.zoneId || '—'}, tableIds=${
+        booking.allocationOverride.tableIds?.length
+          ? booking.allocationOverride.tableIds.join(', ')
+          : '—'
+      }, note=${booking.allocationOverride.note || '—'}`
+    : 'Nincs override';
+  const finalLabel = booking.allocationFinal
+    ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
+        booking.allocationFinal.timeSlot,
+        {
+          mode: 'raw+label',
+          locale: TIME_SLOT_LOCALE,
+        }
+      )}, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
+        booking.allocationFinal.tableGroup || '—'
+      }, tableIds=${
+        booking.allocationFinal.tableIds?.length
+          ? booking.allocationFinal.tableIds.join(', ')
+          : '—'
+      }`
+    : 'Nincs adat';
+
+  return (
+    <SectionCard
+      title="Allokáció döntési lánc"
+      description="Intent → override → final → allocated"
+    >
+      <div className="grid gap-2 text-xs text-[var(--color-text-secondary)]">
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Intent:
+          </span>{' '}
+          {intentLabel}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Override:
+          </span>{' '}
+          {overrideLabel}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Final:
+          </span>{' '}
+          {finalLabel}
+        </div>
+        {booking.allocated ? (
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Allocated:
+            </span>{' '}
+            {`zone=${resolveZoneName(
+              booking.allocated.zoneId
+            )}, tables=${resolveTableNames(
+              booking.allocated.tableIds
+            )}, strategy=${booking.allocated.strategy || '—'}`}
+          </div>
+        ) : (
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Allocated:
+            </span>{' '}
+            Nincs adat
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => setDiagnosticsOpen(current => !current)}
+        className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
+      >
+        {diagnosticsOpen ? 'Diagnosztika elrejtése' : 'Diagnosztika megnyitása'}
+      </button>
+      {diagnosticsOpen && (
+        <div className="mt-2 space-y-1 text-xs text-[var(--color-text-secondary)]">
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Diagnostics:
+            </span>{' '}
+            {booking.allocationDiagnostics
+              ? `quality=${booking.allocationDiagnostics.intentQuality || '—'}, reasons=${
+                  booking.allocationDiagnostics.reasons?.length
+                    ? booking.allocationDiagnostics.reasons.join(', ')
+                    : '—'
+                }, warnings=${
+                  booking.allocationDiagnostics.warnings?.length
+                    ? booking.allocationDiagnostics.warnings.join(', ')
+                    : '—'
+                }`
+              : 'Nincs adat'}
+          </div>
+          {booking.allocated?.diagnosticsSummary && (
+            <div>
+              <span className="font-semibold text-[var(--color-text-main)]">
+                Summary:
+              </span>{' '}
+              {booking.allocated.diagnosticsSummary}
+            </div>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
+};
+
+const BookingSeatingPanel: React.FC<{
+  booking: Booking;
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+  highlightTableIds: string[];
+  highlightZoneId: string | null;
+  isFloorplanOpen: boolean;
+  onToggleFloorplan: () => void;
+  onSeatingSaved: (update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({
+  booking,
+  unitId,
+  zones,
+  tables,
+  highlightTableIds,
+  highlightZoneId,
+  isFloorplanOpen,
+  onToggleFloorplan,
+  onSeatingSaved,
+}) => (
+  <SectionCard
+    title="Ültetés"
+    description="Asztalok kiosztása és ellenőrzés az asztaltérképen."
+  >
+    <div className="rounded-lg border border-gray-200 bg-white/70">
+      <button
+        type="button"
+        onClick={onToggleFloorplan}
+        className="w-full text-left px-3 py-2 text-sm font-semibold"
+      >
+        {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
+      </button>
+      {isFloorplanOpen && (
+        <div className="px-3 pb-3">
+          <FloorplanViewer
+            unitId={unitId}
+            highlightTableIds={highlightTableIds}
+            highlightZoneId={highlightZoneId}
+          />
+        </div>
+      )}
+    </div>
+    <BookingSeatingEditor
+      booking={booking}
+      unitId={unitId}
+      zones={zones}
+      tables={tables}
+      onSeatingSaved={onSeatingSaved}
+    />
+  </SectionCard>
+);
+
 const BookingDetailsModal: React.FC<{
   selectedDate: Date;
   bookings: Booking[];
@@ -925,6 +1211,20 @@ const BookingDetailsModal: React.FC<{
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
   const [openAllocationId, setOpenAllocationId] = useState<string | null>(null);
   const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -1074,28 +1374,30 @@ const BookingDetailsModal: React.FC<{
         </div>
         <div className="p-6 overflow-y-auto space-y-4">
           {isAdmin && (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleRecalcCapacity}
-                disabled={isRecalcRunning}
-                className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 disabled:opacity-60"
-              >
-                {isRecalcRunning ? 'Újraszámolás...' : 'Napi kapacitás újraszámolása'}
-              </button>
-              {recalcMessage && (
-                <span className="text-xs text-green-600">{recalcMessage}</span>
-              )}
-              {recalcError && <span className="text-xs text-red-600">{recalcError}</span>}
-            </div>
+            <SectionCard title="Kapacitás" description="Napi kapacitás műveletek">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleRecalcCapacity}
+                  disabled={isRecalcRunning}
+                  className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 disabled:opacity-60"
+                >
+                  {isRecalcRunning ? 'Újraszámolás...' : 'Napi kapacitás újraszámolása'}
+                </button>
+                {recalcMessage && (
+                  <span className="text-xs text-green-600">{recalcMessage}</span>
+                )}
+                {recalcError && (
+                  <span className="text-xs text-red-600">{recalcError}</span>
+                )}
+              </div>
+            </SectionCard>
           )}
-          <div
-            className="rounded-xl border border-gray-100 p-3"
-            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+          <CollapsibleSection
+            title="Napi napló"
+            description="Az adott naphoz tartozó események"
+            defaultOpen={false}
           >
-            <h3 className="text-sm font-semibold text-[var(--color-text-main)] mb-2">
-              Napi napló
-            </h3>
             {dayLogsLoading ? (
               <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
             ) : dayLogs.length ? (
@@ -1166,7 +1468,7 @@ const BookingDetailsModal: React.FC<{
                 Nincsenek naplóbejegyzések erre a napra.
               </div>
             )}
-          </div>
+          </CollapsibleSection>
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
@@ -1181,164 +1483,61 @@ const BookingDetailsModal: React.FC<{
                     className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
                     style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-bold text-[var(--color-text-main)]">
-                      {booking.name} ({booking.headcount} fő)
-                    </p>
-                    {booking.allocationFinal?.locked && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-                        LOCKED
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
-                    {booking.startTime
-                      .toDate()
-                      .toLocaleTimeString('hu-HU', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
-                    -{' '}
-                    {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                  <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                    Alkalom: {booking.occasion}
-                  </p>
-                  {booking.notes && (
-                    <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                      Megjegyzés: {booking.notes}
-                    </p>
-                  )}
-                  <div className="mt-2 space-y-1 text-sm text-[var(--color-text-secondary)]">
-                    <p>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Preferált idősáv:
-                      </span>{' '}
-                      {booking.preferredTimeSlot || 'Nincs megadva'}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Ülés preferencia:
-                      </span>{' '}
-                      {resolveSeatingPreferenceLabel(booking.seatingPreference)}
-                    </p>
-                  </div>
-                  <div className="mt-3 grid gap-2 text-xs text-[var(--color-text-secondary)]">
-                    <div>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Allocation intent:
-                      </span>{' '}
-                      {booking.allocationIntent?.timeSlot ||
-                      booking.allocationIntent?.zoneId ||
-                      booking.allocationIntent?.tableGroup
-                        ? `timeSlot=${formatTimeSlot(booking.allocationIntent?.timeSlot, {
-                            mode: 'raw+label',
-                            locale: TIME_SLOT_LOCALE,
-                          })}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${
-                            booking.allocationIntent?.tableGroup || '—'
-                          }`
-                        : 'Nincs adat'}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Allocation diagnostics:
-                      </span>{' '}
-                      {booking.allocationDiagnostics
-                        ? `quality=${booking.allocationDiagnostics.intentQuality || '—'}, reasons=${
-                            booking.allocationDiagnostics.reasons?.length
-                              ? booking.allocationDiagnostics.reasons.join(', ')
-                              : '—'
-                          }, warnings=${
-                            booking.allocationDiagnostics.warnings?.length
-                              ? booking.allocationDiagnostics.warnings.join(', ')
-                              : '—'
-                          }`
-                        : 'Nincs adat'}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-[var(--color-text-main)]">
-                        Allocation final:
-                      </span>{' '}
-                      {booking.allocationFinal
-                        ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
-                            booking.allocationFinal.timeSlot,
-                            {
-                              mode: 'raw+label',
-                              locale: TIME_SLOT_LOCALE,
+                    <div className="space-y-4">
+                      <BookingSummaryCard
+                        booking={booking}
+                        resolveSeatingPreferenceLabel={resolveSeatingPreferenceLabel}
+                      />
+                      <AllocationDecisionChain
+                        booking={booking}
+                        resolveZoneName={resolveZoneName}
+                        resolveTableNames={resolveTableNames}
+                      />
+                      {isAdmin && seatingSettings?.allocationEnabled && (
+                        <SectionCard title="Allokáció override">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenAllocationId(current =>
+                                current === booking.id ? null : booking.id
+                              )
                             }
-                          )}, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
-                            booking.allocationFinal.tableGroup || '—'
-                          }, tableIds=${
-                            booking.allocationFinal.tableIds?.length
-                              ? booking.allocationFinal.tableIds.join(', ')
-                              : '—'
-                          }`
-                        : 'Nincs adat'}
-                    </div>
-                  </div>
-                  {isAdmin && (
-                    <div className="mt-3 rounded-lg border border-gray-200 bg-white/70">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenFloorplanBookingId(current =>
-                            current === booking.id ? null : booking.id
-                          )
-                        }
-                        className="w-full text-left px-3 py-2 text-sm font-semibold"
-                      >
-                        {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
-                      </button>
-                      {isFloorplanOpen && (
-                        <div className="px-3 pb-3">
-                          <FloorplanViewer
-                            unitId={unitId}
-                            highlightTableIds={highlightTableIds}
-                            highlightZoneId={highlightZoneId}
-                          />
-                        </div>
+                            className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
+                          >
+                            {openAllocationId === booking.id ? 'Allokáció bezárása' : 'Allokáció'}
+                          </button>
+                          {openAllocationId === booking.id && seatingSettings && (
+                            <AllocationPanel
+                              booking={booking}
+                              unitId={unitId}
+                              zones={zones}
+                              tables={tables}
+                              combinations={combinations}
+                              seatingSettings={seatingSettings}
+                              dayBookings={bookings}
+                              onClose={() => setOpenAllocationId(null)}
+                            />
+                          )}
+                        </SectionCard>
                       )}
-                    </div>
-                  )}
-                  {isAdmin && (
-                    <BookingSeatingEditor
-                      booking={booking}
-                      unitId={unitId}
-                      zones={zones}
-                      tables={tables}
-                      onSeatingSaved={update => onSeatingSaved(booking.id, update)}
-                    />
-                  )}
-                  {isAdmin && seatingSettings?.allocationEnabled && (
-                    <div className="mt-4">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenAllocationId(current =>
-                            current === booking.id ? null : booking.id
-                          )
-                        }
-                        className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
-                      >
-                        {openAllocationId === booking.id ? 'Allokáció bezárása' : 'Allokáció'}
-                      </button>
-                      {openAllocationId === booking.id && seatingSettings && (
-                        <AllocationPanel
+                      {isAdmin && (
+                        <BookingSeatingPanel
                           booking={booking}
                           unitId={unitId}
                           zones={zones}
                           tables={tables}
-                          combinations={combinations}
-                          seatingSettings={seatingSettings}
-                          dayBookings={bookings}
-                          onClose={() => setOpenAllocationId(null)}
+                          highlightTableIds={highlightTableIds}
+                          highlightZoneId={highlightZoneId}
+                          isFloorplanOpen={isFloorplanOpen}
+                          onToggleFloorplan={() =>
+                            setOpenFloorplanBookingId(current =>
+                              current === booking.id ? null : booking.id
+                            )
+                          }
+                          onSeatingSaved={update => onSeatingSaved(booking.id, update)}
                         />
                       )}
                     </div>
-                  )}
                   {isAdmin && (
                     <button
                       onClick={() => onDelete(booking)}
@@ -1492,6 +1691,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
 
   const reloadSeatingData = useCallback(async () => {
     if (!activeUnitId || !isAdmin) {

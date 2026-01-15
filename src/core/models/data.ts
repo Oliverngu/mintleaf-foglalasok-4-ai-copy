@@ -142,6 +142,18 @@ export interface Booking {
     locked?: boolean | null;
   };
   allocationFinalComputedAt?: Timestamp | null;
+  allocated?: {
+    zoneId?: string | null;
+    tableIds?: string[];
+    traceId?: string;
+    decidedAtMs?: number;
+    strategy?: string | null;
+    diagnosticsSummary?: string;
+    computedForStartTimeMs?: number;
+    computedForEndTimeMs?: number;
+    computedForHeadcount?: number;
+    algoVersion?: string;
+  };
 }
 
 export interface Zone {
