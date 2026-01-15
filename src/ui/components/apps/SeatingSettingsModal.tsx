@@ -2836,7 +2836,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           role="tablist"
           aria-label="Ültetés beállítások fülek"
           className="flex flex-wrap gap-2 border-b pb-2"
-          onKeyDown={handleTabsKeyDown}
         >
           {tabs.map(tab => (
             <button
