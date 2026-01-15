@@ -2760,6 +2760,45 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     </div>
   );
 
+  const focusTabById = (tabId: string) => {
+    const focus = () => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+      document.getElementById(`seating-tab-${tabId}`)?.focus();
+    };
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(focus);
+    } else {
+      setTimeout(focus, 0);
+    }
+  };
+
+  const handleTabsKeyDown = (event: React.KeyboardEvent) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
+    if (currentIndex === -1) {
+      return;
+    }
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = tabs.length - 1;
+    }
+    const nextTab = tabs[nextIndex];
+    setActiveTab(nextTab.id);
+    focusTabById(nextTab.id);
+  };
+
   if (loading) {
     return (
       <div
@@ -2797,32 +2836,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           role="tablist"
           aria-label="Ültetés beállítások fülek"
           className="flex flex-wrap gap-2 border-b pb-2"
-          onKeyDown={event => {
-            const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
-            if (!keys.includes(event.key)) {
-              return;
-            }
-            event.preventDefault();
-            const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
-            if (currentIndex === -1) {
-              return;
-            }
-            let nextIndex = currentIndex;
-            if (event.key === 'ArrowLeft') {
-              nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-            } else if (event.key === 'ArrowRight') {
-              nextIndex = (currentIndex + 1) % tabs.length;
-            } else if (event.key === 'Home') {
-              nextIndex = 0;
-            } else if (event.key === 'End') {
-              nextIndex = tabs.length - 1;
-            }
-            const nextTab = tabs[nextIndex];
-            setActiveTab(nextTab.id);
-            requestAnimationFrame(() => {
-              document.getElementById(`seating-tab-${nextTab.id}`)?.focus();
-            });
-          }}
+          onKeyDown={handleTabsKeyDown}
         >
           {tabs.map(tab => (
             <button
@@ -2834,6 +2848,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               aria-controls={`seating-tabpanel-${tab.id}`}
               tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={handleTabsKeyDown}
               className={`px-3 py-1.5 rounded-full text-sm border ${
                 activeTab === tab.id
                   ? 'bg-blue-600 text-white border-blue-600'
