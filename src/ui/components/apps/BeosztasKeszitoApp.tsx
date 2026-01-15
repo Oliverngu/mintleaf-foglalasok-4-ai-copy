@@ -2004,7 +2004,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     setStaffWarning(null);
     // Staff list must be unit-filtered; global reads are forbidden.
     const sourceMaps = new Map<string, Map<string, User>>();
-    let gotAnySnapshot = false;
+    let expected = 0;
+    let settled = 0;
+    const settledKeys = new Set<string>();
     const mergeAndSetUsers = () => {
       const merged = new Map<string, User>();
       sourceMaps.forEach(map => {
@@ -2025,23 +2027,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const attachListener = (key: string, queryRef: Query<DocumentData>) => {
       const map = new Map<string, User>();
       sourceMaps.set(key, map);
+      expected += 1;
       return onSnapshot(
         queryRef,
         snapshot => {
-          const first = !gotAnySnapshot;
-          gotAnySnapshot = true;
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));
           });
           mergeAndSetUsers();
-          if (first) {
+          if (!settledKeys.has(key)) {
+            settledKeys.add(key);
+            settled += 1;
+          }
+          if (settled === expected) {
             setIsDataLoading(false);
           }
         },
         error => {
           console.error('Failed to load staff list:', error);
-          if (!gotAnySnapshot) {
+          if (!settledKeys.has(key)) {
+            settledKeys.add(key);
+            settled += 1;
+          }
+          if (settled === expected) {
             setIsDataLoading(false);
           }
         }
