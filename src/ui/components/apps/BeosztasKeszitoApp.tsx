@@ -2002,14 +2002,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     setStaffWarning(null);
     // Staff list must be unit-filtered; global reads are forbidden.
-    const sourceMaps = {
-      unitIds: new Map<string, User>(),
-      unitIDs: new Map<string, User>(),
-      unitId: new Map<string, User>()
-    };
+    const sourceMaps = new Map<string, Map<string, User>>();
     const mergeAndSetUsers = () => {
       const merged = new Map<string, User>();
-      Object.values(sourceMaps).forEach(map => {
+      sourceMaps.forEach(map => {
         map.forEach((value, id) => merged.set(id, value));
       });
       setAllAppUsers(Array.from(merged.values()));
@@ -2024,14 +2020,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         fullName: data.fullName || `${lastName} ${firstName}`.trim()
       } as User;
     };
-    const attachListener = (
-      key: keyof typeof sourceMaps,
-      queryRef: Query<DocumentData>
-    ) =>
-      onSnapshot(
+    const attachListener = (key: string, queryRef: Query<DocumentData>) => {
+      const map = new Map<string, User>();
+      sourceMaps.set(key, map);
+      return onSnapshot(
         queryRef,
         snapshot => {
-          const map = sourceMaps[key];
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));
@@ -2044,19 +2038,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           setIsDataLoading(false);
         }
       );
+    };
 
     const unsubscribers: Array<() => void> = [];
-    const unitIdsQuery = query(
-      collection(db, 'users'),
-      where('unitIds', 'array-contains-any', activeUnitIds)
-    );
-    unsubscribers.push(attachListener('unitIds', unitIdsQuery));
+    const unitChunks: string[][] = [];
+    for (let i = 0; i < activeUnitIds.length; i += 10) {
+      unitChunks.push(activeUnitIds.slice(i, i + 10));
+    }
+    unitChunks.forEach((chunk, index) => {
+      const unitIdsQuery = query(
+        collection(db, 'users'),
+        where('unitIds', 'array-contains-any', chunk)
+      );
+      unsubscribers.push(
+        attachListener(`unitIds:${index}`, unitIdsQuery)
+      );
 
-    const unitIDsQuery = query(
-      collection(db, 'users'),
-      where('unitIDs', 'array-contains-any', activeUnitIds)
-    );
-    unsubscribers.push(attachListener('unitIDs', unitIDsQuery));
+      const unitIDsQuery = query(
+        collection(db, 'users'),
+        where('unitIDs', 'array-contains-any', chunk)
+      );
+      unsubscribers.push(
+        attachListener(`unitIDs:${index}`, unitIDsQuery)
+      );
+    });
 
     if (activeUnitIds.length <= 10) {
       const unitIdQuery = query(

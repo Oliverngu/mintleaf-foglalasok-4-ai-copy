@@ -40,8 +40,11 @@ service cloud.firestore {
     }
 
     function sharesUnitWithUserDoc() {
+      let targetUnits = unitsFromData(resource.data);
       return isSignedIn()
-        && unitsFromData(resource.data).hasAny(userUnits());
+        && userUnits().size() > 0
+        && targetUnits.size() > 0
+        && userUnits().hasAny(targetUnits);
     }
 
     // <<< ITT VOLT A HIBA
