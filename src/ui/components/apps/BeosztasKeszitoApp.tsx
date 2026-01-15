@@ -4333,6 +4333,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             }
             cell.style.textAlign = 'center';
             cell.style.display = 'table-cell';
+            cell.style.lineHeight = '1.2';
+            if (!cell.style.paddingTop && !cell.style.paddingBottom) {
+              cell.style.paddingTop = '1px';
+              cell.style.paddingBottom = '1px';
+            }
           });
         });
 
