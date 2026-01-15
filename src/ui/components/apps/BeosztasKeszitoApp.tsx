@@ -2006,6 +2006,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     const sourceMaps = new Map<string, Map<string, User>>();
     let expected = 0;
     let settled = 0;
+    let allAttached = false;
     const settledKeys = new Set<string>();
     const mergeAndSetUsers = () => {
       const merged = new Map<string, User>();
@@ -2040,7 +2041,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             settledKeys.add(key);
             settled += 1;
           }
-          if (settled === expected) {
+          if (allAttached && settled === expected) {
             setIsDataLoading(false);
           }
         },
@@ -2050,7 +2051,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             settledKeys.add(key);
             settled += 1;
           }
-          if (settled === expected) {
+          if (allAttached && settled === expected) {
             setIsDataLoading(false);
           }
         }
@@ -2087,6 +2088,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       );
       unsubscribers.push(attachListener('unitId', unitIdQuery));
     }
+    allAttached = true;
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
@@ -2104,6 +2106,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       unsubscribers.forEach(unsub => unsub());
       unsubPositions();
       sourceMaps.clear();
+      settledKeys.clear();
     };
   }, [activeUnitIds, currentUserUnitIds, isAdminUser]);
 
