@@ -2141,6 +2141,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       setIsDataLoading(false);
     }
 
+    if (activeUnitIds.length <= 10) {
+      const unitIdQuery = query(
+        collection(db, 'users'),
+        where('unitId', 'in', activeUnitIds)
+      );
+      unsubscribers.push(attachListener('unitId', unitIdQuery));
+    }
+    allAttached = true;
+    if (expected === 0) {
+      setIsDataLoading(false);
+    }
+
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
       snapshot => {
