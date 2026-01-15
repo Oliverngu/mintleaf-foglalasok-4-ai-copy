@@ -1278,6 +1278,16 @@ const BookingDetailsModal: React.FC<{
                           }`
                         : 'Nincs adat'}
                     </div>
+                    {booking.allocated && (
+                      <div>
+                        <span className="font-semibold text-[var(--color-text-main)]">
+                          Allocation result:
+                        </span>{' '}
+                        {`zone=${resolveZoneName(booking.allocated.zoneId)}, tables=${resolveTableNames(
+                          booking.allocated.tableIds
+                        )}, strategy=${booking.allocated.strategy || '—'}`}
+                      </div>
+                    )}
                   </div>
                   {isAdmin && (
                     <div className="mt-3 rounded-lg border border-gray-200 bg-white/70">
@@ -1492,6 +1502,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
 
   const reloadSeatingData = useCallback(async () => {
     if (!activeUnitId || !isAdmin) {
