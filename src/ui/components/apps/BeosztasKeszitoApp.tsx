@@ -1229,29 +1229,37 @@ interface ExportConfirmationModalProps {
   type: 'PNG' | 'Excel';
   onClose: () => void;
   onConfirm: () => Promise<void>;
+  onExportingChange: (isExporting: boolean) => void;
   exportSettings: ExportStyleSettings;
   unitName: string;
   hideEmptyUsersOnExport: boolean;
   onToggleHideEmptyUsers: (value: boolean) => void;
+  pngScale: 1 | 2 | 3;
+  onScaleChange: (value: 1 | 2 | 3) => void;
 }
 
 const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
   type,
   onClose,
   onConfirm,
+  onExportingChange,
   exportSettings,
   unitName,
   hideEmptyUsersOnExport,
-  onToggleHideEmptyUsers
+  onToggleHideEmptyUsers,
+  pngScale,
+  onScaleChange
 }) => {
   const [isExporting, setIsExporting] = useState(false);
 
   const handleConfirmClick = async () => {
     setIsExporting(true);
+    onExportingChange(true);
     try {
       await onConfirm();
     } catch (err) {
       setIsExporting(false);
+      onExportingChange(false);
     }
   };
 
@@ -1432,7 +1440,23 @@ const ExportConfirmationModal: FC<ExportConfirmationModalProps> = ({
               <span className="font-semibold">Formátum:</span> {type}
             </div>
             {type === 'PNG' && (
-              <div className="mt-1">
+              <div className="mt-1 space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700">
+                    Felbontás
+                  </label>
+                  <select
+                    value={pngScale}
+                    onChange={e =>
+                      onScaleChange(Number(e.target.value) as 1 | 2 | 3)
+                    }
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  >
+                    <option value={1}>1x</option>
+                    <option value={2}>2x – ajánlott</option>
+                    <option value={3}>3x</option>
+                  </select>
+                </div>
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input
                     type="checkbox"
@@ -1603,6 +1627,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
   const [hideEmptyUsersOnExport, setHideEmptyUsersOnExport] =
     useState(false);
+  const [pngExportScale, setPngExportScale] = useState<1 | 2 | 3>(2);
+  const [isPngExportConfirming, setIsPngExportConfirming] = useState(false);
   const [isPngExportRenderMode, setIsPngExportRenderMode] =
     useState(false);
   const [pngHideEmptyUsers, setPngHideEmptyUsers] = useState(false);
@@ -4103,12 +4129,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, []);
 
   // --- UPDATED PNG EXPORT FUNCTION (better alignment for text in cells) ---
-  const handlePngExport = async (hideEmptyUsers: boolean): Promise<void> => {
+  const handlePngExport = async (
+    hideEmptyUsers: boolean,
+    scale: 1 | 2 | 3
+  ): Promise<void> => {
     setIsPngExportRenderMode(true);
     setPngHideEmptyUsers(hideEmptyUsers);
     setIsPngExporting(true);
 
     let exportContainer: HTMLDivElement | null = null;
+    let exportInnerWrapper: HTMLDivElement | null = null;
 
     try {
       await waitForExportLayout();
@@ -4117,7 +4147,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         throw new Error('Export container ref not found');
       }
 
+      const existingExportContainer = document.querySelector(
+        '[data-export-container="png"]'
+      );
+      if (existingExportContainer?.parentElement) {
+        existingExportContainer.parentElement.removeChild(
+          existingExportContainer
+        );
+      }
+
       exportContainer = document.createElement('div');
+      exportContainer.dataset.exportContainer = 'png';
       Object.assign(exportContainer.style, {
         position: 'absolute',
         left: '-9999px',
@@ -4126,6 +4166,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         padding: '0px',
         display: 'inline-block',
         overflow: 'visible'
+      } as CSSStyleDeclaration);
+
+      exportInnerWrapper = document.createElement('div');
+      Object.assign(exportInnerWrapper.style, {
+        display: 'inline-block',
+        backgroundColor: '#ffffff',
+        fontFamily:
+          'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
+        borderRadius: exportSettings.useRoundedCorners
+          ? `${exportSettings.borderRadius}px`
+          : '0px',
+        overflow: exportSettings.useRoundedCorners ? 'hidden' : 'visible'
       } as CSSStyleDeclaration);
 
       const tableClone =
@@ -4141,7 +4193,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           el.remove();
         });
 
-      exportContainer.appendChild(tableClone);
+      exportInnerWrapper.appendChild(tableClone);
+      exportContainer.appendChild(exportInnerWrapper);
       document.body.appendChild(exportContainer);
 
       await waitForCloneLayout();
@@ -4162,6 +4215,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const nameHeaderTextColor = getContrastingTextColor(
         exportSettings.nameColumnColor
       );
+      const categoryTextColor = getContrastingTextColor(
+        exportSettings.categoryHeaderBgColor
+      );
+      const cellPadding =
+        exportSettings.fontSizeCell <= 11 ? '5px 6px' : '6px 8px';
 
       tableClone
         .querySelectorAll<HTMLTableCellElement>('thead th')
@@ -4174,6 +4232,12 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           th.style.color = isNameHeader
             ? nameHeaderTextColor
             : dayHeaderTextColor;
+          th.style.fontSize = `${exportSettings.fontSizeHeader}px`;
+          th.style.lineHeight = '1.15';
+          th.style.verticalAlign = 'middle';
+          th.style.padding = cellPadding;
+          th.style.minHeight = '34px';
+          th.style.whiteSpace = 'nowrap';
         });
 
       tableClone
@@ -4215,6 +4279,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           if (txt === 'X' || txt === 'SZ' || txt === 'SZABI') {
             td.textContent = '';
           }
+          td.style.fontSize = `${exportSettings.fontSizeCell}px`;
+          td.style.lineHeight = '1.15';
+          td.style.verticalAlign = 'middle';
+          td.style.padding = cellPadding;
         });
 
       tableClone.querySelectorAll('tr.summary-row').forEach(row => row.remove());
@@ -4257,6 +4325,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
         table.style.tableLayout = 'fixed';
         table.style.borderCollapse = 'collapse';
+        table.style.border = `${exportSettings.gridThickness}px solid ${exportSettings.gridColor}`;
       });
 
       const zebraBase = exportSettings.zebraColor;
@@ -4268,14 +4337,30 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       tableClone
         .querySelectorAll<HTMLTableCellElement>('th, td')
         .forEach(cell => {
-          cell.style.borderWidth = '0.5px';
+          cell.style.borderWidth = `${exportSettings.gridThickness}px`;
+          cell.style.borderColor = exportSettings.gridColor;
+          cell.style.borderStyle = 'solid';
         });
 
       const paddingPx = 0;
+      const borderCompensation = Math.max(
+        0,
+        exportSettings.gridThickness * 2
+      );
+      const safetyPadding =
+        exportSettings.gridThickness >= 2 ? 2 : 0;
       const rawWidth =
         (gridNode?.scrollWidth || tableClone.scrollWidth || 0) + paddingPx;
-      const finalWidth = Math.ceil(rawWidth);
+      const rawHeight =
+        (gridNode?.scrollHeight || tableClone.scrollHeight || 0) + paddingPx;
+      const finalWidth = Math.ceil(
+        rawWidth + borderCompensation + safetyPadding
+      );
+      const finalHeight = Math.ceil(
+        rawHeight + borderCompensation + safetyPadding
+      );
       exportContainer.style.width = `${finalWidth}px`;
+      exportContainer.style.height = `${finalHeight}px`;
 
       let dataRowIndex = 0;
       tableClone
@@ -4313,13 +4398,31 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           dataRowIndex += 1;
         });
 
+      tableClone
+        .querySelectorAll<HTMLTableRowElement>('tbody tr')
+        .forEach(row => {
+          const categoryCell = row.querySelector('td[colSpan]');
+          if (!categoryCell) return;
+          row.style.background = exportSettings.categoryHeaderBgColor;
+          row.style.color = categoryTextColor;
+          row.style.fontWeight = 'bold';
+          row.style.textAlign = 'left';
+          row.querySelectorAll<HTMLTableCellElement>('td').forEach(cell => {
+            cell.style.background = exportSettings.categoryHeaderBgColor;
+            cell.style.color = categoryTextColor;
+            cell.style.fontWeight = 'bold';
+            cell.style.textAlign = 'left';
+            cell.style.borderBottomWidth = `${exportSettings.gridThickness + 1}px`;
+          });
+        });
+
       const canvas = await html2canvas(exportContainer, {
         useCORS: true,
-        scale: 2,
         backgroundColor: '#ffffff',
         logging: false,
-        windowWidth: exportContainer.scrollWidth,
-        windowHeight: exportContainer.scrollHeight
+        scale,
+        windowWidth: finalWidth,
+        windowHeight: finalHeight
       });
 
       const link = document.createElement('a');
@@ -4350,6 +4453,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const closeExportWithGuard = () => {
     setExportConfirmation(null);
+    setIsPngExportConfirming(false);
     setClickGuardUntil(Date.now() + 500);
   };
 
@@ -4751,7 +4855,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 onClick={() =>
                   setExportConfirmation({ type: 'PNG' })
                 }
-                disabled={isPngExporting}
+                disabled={isPngExporting || isPngExportConfirming}
                 className="p-2 rounded-full hover:bg-gray-200"
                 title="Exportálás PNG-be"
               >
@@ -4954,7 +5058,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                 />
               )}
             </div>
-            <div className="p-4 bg-gray-50 flex justify-between items_center rounded-b-2xl">
+            <div className="p-4 bg-gray-50 flex justify-between items-center rounded-b-2xl">
               <button
                 onClick={() =>
                   setExportSettings(DEFAULT_EXPORT_SETTINGS)
@@ -5049,6 +5153,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         <ExportConfirmationModal
           type={exportConfirmation.type}
           onClose={closeExportWithGuard}
+          onExportingChange={isExporting => {
+            if (exportConfirmation.type === 'PNG') {
+              setIsPngExportConfirming(isExporting);
+            }
+          }}
           exportSettings={exportSettings}
           unitName={
             activeUnitIds.length === 1
@@ -5060,10 +5169,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           onToggleHideEmptyUsers={value =>
             setHideEmptyUsersOnExport(value)
           }
+          pngScale={pngExportScale}
+          onScaleChange={setPngExportScale}
           onConfirm={async () => {
             try {
               if (exportConfirmation.type === 'PNG') {
-                await handlePngExport(hideEmptyUsersOnExport);
+                await handlePngExport(
+                  hideEmptyUsersOnExport,
+                  pngExportScale
+                );
                 setSuccessToast('PNG export sikeres!');
               } else {
                 // Excel export
