@@ -62,6 +62,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [success, setSuccess] = useState<string | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'zones' | 'tables' | 'combinations' | 'floorplans'
+  >('overview');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   const isPermissionDenied = useCallback((err: unknown): err is FirebaseError => {
     const code = (err as { code?: string } | null)?.code;
@@ -1521,6 +1526,1215 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     onClose();
   }, [onClose]);
 
+  const tabs = [
+    { id: 'overview', label: 'Áttekintés' },
+    { id: 'zones', label: 'Zónák' },
+    { id: 'tables', label: 'Asztalok' },
+    { id: 'combinations', label: 'Kombók' },
+    { id: 'floorplans', label: 'Asztaltérkép' },
+  ] as const;
+
+  const renderOverviewPanel = () => (
+    <div className="space-y-6">
+      <section className="space-y-3 border rounded-lg p-4">
+        <h3 className="font-semibold">Alap beállítások</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <label className="flex flex-col gap-1">
+            Buffer (perc)
+            <input
+              type="number"
+              className="border rounded p-2"
+              value={settings?.bufferMinutes ?? 15}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  bufferMinutes: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            Alap foglalási idő (perc)
+            <input
+              type="number"
+              className="border rounded p-2"
+              value={settings?.defaultDurationMinutes ?? 120}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  defaultDurationMinutes: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            Késés kezelése (perc)
+            <input
+              type="number"
+              className="border rounded p-2"
+              value={settings?.holdTableMinutesOnLate ?? 15}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  holdTableMinutesOnLate: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={settings?.vipEnabled ?? true}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  vipEnabled: event.target.checked,
+                }))
+              }
+            />
+            VIP engedélyezve
+          </label>
+          <label className="flex items-center gap-2 text-sm col-span-2">
+            <input
+              type="checkbox"
+              checked={settings?.allocationEnabled ?? false}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  allocationEnabled: event.target.checked,
+                }))
+              }
+            />
+            Seating allocation enabled
+          </label>
+          <label className="flex flex-col gap-1">
+            Allokáció mód
+            <select
+              className="border rounded p-2"
+              value={settings?.allocationMode ?? 'capacity'}
+              disabled={!settings?.allocationEnabled}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  allocationMode: event.target.value as SeatingSettings['allocationMode'],
+                }))
+              }
+            >
+              <option value="capacity">Kapacitás</option>
+              <option value="floorplan">Alaprajz</option>
+              <option value="hybrid">Hibrid</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            Allokációs stratégia
+            <select
+              className="border rounded p-2"
+              value={settings?.allocationStrategy ?? 'bestFit'}
+              disabled={!settings?.allocationEnabled}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  allocationStrategy: event.target.value as SeatingSettings['allocationStrategy'],
+                }))
+              }
+            >
+              <option value="bestFit">Best fit</option>
+              <option value="minWaste">Min waste</option>
+              <option value="priorityZoneFirst">Zóna prioritás</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            Alapértelmezett zóna
+            <select
+              className="border rounded p-2"
+              value={settings?.defaultZoneId ?? ''}
+              disabled={!settings?.allocationEnabled}
+              onChange={event =>
+                setSettings(current => ({
+                  ...(current ?? {}),
+                  defaultZoneId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Nincs beállítva</option>
+              {zones.map(zone => (
+                <option key={zone.id} value={zone.id}>
+                  {zone.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <button
+          type="button"
+          onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={actionSaving['settings-save']}
+        >
+          {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
+        </button>
+      </section>
+
+      <div className="space-y-3 border rounded-lg p-4">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen(current => !current)}
+          className="w-full text-left font-semibold text-sm"
+        >
+          Haladó beállítások
+        </button>
+        {advancedOpen && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="col-span-2 space-y-2">
+                <div className="text-sm font-semibold">Zóna prioritás</div>
+                <div className="flex flex-wrap gap-2 text-sm">
+                  {(settings?.zonePriority ?? []).map((zoneId, index) => {
+                    const zone = zones.find(item => item.id === zoneId);
+                    if (!zone) {
+                      return null;
+                    }
+                    return (
+                      <div
+                        key={zoneId}
+                        className="flex items-center gap-2 border rounded px-2 py-1"
+                      >
+                        <span>{zone.name}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="text-xs text-blue-600 disabled:opacity-40"
+                            disabled={!settings?.allocationEnabled || index === 0}
+                            onClick={() =>
+                              setSettings(current => {
+                                const list = [...(current?.zonePriority ?? [])];
+                                if (index <= 0) {
+                                  return current;
+                                }
+                                [list[index - 1], list[index]] = [list[index], list[index - 1]];
+                                return { ...(current ?? {}), zonePriority: list };
+                              })
+                            }
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-blue-600 disabled:opacity-40"
+                            disabled={
+                              !settings?.allocationEnabled ||
+                              index === (settings?.zonePriority ?? []).length - 1
+                            }
+                            onClick={() =>
+                              setSettings(current => {
+                                const list = [...(current?.zonePriority ?? [])];
+                                if (index >= list.length - 1) {
+                                  return current;
+                                }
+                                [list[index], list[index + 1]] = [list[index + 1], list[index]];
+                                return { ...(current ?? {}), zonePriority: list };
+                              })
+                            }
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-red-600"
+                            disabled={!settings?.allocationEnabled}
+                            onClick={() =>
+                              setSettings(current => ({
+                                ...(current ?? {}),
+                                zonePriority: (current?.zonePriority ?? []).filter(
+                                  id => id !== zoneId
+                                ),
+                              }))
+                            }
+                          >
+                            törlés
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="border rounded p-2 text-sm"
+                    value={zonePriorityAdd}
+                    disabled={!settings?.allocationEnabled}
+                    onChange={event => {
+                      const nextZoneId = event.target.value;
+                      setZonePriorityAdd(nextZoneId);
+                      if (!nextZoneId) {
+                        return;
+                      }
+                      setSettings(current => {
+                        const currentList = current?.zonePriority ?? [];
+                        if (currentList.includes(nextZoneId)) {
+                          return current;
+                        }
+                        return {
+                          ...(current ?? {}),
+                          zonePriority: [...currentList, nextZoneId],
+                        };
+                      });
+                      setZonePriorityAdd('');
+                    }}
+                  >
+                    <option value="">Zóna hozzáadása</option>
+                    {activeZones
+                      .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
+                      .map(zone => (
+                        <option key={zone.id} value={zone.id}>
+                          {zone.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <div className="text-sm font-semibold">Overflow zónák</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {activeZones.map(zone => (
+                    <label key={zone.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={(settings?.overflowZones ?? []).includes(zone.id)}
+                        disabled={!settings?.allocationEnabled}
+                        onChange={event =>
+                          setSettings(current => {
+                            const currentList = current?.overflowZones ?? [];
+                            const nextList = event.target.checked
+                              ? Array.from(new Set([...currentList, zone.id]))
+                              : currentList.filter(id => id !== zone.id);
+                            return { ...(current ?? {}), overflowZones: nextList };
+                          })
+                        }
+                      />
+                      {zone.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm col-span-2">
+                <input
+                  type="checkbox"
+                  checked={settings?.allowCrossZoneCombinations ?? false}
+                  disabled={!settings?.allocationEnabled}
+                  onChange={event =>
+                    setSettings(current => ({
+                      ...(current ?? {}),
+                      allowCrossZoneCombinations: event.target.checked,
+                    }))
+                  }
+                />
+                Kombinált asztalok engedélyezése zónák között
+              </label>
+            </div>
+            <section className="space-y-3 border rounded-lg p-4">
+              <h3 className="font-semibold">Emergency zónák</h3>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings?.emergencyZones?.enabled ?? false}
+                  onChange={event =>
+                    setSettings(current => ({
+                      ...(current ?? {}),
+                      emergencyZones: {
+                        ...(current?.emergencyZones ?? {}),
+                        enabled: event.target.checked,
+                      },
+                    }))
+                  }
+                />
+                Emergency zónák engedélyezve
+              </label>
+              <div className="text-sm space-y-2">
+                <div>
+                  <label className="block mb-1">Zónák</label>
+                  <select
+                    multiple
+                    className="border rounded p-2 w-full"
+                    value={settings?.emergencyZones?.zoneIds ?? []}
+                    onChange={event => {
+                      const values = Array.from(
+                        event.currentTarget.selectedOptions,
+                        option => option.value
+                      );
+                      setSettings(current => ({
+                        ...(current ?? {}),
+                        emergencyZones: {
+                          ...(current?.emergencyZones ?? {}),
+                          zoneIds: values,
+                        },
+                      }));
+                    }}
+                  >
+                    {emergencyZoneOptions.map(zone => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1">Szabály</label>
+                  <select
+                    className="border rounded p-2 w-full"
+                    value={settings?.emergencyZones?.activeRule ?? 'always'}
+                    onChange={event =>
+                      setSettings(current => ({
+                        ...(current ?? {}),
+                        emergencyZones: {
+                          ...(current?.emergencyZones ?? {}),
+                          activeRule: event.target.value as 'always' | 'byWeekday',
+                        },
+                      }))
+                    }
+                  >
+                    <option value="always">Mindig</option>
+                    <option value="byWeekday">Hét napjai szerint</option>
+                  </select>
+                </div>
+                {(settings?.emergencyZones?.activeRule ?? 'always') === 'byWeekday' && (
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    {weekdays.map(day => (
+                      <label key={day.value} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={
+                            settings?.emergencyZones?.weekdays?.includes(day.value) ?? false
+                          }
+                          onChange={event => {
+                            const current = settings?.emergencyZones?.weekdays ?? [];
+                            const next = event.target.checked
+                              ? [...current, day.value]
+                              : current.filter(value => value !== day.value);
+                            setSettings(prev => ({
+                              ...(prev ?? {}),
+                              emergencyZones: {
+                                ...(prev?.emergencyZones ?? {}),
+                                weekdays: next,
+                              },
+                            }));
+                          }}
+                        />
+                        {day.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+                disabled={actionSaving['settings-save']}
+              >
+                {actionSaving['settings-save'] ? 'Mentés...' : 'Emergency beállítások mentése'}
+              </button>
+            </section>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 border rounded-lg p-4">
+        <button
+          type="button"
+          onClick={() => setDebugOpen(current => !current)}
+          className="w-full text-left font-semibold text-sm"
+        >
+          Debug
+        </button>
+        {debugOpen && (
+          <div className="text-xs text-slate-500 space-y-2">
+            {isDev && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={runSeatingSmokeTest}
+                  className="underline"
+                  disabled={probeRunning}
+                >
+                  Seating permission smoke test
+                </button>
+                {probeSummary && <div>{probeSummary}</div>}
+              </div>
+            )}
+            {debugSeating && (
+              <div className="space-y-2">
+                <div className="font-semibold">Debug</div>
+                <button
+                  type="button"
+                  onClick={event => handleActionButtonClick(event, handleDebugAllocationLog)}
+                  className="underline"
+                >
+                  Test allocation log
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderZonesPanel = () => (
+    <section className="space-y-3 border rounded-lg p-4">
+      <h3 className="font-semibold">Zónák</h3>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <input
+          className="border rounded p-2"
+          placeholder="Zóna neve"
+          value={zoneForm.name}
+          onChange={event => setZoneForm(current => ({ ...current, name: event.target.value }))}
+        />
+        <input
+          type="number"
+          className="border rounded p-2"
+          placeholder="Prioritás"
+          value={zoneForm.priority}
+          onChange={event =>
+            setZoneForm(current => ({ ...current, priority: Number(event.target.value) }))
+          }
+        />
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={zoneForm.isActive}
+            onChange={event => setZoneForm(current => ({ ...current, isActive: event.target.checked }))}
+          />
+          Aktív
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={zoneForm.isEmergency}
+            onChange={event =>
+              setZoneForm(current => ({ ...current, isEmergency: event.target.checked }))
+            }
+          />
+          Emergency
+        </label>
+      </div>
+      <button
+        type="button"
+        onClick={event => handleActionButtonClick(event, handleZoneSubmit)}
+        className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+        disabled={actionSaving['zone-submit']}
+      >
+        {actionSaving['zone-submit'] ? 'Mentés...' : 'Mentés'}
+      </button>
+      <div className="space-y-2 text-sm">
+        {zones.map(zone => {
+          const isDeleting = actionSaving[`zone-delete-${zone.id}`];
+          return (
+            <div key={zone.id} className="flex items-center justify-between border rounded p-2">
+              <div>
+                {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setZoneForm({
+                      id: zone.id,
+                      name: zone.name,
+                      priority: zone.priority,
+                      isActive: zone.isActive,
+                      isEmergency: zone.isEmergency ?? false,
+                    })
+                  }
+                  className="text-blue-600 disabled:opacity-50"
+                  disabled={isDeleting}
+                >
+                  Szerkeszt
+                </button>
+                <button
+                  type="button"
+                  onClick={event => {
+                    if (debugSeating) {
+                      console.debug('[seating] delete zone button onClick fired', {
+                        zoneId: zone.id,
+                      });
+                    }
+                    handleActionButtonClick(event, () => handleDeleteZone(zone.id));
+                  }}
+                  className="text-red-600 disabled:opacity-50"
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Törlés...' : 'Törlés'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+
+  const renderTablesPanel = () => (
+    <section className="space-y-3 border rounded-lg p-4">
+      <h3 className="font-semibold">Asztalok</h3>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <input
+          className="border rounded p-2"
+          placeholder="Asztal neve"
+          value={tableForm.name}
+          onChange={event => setTableForm(current => ({ ...current, name: event.target.value }))}
+        />
+        <select
+          className="border rounded p-2"
+          value={tableForm.zoneId}
+          onChange={event =>
+            setTableForm(current => ({ ...current, zoneId: event.target.value }))
+          }
+        >
+          <option value="">Zóna kiválasztása</option>
+          {zones.map(zone => (
+            <option key={zone.id} value={zone.id}>
+              {zone.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          className="border rounded p-2"
+          placeholder="Min kapacitás"
+          value={tableForm.minCapacity}
+          onChange={event =>
+            setTableForm(current => ({
+              ...current,
+              minCapacity: Number(event.target.value),
+            }))
+          }
+        />
+        <input
+          type="number"
+          className="border rounded p-2"
+          placeholder="Max kapacitás"
+          value={tableForm.capacityMax}
+          onChange={event =>
+            setTableForm(current => ({
+              ...current,
+              capacityMax: Number(event.target.value),
+            }))
+          }
+        />
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tableForm.isActive}
+            onChange={event =>
+              setTableForm(current => ({ ...current, isActive: event.target.checked }))
+            }
+          />
+          Aktív
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tableForm.canSeatSolo}
+            onChange={event =>
+              setTableForm(current => ({ ...current, canSeatSolo: event.target.checked }))
+            }
+          />
+          Solo asztal
+        </label>
+        <label className="flex flex-col gap-1">
+          Alaprajz
+          <select
+            className="border rounded p-2"
+            value={tableForm.floorplanId}
+            onChange={event =>
+              setTableForm(current => ({ ...current, floorplanId: event.target.value }))
+            }
+          >
+            <option value="">Nincs kiválasztva</option>
+            {visibleFloorplans.map(plan => (
+              <option key={plan.id} value={plan.id}>
+                {plan.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          Forma
+          <select
+            className="border rounded p-2"
+            value={tableForm.shape}
+            onChange={event =>
+              setTableForm(current => ({
+                ...current,
+                shape: event.target.value as 'rect' | 'circle',
+              }))
+            }
+          >
+            <option value="rect">Téglalap</option>
+            <option value="circle">Kör</option>
+          </select>
+        </label>
+        {tableForm.shape === 'rect' ? (
+          <>
+            <input
+              type="number"
+              className="border rounded p-2"
+              placeholder="Szélesség"
+              value={tableForm.w}
+              onChange={event =>
+                setTableForm(current => ({ ...current, w: Number(event.target.value) }))
+              }
+            />
+            <input
+              type="number"
+              className="border rounded p-2"
+              placeholder="Magasság"
+              value={tableForm.h}
+              onChange={event =>
+                setTableForm(current => ({ ...current, h: Number(event.target.value) }))
+              }
+            />
+          </>
+        ) : (
+          <input
+            type="number"
+            className="border rounded p-2"
+            placeholder="Sugár"
+            value={tableForm.radius}
+            onChange={event =>
+              setTableForm(current => ({ ...current, radius: Number(event.target.value) }))
+            }
+          />
+        )}
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tableForm.snapToGrid}
+            onChange={event =>
+              setTableForm(current => ({ ...current, snapToGrid: event.target.checked }))
+            }
+          />
+          Grid snap
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tableForm.locked}
+            onChange={event =>
+              setTableForm(current => ({ ...current, locked: event.target.checked }))
+            }
+          />
+          Zárolt
+        </label>
+      </div>
+      <button
+        type="button"
+        onClick={event => handleActionButtonClick(event, handleTableSubmit)}
+        className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+        disabled={actionSaving['table-submit']}
+      >
+        {actionSaving['table-submit'] ? 'Mentés...' : 'Mentés'}
+      </button>
+      <div className="space-y-2 text-sm">
+        {tables.map(table => {
+          const isDeleting = actionSaving[`table-delete-${table.id}`];
+          return (
+            <div key={table.id} className="flex items-center justify-between border rounded p-2">
+              <div>
+                {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    (() => {
+                      const geometry = normalizeTableGeometry(table, {
+                        rectWidth: 80,
+                        rectHeight: 60,
+                        circleRadius: 40,
+                      });
+                      setTableForm({
+                        id: table.id,
+                        name: table.name,
+                        zoneId: table.zoneId,
+                        minCapacity: table.minCapacity,
+                        capacityMax: table.capacityMax,
+                        isActive: table.isActive,
+                        canSeatSolo: table.canSeatSolo ?? false,
+                        floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
+                        shape: geometry.shape,
+                        w: geometry.w,
+                        h: geometry.h,
+                        radius: geometry.radius,
+                        x: geometry.x,
+                        y: geometry.y,
+                        rot: geometry.rot,
+                        snapToGrid: table.snapToGrid ?? true,
+                        locked: table.locked ?? false,
+                      });
+                    })()
+                  }
+                  className="text-blue-600 disabled:opacity-50"
+                  disabled={isDeleting}
+                >
+                  Szerkeszt
+                </button>
+                <button
+                  type="button"
+                  onClick={event => {
+                    if (debugSeating) {
+                      console.debug('[seating] delete table button onClick fired', {
+                        tableId: table.id,
+                      });
+                    }
+                    handleActionButtonClick(event, () => handleDeleteTable(table.id));
+                  }}
+                  className="text-red-600 disabled:opacity-50"
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Törlés...' : 'Törlés'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+
+  const renderCombinationsPanel = () => (
+    <section className="space-y-3 border rounded-lg p-4">
+      <h3 className="font-semibold">Kombinációk</h3>
+      <div className="space-y-2 text-sm">
+        <div className="grid grid-cols-2 gap-2">
+          {tables.map(table => (
+            <label key={table.id} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={comboSelection.includes(table.id)}
+                onChange={event => {
+                  setComboSelection(current =>
+                    event.target.checked
+                      ? [...current, table.id]
+                      : current.filter(id => id !== table.id)
+                  );
+                }}
+              />
+              {table.name}
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={event => handleActionButtonClick(event, handleComboSubmit)}
+          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={actionSaving['combo-submit']}
+        >
+          {actionSaving['combo-submit'] ? 'Mentés...' : 'Mentés'}
+        </button>
+        <div className="space-y-2">
+          {combos.map(combo => {
+            const isToggling = actionSaving[`combo-toggle-${combo.id}`];
+            const isDeleting = actionSaving[`combo-delete-${combo.id}`];
+            return (
+              <div key={combo.id} className="flex items-center justify-between border rounded p-2">
+                <div>
+                  {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={event =>
+                      handleActionButtonClick(event, () => handleToggleCombo(combo))
+                    }
+                    className="text-blue-600 disabled:opacity-50"
+                    disabled={isToggling || isDeleting}
+                  >
+                    {combo.isActive
+                      ? isToggling
+                        ? 'Kikapcsolás...'
+                        : 'Kikapcsol'
+                      : isToggling
+                      ? 'Aktiválás...'
+                      : 'Aktivál'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={event => {
+                      if (debugSeating) {
+                        console.debug('[seating] delete combo button onClick fired', {
+                          comboId: combo.id,
+                        });
+                      }
+                      handleActionButtonClick(event, () => handleDeleteCombo(combo.id));
+                    }}
+                    className="text-red-600 disabled:opacity-50"
+                    disabled={isDeleting || isToggling}
+                  >
+                    {isDeleting ? 'Törlés...' : 'Törlés'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+
+  const renderFloorplansPanel = () => (
+    <div className="space-y-6">
+      <div className="text-sm text-[var(--color-text-secondary)]">
+        Az aktív asztaltérképet itt tudod kiválasztani.
+      </div>
+      <section className="space-y-3 border rounded-lg p-4">
+        <h3 className="font-semibold">Aktív alaprajz</h3>
+        <label className="flex flex-col gap-1 text-sm">
+          Aktív alaprajz
+          <select
+            className="border rounded p-2"
+            value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
+            onChange={event =>
+              setSettings(current => ({
+                ...(current ?? {}),
+                activeFloorplanId: event.target.value,
+              }))
+            }
+          >
+            <option value="">Nincs kiválasztva</option>
+            {visibleFloorplans.map(plan => (
+              <option key={plan.id} value={plan.id}>
+                {plan.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+      <section className="space-y-3 border rounded-lg p-4">
+        <h3 className="font-semibold">Alaprajzok</h3>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <input
+            className="border rounded p-2"
+            placeholder="Alaprajz neve"
+            value={floorplanForm.name}
+            onChange={event =>
+              setFloorplanForm(current => ({ ...current, name: event.target.value }))
+            }
+          />
+          <input
+            type="number"
+            className="border rounded p-2"
+            placeholder="Szélesség"
+            value={floorplanForm.width}
+            onChange={event =>
+              setFloorplanForm(current => ({ ...current, width: Number(event.target.value) }))
+            }
+          />
+          <input
+            type="number"
+            className="border rounded p-2"
+            placeholder="Magasság"
+            value={floorplanForm.height}
+            onChange={event =>
+              setFloorplanForm(current => ({ ...current, height: Number(event.target.value) }))
+            }
+          />
+          <input
+            type="number"
+            className="border rounded p-2"
+            placeholder="Grid méret"
+            value={floorplanForm.gridSize}
+            onChange={event =>
+              setFloorplanForm(current => ({ ...current, gridSize: Number(event.target.value) }))
+            }
+          />
+          <input
+            className="border rounded p-2 col-span-2"
+            placeholder="Háttérkép URL (opcionális)"
+            value={floorplanForm.backgroundImageUrl}
+            onChange={event =>
+              setFloorplanForm(current => ({
+                ...current,
+                backgroundImageUrl: event.target.value,
+              }))
+            }
+          />
+        </div>
+        <button
+          type="button"
+          onClick={event => handleActionButtonClick(event, handleFloorplanSubmit)}
+          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={actionSaving['floorplan-submit']}
+        >
+          {actionSaving['floorplan-submit'] ? 'Mentés...' : 'Mentés'}
+        </button>
+        <div className="space-y-2 text-sm">
+          {visibleFloorplans.map(plan => {
+            const { width, height } = normalizeFloorplanDimensions(plan);
+            const isActivating = actionSaving[`floorplan-activate-${plan.id}`];
+            const isDeleting = actionSaving[`floorplan-delete-${plan.id}`];
+            return (
+              <div key={plan.id} className="flex items-center justify-between border rounded p-2">
+                <div>
+                  {plan.name} ({width}×{height})
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={event =>
+                      handleActionButtonClick(event, () => handleActivateFloorplan(plan.id))
+                    }
+                    className="text-blue-600 disabled:opacity-50"
+                    disabled={isActivating || isDeleting}
+                  >
+                    {resolvedActiveFloorplanId === plan.id
+                      ? 'Aktív'
+                      : isActivating
+                      ? 'Aktiválás...'
+                      : 'Aktivál'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={event => {
+                      if (debugSeating) {
+                        console.debug('[seating] delete floorplan button onClick fired', {
+                          floorplanId: plan.id,
+                        });
+                      }
+                      handleActionButtonClick(event, () => handleDeleteFloorplan(plan.id));
+                    }}
+                    className="text-red-600 disabled:opacity-50"
+                    disabled={isDeleting || isActivating}
+                  >
+                    {isDeleting ? 'Törlés...' : 'Törlés'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      <section className="space-y-3 border rounded-lg p-4">
+        <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
+        {!activeFloorplan ? (
+          <div className="text-sm text-[var(--color-text-secondary)]">
+            Nincs aktív alaprajz kiválasztva.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+              <span>
+                Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
+              </span>
+              <button
+                type="button"
+                className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
+                onClick={() => void handleUndoLastAction()}
+                disabled={!isUndoAvailable}
+              >
+                Visszavonás
+              </button>
+            </div>
+            <div className="overflow-auto">
+              <div
+                ref={floorplanRef}
+                className="relative border border-gray-200 rounded-lg"
+                style={{ width: floorplanWidth, height: floorplanHeight }}
+              >
+                {activeFloorplan.backgroundImageUrl && (
+                  <img
+                    src={activeFloorplan.backgroundImageUrl}
+                    alt={activeFloorplan.name}
+                    className="absolute inset-0 w-full h-full object-contain"
+                  />
+                )}
+                {editorTables.map(table => {
+                  const geometry = normalizeTableGeometry(table, {
+                    rectWidth: 80,
+                    rectHeight: 60,
+                    circleRadius: 40,
+                  });
+                  const position = getRenderPosition(table, geometry);
+                  const renderRot = draftRotations[table.id] ?? geometry.rot;
+                  const isSelected = selectedTableId === table.id;
+                  const isSaving = Boolean(savingById[table.id]);
+                  return (
+                    <div
+                      key={table.id}
+                      className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none relative"
+                      style={{
+                        left: position.x,
+                        top: position.y,
+                        width: geometry.w,
+                        height: geometry.h,
+                        borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                        border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
+                        backgroundColor: 'rgba(255,255,255,0.9)',
+                        transform: `rotate(${renderRot}deg)`,
+                        boxShadow: isSelected
+                          ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
+                          : '0 1px 3px rgba(0,0,0,0.1)',
+                        touchAction: 'none',
+                      }}
+                      onClick={() => setSelectedTableId(table.id)}
+                      onPointerDown={event => handleTablePointerDown(event, table, geometry)}
+                      onPointerMove={handleTablePointerMove}
+                      onPointerUp={handleTablePointerUp}
+                      onPointerCancel={handleTablePointerCancel}
+                      onLostPointerCapture={handleLostPointerCapture}
+                    >
+                      {isSelected && !table.locked && (
+                        <>
+                          <span
+                            className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
+                            aria-hidden="true"
+                          />
+                          <button
+                            type="button"
+                            className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
+                            style={{ touchAction: 'none' }}
+                            onPointerDown={event => {
+                              if (!activeFloorplan) return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setSelectedTableId(table.id);
+                              event.currentTarget.setPointerCapture?.(event.pointerId);
+                              const centerX = position.x + geometry.w / 2;
+                              const centerY = position.y + geometry.h / 2;
+                              const pointer = getLocalPointerPosition(event);
+                              const startAngle =
+                                Math.atan2(pointer.y - centerY, pointer.x - centerX) *
+                                (180 / Math.PI);
+                              setDragState({
+                                tableId: table.id,
+                                pointerId: event.pointerId,
+                                pointerTarget: event.currentTarget,
+                                pointerStartX: event.clientX,
+                                pointerStartY: event.clientY,
+                                tableStartX: position.x,
+                                tableStartY: position.y,
+                                width: geometry.w,
+                                height: geometry.h,
+                                mode: 'rotate',
+                                tableStartRot: renderRot,
+                                rotStartAngleDeg: startAngle,
+                                rotCenterX: centerX,
+                                rotCenterY: centerY,
+                                floorplanWidth,
+                                floorplanHeight,
+                                gridSize: editorGridSize,
+                                snapToGrid: table.snapToGrid ?? false,
+                              });
+                              setLastSavedRot(current =>
+                                current[table.id] !== undefined
+                                  ? current
+                                  : { ...current, [table.id]: renderRot }
+                              );
+                            }}
+                            onPointerMove={handleTablePointerMove}
+                            onPointerUp={handleTablePointerUp}
+                            onPointerCancel={handleTablePointerCancel}
+                            onLostPointerCapture={handleLostPointerCapture}
+                          >
+                            <span className="h-1 w-1 rounded-full bg-gray-500" />
+                          </button>
+                        </>
+                      )}
+                      {table.name}
+                      <div className="flex gap-1 mt-1">
+                        {table.locked && (
+                          <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
+                        )}
+                        {table.canCombine && (
+                          <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
+                        )}
+                        {isSaving && (
+                          <span className="px-1 rounded bg-blue-100 text-[9px]">Saving...</span>
+                        )}
+                        {isSelected && (
+                          <span className="px-1 rounded bg-gray-100 text-[9px]">
+                            {Math.round(renderRot)}°
+                          </span>
+                        )}
+                      </div>
+                      {isSelected && !table.locked && (
+                        <div className="flex gap-1 mt-1">
+                          <button
+                            type="button"
+                            className="px-1 rounded bg-gray-100 text-[9px]"
+                            onPointerDown={event => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={event => {
+                              event.stopPropagation();
+                              const nextRot = normalizeRotation(renderRot - 5);
+                              updateDraftRotation(table.id, nextRot);
+                              setLastSavedRot(current => ({
+                                ...current,
+                                [table.id]:
+                                  current[table.id] !== undefined ? current[table.id] : renderRot,
+                              }));
+                              void finalizeRotation(table.id, nextRot, renderRot);
+                            }}
+                          >
+                            ↺
+                          </button>
+                          <button
+                            type="button"
+                            className="px-1 rounded bg-gray-100 text-[9px]"
+                            onPointerDown={event => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={event => {
+                              event.stopPropagation();
+                              const nextRot = normalizeRotation(renderRot + 5);
+                              updateDraftRotation(table.id, nextRot);
+                              setLastSavedRot(current => ({
+                                ...current,
+                                [table.id]:
+                                  current[table.id] !== undefined ? current[table.id] : renderRot,
+                              }));
+                              void finalizeRotation(table.id, nextRot, renderRot);
+                            }}
+                          >
+                            ↻
+                          </button>
+                          <button
+                            type="button"
+                            className="px-1 rounded bg-gray-100 text-[9px]"
+                            onPointerDown={event => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={event => {
+                              event.stopPropagation();
+                              updateDraftRotation(table.id, 0);
+                              setLastSavedRot(current => ({
+                                ...current,
+                                [table.id]:
+                                  current[table.id] !== undefined ? current[table.id] : renderRot,
+                              }));
+                              void finalizeRotation(table.id, 0, renderRot);
+                            }}
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+
   if (loading) {
     return (
       <div
@@ -1554,1158 +2768,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        {isDev && (
-          <div className="text-xs text-slate-500 space-y-1">
+        <div className="flex flex-wrap gap-2 border-b pb-2">
+          {tabs.map(tab => (
             <button
+              key={tab.id}
               type="button"
-              onClick={runSeatingSmokeTest}
-              className="underline"
-              disabled={probeRunning}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-1.5 rounded-full text-sm border ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-200'
+              }`}
             >
-              Seating permission smoke test
+              {tab.label}
             </button>
-            {probeSummary && <div>{probeSummary}</div>}
-          </div>
-        )}
-        {debugSeating && (
-          <div className="text-xs text-slate-500 space-y-2">
-            <div className="font-semibold">Debug</div>
-            <button
-              type="button"
-              onClick={event => handleActionButtonClick(event, handleDebugAllocationLog)}
-              className="underline"
-            >
-              Test allocation log
-            </button>
-          </div>
-        )}
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Alaprajzok</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <input
-              className="border rounded p-2"
-              placeholder="Alaprajz neve"
-              value={floorplanForm.name}
-              onChange={event =>
-                setFloorplanForm(current => ({ ...current, name: event.target.value }))
-              }
-            />
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Szélesség"
-              value={floorplanForm.width}
-              onChange={event =>
-                setFloorplanForm(current => ({ ...current, width: Number(event.target.value) }))
-              }
-            />
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Magasság"
-              value={floorplanForm.height}
-              onChange={event =>
-                setFloorplanForm(current => ({ ...current, height: Number(event.target.value) }))
-              }
-            />
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Grid méret"
-              value={floorplanForm.gridSize}
-              onChange={event =>
-                setFloorplanForm(current => ({ ...current, gridSize: Number(event.target.value) }))
-              }
-            />
-            <input
-              className="border rounded p-2 col-span-2"
-              placeholder="Háttérkép URL (opcionális)"
-              value={floorplanForm.backgroundImageUrl}
-              onChange={event =>
-                setFloorplanForm(current => ({
-                  ...current,
-                  backgroundImageUrl: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleFloorplanSubmit)}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['floorplan-submit']}
-          >
-            {actionSaving['floorplan-submit'] ? 'Mentés...' : 'Mentés'}
-          </button>
-          <div className="space-y-2 text-sm">
-            {visibleFloorplans.map(plan => {
-              const { width, height } = normalizeFloorplanDimensions(plan);
-              const isActivating = actionSaving[`floorplan-activate-${plan.id}`];
-              const isDeleting = actionSaving[`floorplan-delete-${plan.id}`];
-              return (
-                <div key={plan.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    {plan.name} ({width}×{height})
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={event =>
-                        handleActionButtonClick(event, () => handleActivateFloorplan(plan.id))
-                      }
-                      className="text-blue-600 disabled:opacity-50"
-                      disabled={isActivating || isDeleting}
-                    >
-                      {resolvedActiveFloorplanId === plan.id
-                        ? 'Aktív'
-                        : isActivating
-                        ? 'Aktiválás...'
-                        : 'Aktivál'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={event => {
-                        if (debugSeating) {
-                          console.debug('[seating] delete floorplan button onClick fired', {
-                            floorplanId: plan.id,
-                          });
-                        }
-                        handleActionButtonClick(event, () => handleDeleteFloorplan(plan.id));
-                      }}
-                      className="text-red-600 disabled:opacity-50"
-                      disabled={isDeleting || isActivating}
-                    >
-                      {isDeleting ? 'Törlés...' : 'Törlés'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
-          {!activeFloorplan ? (
-            <div className="text-sm text-[var(--color-text-secondary)]">
-              Nincs aktív alaprajz kiválasztva.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-                <span>
-                  Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
-                </span>
-                <button
-                  type="button"
-                  className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
-                  onClick={() => void handleUndoLastAction()}
-                  disabled={!isUndoAvailable}
-                >
-                  Undo
-                </button>
-              </div>
-              <div className="overflow-auto">
-                <div
-                  className="relative border border-gray-200 rounded-lg"
-                  style={{ width: floorplanWidth, height: floorplanHeight }}
-                  ref={floorplanRef}
-                >
-                  {activeFloorplan.backgroundImageUrl && (
-                    <img
-                      src={activeFloorplan.backgroundImageUrl}
-                      alt={activeFloorplan.name}
-                      className="absolute inset-0 w-full h-full object-contain"
-                    />
-                  )}
-                  {editorTables.map(table => {
-                    const geometry = normalizeTableGeometry(table, {
-                      rectWidth: 80,
-                      rectHeight: 60,
-                      circleRadius: 40,
-                    });
-                    const position = getRenderPosition(table, geometry);
-                    const renderRot = draftRotations[table.id] ?? geometry.rot;
-                    const isSelected = selectedTableId === table.id;
-                    const isSaving = Boolean(savingById[table.id]);
-
-                    return (
-                      <div
-                        key={table.id}
-                        className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none relative"
-                        style={{
-                          left: position.x,
-                          top: position.y,
-                          width: geometry.w,
-                          height: geometry.h,
-                          borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                          border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
-                          backgroundColor: 'rgba(255,255,255,0.9)',
-                          transform: `rotate(${renderRot}deg)`,
-                          boxShadow: isSelected
-                            ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
-                            : '0 1px 3px rgba(0,0,0,0.1)',
-                          touchAction: 'none',
-                        }}
-                        onClick={() => setSelectedTableId(table.id)}
-                        onPointerDown={event => handleTablePointerDown(event, table, geometry)}
-                        onPointerMove={handleTablePointerMove}
-                        onPointerUp={handleTablePointerUp}
-                        onPointerCancel={handleTablePointerCancel}
-                        onLostPointerCapture={handleLostPointerCapture}
-                      >
-                        {isSelected && !table.locked && (
-                          <>
-                            <span
-                              className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
-                              aria-hidden="true"
-                            />
-                            <button
-                              type="button"
-                              className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
-                              style={{ touchAction: 'none' }}
-                              onPointerDown={event => {
-                                if (!activeFloorplan) return;
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setSelectedTableId(table.id);
-                                event.currentTarget.setPointerCapture?.(event.pointerId);
-                                const centerX = position.x + geometry.w / 2;
-                                const centerY = position.y + geometry.h / 2;
-                                const pointer = getLocalPointerPosition(event);
-                                const startAngle =
-                                  Math.atan2(pointer.y - centerY, pointer.x - centerX) *
-                                  (180 / Math.PI);
-                                setDragState({
-                                  tableId: table.id,
-                                  pointerId: event.pointerId,
-                                  pointerTarget: event.currentTarget,
-                                  pointerStartX: event.clientX,
-                                  pointerStartY: event.clientY,
-                                  tableStartX: position.x,
-                                  tableStartY: position.y,
-                                  width: geometry.w,
-                                  height: geometry.h,
-                                  mode: 'rotate',
-                                  tableStartRot: renderRot,
-                                  rotStartAngleDeg: startAngle,
-                                  rotCenterX: centerX,
-                                  rotCenterY: centerY,
-                                  floorplanWidth,
-                                  floorplanHeight,
-                                  gridSize: editorGridSize,
-                                  snapToGrid: table.snapToGrid ?? false,
-                                });
-                                setLastSavedRot(current =>
-                                  current[table.id] !== undefined
-                                    ? current
-                                    : { ...current, [table.id]: renderRot }
-                                );
-                              }}
-                              onPointerMove={handleTablePointerMove}
-                              onPointerUp={handleTablePointerUp}
-                              onPointerCancel={handleTablePointerCancel}
-                              onLostPointerCapture={handleLostPointerCapture}
-                            >
-                              <span className="h-1 w-1 rounded-full bg-gray-500" />
-                            </button>
-                          </>
-                        )}
-                        <span>{table.name}</span>
-                        <div className="flex gap-1 mt-1">
-                          {table.locked && (
-                            <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
-                          )}
-                          {table.canCombine && (
-                            <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
-                          )}
-                          {isSaving && (
-                            <span className="px-1 rounded bg-blue-100 text-[9px]">Saving...</span>
-                          )}
-                          {isSelected && (
-                            <span className="px-1 rounded bg-gray-100 text-[9px]">
-                              {Math.round(renderRot)}°
-                            </span>
-                          )}
-                        </div>
-                        {isSelected && !table.locked && (
-                          <div className="flex gap-1 mt-1">
-                            <button
-                              type="button"
-                              className="px-1 rounded bg-gray-100 text-[9px]"
-                              onPointerDown={event => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={event => {
-                                event.stopPropagation();
-                                const nextRot = normalizeRotation(renderRot - 5);
-                                updateDraftRotation(table.id, nextRot);
-                                setLastSavedRot(current => ({
-                                  ...current,
-                                  [table.id]:
-                                    current[table.id] !== undefined ? current[table.id] : renderRot,
-                                }));
-                                void finalizeRotation(table.id, nextRot, renderRot);
-                              }}
-                            >
-                              ↺
-                            </button>
-                            <button
-                              type="button"
-                              className="px-1 rounded bg-gray-100 text-[9px]"
-                              onPointerDown={event => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={event => {
-                                event.stopPropagation();
-                                const nextRot = normalizeRotation(renderRot + 5);
-                                updateDraftRotation(table.id, nextRot);
-                                setLastSavedRot(current => ({
-                                  ...current,
-                                  [table.id]:
-                                    current[table.id] !== undefined ? current[table.id] : renderRot,
-                                }));
-                                void finalizeRotation(table.id, nextRot, renderRot);
-                              }}
-                            >
-                              ↻
-                            </button>
-                            <button
-                              type="button"
-                              className="px-1 rounded bg-gray-100 text-[9px]"
-                              onPointerDown={event => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={event => {
-                                event.stopPropagation();
-                                updateDraftRotation(table.id, 0);
-                                setLastSavedRot(current => ({
-                                  ...current,
-                                  [table.id]:
-                                    current[table.id] !== undefined ? current[table.id] : renderRot,
-                                }));
-                                void finalizeRotation(table.id, 0, renderRot);
-                              }}
-                            >
-                              Reset
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Alap beállítások</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <label className="flex flex-col gap-1">
-              Buffer (perc)
-              <input
-                type="number"
-                className="border rounded p-2"
-                value={settings?.bufferMinutes ?? 15}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    bufferMinutes: Number(event.target.value),
-                  }))
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              Alap foglalási idő (perc)
-              <input
-                type="number"
-                className="border rounded p-2"
-                value={settings?.defaultDurationMinutes ?? 120}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    defaultDurationMinutes: Number(event.target.value),
-                  }))
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              Késés kezelése (perc)
-              <input
-                type="number"
-                className="border rounded p-2"
-                value={settings?.holdTableMinutesOnLate ?? 15}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    holdTableMinutesOnLate: Number(event.target.value),
-                  }))
-                }
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={settings?.vipEnabled ?? true}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    vipEnabled: event.target.checked,
-                  }))
-                }
-              />
-              VIP engedélyezve
-            </label>
-            <label className="flex flex-col gap-1">
-              Aktív alaprajz
-              <select
-                className="border rounded p-2"
-                value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    activeFloorplanId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">Nincs kiválasztva</option>
-                {visibleFloorplans.map(plan => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm col-span-2">
-              <input
-                type="checkbox"
-                checked={settings?.allocationEnabled ?? false}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    allocationEnabled: event.target.checked,
-                  }))
-                }
-              />
-              Seating allocation enabled
-            </label>
-            <label className="flex flex-col gap-1">
-              Allokáció mód
-              <select
-                className="border rounded p-2"
-                value={settings?.allocationMode ?? 'capacity'}
-                disabled={!settings?.allocationEnabled}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    allocationMode: event.target.value as SeatingSettings['allocationMode'],
-                  }))
-                }
-              >
-                <option value="capacity">Kapacitás</option>
-                <option value="floorplan">Alaprajz</option>
-                <option value="hybrid">Hibrid</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              Allokációs stratégia
-              <select
-                className="border rounded p-2"
-                value={settings?.allocationStrategy ?? 'bestFit'}
-                disabled={!settings?.allocationEnabled}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    allocationStrategy: event.target.value as SeatingSettings['allocationStrategy'],
-                  }))
-                }
-              >
-                <option value="bestFit">Best fit</option>
-                <option value="minWaste">Min waste</option>
-                <option value="priorityZoneFirst">Zóna prioritás</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              Alapértelmezett zóna
-              <select
-                className="border rounded p-2"
-                value={settings?.defaultZoneId ?? ''}
-                disabled={!settings?.allocationEnabled}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    defaultZoneId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">Nincs beállítva</option>
-                {zones.map(zone => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="col-span-2 space-y-2">
-              <div className="text-sm font-semibold">Zóna prioritás</div>
-              <div className="flex flex-wrap gap-2 text-sm">
-                {(settings?.zonePriority ?? []).map((zoneId, index) => {
-                  const zone = zones.find(item => item.id === zoneId);
-                  if (!zone) {
-                    return null;
-                  }
-                  return (
-                    <div
-                      key={zoneId}
-                      className="flex items-center gap-2 border rounded px-2 py-1"
-                    >
-                      <span>{zone.name}</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          className="text-xs text-blue-600 disabled:opacity-40"
-                          disabled={!settings?.allocationEnabled || index === 0}
-                          onClick={() =>
-                            setSettings(current => {
-                              const list = [...(current?.zonePriority ?? [])];
-                              if (index <= 0) {
-                                return current;
-                              }
-                              [list[index - 1], list[index]] = [list[index], list[index - 1]];
-                              return { ...(current ?? {}), zonePriority: list };
-                            })
-                          }
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs text-blue-600 disabled:opacity-40"
-                          disabled={
-                            !settings?.allocationEnabled ||
-                            index === (settings?.zonePriority ?? []).length - 1
-                          }
-                          onClick={() =>
-                            setSettings(current => {
-                              const list = [...(current?.zonePriority ?? [])];
-                              if (index >= list.length - 1) {
-                                return current;
-                              }
-                              [list[index], list[index + 1]] = [list[index + 1], list[index]];
-                              return { ...(current ?? {}), zonePriority: list };
-                            })
-                          }
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs text-red-600"
-                          disabled={!settings?.allocationEnabled}
-                          onClick={() =>
-                            setSettings(current => ({
-                              ...(current ?? {}),
-                              zonePriority: (current?.zonePriority ?? []).filter(
-                                id => id !== zoneId
-                              ),
-                            }))
-                          }
-                        >
-                          törlés
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  className="border rounded p-2 text-sm"
-                  value={zonePriorityAdd}
-                  disabled={!settings?.allocationEnabled}
-                  onChange={event => {
-                    const nextZoneId = event.target.value;
-                    setZonePriorityAdd(nextZoneId);
-                    if (!nextZoneId) {
-                      return;
-                    }
-                    setSettings(current => {
-                      const currentList = current?.zonePriority ?? [];
-                      if (currentList.includes(nextZoneId)) {
-                        return current;
-                      }
-                      return {
-                        ...(current ?? {}),
-                        zonePriority: [...currentList, nextZoneId],
-                      };
-                    });
-                    setZonePriorityAdd('');
-                  }}
-                >
-                  <option value="">Zóna hozzáadása</option>
-                  {activeZones
-                    .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
-                    .map(zone => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-            <div className="col-span-2 space-y-2">
-              <div className="text-sm font-semibold">Overflow zónák</div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {activeZones.map(zone => (
-                  <label key={zone.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={(settings?.overflowZones ?? []).includes(zone.id)}
-                      disabled={!settings?.allocationEnabled}
-                      onChange={event =>
-                        setSettings(current => {
-                          const currentList = current?.overflowZones ?? [];
-                          const nextList = event.target.checked
-                            ? Array.from(new Set([...currentList, zone.id]))
-                            : currentList.filter(id => id !== zone.id);
-                          return { ...(current ?? {}), overflowZones: nextList };
-                        })
-                      }
-                    />
-                    {zone.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm col-span-2">
-              <input
-                type="checkbox"
-                checked={settings?.allowCrossZoneCombinations ?? false}
-                disabled={!settings?.allocationEnabled}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    allowCrossZoneCombinations: event.target.checked,
-                  }))
-                }
-              />
-              Kombinált asztalok engedélyezése zónák között
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['settings-save']}
-          >
-            {actionSaving['settings-save'] ? 'Mentés...' : 'Mentés'}
-          </button>
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Emergency zónák</h3>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings?.emergencyZones?.enabled ?? false}
-              onChange={event =>
-                setSettings(current => ({
-                  ...(current ?? {}),
-                  emergencyZones: {
-                    ...(current?.emergencyZones ?? {}),
-                    enabled: event.target.checked,
-                  },
-                }))
-              }
-            />
-            Emergency zónák engedélyezve
-          </label>
-          <div className="text-sm space-y-2">
-            <div>
-              <label className="block mb-1">Zónák</label>
-              <select
-                multiple
-                className="border rounded p-2 w-full"
-                value={settings?.emergencyZones?.zoneIds ?? []}
-                onChange={event => {
-                  const values = Array.from(
-                    event.currentTarget.selectedOptions,
-                    option => option.value
-                  );
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    emergencyZones: {
-                      ...(current?.emergencyZones ?? {}),
-                      zoneIds: values,
-                    },
-                  }));
-                }}
-              >
-                {emergencyZoneOptions.map(zone => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block mb-1">Szabály</label>
-              <select
-                className="border rounded p-2 w-full"
-                value={settings?.emergencyZones?.activeRule ?? 'always'}
-                onChange={event =>
-                  setSettings(current => ({
-                    ...(current ?? {}),
-                    emergencyZones: {
-                      ...(current?.emergencyZones ?? {}),
-                      activeRule: event.target.value as 'always' | 'byWeekday',
-                    },
-                  }))
-                }
-              >
-                <option value="always">Mindig</option>
-                <option value="byWeekday">Hét napjai szerint</option>
-              </select>
-            </div>
-            {(settings?.emergencyZones?.activeRule ?? 'always') === 'byWeekday' && (
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {weekdays.map(day => (
-                  <label key={day.value} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={settings?.emergencyZones?.weekdays?.includes(day.value) ?? false}
-                      onChange={event => {
-                        const current = settings?.emergencyZones?.weekdays ?? [];
-                        const next = event.target.checked
-                          ? [...current, day.value]
-                          : current.filter(value => value !== day.value);
-                        setSettings(prev => ({
-                          ...(prev ?? {}),
-                          emergencyZones: {
-                            ...(prev?.emergencyZones ?? {}),
-                            weekdays: next,
-                          },
-                        }));
-                      }}
-                    />
-                    {day.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['settings-save']}
-          >
-            {actionSaving['settings-save'] ? 'Mentés...' : 'Emergency beállítások mentése'}
-          </button>
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Zónák</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <input
-              className="border rounded p-2"
-              placeholder="Zóna neve"
-              value={zoneForm.name}
-              onChange={event => setZoneForm(current => ({ ...current, name: event.target.value }))}
-            />
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Prioritás"
-              value={zoneForm.priority}
-              onChange={event =>
-                setZoneForm(current => ({ ...current, priority: Number(event.target.value) }))
-              }
-            />
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={zoneForm.isActive}
-                onChange={event => setZoneForm(current => ({ ...current, isActive: event.target.checked }))}
-              />
-              Aktív
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={zoneForm.isEmergency}
-                onChange={event =>
-                  setZoneForm(current => ({ ...current, isEmergency: event.target.checked }))
-                }
-              />
-              Emergency
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleZoneSubmit)}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['zone-submit']}
-          >
-            {actionSaving['zone-submit'] ? 'Mentés...' : 'Mentés'}
-          </button>
-          <div className="space-y-2 text-sm">
-            {zones.map(zone => {
-              const isDeleting = actionSaving[`zone-delete-${zone.id}`];
-              return (
-                <div key={zone.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setZoneForm({
-                          id: zone.id,
-                          name: zone.name,
-                          priority: zone.priority,
-                          isActive: zone.isActive,
-                          isEmergency: zone.isEmergency ?? false,
-                        })
-                      }
-                      className="text-blue-600 disabled:opacity-50"
-                      disabled={isDeleting}
-                    >
-                      Szerkeszt
-                    </button>
-                    <button
-                      type="button"
-                      onClick={event => {
-                        if (debugSeating) {
-                          console.debug('[seating] delete zone button onClick fired', {
-                            zoneId: zone.id,
-                          });
-                        }
-                        handleActionButtonClick(event, () => handleDeleteZone(zone.id));
-                      }}
-                      className="text-red-600 disabled:opacity-50"
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? 'Törlés...' : 'Törlés'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Asztalok</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <input
-              className="border rounded p-2"
-              placeholder="Asztal neve"
-              value={tableForm.name}
-              onChange={event => setTableForm(current => ({ ...current, name: event.target.value }))}
-            />
-            <select
-              className="border rounded p-2"
-              value={tableForm.zoneId}
-              onChange={event =>
-                setTableForm(current => ({ ...current, zoneId: event.target.value }))
-              }
-            >
-              <option value="">Zóna kiválasztása</option>
-              {zones.map(zone => (
-                <option key={zone.id} value={zone.id}>
-                  {zone.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Min kapacitás"
-              value={tableForm.minCapacity}
-              onChange={event =>
-                setTableForm(current => ({
-                  ...current,
-                  minCapacity: Number(event.target.value),
-                }))
-              }
-            />
-            <input
-              type="number"
-              className="border rounded p-2"
-              placeholder="Max kapacitás"
-              value={tableForm.capacityMax}
-              onChange={event =>
-                setTableForm(current => ({
-                  ...current,
-                  capacityMax: Number(event.target.value),
-                }))
-              }
-            />
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={tableForm.isActive}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, isActive: event.target.checked }))
-                }
-              />
-              Aktív
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={tableForm.canSeatSolo}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, canSeatSolo: event.target.checked }))
-                }
-              />
-              Solo asztal
-            </label>
-            <label className="flex flex-col gap-1">
-              Alaprajz
-              <select
-                className="border rounded p-2"
-                value={tableForm.floorplanId}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, floorplanId: event.target.value }))
-                }
-              >
-                <option value="">Nincs kiválasztva</option>
-                {visibleFloorplans.map(plan => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              Forma
-              <select
-                className="border rounded p-2"
-                value={tableForm.shape}
-                onChange={event =>
-                  setTableForm(current => ({
-                    ...current,
-                    shape: event.target.value as 'rect' | 'circle',
-                  }))
-                }
-              >
-                <option value="rect">Téglalap</option>
-                <option value="circle">Kör</option>
-              </select>
-            </label>
-            {tableForm.shape === 'rect' ? (
-              <>
-                <input
-                  type="number"
-                  className="border rounded p-2"
-                  placeholder="Szélesség"
-                  value={tableForm.w}
-                  onChange={event =>
-                    setTableForm(current => ({ ...current, w: Number(event.target.value) }))
-                  }
-                />
-                <input
-                  type="number"
-                  className="border rounded p-2"
-                  placeholder="Magasság"
-                  value={tableForm.h}
-                  onChange={event =>
-                    setTableForm(current => ({ ...current, h: Number(event.target.value) }))
-                  }
-                />
-              </>
-            ) : (
-              <input
-                type="number"
-                className="border rounded p-2"
-                placeholder="Sugár"
-                value={tableForm.radius}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, radius: Number(event.target.value) }))
-                }
-              />
-            )}
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={tableForm.snapToGrid}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, snapToGrid: event.target.checked }))
-                }
-              />
-              Grid snap
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={tableForm.locked}
-                onChange={event =>
-                  setTableForm(current => ({ ...current, locked: event.target.checked }))
-                }
-              />
-              Zárolt
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={event => handleActionButtonClick(event, handleTableSubmit)}
-            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-            disabled={actionSaving['table-submit']}
-          >
-            {actionSaving['table-submit'] ? 'Mentés...' : 'Mentés'}
-          </button>
-          <div className="space-y-2 text-sm">
-            {tables.map(table => {
-              const isDeleting = actionSaving[`table-delete-${table.id}`];
-              return (
-                <div key={table.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        (() => {
-                          const geometry = normalizeTableGeometry(table, {
-                            rectWidth: 80,
-                            rectHeight: 60,
-                            circleRadius: 40,
-                          });
-                          setTableForm({
-                            id: table.id,
-                            name: table.name,
-                            zoneId: table.zoneId,
-                            minCapacity: table.minCapacity,
-                            capacityMax: table.capacityMax,
-                            isActive: table.isActive,
-                            canSeatSolo: table.canSeatSolo ?? false,
-                            floorplanId: table.floorplanId ?? resolvedActiveFloorplanId,
-                            shape: geometry.shape,
-                            w: geometry.w,
-                            h: geometry.h,
-                            radius: geometry.radius,
-                            x: geometry.x,
-                            y: geometry.y,
-                            rot: geometry.rot,
-                            snapToGrid: table.snapToGrid ?? true,
-                            locked: table.locked ?? false,
-                          });
-                        })()
-                      }
-                      className="text-blue-600 disabled:opacity-50"
-                      disabled={isDeleting}
-                    >
-                      Szerkeszt
-                    </button>
-                    <button
-                      type="button"
-                      onClick={event => {
-                        if (debugSeating) {
-                          console.debug('[seating] delete table button onClick fired', {
-                            tableId: table.id,
-                          });
-                        }
-                        handleActionButtonClick(event, () => handleDeleteTable(table.id));
-                      }}
-                      className="text-red-600 disabled:opacity-50"
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? 'Törlés...' : 'Törlés'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold">Kombinációk</h3>
-          <div className="space-y-2 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              {tables.map(table => (
-                <label key={table.id} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={comboSelection.includes(table.id)}
-                    onChange={event => {
-                      setComboSelection(current =>
-                        event.target.checked
-                          ? [...current, table.id]
-                          : current.filter(id => id !== table.id)
-                      );
-                    }}
-                  />
-                  {table.name}
-                </label>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={event => handleActionButtonClick(event, handleComboSubmit)}
-              className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-              disabled={actionSaving['combo-submit']}
-            >
-              {actionSaving['combo-submit'] ? 'Mentés...' : 'Mentés'}
-            </button>
-            <div className="space-y-2">
-              {combos.map(combo => {
-                const isToggling = actionSaving[`combo-toggle-${combo.id}`];
-                const isDeleting = actionSaving[`combo-delete-${combo.id}`];
-                return (
-                  <div key={combo.id} className="flex items-center justify-between border rounded p-2">
-                    <div>
-                      {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={event =>
-                          handleActionButtonClick(event, () => handleToggleCombo(combo))
-                        }
-                        className="text-blue-600 disabled:opacity-50"
-                        disabled={isToggling || isDeleting}
-                      >
-                        {combo.isActive
-                          ? isToggling
-                            ? 'Kikapcsolás...'
-                            : 'Kikapcsol'
-                          : isToggling
-                          ? 'Aktiválás...'
-                          : 'Aktivál'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={event => {
-                          if (debugSeating) {
-                            console.debug('[seating] delete combo button onClick fired', {
-                              comboId: combo.id,
-                            });
-                          }
-                          handleActionButtonClick(event, () => handleDeleteCombo(combo.id));
-                        }}
-                        className="text-red-600 disabled:opacity-50"
-                        disabled={isDeleting || isToggling}
-                      >
-                        {isDeleting ? 'Törlés...' : 'Törlés'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
+          ))}
+        </div>
+        <div className="pt-4">
+          {activeTab === 'overview' && renderOverviewPanel()}
+          {activeTab === 'zones' && renderZonesPanel()}
+          {activeTab === 'tables' && renderTablesPanel()}
+          {activeTab === 'combinations' && renderCombinationsPanel()}
+          {activeTab === 'floorplans' && renderFloorplansPanel()}
+        </div>
       </div>
     </div>
   );
