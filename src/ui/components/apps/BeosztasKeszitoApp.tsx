@@ -2095,16 +2095,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     }
     unitChunks.forEach((chunk, index) => {
       const unitIdsQuery = query(
-        collection(db, 'users'),
-        where('unitIds', 'array-contains-any', chunk)
+        collection(db, 'unit_staff', unitId, 'users')
       );
       unsubscribers.push(
         attachListener(`unitIdsArr:${index}`, unitIdsQuery)
       );
 
       const unitIDsQuery = query(
-        collection(db, 'users'),
-        where('unitIDs', 'array-contains-any', chunk)
+        collection(db, 'unit_staff', unitId, 'users')
       );
       unsubscribers.push(
         attachListener(`unitIDsArr:${index}`, unitIDsQuery)
