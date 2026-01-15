@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolve as resolvePath } from 'node:path';
+import { dirname, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { buildLoaderRegister } from './testLoaderRegister.mjs';
 
-const repoRoot = resolvePath('.');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const repoRoot = resolvePath(__dirname, '..', '..');
 
 test('buildLoaderRegister returns expected loader paths', () => {
   const { loaderPath } = buildLoaderRegister(repoRoot);
-  assert.ok(loaderPath.endsWith('src/scripts/tsModuleLoader.mjs'));
+  const expectedPath = resolvePath(repoRoot, 'src', 'scripts', 'tsModuleLoader.mjs');
+  assert.equal(loaderPath, expectedPath);
 });
 
 test('buildLoaderRegister returns base URL with trailing slash', () => {
