@@ -2002,6 +2002,34 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     setIsDataLoading(true);
     setStaffWarning(null);
+    console.log('[staff]', { activeUnitIds, currentUserUnitIds });
+    getDoc(doc(db, 'users', currentUser.id))
+      .then(docSnap => {
+        const data = docSnap.data();
+        console.log('[staff] currentUser', {
+          data,
+          unitIdType: typeof data?.unitId,
+          unitIdsIsArray: Array.isArray(data?.unitIds),
+          unitIdsFirstType: Array.isArray(data?.unitIds) ? typeof data?.unitIds[0] : null,
+          unitIDsIsArray: Array.isArray(data?.unitIDs)
+        });
+      })
+      .catch(error => {
+        console.warn('[staff] currentUser read error', error);
+      });
+    if (settingsDocId) {
+      getDoc(doc(db, 'schedule_settings', settingsDocId))
+        .then(docSnap => {
+          const data = docSnap.data();
+          console.log('[staff] schedule_settings', {
+            exists: docSnap.exists(),
+            unitId: data?.unitId
+          });
+        })
+        .catch(error => {
+          console.warn('[staff] schedule_settings read error', error);
+        });
+    }
     // Staff list must be unit-filtered; global reads are forbidden.
     const sourceMaps = new Map<string, Map<string, User>>();
     let expected = 0;
@@ -2131,7 +2159,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       sourceMaps.clear();
       settledKeys.clear();
     };
-  }, [activeUnitIds, currentUserUnitIds, isAdminUser]);
+  }, [activeUnitIds, currentUserUnitIds, isAdminUser, currentUser.id, settingsDocId]);
 
   useEffect(() => {
     if (weekSettings) {
