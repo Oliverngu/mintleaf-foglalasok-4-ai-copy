@@ -1723,12 +1723,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             disabled={!settings?.allocationEnabled || index === 0}
                             onClick={() =>
                               setSettings(prev => {
-                                const list = [...(ensureSettings(prev).zonePriority ?? [])];
+                                const base = ensureSettings(prev);
+                                const list = [...(base.zonePriority ?? [])];
                                 if (index <= 0) {
-                                  return prev;
+                                  return base;
                                 }
                                 [list[index - 1], list[index]] = [list[index], list[index - 1]];
-                                return { ...ensureSettings(prev), zonePriority: list };
+                                return { ...base, zonePriority: list };
                               })
                             }
                           >
@@ -1743,12 +1744,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             }
                             onClick={() =>
                               setSettings(prev => {
-                                const list = [...(ensureSettings(prev).zonePriority ?? [])];
+                                const base = ensureSettings(prev);
+                                const list = [...(base.zonePriority ?? [])];
                                 if (index >= list.length - 1) {
-                                  return prev;
+                                  return base;
                                 }
                                 [list[index], list[index + 1]] = [list[index + 1], list[index]];
-                                return { ...ensureSettings(prev), zonePriority: list };
+                                return { ...base, zonePriority: list };
                               })
                             }
                           >
@@ -1759,12 +1761,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             className="text-xs text-red-600"
                             disabled={!settings?.allocationEnabled}
                             onClick={() =>
-                              setSettings(prev => ({
-                                ...ensureSettings(prev),
-                                zonePriority: (ensureSettings(prev).zonePriority ?? []).filter(
-                                  id => id !== zoneId
-                                ),
-                              }))
+                              setSettings(prev => {
+                                const base = ensureSettings(prev);
+                                return {
+                                  ...base,
+                                  zonePriority: (base.zonePriority ?? []).filter(id => id !== zoneId),
+                                };
+                              })
                             }
                           >
                             törlés
@@ -1786,12 +1789,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       return;
                     }
                     setSettings(prev => {
-                      const currentList = ensureSettings(prev).zonePriority ?? [];
+                      const base = ensureSettings(prev);
+                      const currentList = base.zonePriority ?? [];
                       if (currentList.includes(nextZoneId)) {
-                        return prev;
+                        return base;
                       }
                       return {
-                        ...ensureSettings(prev),
+                        ...base,
                         zonePriority: [...currentList, nextZoneId],
                       };
                     });
@@ -1820,11 +1824,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       disabled={!settings?.allocationEnabled}
                       onChange={event =>
                         setSettings(prev => {
-                          const currentList = ensureSettings(prev).overflowZones ?? [];
+                          const base = ensureSettings(prev);
+                          const currentList = base.overflowZones ?? [];
                           const nextList = event.target.checked
                             ? Array.from(new Set([...currentList, zone.id]))
                             : currentList.filter(id => id !== zone.id);
-                          return { ...ensureSettings(prev), overflowZones: nextList };
+                          return { ...base, overflowZones: nextList };
                         })
                       }
                     />
@@ -1839,10 +1844,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 checked={settings?.allowCrossZoneCombinations ?? false}
                 disabled={!settings?.allocationEnabled}
                 onChange={event =>
-                  setSettings(prev => ({
-                    ...ensureSettings(prev),
-                    allowCrossZoneCombinations: event.target.checked,
-                  }))
+                  setSettings(prev => {
+                    const base = ensureSettings(prev);
+                    return { ...base, allowCrossZoneCombinations: event.target.checked };
+                  })
                 }
               />
                 Kombinált asztalok engedélyezése zónák között
@@ -1855,13 +1860,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   type="checkbox"
                   checked={settings?.emergencyZones?.enabled ?? false}
                   onChange={event =>
-                    setSettings(prev => ({
-                      ...ensureSettings(prev),
-                      emergencyZones: {
-                        ...(ensureSettings(prev).emergencyZones ?? {}),
-                        enabled: event.target.checked,
-                      },
-                    }))
+                    setSettings(prev => {
+                      const base = ensureSettings(prev);
+                      return {
+                        ...base,
+                        emergencyZones: {
+                          ...(base.emergencyZones ?? {}),
+                          enabled: event.target.checked,
+                        },
+                      };
+                    })
                   }
                 />
                 Emergency zónák engedélyezve
@@ -1878,13 +1886,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         event.currentTarget.selectedOptions,
                         option => option.value
                       );
-                      setSettings(prev => ({
-                        ...ensureSettings(prev),
-                        emergencyZones: {
-                          ...(ensureSettings(prev).emergencyZones ?? {}),
-                          zoneIds: values,
-                        },
-                      }));
+                      setSettings(prev => {
+                        const base = ensureSettings(prev);
+                        return {
+                          ...base,
+                          emergencyZones: {
+                            ...(base.emergencyZones ?? {}),
+                            zoneIds: values,
+                          },
+                        };
+                      });
                     }}
                   >
                     {emergencyZoneOptions.map(zone => (
@@ -1900,13 +1911,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="border rounded p-2 w-full"
                     value={settings?.emergencyZones?.activeRule ?? 'always'}
                     onChange={event =>
-                      setSettings(prev => ({
-                        ...ensureSettings(prev),
-                        emergencyZones: {
-                          ...(ensureSettings(prev).emergencyZones ?? {}),
-                          activeRule: event.target.value as 'always' | 'byWeekday',
-                        },
-                      }))
+                      setSettings(prev => {
+                        const base = ensureSettings(prev);
+                        return {
+                          ...base,
+                          emergencyZones: {
+                            ...(base.emergencyZones ?? {}),
+                            activeRule: event.target.value as 'always' | 'byWeekday',
+                          },
+                        };
+                      })
                     }
                   >
                     <option value="always">Mindig</option>
@@ -1927,13 +1941,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             const next = event.target.checked
                               ? [...current, day.value]
                               : current.filter(value => value !== day.value);
-                            setSettings(prev => ({
-                              ...ensureSettings(prev),
-                              emergencyZones: {
-                                ...(ensureSettings(prev).emergencyZones ?? {}),
-                                weekdays: next,
-                              },
-                            }));
+                            setSettings(prev => {
+                              const base = ensureSettings(prev);
+                              return {
+                                ...base,
+                                emergencyZones: {
+                                  ...(base.emergencyZones ?? {}),
+                                  weekdays: next,
+                                },
+                              };
+                            });
                           }}
                         />
                         {day.label}
@@ -2780,6 +2797,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           role="tablist"
           aria-label="Ültetés beállítások fülek"
           className="flex flex-wrap gap-2 border-b pb-2"
+          onKeyDown={event => {
+            const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+            if (!keys.includes(event.key)) {
+              return;
+            }
+            event.preventDefault();
+            const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
+            if (currentIndex === -1) {
+              return;
+            }
+            let nextIndex = currentIndex;
+            if (event.key === 'ArrowLeft') {
+              nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            } else if (event.key === 'ArrowRight') {
+              nextIndex = (currentIndex + 1) % tabs.length;
+            } else if (event.key === 'Home') {
+              nextIndex = 0;
+            } else if (event.key === 'End') {
+              nextIndex = tabs.length - 1;
+            }
+            const nextTab = tabs[nextIndex];
+            setActiveTab(nextTab.id);
+            requestAnimationFrame(() => {
+              document.getElementById(`seating-tab-${nextTab.id}`)?.focus();
+            });
+          }}
         >
           {tabs.map(tab => (
             <button
@@ -2801,7 +2844,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             </button>
           ))}
         </div>
-        <div className="pt-4">
+        <div className="pt-4 pb-24">
           {activeTab === 'overview' && (
             <div
               role="tabpanel"
