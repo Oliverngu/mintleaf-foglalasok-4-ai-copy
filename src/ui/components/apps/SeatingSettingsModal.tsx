@@ -773,6 +773,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleClose]);
+
+  useEffect(() => {
     return () => {
       const drag = dragStateRef.current;
       if (drag) {
@@ -2914,7 +2926,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return (
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
-        onClick={handleClose}
+        onClick={event => {
+          if (event.target === event.currentTarget) {
+            handleClose();
+          }
+        }}
       >
         <div
           className="rounded-2xl shadow-xl w-full max-w-3xl p-6 bg-white"
@@ -3041,8 +3057,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               ? 'Nem mentett változások'
               : 'Minden mentve'}
           </div>
-          <div className="flex items-center gap-3" aria-live="polite" aria-atomic="true">
-            {saveFeedback && <span className="text-xs text-green-600">{saveFeedback}</span>}
+          <div className="flex items-center gap-3">
+            {saveFeedback && (
+              <span role="status" className="text-xs text-green-600">
+                {saveFeedback}
+              </span>
+            )}
             <button
               type="button"
               onClick={event => handleActionButtonClick(event, handleSettingsSave)}
