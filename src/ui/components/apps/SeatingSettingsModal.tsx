@@ -160,6 +160,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
@@ -415,6 +416,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       };
       try {
         void runPermissionProbe();
+        const user = auth.currentUser;
+        if (user?.uid) {
+          try {
+            const userSnap = await getDoc(doc(db, 'users', user.uid));
+            if (userSnap.exists()) {
+              const data = userSnap.data() as { role?: string | null };
+              if (isMounted) {
+                setUserRole(data.role ?? null);
+              }
+            }
+          } catch (err) {
+            if (debugSeating) {
+              console.debug('[seating] failed to load user role', err);
+            }
+          }
+        }
         try {
           await ensureDefaultFloorplan(unitId);
         } catch (err) {
@@ -511,6 +528,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     setFloorplanMode('view');
   }, [resolvedActiveFloorplanId]);
+
+  useEffect(() => {
+    if (!canEditFloorplan && floorplanMode === 'edit') {
+      setFloorplanMode('view');
+    }
+  }, [canEditFloorplan, floorplanMode]);
 
   useEffect(() => {
     if (!lastSavedSnapshotRef.current) {
@@ -613,7 +636,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   const persistActiveObstacles = useCallback(
-    async (nextObstacles: FloorplanObstacle[]) => {
+    async (nextObstacles: FloorplanObstacle[], previousObstacles: FloorplanObstacle[]) => {
       if (!activeFloorplan) {
         return;
       }
@@ -622,9 +645,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         errorMessage: 'Nem sikerült menteni az akadályokat.',
         errorContext: 'Error saving floorplan obstacles:',
         action: async () => {
-          await updateFloorplan(unitId, activeFloorplan.id, {
-            obstacles: nextObstacles,
-          });
+          try {
+            await updateFloorplan(unitId, activeFloorplan.id, {
+              obstacles: nextObstacles,
+            });
+          } catch (err) {
+            updateActiveFloorplanObstacles(previousObstacles);
+            throw err;
+          }
         },
       });
     },
@@ -780,7 +808,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
-  const canEditFloorplan = Boolean(auth.currentUser);
+  const canEditFloorplan = userRole === 'Admin' || userRole === 'Unit Admin';
 
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
@@ -1107,12 +1135,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           gridSize: floorplanForm.gridSize,
           ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
           isActive: floorplanForm.isActive,
-          obstacles: [],
         };
         if (floorplanForm.id) {
+          // Avoid wiping obstacles when updating an existing floorplan.
           await updateFloorplan(unitId, floorplanForm.id, payload);
         } else {
-          await createFloorplan(unitId, payload);
+          await createFloorplan(unitId, { ...payload, obstacles: [] });
         }
         const nextFloorplans = await listFloorplans(unitId);
         setFloorplans(nextFloorplans);
@@ -1518,6 +1546,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (floorplanMode !== 'edit') {
         return;
       }
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       setFloorplanMode('view');
@@ -1824,6 +1861,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!activeFloorplan) {
       return;
     }
+    const previousObstacles = activeObstacles;
     const nextObstacles = activeObstacles.map(obstacle =>
       obstacle.id === obstacleId ? { ...obstacle, ...next } : obstacle
     );
@@ -1833,7 +1871,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       delete nextDraft[obstacleId];
       return nextDraft;
     });
-    await persistActiveObstacles(nextObstacles);
+    await persistActiveObstacles(nextObstacles, previousObstacles);
   };
 
   const handleObstaclePointerUp = async (event: React.PointerEvent<HTMLDivElement>) => {
@@ -3039,10 +3077,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         w: defaultW,
                         h: defaultH,
                       };
+                      const previousObstacles = activeObstacles;
                       const nextObstacles = [...activeObstacles, nextObstacle];
                       updateActiveFloorplanObstacles(nextObstacles);
                       setSelectedObstacleId(id);
-                      void persistActiveObstacles(nextObstacles);
+                      void persistActiveObstacles(nextObstacles, previousObstacles);
                     }}
                   >
                     + No-go zóna
@@ -3053,12 +3092,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     disabled={!selectedObstacleId}
                     onClick={() => {
                       if (!selectedObstacleId) return;
+                      const previousObstacles = activeObstacles;
                       const nextObstacles = activeObstacles.filter(
                         obstacle => obstacle.id !== selectedObstacleId
                       );
                       updateActiveFloorplanObstacles(nextObstacles);
                       setSelectedObstacleId(null);
-                      void persistActiveObstacles(nextObstacles);
+                      void persistActiveObstacles(nextObstacles, previousObstacles);
                     }}
                   >
                     No-go törlés
