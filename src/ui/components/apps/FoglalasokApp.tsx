@@ -1024,7 +1024,6 @@ const BookingSummaryCard: React.FC<{
 }> = ({ booking, resolveSeatingPreferenceLabel }) => (
   <SectionCard title="Összefoglaló">
     <div className="space-y-2 text-sm text-[var(--color-text-secondary)]">
-      <BookingHeaderMini booking={booking} />
       <div className="grid gap-1 md:grid-cols-2">
         <p>Alkalom: {booking.occasion || '—'}</p>
         <p>Forrás: {booking.source || '—'}</p>
