@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 
 let modalOpenCount = 0;
-let lockedScrollTop = 0;
 let previousBodyStyles: {
   overflow?: string;
   position?: string;
   top?: string;
   width?: string;
+  scrollTop?: number;
 } | null = null;
 
 interface ModalShellProps {
@@ -43,11 +43,11 @@ const ModalShell: React.FC<ModalShellProps> = ({
         position: body.style.position,
         top: body.style.top,
         width: body.style.width,
+        scrollTop: window.pageYOffset ?? window.scrollY ?? 0,
       };
-      lockedScrollTop = window.scrollY || 0;
       body.style.overflow = 'hidden';
       body.style.position = 'fixed';
-      body.style.top = `-${lockedScrollTop}px`;
+      body.style.top = `-${previousBodyStyles.scrollTop ?? 0}px`;
       body.style.width = '100%';
     }
     // Reference count ensures nested modals keep the scroll lock active.
@@ -59,7 +59,7 @@ const ModalShell: React.FC<ModalShellProps> = ({
         body.style.position = previousBodyStyles.position ?? '';
         body.style.top = previousBodyStyles.top ?? '';
         body.style.width = previousBodyStyles.width ?? '';
-        window.scrollTo(0, lockedScrollTop);
+        window.scrollTo(0, previousBodyStyles.scrollTop ?? 0);
         previousBodyStyles = null;
       }
     };
