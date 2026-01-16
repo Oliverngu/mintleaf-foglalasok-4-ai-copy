@@ -12,6 +12,7 @@
     "capacity:cleanup:dry": "npm exec -- tsx src/scripts/capacityCleanupRunner.ts --dry-run",
     "capacity:cleanup:apply": "npm exec -- tsx src/scripts/capacityCleanupRunner.ts --apply --yes",
     "capacity:sanity:scan": "npm exec -- tsx src/scripts/capacitySanityScan.ts",
+    "gate:reservations": "npm run test:unit && npm run smoke:reservations:buildrun",
     "smoke:reservations": "node lib/smoke/reservations.smoke.js",
     "smoke:reservations:buildrun": "npm run build && node lib/smoke/reservations.smoke.js",
     "test:unit": "node src/scripts/unitTestRunner.mjs",
