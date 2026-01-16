@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { auth, db, functions } from '../../../core/firebase/config';
 import {
   Floorplan,
+  FloorplanObstacle,
   SeatingSettings,
   Table,
   TableCombination,
@@ -37,6 +38,7 @@ import {
 } from '../../../core/utils/seatingNormalize';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
+import { getTableVisualState, isRectIntersecting } from './seating/floorplanUtils';
 
 interface SeatingSettingsModalProps {
   unitId: string;
@@ -156,10 +158,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
+  const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
   const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
+  const [draftObstacles, setDraftObstacles] = useState<
+    Record<string, { x: number; y: number; w: number; h: number }>
+  >({});
   const [savingById, setSavingById] = useState<Record<string, boolean>>({});
   const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
     {}
@@ -186,6 +193,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanHeight: number;
     gridSize: number;
     snapToGrid: boolean;
+  } | null>(null);
+  const [obstacleDrag, setObstacleDrag] = useState<{
+    obstacleId: string;
+    pointerId: number;
+    pointerTarget: HTMLElement | null;
+    pointerStartX: number;
+    pointerStartY: number;
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+    mode: 'move' | 'resize';
   } | null>(null);
   const dragStateRef = useRef<typeof dragState>(null);
   const rafPosId = useRef<number | null>(null);
@@ -490,6 +509,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [unitId]);
 
   useEffect(() => {
+    setFloorplanMode('view');
+  }, [resolvedActiveFloorplanId]);
+
+  useEffect(() => {
     if (!lastSavedSnapshotRef.current) {
       setIsDirty(false);
       return;
@@ -549,6 +572,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => floorplans.find(plan => plan.id === resolvedActiveFloorplanId) ?? null,
     [floorplans, resolvedActiveFloorplanId]
   );
+  const activeObstacles = useMemo(
+    () => activeFloorplan?.obstacles ?? [],
+    [activeFloorplan]
+  );
   const { width: floorplanWidth, height: floorplanHeight } =
     normalizeFloorplanDimensions(activeFloorplan);
   const editorGridSize =
@@ -570,6 +597,39 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return wrapped > 180 ? wrapped - 360 : wrapped;
   };
   const snapRotation = (value: number, step = 5) => Math.round(value / step) * step;
+
+  const updateActiveFloorplanObstacles = useCallback(
+    (nextObstacles: FloorplanObstacle[]) => {
+      if (!activeFloorplan) {
+        return;
+      }
+      setFloorplans(current =>
+        current.map(plan =>
+          plan.id === activeFloorplan.id ? { ...plan, obstacles: nextObstacles } : plan
+        )
+      );
+    },
+    [activeFloorplan]
+  );
+
+  const persistActiveObstacles = useCallback(
+    async (nextObstacles: FloorplanObstacle[]) => {
+      if (!activeFloorplan) {
+        return;
+      }
+      await runAction({
+        key: `floorplan-obstacles-${activeFloorplan.id}`,
+        errorMessage: 'Nem sikerült menteni az akadályokat.',
+        errorContext: 'Error saving floorplan obstacles:',
+        action: async () => {
+          await updateFloorplan(unitId, activeFloorplan.id, {
+            obstacles: nextObstacles,
+          });
+        },
+      });
+    },
+    [activeFloorplan, runAction, unitId]
+  );
 
   const setLastSaved = (
     updater:
@@ -720,6 +780,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
+  const canEditFloorplan = Boolean(auth.currentUser);
 
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
@@ -736,9 +797,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       abortDragRef.current(drag);
     }
     setSelectedTableId(null);
+    setSelectedObstacleId(null);
     setDraftPositions({});
     setDraftRotations({});
+    setDraftObstacles({});
     setSavingById({});
+    setObstacleDrag(null);
     actionSavingRef.current = {};
     setActionSaving({});
     onClose();
@@ -814,8 +878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
       }
       setSelectedTableId(null);
+      setSelectedObstacleId(null);
       setDraftPositions({});
       setDraftRotations({});
+      setDraftObstacles({});
       setSavingById({});
       actionSavingRef.current = {};
       setActionSaving({});
@@ -1041,6 +1107,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           gridSize: floorplanForm.gridSize,
           ...(backgroundImageUrl ? { backgroundImageUrl } : {}),
           isActive: floorplanForm.isActive,
+          obstacles: [],
         };
         if (floorplanForm.id) {
           await updateFloorplan(unitId, floorplanForm.id, payload);
@@ -1440,6 +1507,27 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [handleUndoLastAction]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (floorplanMode !== 'edit') {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setFloorplanMode('view');
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [floorplanMode]);
+
   const finalizeDrag = async (tableId: string, x: number, y: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
@@ -1506,6 +1594,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     geometry: ReturnType<typeof normalizeTableGeometry>
   ) => {
     if (!activeFloorplan) return;
+    if (floorplanMode !== 'edit') return;
     if (table.locked) return;
     event.preventDefault();
     setSelectedTableId(table.id);
@@ -1546,6 +1635,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleTablePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
     if (!dragState) return;
     if (event.pointerId !== dragState.pointerId) return;
     if (!floorplanRef.current) {
@@ -1580,6 +1672,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
     const drag = dragState;
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
@@ -1624,10 +1719,165 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const handleTablePointerCancel = (event: React.PointerEvent<HTMLElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
     const drag = dragState;
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
     abortDragRef.current(drag);
+  };
+
+  const getObstacleRect = (obstacle: FloorplanObstacle) => {
+    const draft = draftObstacles[obstacle.id];
+    const base = draft ?? obstacle;
+    const maxX = Math.max(0, floorplanWidth - base.w);
+    const maxY = Math.max(0, floorplanHeight - base.h);
+    return {
+      x: clamp(base.x, 0, maxX),
+      y: clamp(base.y, 0, maxY),
+      w: Math.max(20, base.w),
+      h: Math.max(20, base.h),
+    };
+  };
+
+  const updateDraftObstacle = (
+    obstacleId: string,
+    next: { x: number; y: number; w: number; h: number }
+  ) => {
+    setDraftObstacles(current => ({
+      ...current,
+      [obstacleId]: next,
+    }));
+  };
+
+  const handleObstaclePointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+    obstacle: FloorplanObstacle,
+    mode: 'move' | 'resize'
+  ) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedObstacleId(obstacle.id);
+    const rect = getObstacleRect(obstacle);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setObstacleDrag({
+      obstacleId: obstacle.id,
+      pointerId: event.pointerId,
+      pointerTarget: event.currentTarget,
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      startX: rect.x,
+      startY: rect.y,
+      startW: rect.w,
+      startH: rect.h,
+      mode,
+    });
+  };
+
+  const handleObstaclePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    const drag = obstacleDrag;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    event.preventDefault();
+    const deltaX = event.clientX - drag.pointerStartX;
+    const deltaY = event.clientY - drag.pointerStartY;
+    if (drag.mode === 'resize') {
+      let nextW = drag.startW + deltaX;
+      let nextH = drag.startH + deltaY;
+      nextW = applyGrid(Math.max(20, nextW), editorGridSize);
+      nextH = applyGrid(Math.max(20, nextH), editorGridSize);
+      updateDraftObstacle(drag.obstacleId, {
+        x: drag.startX,
+        y: drag.startY,
+        w: nextW,
+        h: nextH,
+      });
+      return;
+    }
+    let nextX = drag.startX + deltaX;
+    let nextY = drag.startY + deltaY;
+    nextX = applyGrid(nextX, editorGridSize);
+    nextY = applyGrid(nextY, editorGridSize);
+    const maxX = Math.max(0, floorplanWidth - drag.startW);
+    const maxY = Math.max(0, floorplanHeight - drag.startH);
+    nextX = clamp(nextX, 0, maxX);
+    nextY = clamp(nextY, 0, maxY);
+    updateDraftObstacle(drag.obstacleId, {
+      x: nextX,
+      y: nextY,
+      w: drag.startW,
+      h: drag.startH,
+    });
+  };
+
+  const finalizeObstacleUpdate = async (
+    obstacleId: string,
+    next: { x: number; y: number; w: number; h: number }
+  ) => {
+    if (!activeFloorplan) {
+      return;
+    }
+    const nextObstacles = activeObstacles.map(obstacle =>
+      obstacle.id === obstacleId ? { ...obstacle, ...next } : obstacle
+    );
+    updateActiveFloorplanObstacles(nextObstacles);
+    setDraftObstacles(current => {
+      const nextDraft = { ...current };
+      delete nextDraft[obstacleId];
+      return nextDraft;
+    });
+    await persistActiveObstacles(nextObstacles);
+  };
+
+  const handleObstaclePointerUp = async (event: React.PointerEvent<HTMLDivElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    const drag = obstacleDrag;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    event.preventDefault();
+    const draft = draftObstacles[drag.obstacleId];
+    const next = draft ?? {
+      x: drag.startX,
+      y: drag.startY,
+      w: drag.startW,
+      h: drag.startH,
+    };
+    try {
+      drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
+    } catch {
+      // ignore
+    }
+    setObstacleDrag(null);
+    void finalizeObstacleUpdate(drag.obstacleId, next);
+  };
+
+  const handleObstaclePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    const drag = obstacleDrag;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    try {
+      drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
+    } catch {
+      // ignore
+    }
+    setObstacleDrag(null);
+    setDraftObstacles(current => {
+      const nextDraft = { ...current };
+      delete nextDraft[drag.obstacleId];
+      return nextDraft;
+    });
   };
 
   const handleComboSubmit = async () => {
@@ -2577,6 +2827,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     </section>
   );
 
+  const resolveTableVisualStyle = (state: ReturnType<typeof getTableVisualState>) => {
+    switch (state) {
+      case 'free':
+        return 'color-mix(in srgb, var(--color-success) 18%, transparent)';
+      case 'occupied':
+        return 'color-mix(in srgb, var(--color-danger) 18%, transparent)';
+      case 'unknown':
+      default:
+        return 'rgba(255,255,255,0.9)';
+    }
+  };
+
   const renderFloorplansPanel = () => (
     <div className="space-y-6">
       <div className="text-sm text-[var(--color-text-secondary)]">
@@ -2721,14 +2983,88 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <span>
                 Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
               </span>
+              <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setFloorplanMode('view')}
+                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                    floorplanMode === 'view'
+                      ? 'bg-gray-200 text-gray-800'
+                      : 'text-gray-500'
+                  }`}
+                >
+                  Megtekintés
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFloorplanMode('edit')}
+                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                    floorplanMode === 'edit'
+                      ? 'bg-gray-200 text-gray-800'
+                      : 'text-gray-500'
+                  }`}
+                  disabled={!canEditFloorplan}
+                >
+                  Szerkesztés
+                </button>
+              </div>
               <button
                 type="button"
                 className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
                 onClick={() => void handleUndoLastAction()}
-                disabled={!isUndoAvailable}
+                disabled={!isUndoAvailable || floorplanMode !== 'edit'}
               >
                 Visszavonás
               </button>
+              {floorplanMode === 'edit' && (
+                <>
+                  <button
+                    type="button"
+                    className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
+                    onClick={() => {
+                      if (!activeFloorplan) return;
+                      const id =
+                        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                          ? crypto.randomUUID()
+                          : `obstacle-${Date.now()}`;
+                      const defaultW = 140;
+                      const defaultH = 90;
+                      const startX = Math.max(0, (floorplanWidth - defaultW) / 2);
+                      const startY = Math.max(0, (floorplanHeight - defaultH) / 2);
+                      const nextObstacle: FloorplanObstacle = {
+                        id,
+                        name: 'No-go',
+                        x: applyGrid(startX, editorGridSize),
+                        y: applyGrid(startY, editorGridSize),
+                        w: defaultW,
+                        h: defaultH,
+                      };
+                      const nextObstacles = [...activeObstacles, nextObstacle];
+                      updateActiveFloorplanObstacles(nextObstacles);
+                      setSelectedObstacleId(id);
+                      void persistActiveObstacles(nextObstacles);
+                    }}
+                  >
+                    + No-go zóna
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
+                    disabled={!selectedObstacleId}
+                    onClick={() => {
+                      if (!selectedObstacleId) return;
+                      const nextObstacles = activeObstacles.filter(
+                        obstacle => obstacle.id !== selectedObstacleId
+                      );
+                      updateActiveFloorplanObstacles(nextObstacles);
+                      setSelectedObstacleId(null);
+                      void persistActiveObstacles(nextObstacles);
+                    }}
+                  >
+                    No-go törlés
+                  </button>
+                </>
+              )}
             </div>
             <div className="overflow-auto">
               <div
@@ -2743,6 +3079,61 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="absolute inset-0 w-full h-full object-contain"
                   />
                 )}
+                {activeObstacles.map(obstacle => {
+                  const rect = getObstacleRect(obstacle);
+                  const isSelected = selectedObstacleId === obstacle.id;
+                  return (
+                    <div
+                      key={obstacle.id}
+                      className="absolute border border-dashed border-gray-400 bg-gray-200/40"
+                      style={{
+                        left: rect.x,
+                        top: rect.y,
+                        width: rect.w,
+                        height: rect.h,
+                        transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                        outline: isSelected ? '2px solid #2563eb' : undefined,
+                      }}
+                      onClick={event => {
+                        event.stopPropagation();
+                        setSelectedObstacleId(obstacle.id);
+                      }}
+                      onPointerDown={
+                        floorplanMode === 'edit'
+                          ? event => handleObstaclePointerDown(event, obstacle, 'move')
+                          : undefined
+                      }
+                      onPointerMove={
+                        floorplanMode === 'edit' ? handleObstaclePointerMove : undefined
+                      }
+                      onPointerUp={
+                        floorplanMode === 'edit' ? handleObstaclePointerUp : undefined
+                      }
+                      onPointerCancel={
+                        floorplanMode === 'edit' ? handleObstaclePointerCancel : undefined
+                      }
+                    >
+                      {floorplanMode === 'edit' && (
+                        <span className="absolute left-1 top-1 text-[10px] text-gray-600">
+                          {obstacle.name ?? 'No-go'}
+                        </span>
+                      )}
+                      {floorplanMode === 'edit' && (
+                        <span
+                          role="button"
+                          tabIndex={-1}
+                          className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white"
+                          onPointerDown={event =>
+                            handleObstaclePointerDown(event, obstacle, 'resize')
+                          }
+                          onPointerMove={handleObstaclePointerMove}
+                          onPointerUp={handleObstaclePointerUp}
+                          onPointerCancel={handleObstaclePointerCancel}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
                 {editorTables.map(table => {
                   const geometry = normalizeTableGeometry(table, {
                     rectWidth: 80,
@@ -2753,10 +3144,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   const renderRot = draftRotations[table.id] ?? geometry.rot;
                   const isSelected = selectedTableId === table.id;
                   const isSaving = Boolean(savingById[table.id]);
+                  const tableVisualState = getTableVisualState();
+                  const tableRect = {
+                    x: position.x,
+                    y: position.y,
+                    w: geometry.w,
+                    h: geometry.h,
+                  };
+                  const isOverlappingObstacle =
+                    floorplanMode === 'edit' &&
+                    activeObstacles.some(obstacle => {
+                      const rect = getObstacleRect(obstacle);
+                      return isRectIntersecting(tableRect, rect);
+                    });
                   return (
                     <div
                       key={table.id}
-                      className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 cursor-grab active:cursor-grabbing select-none relative"
+                      className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative ${
+                        floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
+                      }`}
                       style={{
                         left: position.x,
                         top: position.y,
@@ -2764,7 +3170,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         height: geometry.h,
                         borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
                         border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
-                        backgroundColor: 'rgba(255,255,255,0.9)',
+                        backgroundColor: resolveTableVisualStyle(tableVisualState),
                         transform: `rotate(${renderRot}deg)`,
                         boxShadow: isSelected
                           ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
@@ -2772,13 +3178,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         touchAction: 'none',
                       }}
                       onClick={() => setSelectedTableId(table.id)}
-                      onPointerDown={event => handleTablePointerDown(event, table, geometry)}
-                      onPointerMove={handleTablePointerMove}
-                      onPointerUp={handleTablePointerUp}
-                      onPointerCancel={handleTablePointerCancel}
-                      onLostPointerCapture={handleLostPointerCapture}
+                      onPointerDown={
+                        floorplanMode === 'edit'
+                          ? event => handleTablePointerDown(event, table, geometry)
+                          : undefined
+                      }
+                      onPointerMove={floorplanMode === 'edit' ? handleTablePointerMove : undefined}
+                      onPointerUp={floorplanMode === 'edit' ? handleTablePointerUp : undefined}
+                      onPointerCancel={
+                        floorplanMode === 'edit' ? handleTablePointerCancel : undefined
+                      }
+                      onLostPointerCapture={
+                        floorplanMode === 'edit' ? handleLostPointerCapture : undefined
+                      }
                     >
-                      {isSelected && !table.locked && (
+                      {isSelected && !table.locked && floorplanMode === 'edit' && (
                         <>
                           <span
                             className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
@@ -2834,6 +3248,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             <span className="h-1 w-1 rounded-full bg-gray-500" />
                           </button>
                         </>
+                      )}
+                      {isOverlappingObstacle && (
+                        <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
+                          !
+                        </span>
                       )}
                       {table.name}
                       <div className="flex gap-1 mt-1">

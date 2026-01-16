@@ -201,9 +201,20 @@ export interface Floorplan {
   isActive?: boolean;
   gridSize?: number;
   backgroundImageUrl?: string | null;
+  obstacles?: FloorplanObstacle[];
   unitId?: string | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+}
+
+export interface FloorplanObstacle {
+  id: string;
+  name?: string | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot?: number | null;
 }
 
 export interface TableCombination {
