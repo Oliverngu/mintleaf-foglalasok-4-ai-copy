@@ -1608,7 +1608,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     left: number;
     top: number;
   }>({ width: 0, height: 0, left: 0, top: 0 });
+  const lastNonZeroViewportRectRef = useRef<{
+    width: number;
+    height: number;
+    left: number;
+    top: number;
+  } | null>(null);
   const lastViewportLogRef = useRef(0);
+  const viewportMeasureRafRef = useRef<number | null>(null);
 
   const measureViewport = useCallback(() => {
     const nextRect = getViewportRect();
@@ -1616,6 +1623,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (!floorplanViewportRef.current) {
         return;
       }
+      if (lastNonZeroViewportRectRef.current) {
+        setFloorplanViewportRect(lastNonZeroViewportRectRef.current);
+        return;
+      }
+    } else {
+      lastNonZeroViewportRectRef.current = nextRect;
     }
     setFloorplanViewportRect(nextRect);
     if (typeof debugSeating === 'undefined' || !debugSeating) {
@@ -1641,6 +1654,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   }, [debugSeating, floorplanHeight, floorplanWidth]);
 
+  const scheduleViewportMeasure = useCallback(() => {
+    if (viewportMeasureRafRef.current !== null) {
+      return;
+    }
+    viewportMeasureRafRef.current = requestAnimationFrame(() => {
+      viewportMeasureRafRef.current = null;
+      measureViewport();
+    });
+  }, [measureViewport]);
+
   useLayoutEffect(() => {
     measureViewport();
   }, [measureViewport, resolvedActiveFloorplanId, floorplanMode]);
@@ -1652,10 +1675,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
-    const observer = new ResizeObserver(measureViewport);
+    const observer = new ResizeObserver(scheduleViewportMeasure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [measureViewport]);
+  }, [measureViewport, scheduleViewportMeasure]);
+
+  useEffect(() => {
+    const handleResize = () => scheduleViewportMeasure();
+    const handleScroll = () => scheduleViewportMeasure();
+    const resizeOptions: AddEventListenerOptions = { passive: true };
+    const scrollOptions: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener('resize', handleResize, resizeOptions);
+    window.addEventListener('scroll', handleScroll, scrollOptions);
+    return () => {
+      window.removeEventListener('resize', handleResize, resizeOptions);
+      window.removeEventListener('scroll', handleScroll, scrollOptions);
+    };
+  }, [scheduleViewportMeasure]);
 
   const floorplanRenderTransform = useMemo(
     () =>
@@ -2225,6 +2261,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = dragStateRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
@@ -2237,6 +2274,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = dragStateRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
@@ -2249,14 +2287,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleCancel = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = dragStateRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
       abortDragRef.current(drag);
     };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleCancel);
+    const listenerOptions: AddEventListenerOptions = { passive: false };
+    window.addEventListener('pointermove', handleMove, listenerOptions);
+    window.addEventListener('pointerup', handleUp, listenerOptions);
+    window.addEventListener('pointercancel', handleCancel, listenerOptions);
     if (debugSeating) {
       console.debug('[seating] window pointer fallback attached', {
         kind: 'table',
@@ -2264,9 +2304,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     }
     return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      window.removeEventListener('pointercancel', handleCancel);
+      window.removeEventListener('pointermove', handleMove, listenerOptions);
+      window.removeEventListener('pointerup', handleUp, listenerOptions);
+      window.removeEventListener('pointercancel', handleCancel, listenerOptions);
       if (debugSeating) {
         console.debug('[seating] window pointer fallback detached', {
           kind: 'table',
@@ -2532,6 +2572,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
@@ -2542,20 +2583,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
       void handleObstaclePointerUpCore({ pointerId: event.pointerId });
     };
     const handleCancel = (event: PointerEvent) => {
+      event.preventDefault();
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (event.pointerId !== drag.pointerId) return;
       void handleObstaclePointerCancelCore({ pointerId: event.pointerId });
     };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleCancel);
+    const listenerOptions: AddEventListenerOptions = { passive: false };
+    window.addEventListener('pointermove', handleMove, listenerOptions);
+    window.addEventListener('pointerup', handleUp, listenerOptions);
+    window.addEventListener('pointercancel', handleCancel, listenerOptions);
     if (debugSeating) {
       console.debug('[seating] window pointer fallback attached', {
         kind: 'obstacle',
@@ -2563,9 +2607,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     }
     return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      window.removeEventListener('pointercancel', handleCancel);
+      window.removeEventListener('pointermove', handleMove, listenerOptions);
+      window.removeEventListener('pointerup', handleUp, listenerOptions);
+      window.removeEventListener('pointercancel', handleCancel, listenerOptions);
       if (debugSeating) {
         console.debug('[seating] window pointer fallback detached', {
           kind: 'obstacle',
