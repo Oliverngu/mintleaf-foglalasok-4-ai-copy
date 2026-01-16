@@ -1591,6 +1591,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
 
+  function safeScale(value: number): number {
+    return Number.isFinite(value) && value > 0.0001 ? value : 1;
+  }
+
   const [floorplanViewportRect, setFloorplanViewportRect] = useState<{
     width: number;
     height: number;
@@ -1970,8 +1974,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const deltaClientX = clientX - drag.pointerStartClientX;
       const deltaClientY = clientY - drag.pointerStartClientY;
-      const deltaLocalX = deltaClientX / drag.dragStartScale;
-      const deltaLocalY = deltaClientY / drag.dragStartScale;
+      const scale = safeScale(drag.dragStartScale);
+      const deltaLocalX = deltaClientX / scale;
+      const deltaLocalY = deltaClientY / scale;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
@@ -2077,8 +2082,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const deltaClientX = clientX - drag.pointerStartClientX;
       const deltaClientY = clientY - drag.pointerStartClientY;
-      const deltaLocalX = deltaClientX / drag.dragStartScale;
-      const deltaLocalY = deltaClientY / drag.dragStartScale;
+      const scale = safeScale(drag.dragStartScale);
+      const deltaLocalX = deltaClientX / scale;
+      const deltaLocalY = deltaClientY / scale;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const shouldSnap = drag.snapToGrid && !altKey;
@@ -2144,7 +2150,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
-      dragStartScale: transform.scale,
+      dragStartScale: safeScale(transform.scale),
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -2309,20 +2315,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      const liveRect = getViewportRect();
-      if (liveRect.width <= 0 || liveRect.height <= 0) {
-        try {
-          drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
-        } catch {
-          // ignore
-        }
-        setObstacleDrag(null);
-        return;
-      }
       const deltaClientX = clientX - drag.pointerStartClientX;
       const deltaClientY = clientY - drag.pointerStartClientY;
-      const deltaX = deltaClientX / drag.dragStartScale;
-      const deltaY = deltaClientY / drag.dragStartScale;
+      const scale = safeScale(drag.dragStartScale);
+      const deltaX = deltaClientX / scale;
+      const deltaY = deltaClientY / scale;
       if (drag.mode === 'resize') {
         let nextW = drag.startW + deltaX;
         let nextH = drag.startH + deltaY;
@@ -2448,7 +2445,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
-      dragStartScale: transform.scale,
+      dragStartScale: safeScale(transform.scale),
       startX: rect.x,
       startY: rect.y,
       startW: rect.w,
@@ -3997,7 +3994,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 pointerStartClientX: event.clientX,
                                 pointerStartClientY: event.clientY,
                                 dragStartTransform: transform,
-                                dragStartScale: transform.scale,
+                                dragStartScale: safeScale(transform.scale),
                                 tableStartX: position.x,
                                 tableStartY: position.y,
                                 width: geometry.w,
