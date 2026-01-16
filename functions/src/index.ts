@@ -9,6 +9,7 @@ import {
   computeAllocationDecisionForBooking,
   writeAllocationDecisionLogForBooking,
 } from "./allocation";
+import { buildAllocationRecord } from "./allocation/allocated";
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
@@ -1328,6 +1329,44 @@ export const guestModifyReservation = onRequest(
         return;
       }
 
+      try {
+        const decision = {
+          zoneId: allocationDecision.decision.assignedZoneId ?? null,
+          tableIds: [],
+          reason: null,
+          reasonCode: allocationDecision.decision.reasonCode,
+          allocationMode: null,
+          allocationStrategy: null,
+        };
+        const allocationDisabled =
+          decision.reason === 'ALLOCATION_DISABLED' ||
+          decision.reasonCode === 'ALLOCATION_DISABLED';
+        const allocationRecord = buildAllocationRecord({
+          decision,
+          traceId: `alloc-${reservationId}`,
+          decidedAtMs: Date.now(),
+          enabled: !allocationDisabled,
+          computedForStartTimeMs: startTime.getTime(),
+          computedForEndTimeMs: endTime.getTime(),
+          computedForHeadcount: parsedHeadcount,
+          algoVersion: 'alloc-v1',
+        });
+        if (allocationRecord) {
+          await db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservations')
+            .doc(reservationId)
+            .update({ allocated: allocationRecord });
+        }
+      } catch (err) {
+        logger.warn('guestModifyReservation allocation log failed', {
+          unitId,
+          bookingId: reservationId,
+          err,
+        });
+      }
+
       logger.info('guestModifyReservation update', {
         unitId,
         reservationId,
@@ -1725,6 +1764,24 @@ export const guestCreateReservation = onRequest(
           endDate: endTime,
           partySize: headcount,
         });
+        const allocationRecord = buildAllocationRecord({
+          decision,
+          traceId: `alloc-${createResult.bookingId}`,
+          decidedAtMs: Date.now(),
+          enabled: decision.reason !== 'ALLOCATION_DISABLED',
+          computedForStartTimeMs: startTime.getTime(),
+          computedForEndTimeMs: endTime.getTime(),
+          computedForHeadcount: headcount,
+          algoVersion: 'alloc-v1',
+        });
+        if (allocationRecord) {
+          await db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservations')
+            .doc(createResult.bookingId)
+            .update({ allocated: allocationRecord });
+        }
         await writeAllocationDecisionLogForBooking({
           unitId,
           bookingId: createResult.bookingId,
