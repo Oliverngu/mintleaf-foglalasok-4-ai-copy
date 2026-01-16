@@ -213,6 +213,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     mode: 'move' | 'resize';
   } | null>(null);
   const dragStateRef = useRef<typeof dragState>(null);
+  const obstacleDragRef = useRef<typeof obstacleDrag>(null);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -900,6 +901,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [dragState]);
 
   useEffect(() => {
+    obstacleDragRef.current = obstacleDrag;
+  }, [obstacleDrag]);
+
+  useEffect(() => {
     const prev = prevActiveFloorplanIdRef.current;
     const next = activeFloorplan?.id ?? null;
     if (prev === null && next === null) {
@@ -1474,12 +1479,39 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const getFloorplanScale = useCallback(
+    (rectOverride?: DOMRect) => {
+      const rect = rectOverride ?? floorplanRef.current?.getBoundingClientRect();
+    const rectWidth = rect?.width ?? 0;
+    const rectHeight = rect?.height ?? 0;
+    const rawScaleX = rectWidth > 0 ? rectWidth / floorplanWidth : 1;
+    const rawScaleY = rectHeight > 0 ? rectHeight / floorplanHeight : 1;
+    const scaleX = Number.isFinite(rawScaleX) && rawScaleX > 0 ? rawScaleX : 1;
+    const scaleY = Number.isFinite(rawScaleY) && rawScaleY > 0 ? rawScaleY : 1;
+    return { scaleX, scaleY, rectWidth, rectHeight };
+    },
+    [floorplanHeight, floorplanWidth]
+  );
+
   const getLocalPointerPosition = (event: React.PointerEvent<HTMLElement>) => {
     const rect = floorplanRef.current?.getBoundingClientRect();
     if (!rect) {
       return { x: event.clientX, y: event.clientY };
     }
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const { scaleX, scaleY } = getFloorplanScale(rect);
+    return {
+      x: (event.clientX - rect.left) / scaleX,
+      y: (event.clientY - rect.top) / scaleY,
+    };
+  };
+
+  const getLocalPointerPositionFromClient = (clientX: number, clientY: number) => {
+    const rect = floorplanRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: clientX, y: clientY };
+    }
+    const { scaleX, scaleY } = getFloorplanScale(rect);
+    return { x: (clientX - rect.left) / scaleX, y: (clientY - rect.top) / scaleY };
   };
 
   const handleUndoLastAction = React.useCallback(async () => {
@@ -1634,6 +1666,115 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const handleTablePointerMoveCore = useCallback(
+    ({
+      clientX,
+      clientY,
+      pointerId,
+      shiftKey,
+      altKey,
+    }: {
+      clientX: number;
+      clientY: number;
+      pointerId: number;
+      shiftKey: boolean;
+      altKey: boolean;
+    }) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (pointerId !== drag.pointerId) return;
+      if (!floorplanRef.current) {
+        abortDragRef.current(drag);
+        return;
+      }
+      if (drag.mode === 'rotate') {
+        const pointer = getLocalPointerPositionFromClient(clientX, clientY);
+        const currentAngle =
+          Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
+          (180 / Math.PI);
+        const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
+        const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
+        const step = altKey ? 1 : shiftKey ? 15 : 5;
+        updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
+        return;
+      }
+      const { scaleX, scaleY } = getFloorplanScale();
+      const deltaX = (clientX - drag.pointerStartX) / scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      let nextX = drag.tableStartX + deltaX;
+      let nextY = drag.tableStartY + deltaY;
+      if (drag.snapToGrid) {
+        nextX = applyGrid(nextX, drag.gridSize);
+        nextY = applyGrid(nextY, drag.gridSize);
+      }
+      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      nextX = clamp(nextX, 0, maxX);
+      nextY = clamp(nextY, 0, maxY);
+      updateDraftPosition(drag.tableId, nextX, nextY);
+    },
+    [applyGrid, clamp, normalizeRotation, snapRotation]
+  );
+
+  const handleTablePointerUpCore = useCallback(
+    ({
+      clientX,
+      clientY,
+      pointerId,
+      shiftKey,
+      altKey,
+    }: {
+      clientX: number;
+      clientY: number;
+      pointerId: number;
+      shiftKey: boolean;
+      altKey: boolean;
+    }) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (pointerId !== drag.pointerId) return;
+      if (!floorplanRef.current) {
+        abortDragRef.current(drag);
+        return;
+      }
+      const tableId = drag.tableId;
+      if (drag.mode === 'rotate') {
+        const pointer = getLocalPointerPositionFromClient(clientX, clientY);
+        const currentAngle =
+          Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
+          (180 / Math.PI);
+        const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
+        const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
+        const step = altKey ? 1 : shiftKey ? 15 : 5;
+        const snappedRot = snapRotation(nextRot, step);
+        updateDraftRotation(tableId, snappedRot);
+        const prevRot = drag.tableStartRot;
+        releaseDragPointerCaptureRef.current(drag);
+        setDragState(null);
+        void finalizeRotation(tableId, snappedRot, prevRot);
+        return;
+      }
+      const { scaleX, scaleY } = getFloorplanScale();
+      const deltaX = (clientX - drag.pointerStartX) / scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      let nextX = drag.tableStartX + deltaX;
+      let nextY = drag.tableStartY + deltaY;
+      if (drag.snapToGrid) {
+        nextX = applyGrid(nextX, drag.gridSize);
+        nextY = applyGrid(nextY, drag.gridSize);
+      }
+      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      nextX = clamp(nextX, 0, maxX);
+      nextY = clamp(nextY, 0, maxY);
+      updateDraftPosition(tableId, nextX, nextY);
+      releaseDragPointerCaptureRef.current(drag);
+      setDragState(null);
+      void finalizeDrag(tableId, nextX, nextY);
+    },
+    [applyGrid, clamp, normalizeRotation, snapRotation]
+  );
+
   const handleTablePointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
     table: Table,
@@ -1652,6 +1793,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const centerY = position.y + geometry.h / 2;
     const pointer = getLocalPointerPosition(event);
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
+    const { scaleX, scaleY, rectWidth, rectHeight } = getFloorplanScale();
+    if (debugSeating) {
+      console.debug('[seating] drag scale', {
+        scaleX,
+        scaleY,
+        rectWidth,
+        rectHeight,
+        floorplanWidth,
+        floorplanHeight,
+      });
+    }
     setDragState({
       tableId: table.id,
       pointerId: event.pointerId,
@@ -1684,84 +1836,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') {
       return;
     }
-    if (!dragState) return;
-    if (event.pointerId !== dragState.pointerId) return;
-    if (!floorplanRef.current) {
-      abortDragRef.current(dragState);
-      return;
-    }
     event.preventDefault();
-    const deltaX = event.clientX - dragState.pointerStartX;
-    const deltaY = event.clientY - dragState.pointerStartY;
-    if (dragState.mode === 'rotate') {
-      const pointer = getLocalPointerPosition(event);
-      const currentAngle =
-        Math.atan2(pointer.y - dragState.rotCenterY, pointer.x - dragState.rotCenterX) *
-        (180 / Math.PI);
-      const deltaAngle = normalizeRotation(currentAngle - dragState.rotStartAngleDeg);
-      const nextRot = normalizeRotation(dragState.tableStartRot + deltaAngle);
-      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
-      updateDraftRotation(dragState.tableId, snapRotation(nextRot, step));
-      return;
-    }
-    let nextX = dragState.tableStartX + deltaX;
-    let nextY = dragState.tableStartY + deltaY;
-    if (dragState.snapToGrid) {
-      nextX = applyGrid(nextX, dragState.gridSize);
-      nextY = applyGrid(nextY, dragState.gridSize);
-    }
-    const maxX = Math.max(0, dragState.floorplanWidth - dragState.width);
-    const maxY = Math.max(0, dragState.floorplanHeight - dragState.height);
-    nextX = clamp(nextX, 0, maxX);
-    nextY = clamp(nextY, 0, maxY);
-    updateDraftPosition(dragState.tableId, nextX, nextY);
+    void handleTablePointerMoveCore({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+    });
   };
 
   const handleTablePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (floorplanMode !== 'edit') {
       return;
     }
-    const drag = dragState;
-    if (!drag) return;
-    if (event.pointerId !== drag.pointerId) return;
-    if (!floorplanRef.current) {
-      abortDragRef.current(drag);
-      return;
-    }
     event.preventDefault();
-    const tableId = drag.tableId;
-    if (drag.mode === 'rotate') {
-      const pointer = getLocalPointerPosition(event);
-      const currentAngle =
-        Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
-        (180 / Math.PI);
-      const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
-      const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
-      const step = event.altKey ? 1 : event.shiftKey ? 15 : 5;
-      const snappedRot = snapRotation(nextRot, step);
-      updateDraftRotation(tableId, snappedRot);
-      const prevRot = drag.tableStartRot;
-      releaseDragPointerCaptureRef.current(drag);
-      setDragState(null);
-      void finalizeRotation(tableId, snappedRot, prevRot);
-      return;
-    }
-    const deltaX = event.clientX - drag.pointerStartX;
-    const deltaY = event.clientY - drag.pointerStartY;
-    let nextX = drag.tableStartX + deltaX;
-    let nextY = drag.tableStartY + deltaY;
-    if (drag.snapToGrid) {
-      nextX = applyGrid(nextX, drag.gridSize);
-      nextY = applyGrid(nextY, drag.gridSize);
-    }
-    const maxX = Math.max(0, drag.floorplanWidth - drag.width);
-    const maxY = Math.max(0, drag.floorplanHeight - drag.height);
-    nextX = clamp(nextX, 0, maxX);
-    nextY = clamp(nextY, 0, maxY);
-    updateDraftPosition(tableId, nextX, nextY);
-    releaseDragPointerCaptureRef.current(drag);
-    setDragState(null);
-    void finalizeDrag(tableId, nextX, nextY);
+    void handleTablePointerUpCore({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+    });
   };
 
   const handleTablePointerCancel = (event: React.PointerEvent<HTMLElement>) => {
@@ -1773,6 +1869,59 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (event.pointerId !== drag.pointerId) return;
     abortDragRef.current(drag);
   };
+
+  useEffect(() => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    if (!dragState) {
+      return;
+    }
+    const handleMove = (event: PointerEvent) => {
+      void handleTablePointerMoveCore({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+      });
+    };
+    const handleUp = (event: PointerEvent) => {
+      void handleTablePointerUpCore({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+      });
+    };
+    const handleCancel = (event: PointerEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
+      abortDragRef.current(drag);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleCancel);
+    if (debugSeating) {
+      console.debug('[seating] window pointer fallback attached', {
+        kind: 'table',
+        pointerId: dragState.pointerId,
+      });
+    }
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleCancel);
+      if (debugSeating) {
+        console.debug('[seating] window pointer fallback detached', {
+          kind: 'table',
+          pointerId: dragState.pointerId,
+        });
+      }
+    };
+  }, [debugSeating, dragState, floorplanMode, handleTablePointerMoveCore, handleTablePointerUpCore]);
 
   const getObstacleRect = (obstacle: FloorplanObstacle) => {
     const draft = draftObstacles[obstacle.id];
@@ -1796,6 +1945,114 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       [obstacleId]: next,
     }));
   };
+
+  const handleObstaclePointerMoveCore = useCallback(
+    ({
+      clientX,
+      clientY,
+      pointerId,
+    }: {
+      clientX: number;
+      clientY: number;
+      pointerId: number;
+    }) => {
+      if (floorplanMode !== 'edit') {
+        return;
+      }
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (pointerId !== drag.pointerId) return;
+      const { scaleX, scaleY } = getFloorplanScale();
+      const deltaX = (clientX - drag.pointerStartX) / scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      if (drag.mode === 'resize') {
+        let nextW = drag.startW + deltaX;
+        let nextH = drag.startH + deltaY;
+        nextW = applyGrid(Math.max(20, nextW), editorGridSize);
+        nextH = applyGrid(Math.max(20, nextH), editorGridSize);
+        updateDraftObstacle(drag.obstacleId, {
+          x: drag.startX,
+          y: drag.startY,
+          w: nextW,
+          h: nextH,
+        });
+        return;
+      }
+      let nextX = drag.startX + deltaX;
+      let nextY = drag.startY + deltaY;
+      nextX = applyGrid(nextX, editorGridSize);
+      nextY = applyGrid(nextY, editorGridSize);
+      const maxX = Math.max(0, floorplanWidth - drag.startW);
+      const maxY = Math.max(0, floorplanHeight - drag.startH);
+      nextX = clamp(nextX, 0, maxX);
+      nextY = clamp(nextY, 0, maxY);
+      updateDraftObstacle(drag.obstacleId, {
+        x: nextX,
+        y: nextY,
+        w: drag.startW,
+        h: drag.startH,
+      });
+    },
+    [
+      applyGrid,
+      clamp,
+      editorGridSize,
+      floorplanHeight,
+      floorplanMode,
+      floorplanWidth,
+      getFloorplanScale,
+      updateDraftObstacle,
+    ]
+  );
+
+  const handleObstaclePointerUpCore = useCallback(
+    ({ pointerId }: { pointerId: number }) => {
+      if (floorplanMode !== 'edit') {
+        return;
+      }
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (pointerId !== drag.pointerId) return;
+      const draft = draftObstacles[drag.obstacleId];
+      const next = draft ?? {
+        x: drag.startX,
+        y: drag.startY,
+        w: drag.startW,
+        h: drag.startH,
+      };
+      try {
+        drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
+      } catch {
+        // ignore
+      }
+      setObstacleDrag(null);
+      void finalizeObstacleUpdate(drag.obstacleId, next);
+    },
+    [draftObstacles, finalizeObstacleUpdate, floorplanMode]
+  );
+
+  const handleObstaclePointerCancelCore = useCallback(
+    ({ pointerId }: { pointerId: number }) => {
+      if (floorplanMode !== 'edit') {
+        return;
+      }
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (pointerId !== drag.pointerId) return;
+      try {
+        drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
+      } catch {
+        // ignore
+      }
+      setObstacleDrag(null);
+      setDraftObstacles(current => {
+        const nextDraft = { ...current };
+        delete nextDraft[drag.obstacleId];
+        return nextDraft;
+      });
+    },
+    [floorplanMode]
+  );
 
   const handleObstaclePointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -1828,38 +2085,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') {
       return;
     }
-    const drag = obstacleDrag;
-    if (!drag) return;
-    if (event.pointerId !== drag.pointerId) return;
     event.preventDefault();
-    const deltaX = event.clientX - drag.pointerStartX;
-    const deltaY = event.clientY - drag.pointerStartY;
-    if (drag.mode === 'resize') {
-      let nextW = drag.startW + deltaX;
-      let nextH = drag.startH + deltaY;
-      nextW = applyGrid(Math.max(20, nextW), editorGridSize);
-      nextH = applyGrid(Math.max(20, nextH), editorGridSize);
-      updateDraftObstacle(drag.obstacleId, {
-        x: drag.startX,
-        y: drag.startY,
-        w: nextW,
-        h: nextH,
-      });
-      return;
-    }
-    let nextX = drag.startX + deltaX;
-    let nextY = drag.startY + deltaY;
-    nextX = applyGrid(nextX, editorGridSize);
-    nextY = applyGrid(nextY, editorGridSize);
-    const maxX = Math.max(0, floorplanWidth - drag.startW);
-    const maxY = Math.max(0, floorplanHeight - drag.startH);
-    nextX = clamp(nextX, 0, maxX);
-    nextY = clamp(nextY, 0, maxY);
-    updateDraftObstacle(drag.obstacleId, {
-      x: nextX,
-      y: nextY,
-      w: drag.startW,
-      h: drag.startH,
+    void handleObstaclePointerMoveCore({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
     });
   };
 
@@ -1887,45 +2117,65 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') {
       return;
     }
-    const drag = obstacleDrag;
-    if (!drag) return;
-    if (event.pointerId !== drag.pointerId) return;
     event.preventDefault();
-    const draft = draftObstacles[drag.obstacleId];
-    const next = draft ?? {
-      x: drag.startX,
-      y: drag.startY,
-      w: drag.startW,
-      h: drag.startH,
-    };
-    try {
-      drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
-    } catch {
-      // ignore
-    }
-    setObstacleDrag(null);
-    void finalizeObstacleUpdate(drag.obstacleId, next);
+    void handleObstaclePointerUpCore({ pointerId: event.pointerId });
   };
 
   const handleObstaclePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
     if (floorplanMode !== 'edit') {
       return;
     }
-    const drag = obstacleDrag;
-    if (!drag) return;
-    if (event.pointerId !== drag.pointerId) return;
-    try {
-      drag.pointerTarget?.releasePointerCapture?.(drag.pointerId);
-    } catch {
-      // ignore
-    }
-    setObstacleDrag(null);
-    setDraftObstacles(current => {
-      const nextDraft = { ...current };
-      delete nextDraft[drag.obstacleId];
-      return nextDraft;
-    });
+    void handleObstaclePointerCancelCore({ pointerId: event.pointerId });
   };
+
+  useEffect(() => {
+    if (floorplanMode !== 'edit') {
+      return;
+    }
+    if (!obstacleDrag) {
+      return;
+    }
+    const handleMove = (event: PointerEvent) => {
+      void handleObstaclePointerMoveCore({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+      });
+    };
+    const handleUp = (event: PointerEvent) => {
+      void handleObstaclePointerUpCore({ pointerId: event.pointerId });
+    };
+    const handleCancel = (event: PointerEvent) => {
+      void handleObstaclePointerCancelCore({ pointerId: event.pointerId });
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleCancel);
+    if (debugSeating) {
+      console.debug('[seating] window pointer fallback attached', {
+        kind: 'obstacle',
+        pointerId: obstacleDrag.pointerId,
+      });
+    }
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleCancel);
+      if (debugSeating) {
+        console.debug('[seating] window pointer fallback detached', {
+          kind: 'obstacle',
+          pointerId: obstacleDrag.pointerId,
+        });
+      }
+    };
+  }, [
+    debugSeating,
+    floorplanMode,
+    handleObstaclePointerCancelCore,
+    handleObstaclePointerMoveCore,
+    handleObstaclePointerUpCore,
+    obstacleDrag,
+  ]);
 
   const handleComboSubmit = async () => {
     const uniqueSelection = Array.from(new Set<string>(comboSelection));
