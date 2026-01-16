@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface ModalShellProps {
   onClose: () => void;
@@ -17,14 +17,24 @@ const ModalShell: React.FC<ModalShellProps> = ({
   ariaLabelledBy,
   containerClassName,
 }) => {
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    overlayRef.current?.focus();
+  }, []);
+
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"
-      style={{
-        backgroundColor: 'color-mix(in srgb, var(--color-text-main) 55%, transparent)',
-      }}
+      ref={overlayRef}
+      className="fixed inset-0 flex items-center justify-center z-[70] p-4 backdrop-blur-sm bg-black/50"
+      tabIndex={-1}
       onClick={event => {
         if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      onKeyDown={event => {
+        if (event.key === 'Escape') {
           onClose();
         }
       }}

@@ -2990,7 +2990,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <ModalShell
         onClose={handleClose}
         ariaLabelledBy="seating-settings-title"
-        containerClassName="max-w-3xl"
+        containerClassName="max-w-3xl h-[40vh]"
         header={
           <h2 id="seating-settings-title" className="text-xl font-bold">
             Ültetés beállítások
@@ -3018,7 +3018,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               : 'Minden mentve'}
           </div>
         </div>
-        <button onClick={handleClose} className="flex items-center gap-2 text-sm text-gray-500">
+        <button
+          type="button"
+          onClick={handleClose}
+          className="flex items-center gap-2 text-sm text-gray-500"
+        >
           {isDirty && (
             <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-blue-400" />
           )}
