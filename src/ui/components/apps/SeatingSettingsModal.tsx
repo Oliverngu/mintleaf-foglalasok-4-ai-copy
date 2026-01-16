@@ -199,8 +199,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string;
     pointerId: number;
     pointerTarget: HTMLElement | null;
-    pointerStartLocalX: number;
-    pointerStartLocalY: number;
+    pointerStartClientX: number;
+    pointerStartClientY: number;
     scale: number;
     offsetX: number;
     offsetY: number;
@@ -228,8 +228,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     obstacleId: string;
     pointerId: number;
     pointerTarget: HTMLElement | null;
-    pointerStartLocalX: number;
-    pointerStartLocalY: number;
+    pointerStartClientX: number;
+    pointerStartClientY: number;
     scale: number;
     offsetX: number;
     offsetY: number;
@@ -1536,40 +1536,58 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectHeight: number;
   };
 
-  const getFloorplanTransform = useCallback(
-    (rectOverride?: { width: number; height: number; left?: number; top?: number }) => {
-      const rect = rectOverride ?? floorplanViewportRef.current?.getBoundingClientRect();
-      const rectWidth = rect?.width ?? 0;
-      const rectHeight = rect?.height ?? 0;
-      const rectLeft = rect?.left ?? 0;
-      const rectTop = rect?.top ?? 0;
-      if (rectWidth <= 0 || rectHeight <= 0) {
-        return {
-          scale: 1,
-          offsetX: 0,
-          offsetY: 0,
-          rectLeft: 0,
-          rectTop: 0,
-          rectWidth: 0,
-          rectHeight: 0,
-        };
-      }
-      const rawScale = Math.min(rectWidth / floorplanWidth, rectHeight / floorplanHeight);
-      const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-      const offsetX = (rectWidth - floorplanWidth * scale) / 2;
-      const offsetY = (rectHeight - floorplanHeight * scale) / 2;
+  function computeFloorplanTransformFromRect(
+    rect: { width: number; height: number; left?: number; top?: number },
+    width: number,
+    height: number
+  ): FloorplanTransform {
+    const rectWidth = rect?.width ?? 0;
+    const rectHeight = rect?.height ?? 0;
+    const rectLeft = rect?.left ?? 0;
+    const rectTop = rect?.top ?? 0;
+    if (rectWidth <= 0 || rectHeight <= 0) {
       return {
-        scale,
-        offsetX: Number.isFinite(offsetX) ? offsetX : 0,
-        offsetY: Number.isFinite(offsetY) ? offsetY : 0,
-        rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
-        rectTop: Number.isFinite(rectTop) ? rectTop : 0,
-        rectWidth,
-        rectHeight,
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        rectLeft: 0,
+        rectTop: 0,
+        rectWidth: 0,
+        rectHeight: 0,
       };
-    },
-    [floorplanHeight, floorplanWidth]
-  );
+    }
+    const rawScale = Math.min(rectWidth / width, rectHeight / height);
+    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+    const offsetX = (rectWidth - width * scale) / 2;
+    const offsetY = (rectHeight - height * scale) / 2;
+    return {
+      scale,
+      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
+      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
+      rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
+      rectTop: Number.isFinite(rectTop) ? rectTop : 0,
+      rectWidth,
+      rectHeight,
+    };
+  }
+
+  function getViewportRect(): { width: number; height: number; left: number; top: number } {
+    const rect = floorplanViewportRef.current?.getBoundingClientRect();
+    return {
+      width: rect?.width ?? 0,
+      height: rect?.height ?? 0,
+      left: rect?.left ?? 0,
+      top: rect?.top ?? 0,
+    };
+  }
+
+  function getCurrentTransform(): FloorplanTransform {
+    return computeFloorplanTransformFromRect(
+      getViewportRect(),
+      floorplanWidth,
+      floorplanHeight
+    );
+  }
 
   function mapClientToFloorplan(
     clientX: number,
@@ -1584,20 +1602,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
 
-  const getLiveDragTransform = useCallback((transform: FloorplanTransform) => {
-    const rect = floorplanViewportRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return transform;
-    }
-    return {
-      ...transform,
-      rectLeft: rect.left,
-      rectTop: rect.top,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-    };
-  }, []);
-
   const [floorplanViewportRect, setFloorplanViewportRect] = useState<{
     width: number;
     height: number;
@@ -1607,14 +1611,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastViewportLogRef = useRef(0);
 
   const measureViewport = useCallback(() => {
-    const rect = floorplanViewportRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nextRect = {
-      width: rect.width,
-      height: rect.height,
-      left: rect.left,
-      top: rect.top,
-    };
+    const nextRect = getViewportRect();
+    if (!nextRect.width && !nextRect.height) {
+      if (!floorplanViewportRef.current) {
+        return;
+      }
+    }
     setFloorplanViewportRect(nextRect);
     if (typeof debugSeating === 'undefined' || !debugSeating) {
       return;
@@ -1624,7 +1626,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
-      const transform = getFloorplanTransform(nextRect);
+      const transform = computeFloorplanTransformFromRect(
+        nextRect,
+        floorplanWidth,
+        floorplanHeight
+      );
       console.debug('[seating] viewport measure', {
         rect: nextRect,
         scale: transform.scale,
@@ -1633,7 +1639,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } catch (error) {
       console.warn('[seating] viewport measure log failed', error);
     }
-  }, [debugSeating, getFloorplanTransform]);
+  }, [debugSeating, floorplanHeight, floorplanWidth]);
 
   useLayoutEffect(() => {
     measureViewport();
@@ -1652,8 +1658,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [measureViewport]);
 
   const floorplanRenderTransform = useMemo(
-    () => getFloorplanTransform(floorplanViewportRect),
-    [floorplanViewportRect, getFloorplanTransform]
+    () =>
+      computeFloorplanTransformFromRect(
+        floorplanViewportRect,
+        floorplanWidth,
+        floorplanHeight
+      ),
+    [floorplanViewportRect, floorplanHeight, floorplanWidth]
   );
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
@@ -1899,8 +1910,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
+      const liveTransform = getCurrentTransform();
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
+        const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
         if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           return;
         }
@@ -1913,7 +1925,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const liveTransform = getLiveDragTransform(drag);
       if (debugSeating) {
         const now = Date.now();
         if (now - dragMoveDebugRef.current > 500) {
@@ -1934,8 +1945,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
         return;
       }
-      let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
-      let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
+      const pointerStart = mapClientToFloorplan(
+        drag.pointerStartClientX,
+        drag.pointerStartClientY,
+        liveTransform
+      );
+      if (!Number.isFinite(pointerStart.x) || !Number.isFinite(pointerStart.y)) {
+        return;
+      }
+      let nextX = drag.tableStartX + (pointer.x - pointerStart.x);
+      let nextY = drag.tableStartY + (pointer.y - pointerStart.y);
       const unclampedX = nextX;
       const unclampedY = nextY;
       const shouldSnap = drag.snapToGrid && !altKey;
@@ -1977,7 +1996,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       applyGrid,
       clamp,
       debugSeating,
-      getLiveDragTransform,
       mapClientToFloorplan,
       normalizeRotation,
       snapRotation,
@@ -2006,8 +2024,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       const tableId = drag.tableId;
+      const liveTransform = getCurrentTransform();
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
+        const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
         if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           releaseDragPointerCaptureRef.current(drag);
           setDragState(null);
@@ -2027,9 +2046,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
-      let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
-      let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
+      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
+      const pointerStart = mapClientToFloorplan(
+        drag.pointerStartClientX,
+        drag.pointerStartClientY,
+        liveTransform
+      );
+      if (
+        !Number.isFinite(pointer.x) ||
+        !Number.isFinite(pointer.y) ||
+        !Number.isFinite(pointerStart.x) ||
+        !Number.isFinite(pointerStart.y)
+      ) {
+        releaseDragPointerCaptureRef.current(drag);
+        setDragState(null);
+        return;
+      }
+      let nextX = drag.tableStartX + (pointer.x - pointerStart.x);
+      let nextY = drag.tableStartY + (pointer.y - pointerStart.y);
       const shouldSnap = drag.snapToGrid && !altKey;
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
@@ -2044,7 +2078,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setDragState(null);
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
-    [applyGrid, clamp, getLiveDragTransform, mapClientToFloorplan, normalizeRotation, snapRotation]
+    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerDown = (
@@ -2063,15 +2097,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const rect = floorplanViewportRef.current?.getBoundingClientRect();
-    const transform = getFloorplanTransform(rect);
-    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
+    const transform = getCurrentTransform();
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
     const rad = (renderRot * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
-    const boundW = Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin);
-    const boundH = Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos);
+    const boundW = Math.ceil(Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin));
+    const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
     if (debugSeating) {
       console.debug('[seating] drag scale', {
         scale: transform.scale,
@@ -2091,8 +2123,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       tableId: table.id,
       pointerId: event.pointerId,
       pointerTarget: event.currentTarget,
-      pointerStartLocalX: pointer.x,
-      pointerStartLocalY: pointer.y,
+      pointerStartClientX: event.clientX,
+      pointerStartClientY: event.clientY,
       scale: transform.scale,
       offsetX: transform.offsetX,
       offsetY: transform.offsetY,
@@ -2260,12 +2292,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
+      const liveTransform = getCurrentTransform();
+      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
       if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
         return;
       }
-      const deltaX = pointer.x - drag.pointerStartLocalX;
-      const deltaY = pointer.y - drag.pointerStartLocalY;
+      const pointerStart = mapClientToFloorplan(
+        drag.pointerStartClientX,
+        drag.pointerStartClientY,
+        liveTransform
+      );
+      if (!Number.isFinite(pointerStart.x) || !Number.isFinite(pointerStart.y)) {
+        return;
+      }
+      const deltaX = pointer.x - pointerStart.x;
+      const deltaY = pointer.y - pointerStart.y;
       if (drag.mode === 'resize') {
         let nextW = drag.startW + deltaX;
         let nextH = drag.startH + deltaY;
@@ -2301,7 +2342,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanHeight,
       floorplanMode,
       floorplanWidth,
-      getLiveDragTransform,
       mapClientToFloorplan,
       updateDraftObstacle,
     ]
@@ -2369,9 +2409,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedObstacleId(obstacle.id);
     const rect = getObstacleRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const floorplanRect = floorplanViewportRef.current?.getBoundingClientRect();
-    const transform = getFloorplanTransform(floorplanRect);
-    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
+    const transform = getCurrentTransform();
     if (debugSeating) {
       console.debug('[seating] obstacle drag scale', {
         scale: transform.scale,
@@ -2391,8 +2429,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       obstacleId: obstacle.id,
       pointerId: event.pointerId,
       pointerTarget: event.currentTarget,
-      pointerStartLocalX: pointer.x,
-      pointerStartLocalY: pointer.y,
+      pointerStartClientX: event.clientX,
+      pointerStartClientY: event.clientY,
       scale: transform.scale,
       offsetX: transform.offsetX,
       offsetY: transform.offsetY,
@@ -3928,9 +3966,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
                               const centerY = position.y + geometry.h / 2;
-                              const rect =
-                                floorplanViewportRef.current?.getBoundingClientRect();
-                              const transform = getFloorplanTransform(rect);
+                              const transform = getCurrentTransform();
                               const pointer = mapClientToFloorplan(
                                 event.clientX,
                                 event.clientY,
@@ -3943,8 +3979,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 tableId: table.id,
                                 pointerId: event.pointerId,
                                 pointerTarget: event.currentTarget,
-                                pointerStartLocalX: pointer.x,
-                                pointerStartLocalY: pointer.y,
+                                pointerStartClientX: event.clientX,
+                                pointerStartClientY: event.clientY,
                                 scale: transform.scale,
                                 offsetX: transform.offsetX,
                                 offsetY: transform.offsetY,
