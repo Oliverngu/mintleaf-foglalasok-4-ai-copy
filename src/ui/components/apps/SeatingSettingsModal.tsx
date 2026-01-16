@@ -531,16 +531,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [unitId]);
 
   useEffect(() => {
-    setFloorplanMode('view');
-  }, [resolvedActiveFloorplanId]);
-
-  useEffect(() => {
-    if (!canEditFloorplan && floorplanMode === 'edit') {
-      setFloorplanMode('view');
-    }
-  }, [canEditFloorplan, floorplanMode]);
-
-  useEffect(() => {
     if (!lastSavedSnapshotRef.current) {
       setIsDirty(false);
       return;
@@ -600,6 +590,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => floorplans.find(plan => plan.id === resolvedActiveFloorplanId) ?? null,
     [floorplans, resolvedActiveFloorplanId]
   );
+
+  // Keep this after resolvedActiveFloorplanId to avoid TDZ in minified builds.
+  useEffect(() => {
+    setFloorplanMode('view');
+  }, [resolvedActiveFloorplanId]);
+
+  useEffect(() => {
+    if (!canEditFloorplan && floorplanMode === 'edit') {
+      setFloorplanMode('view');
+    }
+  }, [canEditFloorplan, floorplanMode]);
   const activeObstacles = useMemo(
     () => activeFloorplan?.obstacles ?? [],
     [activeFloorplan]
