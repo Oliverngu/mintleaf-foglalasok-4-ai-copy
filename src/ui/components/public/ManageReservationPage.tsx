@@ -940,156 +940,61 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             isAdminTokenValid &&
             !isAdminTokenExpired(booking) &&
             !isAdminTokenUsed(booking) && (
-              <div
-                className={`p-4 border ${theme.radiusClass} space-y-3`}
-                style={{
-                  backgroundColor: `${theme.colors.accent}10`,
-                  color: theme.colors.textPrimary,
-                  borderColor: `${theme.colors.accent}40`,
-                }}
-              >
-                <p className="font-semibold">{t.adminActionTitle}</p>
-                {actionMessage && (
-                  <p
-                    className={`text-sm p-2 ${theme.radiusClass} border`}
-                    style={{
-                      color: theme.colors.primary,
-                      backgroundColor: theme.colors.surface,
-                      borderColor: `${theme.colors.primary}40`,
-                    }}
-                  >
-                    {actionMessage}
-                  </p>
-                )}
-                {!actionMessage && (
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      onClick={() => handleAdminDecision('approve')}
-                      className={`${baseButtonClasses.primary} flex-1`}
-                      style={{ backgroundColor: theme.colors.primary }}
-                      disabled={isProcessingAction || isSubmittingAction}
+              <div className="space-y-2">
+                <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
+                  Admin műveletek
+                </div>
+                <div
+                  className={`p-4 border ${theme.radiusClass} space-y-3`}
+                  style={{
+                    backgroundColor: `${theme.colors.accent}10`,
+                    color: theme.colors.textPrimary,
+                    borderColor: `${theme.colors.accent}40`,
+                  }}
+                >
+                  <p className="font-semibold">{t.adminActionTitle}</p>
+                  {actionMessage && (
+                    <p
+                      className={`text-sm p-2 ${theme.radiusClass} border`}
+                      style={{
+                        color: theme.colors.primary,
+                        backgroundColor: theme.colors.surface,
+                        borderColor: `${theme.colors.primary}40`,
+                      }}
                     >
-                      {t.adminApprove}
-                    </button>
-                    <button
-                      onClick={() => handleAdminDecision('reject')}
-                      className={`${baseButtonClasses.primary} flex-1`}
-                      style={{ backgroundColor: theme.colors.danger }}
-                      disabled={isProcessingAction || isSubmittingAction}
-                    >
-                      {t.adminReject}
-                    </button>
-                  </div>
-                )}
+                      {actionMessage}
+                    </p>
+                  )}
+                  {!actionMessage && (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={() => handleAdminDecision('approve')}
+                        className={`${baseButtonClasses.primary} flex-1`}
+                        style={{ backgroundColor: theme.colors.primary }}
+                        disabled={isProcessingAction || isSubmittingAction}
+                      >
+                        {t.adminApprove}
+                      </button>
+                      <button
+                        onClick={() => handleAdminDecision('reject')}
+                        className={`${baseButtonClasses.primary} flex-1`}
+                        style={{ backgroundColor: theme.colors.danger }}
+                        disabled={isProcessingAction || isSubmittingAction}
+                      >
+                        {t.adminReject}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
         </div>
 
         <div className="space-y-4">
-          <div
-            className={`p-4 border ${theme.radiusClass}`}
-            style={{
-              backgroundColor: theme.colors.background,
-              borderColor: theme.colors.surface,
-              color: theme.colors.textPrimary,
-            }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-lg font-semibold">{t.modifySectionTitle}</h3>
-              {isModifyLocked && (
-                <span className="text-xs font-semibold" style={{ color: theme.colors.textSecondary }}>
-                  {t.modifyLocked}
-                </span>
-              )}
+          <div className="space-y-3">
+            <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
+              Vendég műveletek
             </div>
-            <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
-              {t.modifySectionHint}
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{t.headcount}</label>
-                <input
-                  type="number"
-                  min={MIN_HEADCOUNT}
-                  max={MAX_HEADCOUNT}
-                  value={modifyHeadcount}
-                  onChange={(event) => setModifyHeadcount(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
-                  className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
-                  style={{
-                    backgroundColor: theme.colors.surface,
-                    color: theme.colors.textPrimary,
-                    borderColor: theme.colors.surface,
-                  }}
-                />
-                <p className="text-xs mt-1" style={{ color: theme.colors.textSecondary }}>
-                  {t.modifyHeadcountHint
-                    .replace('{min}', String(MIN_HEADCOUNT))
-                    .replace('{max}', String(MAX_HEADCOUNT))}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t.startTime}</label>
-                <input
-                  type="time"
-                  step={900}
-                  min={settings?.bookableWindow?.from}
-                  max={settings?.bookableWindow?.to}
-                  value={modifyStartTime}
-                  onChange={(event) => setModifyStartTime(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
-                  className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
-                  style={{
-                    backgroundColor: theme.colors.surface,
-                    color: theme.colors.textPrimary,
-                    borderColor: theme.colors.surface,
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t.endTime}</label>
-                <input
-                  type="time"
-                  step={900}
-                  min={modifyStartTime || settings?.bookableWindow?.from}
-                  max={settings?.bookableWindow?.to}
-                  value={modifyEndTime}
-                  onChange={(event) => setModifyEndTime(event.target.value)}
-                  disabled={isModifyLocked || isSavingModification || isSubmittingAction}
-                  className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
-                  style={{
-                    backgroundColor: theme.colors.surface,
-                    color: theme.colors.textPrimary,
-                    borderColor: theme.colors.surface,
-                  }}
-                />
-              </div>
-            </div>
-            {modifyError && (
-              <p className="text-sm mt-3" style={{ color: theme.colors.danger }}>
-                {modifyError}
-              </p>
-            )}
-            {modifySuccess && (
-              <p className="text-sm mt-3" style={{ color: theme.colors.primary }}>
-                {modifySuccess}
-              </p>
-            )}
-            <button
-              onClick={handleModifyReservation}
-              disabled={isModifyLocked || isSavingModification || isSubmittingAction}
-              className={`${baseButtonClasses.primary} w-full mt-4`}
-              style={{
-                backgroundColor: isModifyLocked ? theme.colors.surface : theme.colors.primary,
-                color: isModifyLocked ? theme.colors.textSecondary : '#fff',
-                opacity: isModifyLocked ? 0.6 : 1,
-              }}
-            >
-              {isSavingModification ? t.modifySaving : t.modifySave}
-            </button>
-          </div>
-
-          {booking.status !== 'cancelled' ? (
             <div
               className={`p-4 border ${theme.radiusClass}`}
               style={{
@@ -1098,31 +1003,139 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 color: theme.colors.textPrimary,
               }}
             >
-              <h3 className="text-lg font-semibold">{t.cancelReservation}</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold">{t.modifySectionTitle}</h3>
+                {isModifyLocked && (
+                  <span
+                    className="text-xs font-semibold"
+                    style={{ color: theme.colors.textSecondary }}
+                  >
+                    {t.modifyLocked}
+                  </span>
+                )}
+              </div>
               <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
-                {t.cancelReservationHint}
+                {t.modifySectionHint}
               </p>
-              {cancelError && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t.headcount}</label>
+                  <input
+                    type="number"
+                    min={MIN_HEADCOUNT}
+                    max={MAX_HEADCOUNT}
+                    value={modifyHeadcount}
+                    onChange={(event) => setModifyHeadcount(event.target.value)}
+                    disabled={isModifyLocked || isSavingModification || isSubmittingAction}
+                    className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+                    style={{
+                      backgroundColor: theme.colors.surface,
+                      color: theme.colors.textPrimary,
+                      borderColor: theme.colors.surface,
+                    }}
+                  />
+                  <p className="text-xs mt-1" style={{ color: theme.colors.textSecondary }}>
+                    {t.modifyHeadcountHint
+                      .replace('{min}', String(MIN_HEADCOUNT))
+                      .replace('{max}', String(MAX_HEADCOUNT))}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t.startTime}</label>
+                  <input
+                    type="time"
+                    step={900}
+                    min={settings?.bookableWindow?.from}
+                    max={settings?.bookableWindow?.to}
+                    value={modifyStartTime}
+                    onChange={(event) => setModifyStartTime(event.target.value)}
+                    disabled={isModifyLocked || isSavingModification || isSubmittingAction}
+                    className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+                    style={{
+                      backgroundColor: theme.colors.surface,
+                      color: theme.colors.textPrimary,
+                      borderColor: theme.colors.surface,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t.endTime}</label>
+                  <input
+                    type="time"
+                    step={900}
+                    min={modifyStartTime || settings?.bookableWindow?.from}
+                    max={settings?.bookableWindow?.to}
+                    value={modifyEndTime}
+                    onChange={(event) => setModifyEndTime(event.target.value)}
+                    disabled={isModifyLocked || isSavingModification || isSubmittingAction}
+                    className={`w-full p-3 border ${theme.radiusClass} focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+                    style={{
+                      backgroundColor: theme.colors.surface,
+                      color: theme.colors.textPrimary,
+                      borderColor: theme.colors.surface,
+                    }}
+                  />
+                </div>
+              </div>
+              {modifyError && (
                 <p className="text-sm mt-3" style={{ color: theme.colors.danger }}>
-                  {cancelError}
+                  {modifyError}
+                </p>
+              )}
+              {modifySuccess && (
+                <p className="text-sm mt-3" style={{ color: theme.colors.primary }}>
+                  {modifySuccess}
                 </p>
               )}
               <button
-                onClick={() => setIsCancelModalOpen(true)}
+                onClick={handleModifyReservation}
+                disabled={isModifyLocked || isSavingModification || isSubmittingAction}
                 className={`${baseButtonClasses.primary} w-full mt-4`}
-                style={{ backgroundColor: theme.colors.danger }}
-                disabled={isCancelling || isSubmittingAction}
+                style={{
+                  backgroundColor: isModifyLocked ? theme.colors.surface : theme.colors.primary,
+                  color: isModifyLocked ? theme.colors.textSecondary : '#fff',
+                  opacity: isModifyLocked ? 0.6 : 1,
+                }}
               >
-                {isCancelling ? t.cancelling : t.cancelReservation}
+                {isSavingModification ? t.modifySaving : t.modifySave}
               </button>
             </div>
-          ) : (
-            <div className="text-center">
-              <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
-                {t.reservationCancelledSuccess}
-              </p>
-            </div>
-          )}
+
+            {booking.status !== 'cancelled' ? (
+              <div
+                className={`p-4 border ${theme.radiusClass}`}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.surface,
+                  color: theme.colors.textPrimary,
+                }}
+              >
+                <h3 className="text-lg font-semibold">{t.cancelReservation}</h3>
+                <p className="text-sm mt-1" style={{ color: theme.colors.textSecondary }}>
+                  {t.cancelReservationHint}
+                </p>
+                {cancelError && (
+                  <p className="text-sm mt-3" style={{ color: theme.colors.danger }}>
+                    {cancelError}
+                  </p>
+                )}
+                <button
+                  onClick={() => setIsCancelModalOpen(true)}
+                  className={`${baseButtonClasses.primary} w-full mt-4`}
+                  style={{ backgroundColor: theme.colors.danger }}
+                  disabled={isCancelling || isSubmittingAction}
+                >
+                  {isCancelling ? t.cancelling : t.cancelReservation}
+                </button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
+                  {t.reservationCancelledSuccess}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

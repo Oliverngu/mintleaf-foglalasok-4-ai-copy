@@ -944,6 +944,43 @@ const CollapsibleSection: React.FC<{
   );
 };
 
+type BookingDetailSection = 'summary' | 'allocation' | 'seating' | 'capacity' | 'logs';
+
+const BookingDetailTabs: React.FC<{
+  active: BookingDetailSection;
+  onChange: (section: BookingDetailSection) => void;
+  isAdmin: boolean;
+}> = ({ active, onChange, isAdmin }) => {
+  const tabs: { id: BookingDetailSection; label: string }[] = [
+    { id: 'summary', label: 'Összefoglaló' },
+    { id: 'allocation', label: 'Allokáció' },
+    { id: 'seating', label: 'Ültetés' },
+    { id: 'capacity', label: 'Kapacitás' },
+    { id: 'logs', label: 'Napló' },
+  ];
+
+  const visibleTabs = tabs.filter(tab => isAdmin || !['seating', 'capacity'].includes(tab.id));
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {visibleTabs.map(tab => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+            active === tab.id
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-gray-100 text-gray-600 border-gray-200'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const BookingSummaryCard: React.FC<{
   booking: Booking;
   resolveSeatingPreferenceLabel: (value?: Booking['seatingPreference']) => string;
@@ -1211,6 +1248,7 @@ const BookingDetailsModal: React.FC<{
   const [dayLogsLoading, setDayLogsLoading] = useState(true);
   const [openAllocationId, setOpenAllocationId] = useState<string | null>(null);
   const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<BookingDetailSection>('summary');
   const zoneNameById = useMemo(
     () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
     [zones]
@@ -1373,7 +1411,17 @@ const BookingDetailsModal: React.FC<{
           </button>
         </div>
         <div className="p-6 overflow-y-auto space-y-4">
-          {isAdmin && (
+          <SectionCard
+            title="Foglalás részletek"
+            description="Összefoglaló, allokáció, ültetés, kapacitás és napló."
+          >
+            <BookingDetailTabs
+              active={activeSection}
+              onChange={setActiveSection}
+              isAdmin={isAdmin}
+            />
+          </SectionCard>
+          {activeSection === 'capacity' && isAdmin && (
             <SectionCard title="Kapacitás" description="Napi kapacitás műveletek">
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -1393,82 +1441,80 @@ const BookingDetailsModal: React.FC<{
               </div>
             </SectionCard>
           )}
-          <CollapsibleSection
-            title="Napi napló"
-            description="Az adott naphoz tartozó események"
-            defaultOpen={false}
-          >
-            {dayLogsLoading ? (
-              <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
-            ) : dayLogs.length ? (
-              <div className="space-y-2 text-xs max-h-40 overflow-y-auto">
-                {dayLogs.map(log => {
-                  const createdDate =
-                    typeof log.createdAt?.toDate === 'function'
-                      ? log.createdAt.toDate()
-                      : log.createdAt instanceof Date
-                      ? log.createdAt
-                      : null;
-                  const created = createdDate
-                    ? createdDate.toLocaleString('hu-HU', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : '—';
+          {activeSection === 'logs' && (
+            <SectionCard title="Napi napló" description="Az adott naphoz tartozó események">
+              {dayLogsLoading ? (
+                <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
+              ) : dayLogs.length ? (
+                <div className="space-y-2 text-xs max-h-40 overflow-y-auto">
+                  {dayLogs.map(log => {
+                    const createdDate =
+                      typeof log.createdAt?.toDate === 'function'
+                        ? log.createdAt.toDate()
+                        : log.createdAt instanceof Date
+                        ? log.createdAt
+                        : null;
+                    const created = createdDate
+                      ? createdDate.toLocaleString('hu-HU', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '—';
 
-                  const dotClass =
-                    log.type === 'cancelled' || log.type === 'guest_cancelled'
-                      ? 'bg-red-500'
-                      : log.type === 'guest_created'
-                      ? 'bg-green-500'
-                      : log.type === 'capacity_override'
-                      ? 'bg-blue-500'
-                      : log.type === 'admin_seating_updated'
-                      ? 'bg-blue-500'
-                      : log.type === 'capacity_recalc'
-                      ? 'bg-purple-500'
-                      : 'bg-blue-500';
+                    const dotClass =
+                      log.type === 'cancelled' || log.type === 'guest_cancelled'
+                        ? 'bg-red-500'
+                        : log.type === 'guest_created'
+                        ? 'bg-green-500'
+                        : log.type === 'capacity_override'
+                        ? 'bg-blue-500'
+                        : log.type === 'admin_seating_updated'
+                        ? 'bg-blue-500'
+                        : log.type === 'capacity_recalc'
+                        ? 'bg-purple-500'
+                        : 'bg-blue-500';
 
-                  const message =
-                    log.message ||
-                    (log.type === 'capacity_override'
-                      ? 'Napi limit módosítva.'
-                      : 'Ismeretlen naplóbejegyzés');
+                    const message =
+                      log.message ||
+                      (log.type === 'capacity_override'
+                        ? 'Napi limit módosítva.'
+                        : 'Ismeretlen naplóbejegyzés');
 
-                  return (
-                    <div
-                      key={log.id}
-                      className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
-                    >
-                      <div className="flex items-start gap-2">
-                        <span
-                          className={`inline-block w-2 h-2 rounded-full mt-1 ${dotClass}`}
-                        />
-                        <div className="space-y-0.5">
-                          <div className="text-[var(--color-text-main)]">{message}</div>
-                          {log.createdByName && (
-                            <div className="text-[11px] text-[var(--color-text-secondary)]">
-                              {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
-                            </div>
-                          )}
+                    return (
+                      <div
+                        key={log.id}
+                        className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full mt-1 ${dotClass}`}
+                          />
+                          <div className="space-y-0.5">
+                            <div className="text-[var(--color-text-main)]">{message}</div>
+                            {log.createdByName && (
+                              <div className="text-[11px] text-[var(--color-text-secondary)]">
+                                {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
+                          {created}
+                        </span>
                       </div>
-                      <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
-                        {created}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-xs text-[var(--color-text-secondary)]">
-                Nincsenek naplóbejegyzések erre a napra.
-              </div>
-            )}
-          </CollapsibleSection>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--color-text-secondary)]">
+                  Nincsenek naplóbejegyzések erre a napra.
+                </div>
+              )}
+            </SectionCard>
+          )}
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
@@ -1484,59 +1530,74 @@ const BookingDetailsModal: React.FC<{
                     style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
                     <div className="space-y-4">
-                      <BookingSummaryCard
-                        booking={booking}
-                        resolveSeatingPreferenceLabel={resolveSeatingPreferenceLabel}
-                      />
-                      <AllocationDecisionChain
-                        booking={booking}
-                        resolveZoneName={resolveZoneName}
-                        resolveTableNames={resolveTableNames}
-                      />
-                      {isAdmin && seatingSettings?.allocationEnabled && (
-                        <SectionCard title="Allokáció override">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOpenAllocationId(current =>
+                      {activeSection === 'summary' && (
+                        <BookingSummaryCard
+                          booking={booking}
+                          resolveSeatingPreferenceLabel={resolveSeatingPreferenceLabel}
+                        />
+                      )}
+                      {activeSection === 'allocation' && (
+                        <>
+                          <AllocationDecisionChain
+                            booking={booking}
+                            resolveZoneName={resolveZoneName}
+                            resolveTableNames={resolveTableNames}
+                          />
+                          {isAdmin && seatingSettings?.allocationEnabled && (
+                            <SectionCard title="Allokáció override">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenAllocationId(current =>
+                                    current === booking.id ? null : booking.id
+                                  )
+                                }
+                                className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
+                              >
+                                {openAllocationId === booking.id
+                                  ? 'Allokáció bezárása'
+                                  : 'Allokáció'}
+                              </button>
+                              {openAllocationId === booking.id && seatingSettings && (
+                                <AllocationPanel
+                                  booking={booking}
+                                  unitId={unitId}
+                                  zones={zones}
+                                  tables={tables}
+                                  combinations={combinations}
+                                  seatingSettings={seatingSettings}
+                                  dayBookings={bookings}
+                                  onClose={() => setOpenAllocationId(null)}
+                                />
+                              )}
+                            </SectionCard>
+                          )}
+                        </>
+                      )}
+                      {activeSection === 'seating' &&
+                        (isAdmin ? (
+                          <BookingSeatingPanel
+                            booking={booking}
+                            unitId={unitId}
+                            zones={zones}
+                            tables={tables}
+                            highlightTableIds={highlightTableIds}
+                            highlightZoneId={highlightZoneId}
+                            isFloorplanOpen={isFloorplanOpen}
+                            onToggleFloorplan={() =>
+                              setOpenFloorplanBookingId(current =>
                                 current === booking.id ? null : booking.id
                               )
                             }
-                            className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
-                          >
-                            {openAllocationId === booking.id ? 'Allokáció bezárása' : 'Allokáció'}
-                          </button>
-                          {openAllocationId === booking.id && seatingSettings && (
-                            <AllocationPanel
-                              booking={booking}
-                              unitId={unitId}
-                              zones={zones}
-                              tables={tables}
-                              combinations={combinations}
-                              seatingSettings={seatingSettings}
-                              dayBookings={bookings}
-                              onClose={() => setOpenAllocationId(null)}
-                            />
-                          )}
-                        </SectionCard>
-                      )}
-                      {isAdmin && (
-                        <BookingSeatingPanel
-                          booking={booking}
-                          unitId={unitId}
-                          zones={zones}
-                          tables={tables}
-                          highlightTableIds={highlightTableIds}
-                          highlightZoneId={highlightZoneId}
-                          isFloorplanOpen={isFloorplanOpen}
-                          onToggleFloorplan={() =>
-                            setOpenFloorplanBookingId(current =>
-                              current === booking.id ? null : booking.id
-                            )
-                          }
-                          onSeatingSaved={update => onSeatingSaved(booking.id, update)}
-                        />
-                      )}
+                            onSeatingSaved={update => onSeatingSaved(booking.id, update)}
+                          />
+                        ) : (
+                          <SectionCard title="Ültetés">
+                            <p className="text-xs text-[var(--color-text-secondary)]">
+                              Ültetés szerkesztéséhez admin hozzáférés szükséges.
+                            </p>
+                          </SectionCard>
+                        ))}
                     </div>
                   {isAdmin && (
                     <button

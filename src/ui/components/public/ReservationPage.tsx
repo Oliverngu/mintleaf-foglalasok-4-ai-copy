@@ -1155,6 +1155,12 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
 
+  const fieldErrorItems = [
+    { key: 'name', label: t.name, message: formErrors.name },
+    { key: 'phone', label: t.phone, message: formErrors.phone },
+    { key: 'email', label: t.email, message: formErrors.email },
+  ].filter((item) => item.message);
+
   useEffect(() => {
     if (error && errorBannerRef.current) {
       errorBannerRef.current.focus();
@@ -1230,6 +1236,27 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {fieldErrorItems.length > 0 && (
+        <div
+          className={`mb-4 p-3 ${themeProps.radiusClass}`}
+          style={{
+            backgroundColor: `${themeProps.colors.danger}15`,
+            color: themeProps.colors.textPrimary,
+            border: `1px solid ${themeProps.colors.danger}40`,
+          }}
+        >
+          <p className="text-sm font-semibold">
+            {locale === 'hu' ? 'Ellenőrizd az alábbi mezőket:' : 'Please review:'}
+          </p>
+          <ul className="mt-2 space-y-1 text-xs list-disc list-inside">
+            {fieldErrorItems.map((item) => (
+              <li key={item.key}>
+                {item.label}: {item.message}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-5">
@@ -1542,6 +1569,10 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const nextStepsText =
+    locale === 'hu'
+      ? 'Mi történik ezután? A foglalás részleteit e-mailben küldjük, és a linken bármikor módosíthatod vagy lemondhatod.'
+      : 'What happens next? We will email your reservation details, and you can modify or cancel anytime via the link.';
   const primaryButtonClass =
     buttonClasses?.primary ||
     `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
@@ -1566,6 +1597,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
       <p className="text-sm mt-2" style={{ color: themeProps.colors.textSecondary }}>
         {t.emailConfirmationSent}
+      </p>
+      <p className="text-sm" style={{ color: themeProps.colors.textSecondary }}>
+        {nextStepsText}
       </p>
 
       {submittedData && (
