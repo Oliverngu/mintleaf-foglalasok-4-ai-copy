@@ -1584,24 +1584,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, []);
 
-  const getLocalPointerPosition = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const rect = floorplanViewportRef.current?.getBoundingClientRect();
-      const transform = getFloorplanTransform(rect);
-      return mapClientToFloorplan(event.clientX, event.clientY, transform);
-    },
-    [getFloorplanTransform, mapClientToFloorplan]
-  );
-
-  const getLocalPointerPositionFromClient = useCallback(
-    (clientX: number, clientY: number) => {
-      const rect = floorplanViewportRef.current?.getBoundingClientRect();
-      const transform = getFloorplanTransform(rect);
-      return mapClientToFloorplan(clientX, clientY, transform);
-    },
-    [getFloorplanTransform, mapClientToFloorplan]
-  );
-
   const [floorplanViewportSize, setFloorplanViewportSize] = useState<{
     width: number;
     height: number;
@@ -1842,6 +1824,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
       let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
+      const unclampedX = nextX;
+      const unclampedY = nextY;
       if (drag.snapToGrid) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -1850,6 +1834,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const maxY = Math.max(0, drag.floorplanHeight - drag.height);
       nextX = clamp(nextX, 0, maxX);
       nextY = clamp(nextY, 0, maxY);
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragMoveDebugRef.current > 500) {
+          dragMoveDebugRef.current = now;
+          console.debug('[seating] drag clamp', {
+            width: drag.width,
+            height: drag.height,
+            floorplanWidth: drag.floorplanWidth,
+            floorplanHeight: drag.floorplanHeight,
+            unclampedX,
+            unclampedY,
+            nextX,
+            nextY,
+          });
+        }
+      }
       updateDraftPosition(drag.tableId, nextX, nextY);
     },
     [
@@ -3727,7 +3727,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               const rect =
                                 floorplanViewportRef.current?.getBoundingClientRect();
                               const transform = getFloorplanTransform(rect);
-                              const pointer = getLocalPointerPosition(event);
+                              const pointer = mapClientToFloorplan(
+                                event.clientX,
+                                event.clientY,
+                                transform
+                              );
                               const startAngle =
                                 Math.atan2(pointer.y - centerY, pointer.x - centerX) *
                                 (180 / Math.PI);
