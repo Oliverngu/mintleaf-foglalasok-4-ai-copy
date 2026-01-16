@@ -250,6 +250,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const finalizeObstacleUpdateRef = useRef<
     (obstacleId: string, next: { x: number; y: number; w: number; h: number }) => Promise<void>
   >(async () => {});
+  const dragMoveDebugRef = useRef(0);
+  const obstacleMoveDebugRef = useRef(0);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -658,15 +660,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table => !table.floorplanId || table.floorplanId === activeFloorplan.id
     );
   }, [activeFloorplan, tables]);
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(Math.max(value, min), max);
-  const applyGrid = (value: number, gridSize: number) =>
-    gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
-  const normalizeRotation = (value: number) => {
+  function clamp(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
+  }
+  function applyGrid(value: number, gridSize: number) {
+    return gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
+  }
+  function normalizeRotation(value: number) {
     const wrapped = ((value % 360) + 360) % 360;
     return wrapped > 180 ? wrapped - 360 : wrapped;
-  };
-  const snapRotation = (value: number, step = 5) => Math.round(value / step) * step;
+  }
+  function snapRotation(value: number, step = 5) {
+    return Math.round(value / step) * step;
+  }
 
   // Order matters to avoid TDZ in minified builds.
   const setActionSavingFlag = (key: string, value: boolean) => {
@@ -1564,6 +1570,38 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [clamp, floorplanHeight, floorplanWidth]
   );
 
+  const getLiveDragTransform = useCallback((transform: FloorplanTransform) => {
+    const rect = floorplanViewportRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return transform;
+    }
+    return {
+      ...transform,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+    };
+  }, []);
+
+  const getLocalPointerPosition = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const rect = floorplanViewportRef.current?.getBoundingClientRect();
+      const transform = getFloorplanTransform(rect);
+      return mapClientToFloorplan(event.clientX, event.clientY, transform);
+    },
+    [getFloorplanTransform, mapClientToFloorplan]
+  );
+
+  const getLocalPointerPositionFromClient = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = floorplanViewportRef.current?.getBoundingClientRect();
+      const transform = getFloorplanTransform(rect);
+      return mapClientToFloorplan(clientX, clientY, transform);
+    },
+    [getFloorplanTransform, mapClientToFloorplan]
+  );
+
   const [floorplanViewportSize, setFloorplanViewportSize] = useState<{
     width: number;
     height: number;
@@ -1774,7 +1812,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplan(clientX, clientY, drag);
+        const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1784,7 +1822,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      const liveTransform = getLiveDragTransform(drag);
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragMoveDebugRef.current > 500) {
+          dragMoveDebugRef.current = now;
+          console.debug('[seating] drag move', {
+            scale: liveTransform.scale,
+            offsetX: liveTransform.offsetX,
+            offsetY: liveTransform.offsetY,
+            rectLeft: liveTransform.rectLeft,
+            rectTop: liveTransform.rectTop,
+            rectWidth: liveTransform.rectWidth,
+            rectHeight: liveTransform.rectHeight,
+            pointerId,
+          });
+        }
+      }
+      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
       let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       if (drag.snapToGrid) {
@@ -1797,7 +1852,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(drag.tableId, nextX, nextY);
     },
-    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
+    [
+      applyGrid,
+      clamp,
+      debugSeating,
+      getLiveDragTransform,
+      mapClientToFloorplan,
+      normalizeRotation,
+      snapRotation,
+    ]
   );
 
   const handleTablePointerUpCore = useCallback(
@@ -1823,7 +1886,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const tableId = drag.tableId;
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplan(clientX, clientY, drag);
+        const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1838,7 +1901,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
       let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       if (drag.snapToGrid) {
@@ -1854,7 +1917,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setDragState(null);
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
-    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
+    [applyGrid, clamp, getLiveDragTransform, mapClientToFloorplan, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerDown = (
@@ -2063,7 +2126,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
       const deltaX = pointer.x - drag.pointerStartLocalX;
       const deltaY = pointer.y - drag.pointerStartLocalY;
       if (drag.mode === 'resize') {
@@ -2101,6 +2164,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanHeight,
       floorplanMode,
       floorplanWidth,
+      getLiveDragTransform,
       mapClientToFloorplan,
       updateDraftObstacle,
     ]
@@ -3660,6 +3724,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
                               const centerY = position.y + geometry.h / 2;
+                              const rect =
+                                floorplanViewportRef.current?.getBoundingClientRect();
+                              const transform = getFloorplanTransform(rect);
                               const pointer = getLocalPointerPosition(event);
                               const startAngle =
                                 Math.atan2(pointer.y - centerY, pointer.x - centerX) *
@@ -3668,8 +3735,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 tableId: table.id,
                                 pointerId: event.pointerId,
                                 pointerTarget: event.currentTarget,
-                                pointerStartX: event.clientX,
-                                pointerStartY: event.clientY,
+                                pointerStartLocalX: pointer.x,
+                                pointerStartLocalY: pointer.y,
+                                scale: transform.scale,
+                                offsetX: transform.offsetX,
+                                offsetY: transform.offsetY,
+                                rectLeft: transform.rectLeft,
+                                rectTop: transform.rectTop,
+                                rectWidth: transform.rectWidth,
+                                rectHeight: transform.rectHeight,
                                 tableStartX: position.x,
                                 tableStartY: position.y,
                                 width: geometry.w,
