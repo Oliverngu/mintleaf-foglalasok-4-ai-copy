@@ -40,6 +40,19 @@ import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting } from './seating/floorplanUtils';
 
+const FloorplanSquareViewport = React.forwardRef<
+  HTMLDivElement,
+  { children: React.ReactNode; className?: string }
+>(({ children, className }, ref) => (
+  <div
+    ref={ref}
+    className={`relative w-full aspect-square overflow-hidden ${className ?? ''}`}
+  >
+    {children}
+  </div>
+));
+FloorplanSquareViewport.displayName = 'FloorplanSquareViewport';
+
 interface SeatingSettingsModalProps {
   unitId: string;
   onClose: () => void;
@@ -184,10 +197,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string;
     pointerId: number;
     pointerTarget: HTMLElement | null;
-    pointerStartX: number;
-    pointerStartY: number;
-    scaleX: number;
-    scaleY: number;
+    pointerStartLocalX: number;
+    pointerStartLocalY: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    rectLeft: number;
+    rectTop: number;
+    rectWidth: number;
+    rectHeight: number;
     tableStartX: number;
     tableStartY: number;
     width: number;
@@ -206,10 +224,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     obstacleId: string;
     pointerId: number;
     pointerTarget: HTMLElement | null;
-    pointerStartX: number;
-    pointerStartY: number;
-    scaleX: number;
-    scaleY: number;
+    pointerStartLocalX: number;
+    pointerStartLocalY: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    rectLeft: number;
+    rectTop: number;
+    rectWidth: number;
+    rectHeight: number;
     startX: number;
     startY: number;
     startW: number;
@@ -230,7 +253,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
-  const floorplanRef = useRef<HTMLDivElement | null>(null);
+  const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
   const lastActionRef = useRef<null | {
     tableId: string;
     kind: 'move' | 'rotate';
@@ -1492,47 +1515,82 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
-  const getFloorplanScale = useCallback(
-    (rectOverride?: DOMRect) => {
-      const rect = rectOverride ?? floorplanRef.current?.getBoundingClientRect();
+  type FloorplanTransform = {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    rectLeft: number;
+    rectTop: number;
+    rectWidth: number;
+    rectHeight: number;
+  };
+
+  const getFloorplanTransform = useCallback(
+    (rectOverride?: { width: number; height: number; left?: number; top?: number }) => {
+      const rect = rectOverride ?? floorplanViewportRef.current?.getBoundingClientRect();
       const rectWidth = rect?.width ?? 0;
       const rectHeight = rect?.height ?? 0;
-      const rawScaleX = rectWidth > 0 ? rectWidth / floorplanWidth : 1;
-      const rawScaleY = rectHeight > 0 ? rectHeight / floorplanHeight : 1;
-      const scaleX = Number.isFinite(rawScaleX) && rawScaleX > 0 ? rawScaleX : 1;
-      const scaleY = Number.isFinite(rawScaleY) && rawScaleY > 0 ? rawScaleY : 1;
-      return { scaleX, scaleY, rectWidth, rectHeight };
+      const rectLeft = rect?.left ?? 0;
+      const rectTop = rect?.top ?? 0;
+      const rawScale =
+        rectWidth > 0 && rectHeight > 0
+          ? Math.min(rectWidth / floorplanWidth, rectHeight / floorplanHeight)
+          : 1;
+      const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+      const offsetX = (rectWidth - floorplanWidth * scale) / 2;
+      const offsetY = (rectHeight - floorplanHeight * scale) / 2;
+      return {
+        scale,
+        offsetX: Number.isFinite(offsetX) ? offsetX : 0,
+        offsetY: Number.isFinite(offsetY) ? offsetY : 0,
+        rectLeft,
+        rectTop,
+        rectWidth,
+        rectHeight,
+      };
     },
     [floorplanHeight, floorplanWidth]
   );
 
-  const getLocalPointerPosition = (
-    event: React.PointerEvent<HTMLElement>,
-    scaleOverride?: { scaleX: number; scaleY: number }
-  ) => {
-    const rect = floorplanRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return { x: event.clientX, y: event.clientY };
-    }
-    const { scaleX, scaleY } = scaleOverride ?? getFloorplanScale(rect);
-    return {
-      x: (event.clientX - rect.left) / scaleX,
-      y: (event.clientY - rect.top) / scaleY,
-    };
-  };
+  const mapClientToFloorplan = useCallback(
+    (clientX: number, clientY: number, transform: FloorplanTransform) => {
+      const rawX = (clientX - transform.rectLeft - transform.offsetX) / transform.scale;
+      const rawY = (clientY - transform.rectTop - transform.offsetY) / transform.scale;
+      return {
+        x: clamp(rawX, 0, floorplanWidth),
+        y: clamp(rawY, 0, floorplanHeight),
+      };
+    },
+    [clamp, floorplanHeight, floorplanWidth]
+  );
 
-  const getLocalPointerPositionFromClient = (
-    clientX: number,
-    clientY: number,
-    scaleOverride?: { scaleX: number; scaleY: number }
-  ) => {
-    const rect = floorplanRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return { x: clientX, y: clientY };
+  const [floorplanViewportSize, setFloorplanViewportSize] = useState<{
+    width: number;
+    height: number;
+  }>({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const node = floorplanViewportRef.current;
+    if (!node) return;
+    const update = () => {
+      setFloorplanViewportSize({
+        width: node.clientWidth,
+        height: node.clientHeight,
+      });
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      return;
     }
-    const { scaleX, scaleY } = scaleOverride ?? getFloorplanScale(rect);
-    return { x: (clientX - rect.left) / scaleX, y: (clientY - rect.top) / scaleY };
-  };
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const floorplanRenderTransform = useMemo(
+    () => getFloorplanTransform(floorplanViewportSize),
+    [floorplanViewportSize, getFloorplanTransform]
+  );
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
@@ -1711,15 +1769,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = dragStateRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      if (!floorplanRef.current) {
+      if (!floorplanViewportRef.current) {
         abortDragRef.current(drag);
         return;
       }
       if (drag.mode === 'rotate') {
-        const pointer = getLocalPointerPositionFromClient(clientX, clientY, {
-          scaleX: drag.scaleX,
-          scaleY: drag.scaleY,
-        });
+        const pointer = mapClientToFloorplan(clientX, clientY, drag);
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1729,10 +1784,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
-      let nextX = drag.tableStartX + deltaX;
-      let nextY = drag.tableStartY + deltaY;
+      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
+      let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       if (drag.snapToGrid) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -1743,7 +1797,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(drag.tableId, nextX, nextY);
     },
-    [applyGrid, clamp, getLocalPointerPositionFromClient, normalizeRotation, snapRotation]
+    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerUpCore = useCallback(
@@ -1763,16 +1817,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = dragStateRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      if (!floorplanRef.current) {
+      if (!floorplanViewportRef.current) {
         abortDragRef.current(drag);
         return;
       }
       const tableId = drag.tableId;
       if (drag.mode === 'rotate') {
-        const pointer = getLocalPointerPositionFromClient(clientX, clientY, {
-          scaleX: drag.scaleX,
-          scaleY: drag.scaleY,
-        });
+        const pointer = mapClientToFloorplan(clientX, clientY, drag);
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1787,10 +1838,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
-      let nextX = drag.tableStartX + deltaX;
-      let nextY = drag.tableStartY + deltaY;
+      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
+      let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       if (drag.snapToGrid) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -1804,7 +1854,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setDragState(null);
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
-    [applyGrid, clamp, getLocalPointerPositionFromClient, normalizeRotation, snapRotation]
+    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerDown = (
@@ -1823,16 +1873,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const rect = floorplanRef.current?.getBoundingClientRect();
-    const { scaleX, scaleY, rectWidth, rectHeight } = getFloorplanScale(rect);
-    const pointer = getLocalPointerPosition(event, { scaleX, scaleY });
+    const rect = floorplanViewportRef.current?.getBoundingClientRect();
+    const transform = getFloorplanTransform(rect);
+    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
     if (debugSeating) {
       console.debug('[seating] drag scale', {
-        scaleX,
-        scaleY,
-        rectWidth,
-        rectHeight,
+        scale: transform.scale,
+        offsetX: transform.offsetX,
+        offsetY: transform.offsetY,
+        rectWidth: transform.rectWidth,
+        rectHeight: transform.rectHeight,
         floorplanWidth,
         floorplanHeight,
         pointerId: event.pointerId,
@@ -1845,10 +1896,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       tableId: table.id,
       pointerId: event.pointerId,
       pointerTarget: event.currentTarget,
-      pointerStartX: event.clientX,
-      pointerStartY: event.clientY,
-      scaleX,
-      scaleY,
+      pointerStartLocalX: pointer.x,
+      pointerStartLocalY: pointer.y,
+      scale: transform.scale,
+      offsetX: transform.offsetX,
+      offsetY: transform.offsetY,
+      rectLeft: transform.rectLeft,
+      rectTop: transform.rectTop,
+      rectWidth: transform.rectWidth,
+      rectHeight: transform.rectHeight,
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -2007,8 +2063,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
+      const pointer = mapClientToFloorplan(clientX, clientY, drag);
+      const deltaX = pointer.x - drag.pointerStartLocalX;
+      const deltaY = pointer.y - drag.pointerStartLocalY;
       if (drag.mode === 'resize') {
         let nextW = drag.startW + deltaX;
         let nextH = drag.startH + deltaY;
@@ -2044,6 +2101,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanHeight,
       floorplanMode,
       floorplanWidth,
+      mapClientToFloorplan,
       updateDraftObstacle,
     ]
   );
@@ -2110,16 +2168,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedObstacleId(obstacle.id);
     const rect = getObstacleRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const floorplanRect = floorplanRef.current?.getBoundingClientRect();
-    const { scaleX, scaleY } = getFloorplanScale(floorplanRect);
+    const floorplanRect = floorplanViewportRef.current?.getBoundingClientRect();
+    const transform = getFloorplanTransform(floorplanRect);
+    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
+    if (debugSeating) {
+      console.debug('[seating] obstacle drag scale', {
+        scale: transform.scale,
+        offsetX: transform.offsetX,
+        offsetY: transform.offsetY,
+        rectWidth: transform.rectWidth,
+        rectHeight: transform.rectHeight,
+        floorplanWidth,
+        floorplanHeight,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        buttons: event.buttons,
+      });
+    }
     setObstacleDrag({
       obstacleId: obstacle.id,
       pointerId: event.pointerId,
       pointerTarget: event.currentTarget,
-      pointerStartX: event.clientX,
-      pointerStartY: event.clientY,
-      scaleX,
-      scaleY,
+      pointerStartLocalX: pointer.x,
+      pointerStartLocalY: pointer.y,
+      scale: transform.scale,
+      offsetX: transform.offsetX,
+      offsetY: transform.offsetY,
+      rectLeft: transform.rectLeft,
+      rectTop: transform.rectTop,
+      rectWidth: transform.rectWidth,
+      rectHeight: transform.rectHeight,
       startX: rect.x,
       startY: rect.y,
       startW: rect.w,
@@ -3426,131 +3505,143 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               )}
             </div>
             <div className="overflow-auto">
-              <div
-                ref={floorplanRef}
-                className="relative border border-gray-200 rounded-lg touch-none"
-                style={{ width: floorplanWidth, height: floorplanHeight }}
+              <FloorplanSquareViewport
+                ref={floorplanViewportRef}
+                className="border border-gray-200 rounded-lg bg-gray-50 touch-none"
               >
-                {activeFloorplan.backgroundImageUrl && (
-                  <img
-                    src={activeFloorplan.backgroundImageUrl}
-                    alt={activeFloorplan.name}
-                    className="absolute inset-0 w-full h-full object-contain"
-                  />
-                )}
-                {activeObstacles.map(obstacle => {
-                  const rect = getObstacleRect(obstacle);
-                  const isSelected = selectedObstacleId === obstacle.id;
-                  return (
-                    <div
-                      key={obstacle.id}
-                      className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
-                      style={{
-                        left: rect.x,
-                        top: rect.y,
-                        width: rect.w,
-                        height: rect.h,
-                        transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                        outline: isSelected ? '2px solid #2563eb' : undefined,
-                      }}
-                      onClick={event => {
-                        event.stopPropagation();
-                        setSelectedObstacleId(obstacle.id);
-                      }}
-                      onPointerDown={
-                        floorplanMode === 'edit'
-                          ? event => handleObstaclePointerDown(event, obstacle, 'move')
-                          : undefined
-                      }
-                      onPointerMove={
-                        floorplanMode === 'edit' ? handleObstaclePointerMove : undefined
-                      }
-                      onPointerUp={
-                        floorplanMode === 'edit' ? handleObstaclePointerUp : undefined
-                      }
-                      onPointerCancel={
-                        floorplanMode === 'edit' ? handleObstaclePointerCancel : undefined
-                      }
-                    >
-                      {floorplanMode === 'edit' && (
-                        <span className="absolute left-1 top-1 text-[10px] text-gray-600">
-                          {obstacle.name ?? 'No-go'}
-                        </span>
-                      )}
-                      {floorplanMode === 'edit' && (
-                        <span
-                          role="button"
-                          tabIndex={-1}
-                          className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white touch-none"
-                          onPointerDown={event =>
-                            handleObstaclePointerDown(event, obstacle, 'resize')
-                          }
-                          onPointerMove={handleObstaclePointerMove}
-                          onPointerUp={handleObstaclePointerUp}
-                          onPointerCancel={handleObstaclePointerCancel}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-                {editorTables.map(table => {
-                  const geometry = normalizeTableGeometry(table, {
-                    rectWidth: 80,
-                    rectHeight: 60,
-                    circleRadius: 40,
-                  });
-                  const position = getRenderPosition(table, geometry);
-                  const renderRot = draftRotations[table.id] ?? geometry.rot;
-                  const isSelected = selectedTableId === table.id;
-                  const isSaving = Boolean(savingById[table.id]);
-                  const tableVisualState = getTableVisualState();
-                  const tableRect = {
-                    x: position.x,
-                    y: position.y,
-                    w: geometry.w,
-                    h: geometry.h,
-                  };
-                  const isOverlappingObstacle =
-                    floorplanMode === 'edit' &&
-                    activeObstacles.some(obstacle => {
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <div
+                    className="relative ring-1 ring-gray-200 rounded-lg bg-white"
+                    style={{ width: floorplanWidth, height: floorplanHeight }}
+                  >
+                    {activeFloorplan.backgroundImageUrl && (
+                      <img
+                        src={activeFloorplan.backgroundImageUrl}
+                        alt={activeFloorplan.name}
+                        className="absolute inset-0 w-full h-full object-contain"
+                      />
+                    )}
+                    {activeObstacles.map(obstacle => {
                       const rect = getObstacleRect(obstacle);
-                      return isRectIntersecting(tableRect, rect);
-                    });
-                  return (
-                    <div
-                      key={table.id}
-                      className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative touch-none ${
-                        floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
-                      }`}
-                      style={{
-                        left: position.x,
-                        top: position.y,
-                        width: geometry.w,
-                        height: geometry.h,
-                        borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                        border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
-                        backgroundColor: resolveTableVisualStyle(tableVisualState),
-                        transform: `rotate(${renderRot}deg)`,
-                        boxShadow: isSelected
-                          ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
-                          : '0 1px 3px rgba(0,0,0,0.1)',
-                        touchAction: 'none',
-                      }}
-                      onClick={() => setSelectedTableId(table.id)}
-                      onPointerDown={
-                        floorplanMode === 'edit'
-                          ? event => handleTablePointerDown(event, table, geometry)
-                          : undefined
-                      }
-                      onPointerMove={floorplanMode === 'edit' ? handleTablePointerMove : undefined}
-                      onPointerUp={floorplanMode === 'edit' ? handleTablePointerUp : undefined}
-                      onPointerCancel={
-                        floorplanMode === 'edit' ? handleTablePointerCancel : undefined
-                      }
-                      onLostPointerCapture={
-                        floorplanMode === 'edit' ? handleLostPointerCapture : undefined
-                      }
-                    >
+                      const isSelected = selectedObstacleId === obstacle.id;
+                      return (
+                        <div
+                          key={obstacle.id}
+                          className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
+                          style={{
+                            left: rect.x,
+                            top: rect.y,
+                            width: rect.w,
+                            height: rect.h,
+                            transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                            outline: isSelected ? '2px solid #2563eb' : undefined,
+                          }}
+                          onClick={event => {
+                            event.stopPropagation();
+                            setSelectedObstacleId(obstacle.id);
+                          }}
+                          onPointerDown={
+                            floorplanMode === 'edit'
+                              ? event => handleObstaclePointerDown(event, obstacle, 'move')
+                              : undefined
+                          }
+                          onPointerMove={
+                            floorplanMode === 'edit' ? handleObstaclePointerMove : undefined
+                          }
+                          onPointerUp={
+                            floorplanMode === 'edit' ? handleObstaclePointerUp : undefined
+                          }
+                          onPointerCancel={
+                            floorplanMode === 'edit' ? handleObstaclePointerCancel : undefined
+                          }
+                        >
+                          {floorplanMode === 'edit' && (
+                            <span className="absolute left-1 top-1 text-[10px] text-gray-600">
+                              {obstacle.name ?? 'No-go'}
+                            </span>
+                          )}
+                          {floorplanMode === 'edit' && (
+                            <span
+                              role="button"
+                              tabIndex={-1}
+                              className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white touch-none"
+                              onPointerDown={event =>
+                                handleObstaclePointerDown(event, obstacle, 'resize')
+                              }
+                              onPointerMove={handleObstaclePointerMove}
+                              onPointerUp={handleObstaclePointerUp}
+                              onPointerCancel={handleObstaclePointerCancel}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                    {editorTables.map(table => {
+                      const geometry = normalizeTableGeometry(table, {
+                        rectWidth: 80,
+                        rectHeight: 60,
+                        circleRadius: 40,
+                      });
+                      const position = getRenderPosition(table, geometry);
+                      const renderRot = draftRotations[table.id] ?? geometry.rot;
+                      const isSelected = selectedTableId === table.id;
+                      const isSaving = Boolean(savingById[table.id]);
+                      const tableVisualState = getTableVisualState();
+                      const tableRect = {
+                        x: position.x,
+                        y: position.y,
+                        w: geometry.w,
+                        h: geometry.h,
+                      };
+                      const isOverlappingObstacle =
+                        floorplanMode === 'edit' &&
+                        activeObstacles.some(obstacle => {
+                          const rect = getObstacleRect(obstacle);
+                          return isRectIntersecting(tableRect, rect);
+                        });
+                      return (
+                        <div
+                          key={table.id}
+                          className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative touch-none ${
+                            floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
+                          }`}
+                          style={{
+                            left: position.x,
+                            top: position.y,
+                            width: geometry.w,
+                            height: geometry.h,
+                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                            border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
+                            backgroundColor: resolveTableVisualStyle(tableVisualState),
+                            transform: `rotate(${renderRot}deg)`,
+                            boxShadow: isSelected
+                              ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
+                              : '0 1px 3px rgba(0,0,0,0.1)',
+                            touchAction: 'none',
+                          }}
+                          onClick={() => setSelectedTableId(table.id)}
+                          onPointerDown={
+                            floorplanMode === 'edit'
+                              ? event => handleTablePointerDown(event, table, geometry)
+                              : undefined
+                          }
+                          onPointerMove={
+                            floorplanMode === 'edit' ? handleTablePointerMove : undefined
+                          }
+                          onPointerUp={floorplanMode === 'edit' ? handleTablePointerUp : undefined}
+                          onPointerCancel={
+                            floorplanMode === 'edit' ? handleTablePointerCancel : undefined
+                          }
+                          onLostPointerCapture={
+                            floorplanMode === 'edit' ? handleLostPointerCapture : undefined
+                          }
+                        >
                       {isSelected && !table.locked && floorplanMode === 'edit' && (
                         <>
                           <span
@@ -3696,10 +3787,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           </button>
                         </div>
                       )}
-                    </div>
-                  );
-                })}
-              </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </FloorplanSquareViewport>
             </div>
           </div>
         )}
