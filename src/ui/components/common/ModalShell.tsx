@@ -1,5 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 
+let modalOpenCount = 0;
+let lockedScrollTop = 0;
+let previousBodyStyles: {
+  overflow?: string;
+  position?: string;
+  top?: string;
+  width?: string;
+} | null = null;
+
 interface ModalShellProps {
   onClose: () => void;
   header: React.ReactNode;
@@ -21,6 +30,39 @@ const ModalShell: React.FC<ModalShellProps> = ({
 
   useEffect(() => {
     overlayRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const body = document.body;
+    if (modalOpenCount === 0) {
+      previousBodyStyles = {
+        overflow: body.style.overflow,
+        position: body.style.position,
+        top: body.style.top,
+        width: body.style.width,
+      };
+      lockedScrollTop = window.scrollY || 0;
+      body.style.overflow = 'hidden';
+      body.style.position = 'fixed';
+      body.style.top = `-${lockedScrollTop}px`;
+      body.style.width = '100%';
+    }
+    // Reference count ensures nested modals keep the scroll lock active.
+    modalOpenCount += 1;
+    return () => {
+      modalOpenCount = Math.max(0, modalOpenCount - 1);
+      if (modalOpenCount === 0 && previousBodyStyles) {
+        body.style.overflow = previousBodyStyles.overflow ?? '';
+        body.style.position = previousBodyStyles.position ?? '';
+        body.style.top = previousBodyStyles.top ?? '';
+        body.style.width = previousBodyStyles.width ?? '';
+        window.scrollTo(0, lockedScrollTop);
+        previousBodyStyles = null;
+      }
+    };
   }, []);
 
   return (
