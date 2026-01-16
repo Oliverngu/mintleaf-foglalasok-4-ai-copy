@@ -1559,17 +1559,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplanHeight, floorplanWidth]
   );
 
-  const mapClientToFloorplan = useCallback(
-    (clientX: number, clientY: number, transform: FloorplanTransform) => {
-      const rawX = (clientX - transform.rectLeft - transform.offsetX) / transform.scale;
-      const rawY = (clientY - transform.rectTop - transform.offsetY) / transform.scale;
-      return {
-        x: rawX,
-        y: rawY,
-      };
-    },
-    []
-  );
+  function mapClientToFloorplan(
+    clientX: number,
+    clientY: number,
+    transform: FloorplanTransform
+  ) {
+    const rawX = (clientX - transform.rectLeft - transform.offsetX) / transform.scale;
+    const rawY = (clientY - transform.rectTop - transform.offsetY) / transform.scale;
+    return {
+      x: rawX,
+      y: rawY,
+    };
+  }
 
   const getLiveDragTransform = useCallback((transform: FloorplanTransform) => {
     const rect = floorplanViewportRef.current?.getBoundingClientRect();
@@ -1826,6 +1827,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
       }
       const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
+      if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
+        return;
+      }
       let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       const unclampedX = nextX;
