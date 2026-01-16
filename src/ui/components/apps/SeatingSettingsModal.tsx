@@ -195,13 +195,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
   const [lastSavedRotById, setLastSavedRotById] = useState<Record<string, number>>({});
   const lastSavedRotByIdRef = useRef<Record<string, number>>({});
-  const [dragState, setDragState] = useState<{
-    tableId: string;
-    pointerId: number;
-    pointerTarget: HTMLElement | null;
-    pointerStartClientX: number;
-    pointerStartClientY: number;
-    dragStartTransform: FloorplanTransform;
+  type FloorplanTransform = {
     scale: number;
     offsetX: number;
     offsetY: number;
@@ -209,6 +203,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectTop: number;
     rectWidth: number;
     rectHeight: number;
+  };
+  const [dragState, setDragState] = useState<{
+    tableId: string;
+    pointerId: number;
+    pointerTarget: HTMLElement | null;
+    pointerStartClientX: number;
+    pointerStartClientY: number;
+    dragStartTransform: FloorplanTransform;
     tableStartX: number;
     tableStartY: number;
     width: number;
@@ -232,13 +234,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartClientX: number;
     pointerStartClientY: number;
     dragStartTransform: FloorplanTransform;
-    scale: number;
-    offsetX: number;
-    offsetY: number;
-    rectLeft: number;
-    rectTop: number;
-    rectWidth: number;
-    rectHeight: number;
     startX: number;
     startY: number;
     startW: number;
@@ -1528,16 +1523,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
-  type FloorplanTransform = {
-    scale: number;
-    offsetX: number;
-    offsetY: number;
-    rectLeft: number;
-    rectTop: number;
-    rectWidth: number;
-    rectHeight: number;
-  };
-
   function computeFloorplanTransformFromRect(
     rect: { width: number; height: number; left?: number; top?: number },
     width: number,
@@ -2170,13 +2155,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
-      scale: transform.scale,
-      offsetX: transform.offsetX,
-      offsetY: transform.offsetY,
-      rectLeft: transform.rectLeft,
-      rectTop: transform.rectTop,
-      rectWidth: transform.rectWidth,
-      rectHeight: transform.rectHeight,
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -2487,13 +2465,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
-      scale: transform.scale,
-      offsetX: transform.offsetX,
-      offsetY: transform.offsetY,
-      rectLeft: transform.rectLeft,
-      rectTop: transform.rectTop,
-      rectWidth: transform.rectWidth,
-      rectHeight: transform.rectHeight,
       startX: rect.x,
       startY: rect.y,
       startW: rect.w,
@@ -4038,13 +4009,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 pointerStartClientX: event.clientX,
                                 pointerStartClientY: event.clientY,
                                 dragStartTransform: transform,
-                                scale: transform.scale,
-                                offsetX: transform.offsetX,
-                                offsetY: transform.offsetY,
-                                rectLeft: transform.rectLeft,
-                                rectTop: transform.rectTop,
-                                rectWidth: transform.rectWidth,
-                                rectHeight: transform.rectHeight,
                                 tableStartX: position.x,
                                 tableStartY: position.y,
                                 width: geometry.w,
