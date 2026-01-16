@@ -1620,7 +1620,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     try {
-      const now = getNow();
+      const now = Date.now();
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
@@ -1633,11 +1633,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } catch (error) {
       console.warn('[seating] viewport measure log failed', error);
     }
-  }, [debugSeating, getFloorplanTransform, getNow]);
+  }, [debugSeating, getFloorplanTransform]);
 
   useLayoutEffect(() => {
     measureViewport();
-  }, [measureViewport, resolvedActiveFloorplanId, floorplanMode, activeTab]);
+  }, [measureViewport, resolvedActiveFloorplanId, floorplanMode]);
 
   useLayoutEffect(() => {
     const node = floorplanViewportRef.current;
