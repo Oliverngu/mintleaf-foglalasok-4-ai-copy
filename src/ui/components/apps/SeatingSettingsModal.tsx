@@ -2098,6 +2098,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
     const transform = getCurrentTransform();
+    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
     const rad = (renderRot * Math.PI) / 180;
     const cos = Math.cos(rad);
