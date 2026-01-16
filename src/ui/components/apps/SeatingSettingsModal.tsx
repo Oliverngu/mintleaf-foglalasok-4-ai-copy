@@ -1,7 +1,7 @@
 import { FirebaseError } from 'firebase/app';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { auth, db, functions } from '../../../core/firebase/config';
 import {
   Floorplan,
@@ -46,7 +46,9 @@ const FloorplanSquareViewport = React.forwardRef<
 >(({ children, className }, ref) => (
   <div
     ref={ref}
-    className={`relative w-full aspect-square overflow-hidden ${className ?? ''}`}
+    className={`relative w-full aspect-square min-h-[320px] sm:min-h-[420px] overflow-hidden ${
+      className ?? ''
+    }`}
   >
     {children}
   </div>
@@ -1541,10 +1543,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const rectHeight = rect?.height ?? 0;
       const rectLeft = rect?.left ?? 0;
       const rectTop = rect?.top ?? 0;
-      const rawScale =
-        rectWidth > 0 && rectHeight > 0
-          ? Math.min(rectWidth / floorplanWidth, rectHeight / floorplanHeight)
-          : 1;
+      if (rectWidth <= 0 || rectHeight <= 0) {
+        return {
+          scale: 1,
+          offsetX: 0,
+          offsetY: 0,
+          rectLeft: 0,
+          rectTop: 0,
+          rectWidth: 0,
+          rectHeight: 0,
+        };
+      }
+      const rawScale = Math.min(rectWidth / floorplanWidth, rectHeight / floorplanHeight);
       const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
       const offsetX = (rectWidth - floorplanWidth * scale) / 2;
       const offsetY = (rectHeight - floorplanHeight * scale) / 2;
@@ -1552,8 +1562,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         scale,
         offsetX: Number.isFinite(offsetX) ? offsetX : 0,
         offsetY: Number.isFinite(offsetY) ? offsetY : 0,
-        rectLeft,
-        rectTop,
+        rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
+        rectTop: Number.isFinite(rectTop) ? rectTop : 0,
         rectWidth,
         rectHeight,
       };
@@ -1588,32 +1598,58 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, []);
 
-  const [floorplanViewportSize, setFloorplanViewportSize] = useState<{
+  const [floorplanViewportRect, setFloorplanViewportRect] = useState<{
     width: number;
     height: number;
-  }>({ width: 0, height: 0 });
+    left: number;
+    top: number;
+  }>({ width: 0, height: 0, left: 0, top: 0 });
+  const lastViewportLogRef = useRef(0);
 
-  useEffect(() => {
+  const measureViewport = useCallback(() => {
+    const rect = floorplanViewportRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const nextRect = {
+      width: rect.width,
+      height: rect.height,
+      left: rect.left,
+      top: rect.top,
+    };
+    setFloorplanViewportRect(nextRect);
+    if (!debugSeating) {
+      return;
+    }
+    const now = getNow();
+    if (now - lastViewportLogRef.current < 500) {
+      return;
+    }
+    const transform = getFloorplanTransform(nextRect);
+    console.debug('[seating] viewport measure', {
+      rect: nextRect,
+      scale: transform.scale,
+    });
+    lastViewportLogRef.current = now;
+  }, [debugSeating, getFloorplanTransform, getNow]);
+
+  useLayoutEffect(() => {
+    measureViewport();
+  }, [measureViewport, resolvedActiveFloorplanId, floorplanMode, activeTab]);
+
+  useLayoutEffect(() => {
     const node = floorplanViewportRef.current;
     if (!node) return;
-    const update = () => {
-      setFloorplanViewportSize({
-        width: node.clientWidth,
-        height: node.clientHeight,
-      });
-    };
-    update();
+    measureViewport();
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
-    const observer = new ResizeObserver(update);
+    const observer = new ResizeObserver(measureViewport);
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [measureViewport]);
 
   const floorplanRenderTransform = useMemo(
-    () => getFloorplanTransform(floorplanViewportSize),
-    [floorplanViewportSize, getFloorplanTransform]
+    () => getFloorplanTransform(floorplanViewportRect),
+    [floorplanViewportRect, getFloorplanTransform]
   );
 
   const handleUndoLastAction = React.useCallback(async () => {
