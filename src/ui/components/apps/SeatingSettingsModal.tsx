@@ -677,6 +677,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   function snapRotation(value: number, step = 5) {
     return Math.round(value / step) * step;
   }
+  function getRotatedHalfExtents(w: number, h: number, rotDeg: number) {
+    const rad = (rotDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return {
+      hx: (Math.abs(w * cos) + Math.abs(h * sin)) / 2,
+      hy: (Math.abs(w * sin) + Math.abs(h * cos)) / 2,
+    };
+  }
+  function clampTopLeftForRotation(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotDeg: number,
+    floorW: number,
+    floorH: number,
+    clampFn: (value: number, min: number, max: number) => number
+  ) {
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
+    const { hx, hy } = getRotatedHalfExtents(w, h, rotDeg);
+    const clampedCenterX = clampFn(centerX, hx, Math.max(hx, floorW - hx));
+    const clampedCenterY = clampFn(centerY, hy, Math.max(hy, floorH - hy));
+    return {
+      x: clampedCenterX - w / 2,
+      y: clampedCenterY - h / 2,
+      hx,
+      hy,
+    };
+  }
 
   // Order matters to avoid TDZ in minified builds.
   const setActionSavingFlag = (key: string, value: boolean) => {
@@ -1986,10 +2017,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const maxX = Math.max(0, drag.floorplanWidth - drag.boundW);
-      const maxY = Math.max(0, drag.floorplanHeight - drag.boundH);
-      nextX = clamp(nextX, 0, maxX);
-      nextY = clamp(nextY, 0, maxY);
+      const clamped = clampTopLeftForRotation(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        drag.tableStartRot,
+        drag.floorplanWidth,
+        drag.floorplanHeight,
+        clamp
+      );
+      nextX = clamped.x;
+      nextY = clamped.y;
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2002,6 +2041,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               height: drag.height,
               boundW: drag.boundW,
               boundH: drag.boundH,
+              rotatedHx: clamped.hx,
+              rotatedHy: clamped.hy,
               floorplanWidth: drag.floorplanWidth,
               floorplanHeight: drag.floorplanHeight,
               unclampedX,
@@ -2092,10 +2133,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const maxX = Math.max(0, drag.floorplanWidth - drag.boundW);
-      const maxY = Math.max(0, drag.floorplanHeight - drag.boundH);
-      nextX = clamp(nextX, 0, maxX);
-      nextY = clamp(nextY, 0, maxY);
+      const clamped = clampTopLeftForRotation(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        drag.tableStartRot,
+        drag.floorplanWidth,
+        drag.floorplanHeight,
+        clamp
+      );
+      nextX = clamped.x;
+      nextY = clamped.y;
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
       setDragState(null);
