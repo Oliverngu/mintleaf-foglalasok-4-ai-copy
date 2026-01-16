@@ -161,6 +161,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const [userRole, setUserRole] = useState<string | null>(null);
+  const canEditFloorplan = userRole === 'Admin' || userRole === 'Unit Admin';
   const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
@@ -425,12 +426,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               if (isMounted) {
                 setUserRole(data.role ?? null);
               }
+            } else if (isMounted) {
+              setUserRole(null);
             }
           } catch (err) {
             if (debugSeating) {
               console.debug('[seating] failed to load user role', err);
             }
           }
+        } else if (isMounted) {
+          setUserRole(null);
         }
         try {
           await ensureDefaultFloorplan(unitId);
@@ -656,7 +661,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         },
       });
     },
-    [activeFloorplan, runAction, unitId]
+    [activeFloorplan, runAction, unitId, updateActiveFloorplanObstacles]
   );
 
   const setLastSaved = (
@@ -808,8 +813,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
-  const canEditFloorplan = userRole === 'Admin' || userRole === 'Unit Admin';
-
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
       actionSavingRef.current['settings-save'] || actionSaving['settings-save']
