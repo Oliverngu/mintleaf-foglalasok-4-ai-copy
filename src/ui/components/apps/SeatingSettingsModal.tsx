@@ -218,15 +218,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   } | null>(null);
   const dragStateRef = useRef<typeof dragState>(null);
   const obstacleDragRef = useRef<typeof obstacleDrag>(null);
-  const activeDragPointerIdRef = useRef<number | null>(null);
-  const lostCaptureRef = useRef(false);
-  const finalizeDragRef = useRef<(tableId: string, x: number, y: number) => void>(() => {});
+  const finalizeDragRef = useRef<
+    (tableId: string, x: number, y: number) => Promise<void>
+  >(async () => {});
   const finalizeRotationRef = useRef<
-    (tableId: string, rot: number, prevRot: number) => void
-  >(() => {});
+    (tableId: string, rot: number, prevRot: number) => Promise<void>
+  >(async () => {});
   const finalizeObstacleUpdateRef = useRef<
-    (obstacleId: string, next: { x: number; y: number; w: number; h: number }) => void
-  >(() => {});
+    (obstacleId: string, next: { x: number; y: number; w: number; h: number }) => Promise<void>
+  >(async () => {});
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -795,8 +795,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (!opts?.skipRelease) {
         releaseDragPointerCaptureRef.current(drag);
       }
-      activeDragPointerIdRef.current = null;
-      lostCaptureRef.current = false;
       if (drag.mode === 'rotate') {
         const fallbackRot = lastSavedRotByIdRef.current[tableId];
         if (fallbackRot !== undefined) {
@@ -908,7 +906,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
-    lostCaptureRef.current = true;
+    abortDragRef.current(drag, { skipRelease: true });
   };
 
   useEffect(() => {
@@ -1785,8 +1783,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(tableId, snappedRot);
         const prevRot = drag.tableStartRot;
         releaseDragPointerCaptureRef.current(drag);
-        activeDragPointerIdRef.current = null;
-        lostCaptureRef.current = false;
         setDragState(null);
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
@@ -1805,8 +1801,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
-      activeDragPointerIdRef.current = null;
-      lostCaptureRef.current = false;
       setDragState(null);
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
@@ -1824,8 +1818,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     setSelectedTableId(table.id);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    activeDragPointerIdRef.current = event.pointerId;
-    lostCaptureRef.current = false;
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
     const mode = event.shiftKey ? 'rotate' : 'move';
@@ -1843,6 +1835,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         rectHeight,
         floorplanWidth,
         floorplanHeight,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        buttons: event.buttons,
       });
     }
     setDragState({
@@ -1921,8 +1917,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       void handleTablePointerMoveCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1932,8 +1929,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       void handleTablePointerUpCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1943,10 +1941,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleCancel = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
       const drag = dragStateRef.current;
       if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       abortDragRef.current(drag);
     };
     window.addEventListener('pointermove', handleMove);
@@ -2071,8 +2068,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } catch {
         // ignore
       }
-      activeDragPointerIdRef.current = null;
-      lostCaptureRef.current = false;
       setObstacleDrag(null);
       void finalizeObstacleUpdateRef.current(drag.obstacleId, next);
     },
@@ -2092,8 +2087,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } catch {
         // ignore
       }
-      activeDragPointerIdRef.current = null;
-      lostCaptureRef.current = false;
       setObstacleDrag(null);
       setDraftObstacles(current => {
         const nextDraft = { ...current };
@@ -2117,8 +2110,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedObstacleId(obstacle.id);
     const rect = getObstacleRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    activeDragPointerIdRef.current = event.pointerId;
-    lostCaptureRef.current = false;
     const floorplanRect = floorplanRef.current?.getBoundingClientRect();
     const { scaleX, scaleY } = getFloorplanScale(floorplanRect);
     setObstacleDrag({
@@ -2196,8 +2187,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       void handleObstaclePointerMoveCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -2205,13 +2197,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       void handleObstaclePointerUpCore({ pointerId: event.pointerId });
     };
     const handleCancel = (event: PointerEvent) => {
-      if (!lostCaptureRef.current) return;
-      if (activeDragPointerIdRef.current !== event.pointerId) return;
+      const drag = obstacleDragRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
       void handleObstaclePointerCancelCore({ pointerId: event.pointerId });
     };
     window.addEventListener('pointermove', handleMove);
@@ -3434,7 +3428,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <div className="overflow-auto">
               <div
                 ref={floorplanRef}
-                className="relative border border-gray-200 rounded-lg"
+                className="relative border border-gray-200 rounded-lg touch-none"
                 style={{ width: floorplanWidth, height: floorplanHeight }}
               >
                 {activeFloorplan.backgroundImageUrl && (
@@ -3450,7 +3444,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   return (
                     <div
                       key={obstacle.id}
-                      className="absolute border border-dashed border-gray-400 bg-gray-200/40"
+                      className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
                       style={{
                         left: rect.x,
                         top: rect.y,
@@ -3487,7 +3481,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <span
                           role="button"
                           tabIndex={-1}
-                          className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white"
+                          className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white touch-none"
                           onPointerDown={event =>
                             handleObstaclePointerDown(event, obstacle, 'resize')
                           }
@@ -3525,7 +3519,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   return (
                     <div
                       key={table.id}
-                      className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative ${
+                      className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative touch-none ${
                         floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
                       }`}
                       style={{
