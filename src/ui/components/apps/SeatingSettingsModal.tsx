@@ -210,6 +210,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableStartY: number;
     width: number;
     height: number;
+    boundW: number;
+    boundH: number;
     mode: 'move' | 'rotate';
     tableStartRot: number;
     rotStartAngleDeg: number;
@@ -1834,28 +1836,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
       const unclampedX = nextX;
       const unclampedY = nextY;
-      if (drag.snapToGrid) {
+      const shouldSnap = drag.snapToGrid && !altKey;
+      if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
-      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      const maxX = Math.max(0, drag.floorplanWidth - drag.boundW);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.boundH);
       nextX = clamp(nextX, 0, maxX);
       nextY = clamp(nextY, 0, maxY);
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
           dragClampDebugRef.current = now;
-          console.debug('[seating] drag clamp', {
-            width: drag.width,
-            height: drag.height,
-            floorplanWidth: drag.floorplanWidth,
-            floorplanHeight: drag.floorplanHeight,
-            unclampedX,
-            unclampedY,
-            nextX,
-            nextY,
-          });
+          const deltaX = Math.abs(nextX - unclampedX);
+          const deltaY = Math.abs(nextY - unclampedY);
+          if (deltaX > 1 || deltaY > 1) {
+            console.debug('[seating] drag clamp', {
+              width: drag.width,
+              height: drag.height,
+              boundW: drag.boundW,
+              boundH: drag.boundH,
+              floorplanWidth: drag.floorplanWidth,
+              floorplanHeight: drag.floorplanHeight,
+              unclampedX,
+              unclampedY,
+              nextX,
+              nextY,
+              shouldSnap,
+              gridSize: drag.gridSize,
+            });
+          }
         }
       }
       updateDraftPosition(drag.tableId, nextX, nextY);
@@ -1917,12 +1928,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const pointer = mapClientToFloorplan(clientX, clientY, getLiveDragTransform(drag));
       let nextX = drag.tableStartX + (pointer.x - drag.pointerStartLocalX);
       let nextY = drag.tableStartY + (pointer.y - drag.pointerStartLocalY);
-      if (drag.snapToGrid) {
+      const shouldSnap = drag.snapToGrid && !altKey;
+      if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
-      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      const maxX = Math.max(0, drag.floorplanWidth - drag.boundW);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.boundH);
       nextX = clamp(nextX, 0, maxX);
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(tableId, nextX, nextY);
@@ -1953,6 +1965,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const transform = getFloorplanTransform(rect);
     const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
+    const rad = (renderRot * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const boundW = Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin);
+    const boundH = Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos);
     if (debugSeating) {
       console.debug('[seating] drag scale', {
         scale: transform.scale,
@@ -1985,6 +2002,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       tableStartY: position.y,
       width: geometry.w,
       height: geometry.h,
+      boundW,
+      boundH,
       mode,
       tableStartRot: renderRot,
       rotStartAngleDeg: startAngle,
@@ -3768,6 +3787,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 tableStartY: position.y,
                                 width: geometry.w,
                                 height: geometry.h,
+                                boundW: geometry.w,
+                                boundH: geometry.h,
                                 mode: 'rotate',
                                 tableStartRot: renderRot,
                                 rotStartAngleDeg: startAngle,
