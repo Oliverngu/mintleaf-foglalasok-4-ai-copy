@@ -942,7 +942,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             !isAdminTokenUsed(booking) && (
               <div className="space-y-2">
                 <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
-                  Admin műveletek
+                  {locale === 'hu' ? 'Admin műveletek' : 'Admin actions'}
                 </div>
                 <div
                   className={`p-4 border ${theme.radiusClass} space-y-3`}
@@ -993,7 +993,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
         <div className="space-y-4">
           <div className="space-y-3">
             <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
-              Vendég műveletek
+              {locale === 'hu' ? 'Vendég műveletek' : 'Guest actions'}
             </div>
             <div
               className={`p-4 border ${theme.radiusClass}`}

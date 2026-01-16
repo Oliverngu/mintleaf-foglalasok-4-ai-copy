@@ -968,11 +968,15 @@ const BookingDetailTabs: React.FC<{
           key={tab.id}
           type="button"
           onClick={() => onChange(tab.id)}
-          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-            active === tab.id
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-gray-100 text-gray-600 border-gray-200'
-          }`}
+          className="px-3 py-1.5 rounded-full text-xs font-semibold border"
+          style={{
+            backgroundColor:
+              active === tab.id ? 'var(--color-primary)' : 'var(--color-surface)',
+            color:
+              active === tab.id ? 'var(--color-surface)' : 'var(--color-text-secondary)',
+            borderColor:
+              active === tab.id ? 'var(--color-primary)' : 'var(--color-border, #e5e7eb)',
+          }}
         >
           {tab.label}
         </button>
@@ -981,28 +985,13 @@ const BookingDetailTabs: React.FC<{
   );
 };
 
-const BookingSummaryCard: React.FC<{
-  booking: Booking;
-  resolveSeatingPreferenceLabel: (value?: Booking['seatingPreference']) => string;
-}> = ({ booking, resolveSeatingPreferenceLabel }) => (
-  <SectionCard title="Összefoglaló">
-    <div className="space-y-2 text-sm text-[var(--color-text-secondary)]">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-semibold text-[var(--color-text-main)]">
-          {booking.name} ({booking.headcount} fő)
-        </p>
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-            {booking.status || '—'}
-          </span>
-          {booking.allocationFinal?.locked && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-              LOCKED
-            </span>
-          )}
-        </div>
-      </div>
-      <p className="font-semibold text-[var(--color-text-secondary)]">
+const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <p className="text-sm font-semibold text-[var(--color-text-main)]">
+        {booking.name} ({booking.headcount} fő)
+      </p>
+      <p className="text-xs text-[var(--color-text-secondary)]">
         {booking.startTime
           .toDate()
           .toLocaleTimeString('hu-HU', {
@@ -1015,6 +1004,27 @@ const BookingSummaryCard: React.FC<{
           minute: '2-digit',
         })}
       </p>
+    </div>
+    <div className="flex items-center gap-2">
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+        {booking.status || '—'}
+      </span>
+      {booking.allocationFinal?.locked && (
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+          LOCKED
+        </span>
+      )}
+    </div>
+  </div>
+);
+
+const BookingSummaryCard: React.FC<{
+  booking: Booking;
+  resolveSeatingPreferenceLabel: (value?: Booking['seatingPreference']) => string;
+}> = ({ booking, resolveSeatingPreferenceLabel }) => (
+  <SectionCard title="Összefoglaló">
+    <div className="space-y-2 text-sm text-[var(--color-text-secondary)]">
+      <BookingHeaderMini booking={booking} />
       <div className="grid gap-1 md:grid-cols-2">
         <p>Alkalom: {booking.occasion || '—'}</p>
         <p>Forrás: {booking.source || '—'}</p>
@@ -1274,11 +1284,13 @@ const BookingDetailsModal: React.FC<{
   useEffect(() => {
     setOpenAllocationId(null);
     setOpenFloorplanBookingId(null);
+    setActiveSection('summary');
   }, [dateKey]);
 
   const handleClose = useCallback(() => {
     setOpenAllocationId(null);
     setOpenFloorplanBookingId(null);
+    setActiveSection('summary');
     onClose();
   }, [onClose]);
 
@@ -1530,6 +1542,7 @@ const BookingDetailsModal: React.FC<{
                     style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
                   >
                     <div className="space-y-4">
+                      <BookingHeaderMini booking={booking} />
                       {activeSection === 'summary' && (
                         <BookingSummaryCard
                           booking={booking}
