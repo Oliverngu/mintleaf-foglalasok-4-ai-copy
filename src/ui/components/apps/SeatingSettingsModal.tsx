@@ -3822,10 +3822,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </p>
                 </div>
               )}
-            <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden">
+            <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
               <FloorplanSquareViewport
                 ref={floorplanViewportRef}
-                className="h-full w-full border border-gray-200 rounded-lg bg-gray-50 touch-none"
+                className="block h-full w-full border border-gray-200 rounded-lg bg-gray-50 touch-none"
               >
                 <div
                   className="absolute inset-0"
@@ -3842,7 +3842,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       <img
                         src={activeFloorplan.backgroundImageUrl}
                         alt={activeFloorplan.name}
-                        className="absolute inset-0 w-full h-full object-contain"
+                        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
                       />
                     )}
                     {activeObstacles.map(obstacle => {
