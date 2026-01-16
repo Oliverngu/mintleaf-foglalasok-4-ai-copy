@@ -186,6 +186,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerTarget: HTMLElement | null;
     pointerStartX: number;
     pointerStartY: number;
+    scaleX: number;
+    scaleY: number;
     tableStartX: number;
     tableStartY: number;
     width: number;
@@ -206,6 +208,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerTarget: HTMLElement | null;
     pointerStartX: number;
     pointerStartY: number;
+    scaleX: number;
+    scaleY: number;
     startX: number;
     startY: number;
     startW: number;
@@ -214,6 +218,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   } | null>(null);
   const dragStateRef = useRef<typeof dragState>(null);
   const obstacleDragRef = useRef<typeof obstacleDrag>(null);
+  const activeDragPointerIdRef = useRef<number | null>(null);
+  const lostCaptureRef = useRef(false);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -782,6 +788,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (!opts?.skipRelease) {
         releaseDragPointerCaptureRef.current(drag);
       }
+      activeDragPointerIdRef.current = null;
+      lostCaptureRef.current = false;
       if (drag.mode === 'rotate') {
         const fallbackRot = lastSavedRotByIdRef.current[tableId];
         if (fallbackRot !== undefined) {
@@ -893,7 +901,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!drag || event.pointerId !== drag.pointerId) {
       return;
     }
-    abortDragRef.current(drag, { skipRelease: true });
+    lostCaptureRef.current = true;
   };
 
   useEffect(() => {
@@ -1482,35 +1490,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const getFloorplanScale = useCallback(
     (rectOverride?: DOMRect) => {
       const rect = rectOverride ?? floorplanRef.current?.getBoundingClientRect();
-    const rectWidth = rect?.width ?? 0;
-    const rectHeight = rect?.height ?? 0;
-    const rawScaleX = rectWidth > 0 ? rectWidth / floorplanWidth : 1;
-    const rawScaleY = rectHeight > 0 ? rectHeight / floorplanHeight : 1;
-    const scaleX = Number.isFinite(rawScaleX) && rawScaleX > 0 ? rawScaleX : 1;
-    const scaleY = Number.isFinite(rawScaleY) && rawScaleY > 0 ? rawScaleY : 1;
-    return { scaleX, scaleY, rectWidth, rectHeight };
+      const rectWidth = rect?.width ?? 0;
+      const rectHeight = rect?.height ?? 0;
+      const rawScaleX = rectWidth > 0 ? rectWidth / floorplanWidth : 1;
+      const rawScaleY = rectHeight > 0 ? rectHeight / floorplanHeight : 1;
+      const scaleX = Number.isFinite(rawScaleX) && rawScaleX > 0 ? rawScaleX : 1;
+      const scaleY = Number.isFinite(rawScaleY) && rawScaleY > 0 ? rawScaleY : 1;
+      return { scaleX, scaleY, rectWidth, rectHeight };
     },
     [floorplanHeight, floorplanWidth]
   );
 
-  const getLocalPointerPosition = (event: React.PointerEvent<HTMLElement>) => {
+  const getLocalPointerPosition = (
+    event: React.PointerEvent<HTMLElement>,
+    scaleOverride?: { scaleX: number; scaleY: number }
+  ) => {
     const rect = floorplanRef.current?.getBoundingClientRect();
     if (!rect) {
       return { x: event.clientX, y: event.clientY };
     }
-    const { scaleX, scaleY } = getFloorplanScale(rect);
+    const { scaleX, scaleY } = scaleOverride ?? getFloorplanScale(rect);
     return {
       x: (event.clientX - rect.left) / scaleX,
       y: (event.clientY - rect.top) / scaleY,
     };
   };
 
-  const getLocalPointerPositionFromClient = (clientX: number, clientY: number) => {
+  const getLocalPointerPositionFromClient = (
+    clientX: number,
+    clientY: number,
+    scaleOverride?: { scaleX: number; scaleY: number }
+  ) => {
     const rect = floorplanRef.current?.getBoundingClientRect();
     if (!rect) {
       return { x: clientX, y: clientY };
     }
-    const { scaleX, scaleY } = getFloorplanScale(rect);
+    const { scaleX, scaleY } = scaleOverride ?? getFloorplanScale(rect);
     return { x: (clientX - rect.left) / scaleX, y: (clientY - rect.top) / scaleY };
   };
 
@@ -1688,7 +1703,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       if (drag.mode === 'rotate') {
-        const pointer = getLocalPointerPositionFromClient(clientX, clientY);
+        const pointer = getLocalPointerPositionFromClient(clientX, clientY, {
+          scaleX: drag.scaleX,
+          scaleY: drag.scaleY,
+        });
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1698,9 +1716,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const { scaleX, scaleY } = getFloorplanScale();
-      const deltaX = (clientX - drag.pointerStartX) / scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
       let nextX = drag.tableStartX + deltaX;
       let nextY = drag.tableStartY + deltaY;
       if (drag.snapToGrid) {
@@ -1713,7 +1730,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(drag.tableId, nextX, nextY);
     },
-    [applyGrid, clamp, normalizeRotation, snapRotation]
+    [applyGrid, clamp, getLocalPointerPositionFromClient, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerUpCore = useCallback(
@@ -1739,7 +1756,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const tableId = drag.tableId;
       if (drag.mode === 'rotate') {
-        const pointer = getLocalPointerPositionFromClient(clientX, clientY);
+        const pointer = getLocalPointerPositionFromClient(clientX, clientY, {
+          scaleX: drag.scaleX,
+          scaleY: drag.scaleY,
+        });
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
           (180 / Math.PI);
@@ -1750,13 +1770,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(tableId, snappedRot);
         const prevRot = drag.tableStartRot;
         releaseDragPointerCaptureRef.current(drag);
+        activeDragPointerIdRef.current = null;
+        lostCaptureRef.current = false;
         setDragState(null);
         void finalizeRotation(tableId, snappedRot, prevRot);
         return;
       }
-      const { scaleX, scaleY } = getFloorplanScale();
-      const deltaX = (clientX - drag.pointerStartX) / scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
       let nextX = drag.tableStartX + deltaX;
       let nextY = drag.tableStartY + deltaY;
       if (drag.snapToGrid) {
@@ -1769,10 +1790,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY = clamp(nextY, 0, maxY);
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
+      activeDragPointerIdRef.current = null;
+      lostCaptureRef.current = false;
       setDragState(null);
       void finalizeDrag(tableId, nextX, nextY);
     },
-    [applyGrid, clamp, normalizeRotation, snapRotation]
+    [applyGrid, clamp, getLocalPointerPositionFromClient, normalizeRotation, snapRotation]
   );
 
   const handleTablePointerDown = (
@@ -1786,14 +1809,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     setSelectedTableId(table.id);
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    activeDragPointerIdRef.current = event.pointerId;
+    lostCaptureRef.current = false;
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const pointer = getLocalPointerPosition(event);
+    const rect = floorplanRef.current?.getBoundingClientRect();
+    const { scaleX, scaleY, rectWidth, rectHeight } = getFloorplanScale(rect);
+    const pointer = getLocalPointerPosition(event, { scaleX, scaleY });
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
-    const { scaleX, scaleY, rectWidth, rectHeight } = getFloorplanScale();
     if (debugSeating) {
       console.debug('[seating] drag scale', {
         scaleX,
@@ -1810,6 +1836,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerTarget: event.currentTarget,
       pointerStartX: event.clientX,
       pointerStartY: event.clientY,
+      scaleX,
+      scaleY,
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -1878,6 +1906,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       void handleTablePointerMoveCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1887,6 +1917,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       void handleTablePointerUpCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1896,9 +1928,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleCancel = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       const drag = dragStateRef.current;
       if (!drag) return;
-      if (event.pointerId !== drag.pointerId) return;
       abortDragRef.current(drag);
     };
     window.addEventListener('pointermove', handleMove);
@@ -1962,9 +1995,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = obstacleDragRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
-      const { scaleX, scaleY } = getFloorplanScale();
-      const deltaX = (clientX - drag.pointerStartX) / scaleX;
-      const deltaY = (clientY - drag.pointerStartY) / scaleY;
+      const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
+      const deltaY = (clientY - drag.pointerStartY) / drag.scaleY;
       if (drag.mode === 'resize') {
         let nextW = drag.startW + deltaX;
         let nextH = drag.startH + deltaY;
@@ -2000,7 +2032,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanHeight,
       floorplanMode,
       floorplanWidth,
-      getFloorplanScale,
       updateDraftObstacle,
     ]
   );
@@ -2025,6 +2056,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } catch {
         // ignore
       }
+      activeDragPointerIdRef.current = null;
+      lostCaptureRef.current = false;
       setObstacleDrag(null);
       void finalizeObstacleUpdate(drag.obstacleId, next);
     },
@@ -2044,6 +2077,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } catch {
         // ignore
       }
+      activeDragPointerIdRef.current = null;
+      lostCaptureRef.current = false;
       setObstacleDrag(null);
       setDraftObstacles(current => {
         const nextDraft = { ...current };
@@ -2067,12 +2102,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedObstacleId(obstacle.id);
     const rect = getObstacleRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    activeDragPointerIdRef.current = event.pointerId;
+    lostCaptureRef.current = false;
+    const floorplanRect = floorplanRef.current?.getBoundingClientRect();
+    const { scaleX, scaleY } = getFloorplanScale(floorplanRect);
     setObstacleDrag({
       obstacleId: obstacle.id,
       pointerId: event.pointerId,
       pointerTarget: event.currentTarget,
       pointerStartX: event.clientX,
       pointerStartY: event.clientY,
+      scaleX,
+      scaleY,
       startX: rect.x,
       startY: rect.y,
       startW: rect.w,
@@ -2136,6 +2177,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const handleMove = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       void handleObstaclePointerMoveCore({
         clientX: event.clientX,
         clientY: event.clientY,
@@ -2143,9 +2186,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     };
     const handleUp = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       void handleObstaclePointerUpCore({ pointerId: event.pointerId });
     };
     const handleCancel = (event: PointerEvent) => {
+      if (!lostCaptureRef.current) return;
+      if (activeDragPointerIdRef.current !== event.pointerId) return;
       void handleObstaclePointerCancelCore({ pointerId: event.pointerId });
     };
     window.addEventListener('pointermove', handleMove);
@@ -3812,3 +3859,4 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 };
 
 export default SeatingSettingsModal;
+// Summary: Cache floorplan scale per drag and gate window pointer fallbacks on capture loss.
