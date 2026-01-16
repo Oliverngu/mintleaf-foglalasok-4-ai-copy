@@ -220,6 +220,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const obstacleDragRef = useRef<typeof obstacleDrag>(null);
   const activeDragPointerIdRef = useRef<number | null>(null);
   const lostCaptureRef = useRef(false);
+  const finalizeDragRef = useRef<(tableId: string, x: number, y: number) => void>(() => {});
+  const finalizeRotationRef = useRef<
+    (tableId: string, rot: number, prevRot: number) => void
+  >(() => {});
+  const finalizeObstacleUpdateRef = useRef<
+    (obstacleId: string, next: { x: number; y: number; w: number; h: number }) => void
+  >(() => {});
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -1652,6 +1659,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  useEffect(() => {
+    finalizeDragRef.current = finalizeDrag;
+  }, [finalizeDrag]);
+
   const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
@@ -1680,6 +1691,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setSavingById(current => ({ ...current, [tableId]: false }));
     }
   };
+
+  useEffect(() => {
+    finalizeRotationRef.current = finalizeRotation;
+  }, [finalizeRotation]);
 
   const handleTablePointerMoveCore = useCallback(
     ({
@@ -1773,7 +1788,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         activeDragPointerIdRef.current = null;
         lostCaptureRef.current = false;
         setDragState(null);
-        void finalizeRotation(tableId, snappedRot, prevRot);
+        void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
       const deltaX = (clientX - drag.pointerStartX) / drag.scaleX;
@@ -1793,7 +1808,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       activeDragPointerIdRef.current = null;
       lostCaptureRef.current = false;
       setDragState(null);
-      void finalizeDrag(tableId, nextX, nextY);
+      void finalizeDragRef.current(tableId, nextX, nextY);
     },
     [applyGrid, clamp, getLocalPointerPositionFromClient, normalizeRotation, snapRotation]
   );
@@ -2059,9 +2074,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       activeDragPointerIdRef.current = null;
       lostCaptureRef.current = false;
       setObstacleDrag(null);
-      void finalizeObstacleUpdate(drag.obstacleId, next);
+      void finalizeObstacleUpdateRef.current(drag.obstacleId, next);
     },
-    [draftObstacles, finalizeObstacleUpdate, floorplanMode]
+    [draftObstacles, floorplanMode]
   );
 
   const handleObstaclePointerCancelCore = useCallback(
@@ -2153,6 +2168,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
     await persistActiveObstacles(nextObstacles, previousObstacles);
   };
+
+  useEffect(() => {
+    finalizeObstacleUpdateRef.current = finalizeObstacleUpdate;
+  }, [finalizeObstacleUpdate]);
 
   const handleObstaclePointerUp = async (event: React.PointerEvent<HTMLDivElement>) => {
     if (floorplanMode !== 'edit') {
@@ -3635,7 +3654,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 [table.id]:
                                   current[table.id] !== undefined ? current[table.id] : renderRot,
                               }));
-                              void finalizeRotation(table.id, nextRot, renderRot);
+                              void finalizeRotationRef.current(table.id, nextRot, renderRot);
                             }}
                           >
                             ↺
@@ -3656,7 +3675,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 [table.id]:
                                   current[table.id] !== undefined ? current[table.id] : renderRot,
                               }));
-                              void finalizeRotation(table.id, nextRot, renderRot);
+                              void finalizeRotationRef.current(table.id, nextRot, renderRot);
                             }}
                           >
                             ↻
@@ -3676,7 +3695,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 [table.id]:
                                   current[table.id] !== undefined ? current[table.id] : renderRot,
                               }));
-                              void finalizeRotation(table.id, 0, renderRot);
+                              void finalizeRotationRef.current(table.id, 0, renderRot);
                             }}
                           >
                             Reset
@@ -3859,4 +3878,3 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 };
 
 export default SeatingSettingsModal;
-// Summary: Cache floorplan scale per drag and gate window pointer fallbacks on capture loss.
