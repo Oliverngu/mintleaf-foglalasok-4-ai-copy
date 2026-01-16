@@ -35,6 +35,7 @@ import {
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
 } from '../../../core/utils/seatingNormalize';
+import PillPanelLayout from '../common/PillPanelLayout';
 
 interface SeatingSettingsModalProps {
   unitId: string;
@@ -2966,6 +2967,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     focusTabById(nextTab.id);
   };
 
+  const renderActivePanel = (tabId: (typeof tabs)[number]['id']) => {
+    switch (tabId) {
+      case 'overview':
+        return renderOverviewPanel();
+      case 'zones':
+        return renderZonesPanel();
+      case 'tables':
+        return renderTablesPanel();
+      case 'combinations':
+        return renderCombinationsPanel();
+      case 'floorplans':
+        return renderFloorplansPanel();
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return (
       <div
@@ -2996,7 +3014,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }}
     >
       <div
-        className="rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 space-y-6"
+        className="rounded-2xl shadow-xl w-full max-w-5xl h-[85vh] bg-white p-6 flex flex-col gap-4"
         onClick={event => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -3023,89 +3041,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
         {success && <div className="text-sm text-green-600">{success}</div>}
-        <div className="sticky top-0 z-10 -mx-6 px-6 bg-white relative">
-          <div
-            role="tablist"
-            aria-label="Ültetés beállítások fülek"
-            className="flex items-center gap-4 overflow-x-auto whitespace-nowrap border-b border-gray-200 pb-2 -mx-1 px-1"
-          >
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                type="button"
-                id={`seating-tab-${tab.id}`}
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                aria-controls={`seating-tabpanel-${tab.id}`}
-                tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
-                onKeyDown={handleTabsKeyDown}
-                className={`px-1 py-1 text-sm font-medium border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white to-transparent" />
-          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white to-transparent" />
+        <div className="flex-1 min-h-0">
+          <PillPanelLayout
+            sections={tabs}
+            activeId={activeTab}
+            onChange={setActiveTab}
+            onKeyDown={handleTabsKeyDown}
+            ariaLabel="Ültetés beállítások szakaszok"
+            idPrefix="seating"
+            renderPanel={renderActivePanel}
+          />
         </div>
-        <div className="pt-4 pb-24">
-          {activeTab === 'overview' && (
-            <div
-              role="tabpanel"
-              id="seating-tabpanel-overview"
-              aria-labelledby="seating-tab-overview"
-              tabIndex={-1}
-            >
-              {renderOverviewPanel()}
-            </div>
-          )}
-          {activeTab === 'zones' && (
-            <div
-              role="tabpanel"
-              id="seating-tabpanel-zones"
-              aria-labelledby="seating-tab-zones"
-              tabIndex={-1}
-            >
-              {renderZonesPanel()}
-            </div>
-          )}
-          {activeTab === 'tables' && (
-            <div
-              role="tabpanel"
-              id="seating-tabpanel-tables"
-              aria-labelledby="seating-tab-tables"
-              tabIndex={-1}
-            >
-              {renderTablesPanel()}
-            </div>
-          )}
-          {activeTab === 'combinations' && (
-            <div
-              role="tabpanel"
-              id="seating-tabpanel-combinations"
-              aria-labelledby="seating-tab-combinations"
-              tabIndex={-1}
-            >
-              {renderCombinationsPanel()}
-            </div>
-          )}
-          {activeTab === 'floorplans' && (
-            <div
-              role="tabpanel"
-              id="seating-tabpanel-floorplans"
-              aria-labelledby="seating-tab-floorplans"
-              tabIndex={-1}
-            >
-              {renderFloorplansPanel()}
-            </div>
-          )}
-        </div>
-        <div className="sticky bottom-0 bg-white pt-3 pb-2 border-t flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="border-t pt-3 pb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
             {isSaving
               ? 'Mentés folyamatban...'
