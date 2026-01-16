@@ -211,6 +211,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartClientX: number;
     pointerStartClientY: number;
     dragStartTransform: FloorplanTransform;
+    dragStartScale: number;
     tableStartX: number;
     tableStartY: number;
     width: number;
@@ -234,6 +235,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartClientX: number;
     pointerStartClientY: number;
     dragStartTransform: FloorplanTransform;
+    dragStartScale: number;
     startX: number;
     startY: number;
     startW: number;
@@ -1576,19 +1578,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     );
   }
 
-  function getLiveDragTransform(
-    startTransform: FloorplanTransform,
-    rect: { width: number; height: number; left: number; top: number }
-  ): FloorplanTransform {
-    return {
-      ...startTransform,
-      rectLeft: rect.left,
-      rectTop: rect.top,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-    };
-  }
-
   function mapClientToFloorplan(
     clientX: number,
     clientY: number,
@@ -1663,6 +1652,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       measureViewport();
     });
   }, [measureViewport]);
+
+  useEffect(() => {
+    return () => {
+      if (viewportMeasureRafRef.current !== null) {
+        cancelAnimationFrame(viewportMeasureRafRef.current);
+        viewportMeasureRafRef.current = null;
+      }
+    };
+  }, []);
 
   useLayoutEffect(() => {
     measureViewport();
@@ -1946,13 +1944,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
-      const liveRect = getViewportRect();
-      if (liveRect.width <= 0 || liveRect.height <= 0) {
-        abortDragRef.current(drag);
-        return;
-      }
-      const liveTransform = getLiveDragTransform(drag.dragStartTransform, liveRect);
       if (drag.mode === 'rotate') {
+        const liveRect = getViewportRect();
+        if (liveRect.width <= 0 || liveRect.height <= 0) {
+          abortDragRef.current(drag);
+          return;
+        }
+        const liveTransform = computeFloorplanTransformFromRect(
+          liveRect,
+          drag.floorplanWidth,
+          drag.floorplanHeight
+        );
         const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
         if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           return;
@@ -1966,53 +1968,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragMoveDebugRef.current > 500) {
-          dragMoveDebugRef.current = now;
-          const currentTransform = computeFloorplanTransformFromRect(
-            liveRect,
-            drag.floorplanWidth,
-            drag.floorplanHeight
-          );
-          const scaleDrift = Math.abs(
-            currentTransform.scale - drag.dragStartTransform.scale
-          );
-          const offsetDriftX = Math.abs(
-            currentTransform.offsetX - drag.dragStartTransform.offsetX
-          );
-          const offsetDriftY = Math.abs(
-            currentTransform.offsetY - drag.dragStartTransform.offsetY
-          );
-          console.debug('[seating] drag move', {
-            scale: liveTransform.scale,
-            offsetX: liveTransform.offsetX,
-            offsetY: liveTransform.offsetY,
-            rectLeft: liveTransform.rectLeft,
-            rectTop: liveTransform.rectTop,
-            rectWidth: liveTransform.rectWidth,
-            rectHeight: liveTransform.rectHeight,
-            pointerId,
-            scaleDrift,
-            offsetDriftX,
-            offsetDriftY,
-          });
-        }
-      }
-      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
-      if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
-        return;
-      }
-      const pointerStart = mapClientToFloorplan(
-        drag.pointerStartClientX,
-        drag.pointerStartClientY,
-        liveTransform
-      );
-      if (!Number.isFinite(pointerStart.x) || !Number.isFinite(pointerStart.y)) {
-        return;
-      }
-      let nextX = drag.tableStartX + (pointer.x - pointerStart.x);
-      let nextY = drag.tableStartY + (pointer.y - pointerStart.y);
+      const deltaClientX = clientX - drag.pointerStartClientX;
+      const deltaClientY = clientY - drag.pointerStartClientY;
+      const deltaLocalX = deltaClientX / drag.dragStartScale;
+      const deltaLocalY = deltaClientY / drag.dragStartScale;
+      let nextX = drag.tableStartX + deltaLocalX;
+      let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
       const unclampedY = nextY;
       const shouldSnap = drag.snapToGrid && !altKey;
@@ -2082,14 +2043,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       const tableId = drag.tableId;
-      const liveRect = getViewportRect();
-      if (liveRect.width <= 0 || liveRect.height <= 0) {
-        releaseDragPointerCaptureRef.current(drag);
-        setDragState(null);
-        return;
-      }
-      const liveTransform = getLiveDragTransform(drag.dragStartTransform, liveRect);
       if (drag.mode === 'rotate') {
+        const liveRect = getViewportRect();
+        if (liveRect.width <= 0 || liveRect.height <= 0) {
+          releaseDragPointerCaptureRef.current(drag);
+          setDragState(null);
+          return;
+        }
+        const liveTransform = computeFloorplanTransformFromRect(
+          liveRect,
+          drag.floorplanWidth,
+          drag.floorplanHeight
+        );
         const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
         if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           releaseDragPointerCaptureRef.current(drag);
@@ -2110,24 +2075,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
-      const pointerStart = mapClientToFloorplan(
-        drag.pointerStartClientX,
-        drag.pointerStartClientY,
-        liveTransform
-      );
-      if (
-        !Number.isFinite(pointer.x) ||
-        !Number.isFinite(pointer.y) ||
-        !Number.isFinite(pointerStart.x) ||
-        !Number.isFinite(pointerStart.y)
-      ) {
-        releaseDragPointerCaptureRef.current(drag);
-        setDragState(null);
-        return;
-      }
-      let nextX = drag.tableStartX + (pointer.x - pointerStart.x);
-      let nextY = drag.tableStartY + (pointer.y - pointerStart.y);
+      const deltaClientX = clientX - drag.pointerStartClientX;
+      const deltaClientY = clientY - drag.pointerStartClientY;
+      const deltaLocalX = deltaClientX / drag.dragStartScale;
+      const deltaLocalY = deltaClientY / drag.dragStartScale;
+      let nextX = drag.tableStartX + deltaLocalX;
+      let nextY = drag.tableStartY + deltaLocalY;
       const shouldSnap = drag.snapToGrid && !altKey;
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
@@ -2191,6 +2144,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
+      dragStartScale: transform.scale,
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -2365,21 +2319,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setObstacleDrag(null);
         return;
       }
-      const liveTransform = getLiveDragTransform(drag.dragStartTransform, liveRect);
-      const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
-      if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
-        return;
-      }
-      const pointerStart = mapClientToFloorplan(
-        drag.pointerStartClientX,
-        drag.pointerStartClientY,
-        liveTransform
-      );
-      if (!Number.isFinite(pointerStart.x) || !Number.isFinite(pointerStart.y)) {
-        return;
-      }
-      const deltaX = pointer.x - pointerStart.x;
-      const deltaY = pointer.y - pointerStart.y;
+      const deltaClientX = clientX - drag.pointerStartClientX;
+      const deltaClientY = clientY - drag.pointerStartClientY;
+      const deltaX = deltaClientX / drag.dragStartScale;
+      const deltaY = deltaClientY / drag.dragStartScale;
       if (drag.mode === 'resize') {
         let nextW = drag.startW + deltaX;
         let nextH = drag.startH + deltaY;
@@ -2505,6 +2448,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
+      dragStartScale: transform.scale,
       startX: rect.x,
       startY: rect.y,
       startW: rect.w,
@@ -3881,7 +3825,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </p>
                 </div>
               )}
-            <div className="overflow-auto">
+            <div className="overflow-hidden">
               <FloorplanSquareViewport
                 ref={floorplanViewportRef}
                 className="border border-gray-200 rounded-lg bg-gray-50 touch-none"
@@ -4053,6 +3997,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 pointerStartClientX: event.clientX,
                                 pointerStartClientY: event.clientY,
                                 dragStartTransform: transform,
+                                dragStartScale: transform.scale,
                                 tableStartX: position.x,
                                 tableStartY: position.y,
                                 width: geometry.w,
