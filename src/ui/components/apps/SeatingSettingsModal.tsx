@@ -3822,10 +3822,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </p>
                 </div>
               )}
-            <div className="overflow-hidden">
+            <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden">
               <FloorplanSquareViewport
                 ref={floorplanViewportRef}
-                className="border border-gray-200 rounded-lg bg-gray-50 touch-none"
+                className="h-full w-full border border-gray-200 rounded-lg bg-gray-50 touch-none"
               >
                 <div
                   className="absolute inset-0"
