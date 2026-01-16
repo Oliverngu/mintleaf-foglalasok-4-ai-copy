@@ -1656,6 +1656,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplanViewportRect, getFloorplanTransform]
   );
   const zeroRectLogRef = useRef(false);
+  const formatDebugNumber = (value?: number) =>
+    Number.isFinite(value) ? value.toFixed(2) : 'n/a';
+
+  const debugFloorplanWarningReasons = useMemo(() => {
+    if (typeof debugSeating === 'undefined' || !debugSeating) {
+      return [];
+    }
+    if (editorTables.length === 0) {
+      return [];
+    }
+    const reasons: string[] = [];
+    if (!activeFloorplan) {
+      reasons.push('activeFloorplan=null');
+    }
+    if (floorplanWidth <= 0) {
+      reasons.push(`floorplanWidth=${floorplanWidth}`);
+    }
+    if (floorplanHeight <= 0) {
+      reasons.push(`floorplanHeight=${floorplanHeight}`);
+    }
+    if (floorplanRenderTransform.rectWidth <= 0) {
+      reasons.push(`rectWidth=${floorplanRenderTransform.rectWidth}`);
+    }
+    if (floorplanRenderTransform.rectHeight <= 0) {
+      reasons.push(`rectHeight=${floorplanRenderTransform.rectHeight}`);
+    }
+    return reasons;
+  }, [
+    activeFloorplan,
+    debugSeating,
+    editorTables.length,
+    floorplanHeight,
+    floorplanRenderTransform.rectHeight,
+    floorplanRenderTransform.rectWidth,
+    floorplanWidth,
+  ]);
 
   useEffect(() => {
     if (typeof debugSeating === 'undefined' || !debugSeating) {
@@ -3669,6 +3705,73 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </>
               )}
             </div>
+            {typeof debugSeating !== 'undefined' && debugSeating && (
+              <div className="rounded border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <div className="font-semibold">Floorplan debug</div>
+                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">resolved id</dt>
+                    <dd className="truncate">
+                      {resolvedActiveFloorplanId || 'n/a'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">active id</dt>
+                    <dd className="truncate">{activeFloorplan?.id ?? 'n/a'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">
+                      visible floorplans
+                    </dt>
+                    <dd>{visibleFloorplans.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">tables</dt>
+                    <dd>{tables.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">editor tables</dt>
+                    <dd>{editorTables.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">
+                      floorplan size
+                    </dt>
+                    <dd>
+                      {floorplanWidth} × {floorplanHeight}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">
+                      viewport rect
+                    </dt>
+                    <dd>
+                      {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
+                      {formatDebugNumber(floorplanViewportRect.height)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">transform</dt>
+                    <dd>
+                      scale {formatDebugNumber(floorplanRenderTransform.scale)} | rect{' '}
+                      {formatDebugNumber(floorplanRenderTransform.rectWidth)} ×{' '}
+                      {formatDebugNumber(floorplanRenderTransform.rectHeight)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+            {typeof debugSeating !== 'undefined' &&
+              debugSeating &&
+              debugFloorplanWarningReasons.length > 0 && (
+                <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+                  <div className="font-semibold">Floorplan debug warning</div>
+                  <p className="mt-1">
+                    Tables exist but the floorplan cannot render because:{' '}
+                    {debugFloorplanWarningReasons.join(', ')}
+                  </p>
+                </div>
+              )}
             <div className="overflow-auto">
               <FloorplanSquareViewport
                 ref={floorplanViewportRef}
