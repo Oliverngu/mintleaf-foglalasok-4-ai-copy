@@ -161,7 +161,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const [userRole, setUserRole] = useState<string | null>(null);
-  const canEditFloorplan = userRole === 'Admin' || userRole === 'Unit Admin';
+  // Order matters to avoid TDZ issues in minified builds.
+  const canEditFloorplan = useMemo(
+    () => userRole === 'Admin' || userRole === 'Unit Admin',
+    [userRole]
+  );
   const [draftPositions, setDraftPositions] = useState<Record<string, { x: number; y: number }>>(
     {}
   );
@@ -627,66 +631,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
   const snapRotation = (value: number, step = 5) => Math.round(value / step) * step;
 
-  const updateActiveFloorplanObstacles = useCallback(
-    (nextObstacles: FloorplanObstacle[]) => {
-      if (!activeFloorplan) {
-        return;
-      }
-      setFloorplans(current =>
-        current.map(plan =>
-          plan.id === activeFloorplan.id ? { ...plan, obstacles: nextObstacles } : plan
-        )
-      );
-    },
-    [activeFloorplan]
-  );
-
-  const persistActiveObstacles = useCallback(
-    async (nextObstacles: FloorplanObstacle[], previousObstacles: FloorplanObstacle[]) => {
-      if (!activeFloorplan) {
-        return;
-      }
-      await runAction({
-        key: `floorplan-obstacles-${activeFloorplan.id}`,
-        errorMessage: 'Nem sikerült menteni az akadályokat.',
-        errorContext: 'Error saving floorplan obstacles:',
-        action: async () => {
-          try {
-            await updateFloorplan(unitId, activeFloorplan.id, {
-              obstacles: nextObstacles,
-            });
-          } catch (err) {
-            updateActiveFloorplanObstacles(previousObstacles);
-            throw err;
-          }
-        },
-      });
-    },
-    [activeFloorplan, runAction, unitId, updateActiveFloorplanObstacles]
-  );
-
-  const setLastSaved = (
-    updater:
-      | Record<string, { x: number; y: number }>
-      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
-  ) => {
-    setLastSavedById(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      lastSavedByIdRef.current = next;
-      return next;
-    });
-  };
-
-  const setLastSavedRot = (
-    updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)
-  ) => {
-    setLastSavedRotById(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      lastSavedRotByIdRef.current = next;
-      return next;
-    });
-  };
-
+  // Order matters to avoid TDZ in minified builds.
   const setActionSavingFlag = (key: string, value: boolean) => {
     actionSavingRef.current[key] = value;
     if (!value) {
@@ -759,6 +704,66 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } finally {
       setActionSavingFlag(key, false);
     }
+  };
+
+  const updateActiveFloorplanObstacles = useCallback(
+    (nextObstacles: FloorplanObstacle[]) => {
+      if (!activeFloorplan) {
+        return;
+      }
+      setFloorplans(current =>
+        current.map(plan =>
+          plan.id === activeFloorplan.id ? { ...plan, obstacles: nextObstacles } : plan
+        )
+      );
+    },
+    [activeFloorplan]
+  );
+
+  const persistActiveObstacles = useCallback(
+    async (nextObstacles: FloorplanObstacle[], previousObstacles: FloorplanObstacle[]) => {
+      if (!activeFloorplan) {
+        return;
+      }
+      await runAction({
+        key: `floorplan-obstacles-${activeFloorplan.id}`,
+        errorMessage: 'Nem sikerült menteni az akadályokat.',
+        errorContext: 'Error saving floorplan obstacles:',
+        action: async () => {
+          try {
+            await updateFloorplan(unitId, activeFloorplan.id, {
+              obstacles: nextObstacles,
+            });
+          } catch (err) {
+            updateActiveFloorplanObstacles(previousObstacles);
+            throw err;
+          }
+        },
+      });
+    },
+    [activeFloorplan, runAction, unitId, updateActiveFloorplanObstacles]
+  );
+
+  const setLastSaved = (
+    updater:
+      | Record<string, { x: number; y: number }>
+      | ((prev: Record<string, { x: number; y: number }>) => Record<string, { x: number; y: number }>)
+  ) => {
+    setLastSavedById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedByIdRef.current = next;
+      return next;
+    });
+  };
+
+  const setLastSavedRot = (
+    updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)
+  ) => {
+    setLastSavedRotById(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lastSavedRotByIdRef.current = next;
+      return next;
+    });
   };
 
   const releaseDragPointerCapture = useCallback((drag: NonNullable<typeof dragState>) => {
