@@ -1616,19 +1616,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       top: rect.top,
     };
     setFloorplanViewportRect(nextRect);
-    if (!debugSeating) {
+    if (typeof debugSeating === 'undefined' || !debugSeating) {
       return;
     }
-    const now = getNow();
-    if (now - lastViewportLogRef.current < 500) {
-      return;
+    try {
+      const now = getNow();
+      if (now - lastViewportLogRef.current < 500) {
+        return;
+      }
+      const transform = getFloorplanTransform(nextRect);
+      console.debug('[seating] viewport measure', {
+        rect: nextRect,
+        scale: transform.scale,
+      });
+      lastViewportLogRef.current = now;
+    } catch (error) {
+      console.warn('[seating] viewport measure log failed', error);
     }
-    const transform = getFloorplanTransform(nextRect);
-    console.debug('[seating] viewport measure', {
-      rect: nextRect,
-      scale: transform.scale,
-    });
-    lastViewportLogRef.current = now;
   }, [debugSeating, getFloorplanTransform, getNow]);
 
   useLayoutEffect(() => {
@@ -1651,6 +1655,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => getFloorplanTransform(floorplanViewportRect),
     [floorplanViewportRect, getFloorplanTransform]
   );
+  const zeroRectLogRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof debugSeating === 'undefined' || !debugSeating) {
+      return;
+    }
+    if (zeroRectLogRef.current) {
+      return;
+    }
+    if (
+      editorTables.length > 0 &&
+      (floorplanRenderTransform.rectWidth <= 0 ||
+        floorplanRenderTransform.rectHeight <= 0)
+    ) {
+      zeroRectLogRef.current = true;
+      try {
+        console.debug('[seating] viewport zero rect with tables', {
+          tablesCount: editorTables.length,
+          rect: floorplanViewportRect,
+          transform: floorplanRenderTransform,
+        });
+      } catch (error) {
+        console.warn('[seating] zero-rect debug log failed', error);
+      }
+    }
+  }, [debugSeating, editorTables.length, floorplanRenderTransform, floorplanViewportRect]);
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
