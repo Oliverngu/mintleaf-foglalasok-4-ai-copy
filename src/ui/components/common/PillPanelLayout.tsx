@@ -42,14 +42,14 @@ const PillPanelLayout: React.FC<PillPanelLayoutProps> = ({
                   id={`${idPrefix}-tab-${section.id}`}
                   role="tab"
                   aria-selected={isActive}
-                  aria-controls={`${idPrefix}-panel-${section.id}`}
+                  aria-controls={`${idPrefix}-panel`}
                   tabIndex={isActive ? 0 : -1}
                   onClick={() => onChange(section.id)}
                   onKeyDown={onKeyDown}
                   className="rounded-full border px-3 py-1 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
                   style={{
                     backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-surface)',
-                    color: isActive ? 'var(--color-text-on-primary)' : 'var(--color-text-secondary)',
+                    color: isActive ? 'var(--color-surface)' : 'var(--color-text-secondary)',
                     borderColor: isActive
                       ? 'var(--color-primary)'
                       : 'var(--color-border, rgba(148,163,184,0.4))',
@@ -65,7 +65,7 @@ const PillPanelLayout: React.FC<PillPanelLayoutProps> = ({
       <div className="flex min-h-0 flex-1 flex-col">
         <div
           role="tabpanel"
-          id={`${idPrefix}-panel-${activeId}`}
+          id={`${idPrefix}-panel`}
           aria-labelledby={`${idPrefix}-tab-${activeId}`}
           className="h-full overflow-y-auto rounded-xl border p-4"
           style={{
