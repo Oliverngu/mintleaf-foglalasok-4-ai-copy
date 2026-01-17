@@ -240,6 +240,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectWidth: number;
     rectHeight: number;
   };
+  type DragViewportRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
   const [dragState, setDragState] = useState<{
     tableId: string;
     pointerId: number;
@@ -249,6 +255,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartFloorX: number;
     pointerStartFloorY: number;
     dragStartTransform: FloorplanTransform;
+    dragStartRect: DragViewportRect;
     dragStartScale: number;
     tableStartX: number;
     tableStartY: number;
@@ -273,6 +280,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartClientX: number;
     pointerStartClientY: number;
     dragStartTransform: FloorplanTransform;
+    dragStartRect: DragViewportRect;
     dragStartScale: number;
     startX: number;
     startY: number;
@@ -1940,25 +1948,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
 
-  function getCurrentTransform(): FloorplanTransform {
-    return computeFloorplanTransformFromRect(
-      getViewportRect(),
-      floorplanWidth,
-      floorplanHeight
-    );
-  }
-
-  function mapClientToFloorplan(
+  // Freeze transform+rect during drag to avoid reflow drift.
+  function mapClientToFloorplanUsingTransform(
     clientX: number,
     clientY: number,
-    transform: FloorplanTransform
+    transform: FloorplanTransform,
+    rect: DragViewportRect
   ) {
-    const rawX = (clientX - transform.rectLeft - transform.offsetX) / transform.scale;
-    const rawY = (clientY - transform.rectTop - transform.offsetY) / transform.scale;
-    return {
-      x: rawX,
-      y: rawY,
-    };
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    if (!Number.isFinite(transform.scale) || transform.scale <= 0) {
+      return null;
+    }
+    const rawX = (clientX - rect.left - transform.offsetX) / transform.scale;
+    const rawY = (clientY - rect.top - transform.offsetY) / transform.scale;
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
+      return null;
+    }
+    return { x: rawX, y: rawY };
   }
 
   function safeScale(value: number): number {
@@ -2074,22 +2082,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       ),
     [floorplanViewportRect, floorplanHeight, floorplanWidth]
   );
-  function mapClientToFloorplanUsingRenderTransform(clientX: number, clientY: number) {
-    const rect = floorplanViewportRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0) {
-      return null;
-    }
-    const scale = floorplanRenderTransform.scale;
-    if (!Number.isFinite(scale) || scale <= 0) {
-      return null;
-    }
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    return {
-      x: (localX - floorplanRenderTransform.offsetX) / scale,
-      y: (localY - floorplanRenderTransform.offsetY) / scale,
-    };
-  }
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -2330,12 +2322,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = dragStateRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragMoveDebugRef.current > 500) {
+          const scaleDiff = Math.abs(
+            floorplanRenderTransform.scale - drag.dragStartTransform.scale
+          );
+          const offsetDiff =
+            Math.abs(floorplanRenderTransform.offsetX - drag.dragStartTransform.offsetX) +
+            Math.abs(floorplanRenderTransform.offsetY - drag.dragStartTransform.offsetY);
+          if (scaleDiff > 0.001 || offsetDiff > 0.5) {
+            dragMoveDebugRef.current = now;
+            requestDebugFlush('transform-changed-during-drag');
+          }
+        }
+      }
       if (!floorplanViewportRef.current) {
         abortDragRef.current(drag);
         return;
       }
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+        const pointer = mapClientToFloorplanUsingTransform(
+          clientX,
+          clientY,
+          drag.dragStartTransform,
+          drag.dragStartRect
+        );
         if (!pointer) {
           if (debugSeating) {
             const now = Date.now();
@@ -2360,7 +2372,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const pointerNow = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+      const pointerNow = mapClientToFloorplanUsingTransform(
+        clientX,
+        clientY,
+        drag.dragStartTransform,
+        drag.dragStartRect
+      );
       if (!pointerNow) {
         if (debugSeating) {
           const now = Date.now();
@@ -2499,10 +2516,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeDragBounds,
       debugSeating,
       getTableAabbForCollision,
-      getObstacleRenderRect,
       isTableOverlappingObstacle,
-      rectIntersectEps,
-      mapClientToFloorplanUsingRenderTransform,
+      resolveTablePositionWithSweep,
+      floorplanRenderTransform,
+      mapClientToFloorplanUsingTransform,
       normalizeRotation,
       requestDebugFlush,
       snapRotation,
@@ -2532,13 +2549,33 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const drag = dragStateRef.current;
       if (!drag) return;
       if (pointerId !== drag.pointerId) return;
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragMoveDebugRef.current > 500) {
+          const scaleDiff = Math.abs(
+            floorplanRenderTransform.scale - drag.dragStartTransform.scale
+          );
+          const offsetDiff =
+            Math.abs(floorplanRenderTransform.offsetX - drag.dragStartTransform.offsetX) +
+            Math.abs(floorplanRenderTransform.offsetY - drag.dragStartTransform.offsetY);
+          if (scaleDiff > 0.001 || offsetDiff > 0.5) {
+            dragMoveDebugRef.current = now;
+            requestDebugFlush('transform-changed-during-drag');
+          }
+        }
+      }
       if (!floorplanViewportRef.current) {
         abortDragRef.current(drag);
         return;
       }
       const tableId = drag.tableId;
       if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+        const pointer = mapClientToFloorplanUsingTransform(
+          clientX,
+          clientY,
+          drag.dragStartTransform,
+          drag.dragStartRect
+        );
         if (!pointer) {
           if (debugSeating) {
             const now = Date.now();
@@ -2571,7 +2608,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const pointerNow = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+      const pointerNow = mapClientToFloorplanUsingTransform(
+        clientX,
+        clientY,
+        drag.dragStartTransform,
+        drag.dragStartRect
+      );
       if (!pointerNow) {
         if (debugSeating) {
           const now = Date.now();
@@ -2686,9 +2728,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       clampTableToBounds,
       isTableOverlappingObstacle,
       getTableAabbForCollision,
-      getObstacleRenderRect,
-      rectIntersectEps,
-      mapClientToFloorplanUsingRenderTransform,
+      resolveTablePositionWithSweep,
+      floorplanRenderTransform,
+      mapClientToFloorplanUsingTransform,
       normalizeRotation,
       requestDebugFlush,
       snapRotation,
@@ -2817,7 +2859,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const pointer = mapClientToFloorplanUsingRenderTransform(event.clientX, event.clientY);
+    const dragRect = getViewportRect();
+    const pointer = mapClientToFloorplanUsingTransform(
+      event.clientX,
+      event.clientY,
+      floorplanRenderTransform,
+      dragRect
+    );
     if (!pointer) {
       return;
     }
@@ -2851,6 +2899,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartFloorX: pointer.x,
       pointerStartFloorY: pointer.y,
       dragStartTransform: floorplanRenderTransform,
+      dragStartRect: dragRect,
       dragStartScale: safeScale(floorplanRenderTransform.scale),
       tableStartX: position.x,
       tableStartY: position.y,
@@ -2989,7 +3038,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanHeight,
       floorplanMode,
       floorplanWidth,
-      mapClientToFloorplan,
       updateDraftObstacle,
     ]
   );
@@ -3056,7 +3104,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedObstacleId(obstacle.id);
     const rect = getObstacleRenderRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const transform = getCurrentTransform();
+    const dragRect = getViewportRect();
+    const transform = computeFloorplanTransformFromRect(
+      dragRect,
+      floorplanWidth,
+      floorplanHeight
+    );
     if (debugSeating) {
       console.debug('[seating] obstacle drag scale', {
         scale: transform.scale,
@@ -3079,6 +3132,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientX: event.clientX,
       pointerStartClientY: event.clientY,
       dragStartTransform: transform,
+      dragStartRect: dragRect,
       dragStartScale: safeScale(transform.scale),
       startX: rect.x,
       startY: rect.y,
@@ -4735,9 +4789,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
                               const centerY = position.y + geometry.h / 2;
-                              const pointer = mapClientToFloorplanUsingRenderTransform(
+                              const dragRect = getViewportRect();
+                              const pointer = mapClientToFloorplanUsingTransform(
                                 event.clientX,
-                                event.clientY
+                                event.clientY,
+                                floorplanRenderTransform,
+                                dragRect
                               );
                               if (!pointer) {
                                 return;
@@ -4754,6 +4811,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 pointerStartFloorX: pointer.x,
                                 pointerStartFloorY: pointer.y,
                                 dragStartTransform: floorplanRenderTransform,
+                                dragStartRect: dragRect,
                                 dragStartScale: safeScale(floorplanRenderTransform.scale),
                                 tableStartX: position.x,
                                 tableStartY: position.y,
