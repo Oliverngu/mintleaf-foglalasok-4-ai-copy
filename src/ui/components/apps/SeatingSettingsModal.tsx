@@ -435,21 +435,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [draftRotations]);
 
   useEffect(() => {
-    const url = activeFloorplan?.backgroundImageUrl ?? null;
-    if (prevBgUrlRef.current !== url) {
-      prevBgUrlRef.current = url;
-      setBgNatural(null);
-    }
-    if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
-      setBgNatural({
-        w: bgImgRef.current.naturalWidth,
-        h: bgImgRef.current.naturalHeight,
-      });
-    }
-  }, [activeFloorplan?.backgroundImageUrl]);
-
-
-  useEffect(() => {
     if (!isDev) return;
     if (floorplans.length === 0 && tables.length === 0) return;
     const normalizedFloorplans = floorplans.map(plan => ({
@@ -708,6 +693,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => floorplans.find(plan => plan.id === resolvedActiveFloorplanId) ?? null,
     [floorplans, resolvedActiveFloorplanId]
   );
+
+  useEffect(() => {
+    const url = activeFloorplan?.backgroundImageUrl ?? null;
+    if (prevBgUrlRef.current !== url) {
+      prevBgUrlRef.current = url;
+      setBgNatural(null);
+    }
+    if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
+      setBgNatural({
+        w: bgImgRef.current.naturalWidth,
+        h: bgImgRef.current.naturalHeight,
+      });
+    }
+  }, [activeFloorplan?.backgroundImageUrl]);
 
   // Keep this after resolvedActiveFloorplanId to avoid TDZ in minified builds.
   useEffect(() => {
