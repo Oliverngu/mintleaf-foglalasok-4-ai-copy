@@ -992,6 +992,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return rectIntersectEps(bounds, rect);
     });
   }
+  function getObstacleHits(x: number, y: number, w: number, h: number, rotDeg: number) {
+    const bounds = getTableAabbForCollision(x, y, w, h, rotDeg);
+    return activeObstacles
+      .map(obstacle => ({
+        id: obstacle.id,
+        rect: getObstacleRenderRect(obstacle),
+      }))
+      .filter(hit => rectIntersectEps(bounds, hit.rect));
+  }
+  function resolveTablePositionWithSweep(args: {
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    drag: NonNullable<typeof dragState>;
+    rotDeg: number;
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    mode: 'move' | 'rotate';
+  }) {
+    const { startX, startY, endX, endY, drag, rotDeg, bounds, mode } = args;
+    if (!isTableOverlappingObstacle(endX, endY, drag.width, drag.height, rotDeg)) {
+      return { x: endX, y: endY, collided: false, obstacleHits: [] as typeof activeObstacles };
+    }
+    let low = 0;
+    let high = 1;
+    let best = { x: startX, y: startY };
+    for (let i = 0; i < 12; i += 1) {
+      const t = (low + high) / 2;
+      const midX = startX + (endX - startX) * t;
+      const midY = startY + (endY - startY) * t;
+      const clamped = clampTableToBounds(midX, midY, drag, rotDeg, bounds, mode);
+      if (isTableOverlappingObstacle(clamped.x, clamped.y, drag.width, drag.height, rotDeg)) {
+        high = t;
+      } else {
+        best = { x: clamped.x, y: clamped.y };
+        low = t;
+      }
+    }
+    return {
+      x: best.x,
+      y: best.y,
+      collided: true,
+      obstacleHits: getObstacleHits(endX, endY, drag.width, drag.height, rotDeg),
+    };
+  }
 
   // Order matters to avoid TDZ in minified builds.
   const setActionSavingFlag = (key: string, value: boolean) => {
@@ -2371,91 +2416,57 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           requestDebugFlush('bounds-clamp');
         }
       }
-      if (
-        isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        if (debugSeating) {
-          const now = Date.now();
-          if (now - dragClampDebugRef.current > 500) {
-            dragClampDebugRef.current = now;
-            const bounds = getTableAabbForCollision(
-              nextX,
-              nextY,
-              drag.width,
-              drag.height,
-              rotForClamp
-            );
-            const obstacleHits = activeObstacles
-              .map(obstacle => ({
-                id: obstacle.id,
-                rect: getObstacleRenderRect(obstacle),
-              }))
-              .filter(hit => rectIntersectEps(bounds, hit.rect));
-            const obstacleIds = obstacleHits.map(hit => hit.id);
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
-              tableId: drag.tableId,
-              nextX,
-              nextY,
-              rot: rotForClamp,
-              obstacleIds,
-              tableRect: bounds,
-              obstacleRects: obstacleHits,
-            });
-            requestDebugFlush(
-              obstacleIds.length > 0
-                ? `obstacle-collision:${obstacleIds.join(',')}`
-                : 'obstacle-collision'
-            );
-          }
-        }
-        const lastValid = lastValidTablePosRef.current ?? {
+      const start =
+        lastValidTablePosRef.current ?? {
           x: drag.tableStartX,
           y: drag.tableStartY,
         };
-        const candidateX = { x: nextX, y: lastValid.y };
-        const candidateY = { x: lastValid.x, y: nextY };
-        if (
-          !isTableOverlappingObstacle(
-            candidateX.x,
-            candidateX.y,
-            drag.width,
-            drag.height,
-            rotForClamp
-          )
-        ) {
-          lastValidTablePosRef.current = candidateX;
-          updateDraftPosition(drag.tableId, candidateX.x, candidateX.y);
-          return;
+      const sweepResult = resolveTablePositionWithSweep({
+        startX: start.x,
+        startY: start.y,
+        endX: nextX,
+        endY: nextY,
+        drag,
+        rotDeg: rotForClamp,
+        bounds,
+        mode: drag.mode,
+      });
+      if (sweepResult.collided && debugSeating) {
+        const now = Date.now();
+        if (now - dragClampDebugRef.current > 500) {
+          dragClampDebugRef.current = now;
+          const obstacleIds = sweepResult.obstacleHits.map(hit => hit.id);
+          console.debug('[seating] drag blocked', {
+            reason: 'obstacle-sweep',
+            tableId: drag.tableId,
+            start,
+            end: { x: nextX, y: nextY },
+            resolved: { x: sweepResult.x, y: sweepResult.y },
+            rot: rotForClamp,
+            obstacleIds,
+            tableRect: getTableAabbForCollision(
+              sweepResult.x,
+              sweepResult.y,
+              drag.width,
+              drag.height,
+              rotForClamp
+            ),
+            obstacleRects: sweepResult.obstacleHits,
+          });
+          requestDebugFlush(
+            obstacleIds.length > 0
+              ? `obstacle-sweep:${obstacleIds.join(',')}`
+              : 'obstacle-sweep'
+          );
         }
-        if (
-          !isTableOverlappingObstacle(
-            candidateY.x,
-            candidateY.y,
-            drag.width,
-            drag.height,
-            rotForClamp
-          )
-        ) {
-          lastValidTablePosRef.current = candidateY;
-          updateDraftPosition(drag.tableId, candidateY.x, candidateY.y);
-          return;
-        }
-        return;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
+      lastValidTablePosRef.current = { x: sweepResult.x, y: sweepResult.y };
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
           dragClampDebugRef.current = now;
-          const deltaX = Math.abs(nextX - unclampedX);
-          const deltaY = Math.abs(nextY - unclampedY);
+          const deltaX = Math.abs(sweepResult.x - unclampedX);
+          const deltaY = Math.abs(sweepResult.y - unclampedY);
           if (deltaX > 1 || deltaY > 1) {
             console.debug('[seating] drag clamp', {
               reason: 'rotation-clamp',
@@ -2470,15 +2481,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               rotatedHy: clamped.hy,
               floorplanWidth: drag.floorplanWidth,
               floorplanHeight: drag.floorplanHeight,
-              nextX,
-              nextY,
+              nextX: sweepResult.x,
+              nextY: sweepResult.y,
               shouldSnap,
               gridSize: drag.gridSize,
             });
           }
         }
       }
-      updateDraftPosition(drag.tableId, nextX, nextY);
+      updateDraftPosition(drag.tableId, sweepResult.x, sweepResult.y);
     },
     [
       activeObstacles,
@@ -2616,91 +2627,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           requestDebugFlush('bounds-clamp');
         }
       }
-      if (
-        isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        if (debugSeating) {
-          const now = Date.now();
-          if (now - dragClampDebugRef.current > 500) {
-            dragClampDebugRef.current = now;
-            const bounds = getTableAabbForCollision(
-              nextX,
-              nextY,
-              drag.width,
-              drag.height,
-              rotForClamp
-            );
-            const obstacleHits = activeObstacles
-              .map(obstacle => ({
-                id: obstacle.id,
-                rect: getObstacleRenderRect(obstacle),
-              }))
-              .filter(hit => rectIntersectEps(bounds, hit.rect));
-            const obstacleIds = obstacleHits.map(hit => hit.id);
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
-              tableId: drag.tableId,
-              nextX,
-              nextY,
-              rot: rotForClamp,
-              obstacleIds,
-              tableRect: bounds,
-              obstacleRects: obstacleHits,
-            });
-            requestDebugFlush(
-              obstacleIds.length > 0
-                ? `obstacle-collision:${obstacleIds.join(',')}`
-                : 'obstacle-collision'
-            );
-          }
-        }
-        const lastValid = lastValidTablePosRef.current ?? {
+      const start =
+        lastValidTablePosRef.current ?? {
           x: drag.tableStartX,
           y: drag.tableStartY,
         };
-        const candidateX = { x: nextX, y: lastValid.y };
-        const candidateY = { x: lastValid.x, y: nextY };
-        let resolved = lastValid;
-        if (
-          !isTableOverlappingObstacle(
-            candidateX.x,
-            candidateX.y,
-            drag.width,
-            drag.height,
-            rotForClamp
-          )
-        ) {
-          resolved = candidateX;
-        } else if (
-          !isTableOverlappingObstacle(
-            candidateY.x,
-            candidateY.y,
-            drag.width,
-            drag.height,
-            rotForClamp
-          )
-        ) {
-          resolved = candidateY;
+      const sweepResult = resolveTablePositionWithSweep({
+        startX: start.x,
+        startY: start.y,
+        endX: nextX,
+        endY: nextY,
+        drag,
+        rotDeg: rotForClamp,
+        bounds,
+        mode: drag.mode,
+      });
+      if (sweepResult.collided && debugSeating) {
+        const now = Date.now();
+        if (now - dragClampDebugRef.current > 500) {
+          dragClampDebugRef.current = now;
+          const obstacleIds = sweepResult.obstacleHits.map(hit => hit.id);
+          console.debug('[seating] drag blocked', {
+            reason: 'obstacle-sweep',
+            tableId: drag.tableId,
+            start,
+            end: { x: nextX, y: nextY },
+            resolved: { x: sweepResult.x, y: sweepResult.y },
+            rot: rotForClamp,
+            obstacleIds,
+            tableRect: getTableAabbForCollision(
+              sweepResult.x,
+              sweepResult.y,
+              drag.width,
+              drag.height,
+              rotForClamp
+            ),
+            obstacleRects: sweepResult.obstacleHits,
+          });
+          requestDebugFlush(
+            obstacleIds.length > 0
+              ? `obstacle-sweep:${obstacleIds.join(',')}`
+              : 'obstacle-sweep'
+          );
         }
-        updateDraftPosition(tableId, resolved.x, resolved.y);
-        releaseDragPointerCaptureRef.current(drag);
-        unregisterWindowTableDragListenersRef.current();
-        setDragState(null);
-        void finalizeDragRef.current(tableId, resolved.x, resolved.y);
-        return;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
-      updateDraftPosition(tableId, nextX, nextY);
+      lastValidTablePosRef.current = { x: sweepResult.x, y: sweepResult.y };
+      updateDraftPosition(tableId, sweepResult.x, sweepResult.y);
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
       setDragState(null);
-      void finalizeDragRef.current(tableId, nextX, nextY);
+      void finalizeDragRef.current(tableId, sweepResult.x, sweepResult.y);
     },
     [
       activeObstacles,
