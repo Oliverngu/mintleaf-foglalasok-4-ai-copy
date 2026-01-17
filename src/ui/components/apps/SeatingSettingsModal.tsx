@@ -265,6 +265,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const dragClampDebugRef = useRef(0);
   const obstacleMoveDebugRef = useRef(0);
   const rotatedBoundsLogRef = useRef(0);
+  const [lastDragBlockReason, setLastDragBlockReason] = useState<string | null>(null);
   const windowDragListenersActiveRef = useRef(false);
   const windowDragHandlersRef = useRef<null | {
     move: (event: PointerEvent) => void;
@@ -728,6 +729,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   function applyGrid(value: number, gridSize: number) {
     return gridSize > 0 ? Math.round(value / gridSize) * gridSize : value;
   }
+  function ceilToGrid(value: number, gridSize: number) {
+    return gridSize > 0 ? Math.ceil(value / gridSize) * gridSize : value;
+  }
+  function floorToGrid(value: number, gridSize: number) {
+    return gridSize > 0 ? Math.floor(value / gridSize) * gridSize : value;
+  }
   function normalizeRotation(value: number) {
     const wrapped = ((value % 360) + 360) % 360;
     return wrapped > 180 ? wrapped - 360 : wrapped;
@@ -843,6 +850,57 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       h: contentH,
     };
   }, [activeFloorplan?.backgroundImageUrl, bgNatural, floorplanHeight, floorplanWidth]);
+  const computeDragBounds = useCallback(
+    (drag: NonNullable<typeof dragState>, shouldSnap: boolean) => {
+      const contentBox = getBackgroundContentBox();
+      let minX = contentBox ? contentBox.x : 0;
+      let minY = contentBox ? contentBox.y : 0;
+      let maxX = contentBox ? contentBox.x + contentBox.w : drag.floorplanWidth;
+      let maxY = contentBox ? contentBox.y + contentBox.h : drag.floorplanHeight;
+      if (shouldSnap) {
+        minX = ceilToGrid(minX, drag.gridSize);
+        minY = ceilToGrid(minY, drag.gridSize);
+        maxX = floorToGrid(maxX, drag.gridSize);
+        maxY = floorToGrid(maxY, drag.gridSize);
+      } else {
+        minX = Math.round(minX);
+        minY = Math.round(minY);
+        maxX = Math.round(maxX);
+        maxY = Math.round(maxY);
+      }
+      if (maxX < minX) {
+        const midX = (minX + maxX) / 2;
+        minX = midX;
+        maxX = midX;
+      }
+      if (maxY < minY) {
+        const midY = (minY + maxY) / 2;
+        minY = midY;
+        maxY = midY;
+      }
+      return { minX, minY, maxX, maxY };
+    },
+    [getBackgroundContentBox]
+  );
+  const clampTableToBounds = useCallback(
+    (
+      nextX: number,
+      nextY: number,
+      drag: NonNullable<typeof dragState>,
+      rotForClamp: number,
+      bounds: { minX: number; minY: number; maxX: number; maxY: number }
+    ) =>
+      clampTopLeftForRotationWithinBounds(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        rotForClamp,
+        bounds,
+        clamp
+      ),
+    [clamp]
+  );
   function getTableRotationBounds(x: number, y: number, w: number, h: number, rotDeg: number) {
     const centerX = x + w / 2;
     const centerY = y + h / 2;
@@ -2154,6 +2212,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (drag.mode === 'rotate') {
         const liveRect = getViewportRect();
         if (liveRect.width <= 0 || liveRect.height <= 0) {
+          if (debugSeating) {
+            const now = Date.now();
+            if (now - dragMoveDebugRef.current > 500) {
+              dragMoveDebugRef.current = now;
+              console.debug('[seating] drag blocked', {
+                reason: 'invalid-transform',
+                tableId: drag.tableId,
+              });
+              setLastDragBlockReason('invalid-transform');
+            }
+          }
           abortDragRef.current(drag);
           return;
         }
@@ -2177,6 +2246,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const liveRect = getViewportRect();
       if (liveRect.width <= 0 || liveRect.height <= 0) {
+        if (debugSeating) {
+          const now = Date.now();
+          if (now - dragMoveDebugRef.current > 500) {
+            dragMoveDebugRef.current = now;
+            console.debug('[seating] drag blocked', {
+              reason: 'invalid-transform',
+              tableId: drag.tableId,
+            });
+            setLastDragBlockReason('invalid-transform');
+          }
+        }
         abortDragRef.current(drag);
         return;
       }
@@ -2205,31 +2285,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const contentBox = getBackgroundContentBox();
-      const bounds = contentBox
-        ? {
-            minX: contentBox.x,
-            minY: contentBox.y,
-            maxX: contentBox.x + contentBox.w,
-            maxY: contentBox.y + contentBox.h,
-          }
-        : {
-            minX: 0,
-            minY: 0,
-            maxX: drag.floorplanWidth,
-            maxY: drag.floorplanHeight,
-          };
-      const clamped = clampTopLeftForRotationWithinBounds(
-        nextX,
-        nextY,
-        drag.width,
-        drag.height,
-        rotForClamp,
-        bounds,
-        clamp
-      );
+      const bounds = computeDragBounds(drag, shouldSnap);
+      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
+      if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
+        const now = Date.now();
+        if (now - dragClampDebugRef.current > 500) {
+          dragClampDebugRef.current = now;
+          console.debug('[seating] drag blocked', {
+            reason: 'bounds-clamp',
+            tableId: drag.tableId,
+            unclampedX,
+            unclampedY,
+            nextX,
+            nextY,
+            bounds,
+          });
+          setLastDragBlockReason('bounds-clamp');
+        }
+      }
       if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
         if (debugSeating) {
           const now = Date.now();
@@ -2253,6 +2328,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               rot: rotForClamp,
               obstacleIds,
             });
+            setLastDragBlockReason('obstacle-collision');
           }
         }
         return;
@@ -2292,10 +2368,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       activeObstacles,
       applyGrid,
       clamp,
-      clampTopLeftForRotationWithinBounds,
+      clampTableToBounds,
       computeFloorplanTransformFromRect,
+      computeDragBounds,
       debugSeating,
-      getBackgroundContentBox,
       getObstacleRect,
       getTableRotationBounds,
       getViewportRect,
@@ -2338,6 +2414,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (drag.mode === 'rotate') {
         const liveRect = getViewportRect();
         if (liveRect.width <= 0 || liveRect.height <= 0) {
+          if (debugSeating) {
+            const now = Date.now();
+            if (now - dragMoveDebugRef.current > 500) {
+              dragMoveDebugRef.current = now;
+              console.debug('[seating] drag blocked', {
+                reason: 'invalid-transform',
+                tableId: drag.tableId,
+              });
+              setLastDragBlockReason('invalid-transform');
+            }
+          }
           releaseDragPointerCaptureRef.current(drag);
           unregisterWindowTableDragListenersRef.current();
           setDragState(null);
@@ -2372,6 +2459,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const liveRect = getViewportRect();
       if (liveRect.width <= 0 || liveRect.height <= 0) {
+        if (debugSeating) {
+          const now = Date.now();
+          if (now - dragMoveDebugRef.current > 500) {
+            dragMoveDebugRef.current = now;
+            console.debug('[seating] drag blocked', {
+              reason: 'invalid-transform',
+              tableId: drag.tableId,
+            });
+            setLastDragBlockReason('invalid-transform');
+          }
+        }
         abortDragRef.current(drag);
         return;
       }
@@ -2391,6 +2489,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const deltaLocalY = pointerNow.y - drag.pointerStartFloorY;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
+      const unclampedX = nextX;
+      const unclampedY = nextY;
       const shouldSnap =
         snapEnabledRef.current &&
         drag.snapToGrid &&
@@ -2401,32 +2501,52 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const contentBox = getBackgroundContentBox();
-      const bounds = contentBox
-        ? {
-            minX: contentBox.x,
-            minY: contentBox.y,
-            maxX: contentBox.x + contentBox.w,
-            maxY: contentBox.y + contentBox.h,
-          }
-        : {
-            minX: 0,
-            minY: 0,
-            maxX: drag.floorplanWidth,
-            maxY: drag.floorplanHeight,
-          };
-      const clamped = clampTopLeftForRotationWithinBounds(
-        nextX,
-        nextY,
-        drag.width,
-        drag.height,
-        rotForClamp,
-        bounds,
-        clamp
-      );
+      const bounds = computeDragBounds(drag, shouldSnap);
+      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
+      if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
+        const now = Date.now();
+        if (now - dragClampDebugRef.current > 500) {
+          dragClampDebugRef.current = now;
+          console.debug('[seating] drag blocked', {
+            reason: 'bounds-clamp',
+            tableId: drag.tableId,
+            unclampedX,
+            unclampedY,
+            nextX,
+            nextY,
+            bounds,
+          });
+          setLastDragBlockReason('bounds-clamp');
+        }
+      }
       if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
+        if (debugSeating) {
+          const now = Date.now();
+          if (now - dragClampDebugRef.current > 500) {
+            dragClampDebugRef.current = now;
+            const bounds = getTableRotationBounds(
+              nextX,
+              nextY,
+              drag.width,
+              drag.height,
+              rotForClamp
+            );
+            const obstacleIds = activeObstacles
+              .filter(obstacle => isRectIntersecting(bounds, getObstacleRect(obstacle)))
+              .map(obstacle => obstacle.id);
+            console.debug('[seating] drag blocked', {
+              reason: 'obstacle-collision',
+              tableId: drag.tableId,
+              nextX,
+              nextY,
+              rot: rotForClamp,
+              obstacleIds,
+            });
+            setLastDragBlockReason('obstacle-collision');
+          }
+        }
         const lastValid = lastValidTablePosRef.current ?? {
           x: drag.tableStartX,
           y: drag.tableStartY,
@@ -2446,13 +2566,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
     [
+      activeObstacles,
       applyGrid,
       clamp,
-      clampTopLeftForRotationWithinBounds,
       computeFloorplanTransformFromRect,
-      getBackgroundContentBox,
+      computeDragBounds,
+      clampTableToBounds,
       isTableOverlappingObstacle,
+      getObstacleRect,
+      getTableRotationBounds,
       getViewportRect,
+      isRectIntersecting,
       mapClientToFloorplan,
       normalizeRotation,
       snapRotation,
@@ -2470,6 +2594,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     if (windowDragListenersActiveRef.current) {
+      if (debugSeating) {
+        console.debug('[seating] window pointer listeners already active', {
+          kind: 'table',
+        });
+      }
       return;
     }
     const handleMove = (event: PointerEvent) => {
@@ -2566,6 +2695,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (table.locked) return;
     event.preventDefault();
     setSelectedTableId(table.id);
+    if (debugSeating) {
+      setLastDragBlockReason(null);
+    }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
@@ -4274,6 +4406,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
                     style={{ width: floorplanWidth, height: floorplanHeight }}
                   >
+                    {debugSeating && lastDragBlockReason && (
+                      <div className="absolute left-2 top-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
+                        drag: {lastDragBlockReason}
+                      </div>
+                    )}
                     {activeFloorplan.backgroundImageUrl && (
                       <img
                         src={activeFloorplan.backgroundImageUrl}
@@ -4421,6 +4558,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.preventDefault();
                               event.stopPropagation();
                               setSelectedTableId(table.id);
+                              if (debugSeating) {
+                                setLastDragBlockReason(null);
+                              }
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
                               const centerY = position.y + geometry.h / 2;
