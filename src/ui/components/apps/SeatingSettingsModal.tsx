@@ -268,7 +268,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [lastDragBlockReason, setLastDragBlockReason] = useState<string | null>(null);
   const [debugTick, setDebugTick] = useState(0);
   const lastDragBlockReasonRef = useRef<string | null>(null);
-  const lastDragDebugFrameRef = useRef<number | null>(null);
+  const debugRafIdRef = useRef<number | null>(null);
   const lastDragPointerRef = useRef<{ x: number; y: number } | null>(null);
   const lastDragBoundsRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null);
   const lastDragSnapRef = useRef<{ shouldSnap: boolean; gridSize: number } | null>(null);
@@ -433,47 +433,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     draftRotationsRef.current = draftRotations;
   }, [draftRotations]);
-
-  const setDragReason = useCallback((reason: string | null) => {
-    lastDragBlockReasonRef.current = reason;
-    if (lastDragDebugFrameRef.current !== null) {
-      return;
-    }
-    lastDragDebugFrameRef.current = requestAnimationFrame(() => {
-      lastDragDebugFrameRef.current = null;
-      setLastDragBlockReason(lastDragBlockReasonRef.current);
-      setDebugTick(tick => tick + 1);
-    });
-  }, []);
-
-  const scheduleDebugFlush = useCallback(() => {
-    if (!debugSeating) {
-      return;
-    }
-    if (lastDragDebugFrameRef.current !== null) {
-      return;
-    }
-    lastDragDebugFrameRef.current = requestAnimationFrame(() => {
-      lastDragDebugFrameRef.current = null;
-      setDebugTick(tick => tick + 1);
-      setLastDragBlockReason(lastDragBlockReasonRef.current);
-    });
-  }, [debugSeating]);
-
-  useEffect(() => {
-    const url = activeFloorplan?.backgroundImageUrl ?? null;
-    if (prevBgUrlRef.current !== url) {
-      prevBgUrlRef.current = url;
-      setBgNatural(null);
-    }
-    if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
-      setBgNatural({
-        w: bgImgRef.current.naturalWidth,
-        h: bgImgRef.current.naturalHeight,
-      });
-    }
-  }, [activeFloorplan?.backgroundImageUrl]);
-
 
   useEffect(() => {
     if (!isDev) return;
@@ -735,6 +694,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans, resolvedActiveFloorplanId]
   );
 
+  useEffect(() => {
+    const url = activeFloorplan?.backgroundImageUrl ?? null;
+    if (prevBgUrlRef.current !== url) {
+      prevBgUrlRef.current = url;
+      setBgNatural(null);
+    }
+    if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
+      setBgNatural({
+        w: bgImgRef.current.naturalWidth,
+        h: bgImgRef.current.naturalHeight,
+      });
+    }
+  }, [activeFloorplan?.backgroundImageUrl]);
+
   // Keep this after resolvedActiveFloorplanId to avoid TDZ in minified builds.
   useEffect(() => {
     setFloorplanMode('view');
@@ -859,7 +832,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       hy,
     };
   }
-  const getBackgroundContentBox = useCallback(() => {
+  const backgroundContentBox = useMemo(() => {
     if (!activeFloorplan?.backgroundImageUrl) {
       return null;
     }
@@ -890,7 +863,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [activeFloorplan?.backgroundImageUrl, bgNatural, floorplanHeight, floorplanWidth]);
   const computeDragBounds = useCallback(
     (drag: NonNullable<typeof dragState>, shouldSnap: boolean) => {
-      const contentBox = getBackgroundContentBox();
+      const contentBox = backgroundContentBox;
       let minX = contentBox ? contentBox.x : 0;
       let minY = contentBox ? contentBox.y : 0;
       let maxX = contentBox ? contentBox.x + contentBox.w : drag.floorplanWidth;
@@ -918,7 +891,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       return { minX, minY, maxX, maxY };
     },
-    [getBackgroundContentBox]
+    [backgroundContentBox]
   );
   const clampTableToBounds = useCallback(
     (
@@ -941,6 +914,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     [clamp]
   );
+  const requestDebugFlush = useCallback(
+    (reason?: string | null) => {
+      if (typeof reason !== 'undefined') {
+        lastDragBlockReasonRef.current = reason;
+      }
+      if (!debugSeating) {
+        return;
+      }
+      if (debugRafIdRef.current !== null) {
+        return;
+      }
+      debugRafIdRef.current = requestAnimationFrame(() => {
+        debugRafIdRef.current = null;
+        setLastDragBlockReason(lastDragBlockReasonRef.current);
+        setDebugTick(tick => tick + 1);
+      });
+    },
+    [debugSeating]
+  );
   function getTableRotationBounds(x: number, y: number, w: number, h: number, rotDeg: number) {
     const centerX = x + w / 2;
     const centerY = y + h / 2;
@@ -955,6 +947,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   function getEffectiveRotationForClamp(tableId: string, fallback: number) {
     const rot = draftRotationsRef.current?.[tableId];
     return Number.isFinite(rot) ? rot : fallback;
+  }
+  function getObstacleRect(obstacle: FloorplanObstacle) {
+    const draft = draftObstacles[obstacle.id];
+    const base = draft ?? obstacle;
+    const maxX = Math.max(0, floorplanWidth - base.w);
+    const maxY = Math.max(0, floorplanHeight - base.h);
+    return {
+      x: clamp(base.x, 0, maxX),
+      y: clamp(base.y, 0, maxY),
+      w: Math.max(20, base.w),
+      h: Math.max(20, base.h),
+    };
   }
   function isTableOverlappingObstacle(
     x: number,
@@ -1296,9 +1300,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (rafRotId.current !== null) {
         cancelAnimationFrame(rafRotId.current);
       }
-      if (lastDragDebugFrameRef.current !== null) {
-        cancelAnimationFrame(lastDragDebugFrameRef.current);
-        lastDragDebugFrameRef.current = null;
+      if (debugRafIdRef.current !== null) {
+        cancelAnimationFrame(debugRafIdRef.current);
+        debugRafIdRef.current = null;
       }
       unregisterWindowTableDragListenersRef.current();
     };
@@ -2009,6 +2013,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       ),
     [floorplanViewportRect, floorplanHeight, floorplanWidth]
   );
+  function mapClientToFloorplanUsingRenderTransform(clientX: number, clientY: number) {
+    const rect = floorplanViewportRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    const scale = floorplanRenderTransform.scale;
+    if (!Number.isFinite(scale) || scale <= 0) {
+      return null;
+    }
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    return {
+      x: (localX - floorplanRenderTransform.offsetX) / scale,
+      y: (localY - floorplanRenderTransform.offsetY) / scale,
+    };
+  }
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -2254,8 +2274,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       if (drag.mode === 'rotate') {
-        const liveRect = getViewportRect();
-        if (liveRect.width <= 0 || liveRect.height <= 0) {
+        const pointer = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+        if (!pointer) {
           if (debugSeating) {
             const now = Date.now();
             if (now - dragMoveDebugRef.current > 500) {
@@ -2264,19 +2284,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 reason: 'invalid-transform',
                 tableId: drag.tableId,
               });
-              setDragReason('invalid-transform');
+              requestDebugFlush('invalid-transform');
             }
           }
           abortDragRef.current(drag);
-          return;
-        }
-        const liveTransform = computeFloorplanTransformFromRect(
-          liveRect,
-          drag.floorplanWidth,
-          drag.floorplanHeight
-        );
-        const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
-        if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           return;
         }
         const currentAngle =
@@ -2288,8 +2299,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const liveRect = getViewportRect();
-      if (liveRect.width <= 0 || liveRect.height <= 0) {
+      const pointerNow = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+      if (!pointerNow) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragMoveDebugRef.current > 500) {
@@ -2298,19 +2309,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               reason: 'invalid-transform',
               tableId: drag.tableId,
             });
-            setDragReason('invalid-transform');
+            requestDebugFlush('invalid-transform');
           }
         }
         abortDragRef.current(drag);
-        return;
-      }
-      const liveTransform = computeFloorplanTransformFromRect(
-        liveRect,
-        drag.floorplanWidth,
-        drag.floorplanHeight
-      );
-      const pointerNow = mapClientToFloorplan(clientX, clientY, liveTransform);
-      if (!Number.isFinite(pointerNow.x) || !Number.isFinite(pointerNow.y)) {
         return;
       }
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
@@ -2326,9 +2328,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         !altKey &&
         !precisionEnabledRef.current;
       lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
-      if (debugSeating) {
-        scheduleDebugFlush();
-      }
+      requestDebugFlush();
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -2338,9 +2338,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
-      if (debugSeating) {
-        scheduleDebugFlush();
-      }
+      requestDebugFlush();
       if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2354,7 +2352,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             nextY,
             bounds,
           });
-          setDragReason('bounds-clamp');
+          requestDebugFlush('bounds-clamp');
         }
       }
       if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
@@ -2380,7 +2378,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               rot: rotForClamp,
               obstacleIds,
             });
-            setDragReason('obstacle-collision');
+            requestDebugFlush('obstacle-collision');
           }
         }
         return;
@@ -2421,18 +2419,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       applyGrid,
       clamp,
       clampTableToBounds,
-      computeFloorplanTransformFromRect,
       computeDragBounds,
       debugSeating,
       getObstacleRect,
       getTableRotationBounds,
-      getViewportRect,
       isTableOverlappingObstacle,
       isRectIntersecting,
-      mapClientToFloorplan,
+      mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
-      scheduleDebugFlush,
-      setDragReason,
+      requestDebugFlush,
       snapRotation,
     ]
   );
@@ -2466,8 +2461,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const tableId = drag.tableId;
       if (drag.mode === 'rotate') {
-        const liveRect = getViewportRect();
-        if (liveRect.width <= 0 || liveRect.height <= 0) {
+        const pointer = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+        if (!pointer) {
           if (debugSeating) {
             const now = Date.now();
             if (now - dragMoveDebugRef.current > 500) {
@@ -2476,21 +2471,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 reason: 'invalid-transform',
                 tableId: drag.tableId,
               });
-              setDragReason('invalid-transform');
+              requestDebugFlush('invalid-transform');
             }
           }
-          releaseDragPointerCaptureRef.current(drag);
-          unregisterWindowTableDragListenersRef.current();
-          setDragState(null);
-          return;
-        }
-        const liveTransform = computeFloorplanTransformFromRect(
-          liveRect,
-          drag.floorplanWidth,
-          drag.floorplanHeight
-        );
-        const pointer = mapClientToFloorplan(clientX, clientY, liveTransform);
-        if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
           releaseDragPointerCaptureRef.current(drag);
           unregisterWindowTableDragListenersRef.current();
           setDragState(null);
@@ -2511,8 +2494,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const liveRect = getViewportRect();
-      if (liveRect.width <= 0 || liveRect.height <= 0) {
+      const pointerNow = mapClientToFloorplanUsingRenderTransform(clientX, clientY);
+      if (!pointerNow) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragMoveDebugRef.current > 500) {
@@ -2521,22 +2504,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               reason: 'invalid-transform',
               tableId: drag.tableId,
             });
-            setDragReason('invalid-transform');
+            requestDebugFlush('invalid-transform');
           }
         }
         abortDragRef.current(drag);
-        return;
-      }
-      const liveTransform = computeFloorplanTransformFromRect(
-        liveRect,
-        drag.floorplanWidth,
-        drag.floorplanHeight
-      );
-      const pointerNow = mapClientToFloorplan(clientX, clientY, liveTransform);
-      if (!Number.isFinite(pointerNow.x) || !Number.isFinite(pointerNow.y)) {
-        releaseDragPointerCaptureRef.current(drag);
-        unregisterWindowTableDragListenersRef.current();
-        setDragState(null);
         return;
       }
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
@@ -2552,9 +2523,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         !altKey &&
         !precisionEnabledRef.current;
       lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
-      if (debugSeating) {
-        scheduleDebugFlush();
-      }
+      requestDebugFlush();
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -2564,9 +2533,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
-      if (debugSeating) {
-        scheduleDebugFlush();
-      }
+      requestDebugFlush();
       if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2580,7 +2547,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             nextY,
             bounds,
           });
-          setDragReason('bounds-clamp');
+          requestDebugFlush('bounds-clamp');
         }
       }
       if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
@@ -2606,7 +2573,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               rot: rotForClamp,
               obstacleIds,
             });
-            setDragReason('obstacle-collision');
+            requestDebugFlush('obstacle-collision');
           }
         }
         const lastValid = lastValidTablePosRef.current ?? {
@@ -2631,18 +2598,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       activeObstacles,
       applyGrid,
       clamp,
-      computeFloorplanTransformFromRect,
       computeDragBounds,
       clampTableToBounds,
       isTableOverlappingObstacle,
       getObstacleRect,
       getTableRotationBounds,
-      getViewportRect,
       isRectIntersecting,
-      mapClientToFloorplan,
+      mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
-      scheduleDebugFlush,
-      setDragReason,
+      requestDebugFlush,
       snapRotation,
     ]
   );
@@ -2760,7 +2724,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     setSelectedTableId(table.id);
     if (debugSeating) {
-      setDragReason(null);
+      requestDebugFlush(null);
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
@@ -2769,17 +2733,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const liveRect = getViewportRect();
-    if (liveRect.width <= 0 || liveRect.height <= 0) {
-      return;
-    }
-    const transform = computeFloorplanTransformFromRect(
-      liveRect,
-      floorplanWidth,
-      floorplanHeight
-    );
-    const pointer = mapClientToFloorplan(event.clientX, event.clientY, transform);
-    if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
+    const pointer = mapClientToFloorplanUsingRenderTransform(event.clientX, event.clientY);
+    if (!pointer) {
       return;
     }
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
@@ -2790,11 +2745,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
     if (debugSeating) {
       console.debug('[seating] drag scale', {
-        scale: transform.scale,
-        offsetX: transform.offsetX,
-        offsetY: transform.offsetY,
-        rectWidth: transform.rectWidth,
-        rectHeight: transform.rectHeight,
+        scale: floorplanRenderTransform.scale,
+        offsetX: floorplanRenderTransform.offsetX,
+        offsetY: floorplanRenderTransform.offsetY,
+        rectWidth: floorplanRenderTransform.rectWidth,
+        rectHeight: floorplanRenderTransform.rectHeight,
         floorplanWidth,
         floorplanHeight,
         pointerId: event.pointerId,
@@ -2811,8 +2766,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerStartClientY: event.clientY,
       pointerStartFloorX: pointer.x,
       pointerStartFloorY: pointer.y,
-      dragStartTransform: transform,
-      dragStartScale: safeScale(transform.scale),
+      dragStartTransform: floorplanRenderTransform,
+      dragStartScale: safeScale(floorplanRenderTransform.scale),
       tableStartX: position.x,
       tableStartY: position.y,
       width: geometry.w,
@@ -2874,19 +2829,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
     abortDragRef.current(drag);
-  };
-
-  const getObstacleRect = (obstacle: FloorplanObstacle) => {
-    const draft = draftObstacles[obstacle.id];
-    const base = draft ?? obstacle;
-    const maxX = Math.max(0, floorplanWidth - base.w);
-    const maxY = Math.max(0, floorplanHeight - base.h);
-    return {
-      x: clamp(base.x, 0, maxX),
-      y: clamp(base.y, 0, maxY),
-      w: Math.max(20, base.w),
-      h: Math.max(20, base.h),
-    };
   };
 
   const updateDraftObstacle = (
@@ -4501,7 +4443,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             }}
                           />
                         )}
-                        <div className="absolute left-2 bottom-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
+                        <div
+                          className="absolute left-2 bottom-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900"
+                          data-tick={debugTick}
+                        >
                           <div>reason: {lastDragBlockReason ?? 'n/a'}</div>
                           <div>
                             pointer:{' '}
@@ -4680,7 +4625,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.stopPropagation();
                               setSelectedTableId(table.id);
                               if (debugSeating) {
-                                setDragReason(null);
+                                requestDebugFlush(null);
                               }
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
