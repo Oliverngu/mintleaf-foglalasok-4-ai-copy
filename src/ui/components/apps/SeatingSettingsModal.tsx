@@ -40,6 +40,37 @@ import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 
+const COLLISION_EPS = 0.5;
+
+function rectIntersectEps(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+  eps = COLLISION_EPS
+) {
+  return (
+    a.x + a.w > b.x + eps &&
+    a.x < b.x + b.w - eps &&
+    a.y + a.h > b.y + eps &&
+    a.y < b.y + b.h - eps
+  );
+}
+
+function rotatedAabb(x: number, y: number, w: number, h: number, rotDeg: number) {
+  const centerX = x + w / 2;
+  const centerY = y + h / 2;
+  const rad = (rotDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const hx = (Math.abs(w * cos) + Math.abs(h * sin)) / 2;
+  const hy = (Math.abs(w * sin) + Math.abs(h * cos)) / 2;
+  return {
+    x: centerX - hx,
+    y: centerY - hy,
+    w: hx * 2,
+    h: hy * 2,
+  };
+}
+
 const FloorplanSquareViewport = React.forwardRef<
   HTMLDivElement,
   { children: React.ReactNode; className?: string }
@@ -926,47 +957,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     [debugSeating]
   );
-  function getTableRotationBounds(x: number, y: number, w: number, h: number, rotDeg: number) {
-    const centerX = x + w / 2;
-    const centerY = y + h / 2;
-    const { hx, hy } = getRotatedHalfExtents(w, h, rotDeg);
-    return {
-      x: centerX - hx,
-      y: centerY - hy,
-      w: hx * 2,
-      h: hy * 2,
-    };
-  }
-  function getTableMoveBounds(x: number, y: number, w: number, h: number) {
-    return { x, y, w, h };
-  }
-  function getRenderedTableRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    rotDeg: number,
-    mode: 'move' | 'rotate'
-  ) {
-    return mode === 'move' ? getTableMoveBounds(x, y, w, h) : getTableRotationBounds(x, y, w, h, rotDeg);
-  }
-  function isRectIntersectingEpsilon(
-    a: { x: number; y: number; w: number; h: number },
-    b: { x: number; y: number; w: number; h: number },
-    eps = 0.1
-  ) {
-    return (
-      a.x + a.w > b.x + eps &&
-      a.x < b.x + b.w - eps &&
-      a.y + a.h > b.y + eps &&
-      a.y < b.y + b.h - eps
-    );
+  function getTableAabbForCollision(x: number, y: number, w: number, h: number, rotDeg: number) {
+    return rotatedAabb(x, y, w, h, rotDeg);
   }
   function getEffectiveRotationForClamp(tableId: string, fallback: number) {
     const rot = draftRotationsRef.current?.[tableId];
     return Number.isFinite(rot) ? rot : fallback;
   }
-  function getObstacleRect(obstacle: FloorplanObstacle) {
+  function getObstacleRenderRect(obstacle: FloorplanObstacle) {
     const draft = draftObstacles[obstacle.id];
     const base = draft ?? obstacle;
     const maxX = Math.max(0, floorplanWidth - base.w);
@@ -983,19 +981,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     y: number,
     w: number,
     h: number,
-    rotDeg: number,
-    mode: 'move' | 'rotate' = 'move'
+    rotDeg: number
   ) {
     if (floorplanMode !== 'edit') {
       return false;
     }
-    const bounds = getRenderedTableRect(x, y, w, h, rotDeg, mode);
+    const bounds = getTableAabbForCollision(x, y, w, h, rotDeg);
     return activeObstacles.some(obstacle => {
-      const rect = getObstacleRect(obstacle);
-      if (mode === 'move') {
-        return isRectIntersectingEpsilon(bounds, rect);
-      }
-      return isRectIntersecting(bounds, rect);
+      const rect = getObstacleRenderRect(obstacle);
+      return rectIntersectEps(bounds, rect);
     });
   }
 
@@ -2383,32 +2377,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           nextY,
           drag.width,
           drag.height,
-          rotForClamp,
-          drag.mode
+          rotForClamp
         )
       ) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            const bounds = getRenderedTableRect(
+            const bounds = getTableAabbForCollision(
               nextX,
               nextY,
               drag.width,
               drag.height,
-              rotForClamp,
-              drag.mode
+              rotForClamp
             );
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getObstacleRect(obstacle),
+                rect: getObstacleRenderRect(obstacle),
               }))
-              .filter(hit =>
-                drag.mode === 'move'
-                  ? isRectIntersectingEpsilon(bounds, hit.rect)
-                  : isRectIntersecting(bounds, hit.rect)
-              );
+              .filter(hit => rectIntersectEps(bounds, hit.rect));
             const obstacleIds = obstacleHits.map(hit => hit.id);
             console.debug('[seating] drag blocked', {
               reason: 'obstacle-collision',
@@ -2426,6 +2414,38 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 : 'obstacle-collision'
             );
           }
+        }
+        const lastValid = lastValidTablePosRef.current ?? {
+          x: drag.tableStartX,
+          y: drag.tableStartY,
+        };
+        const candidateX = { x: nextX, y: lastValid.y };
+        const candidateY = { x: lastValid.x, y: nextY };
+        if (
+          !isTableOverlappingObstacle(
+            candidateX.x,
+            candidateX.y,
+            drag.width,
+            drag.height,
+            rotForClamp
+          )
+        ) {
+          lastValidTablePosRef.current = candidateX;
+          updateDraftPosition(drag.tableId, candidateX.x, candidateX.y);
+          return;
+        }
+        if (
+          !isTableOverlappingObstacle(
+            candidateY.x,
+            candidateY.y,
+            drag.width,
+            drag.height,
+            rotForClamp
+          )
+        ) {
+          lastValidTablePosRef.current = candidateY;
+          updateDraftPosition(drag.tableId, candidateY.x, candidateY.y);
+          return;
         }
         return;
       }
@@ -2467,12 +2487,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       clampTableToBounds,
       computeDragBounds,
       debugSeating,
-      getRenderedTableRect,
-      getObstacleRect,
-      getTableRotationBounds,
+      getTableAabbForCollision,
+      getObstacleRenderRect,
       isTableOverlappingObstacle,
-      isRectIntersectingEpsilon,
-      isRectIntersecting,
+      rectIntersectEps,
       mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -2604,32 +2622,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           nextY,
           drag.width,
           drag.height,
-          rotForClamp,
-          drag.mode
+          rotForClamp
         )
       ) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            const bounds = getRenderedTableRect(
+            const bounds = getTableAabbForCollision(
               nextX,
               nextY,
               drag.width,
               drag.height,
-              rotForClamp,
-              drag.mode
+              rotForClamp
             );
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getObstacleRect(obstacle),
+                rect: getObstacleRenderRect(obstacle),
               }))
-              .filter(hit =>
-                drag.mode === 'move'
-                  ? isRectIntersectingEpsilon(bounds, hit.rect)
-                  : isRectIntersecting(bounds, hit.rect)
-              );
+              .filter(hit => rectIntersectEps(bounds, hit.rect));
             const obstacleIds = obstacleHits.map(hit => hit.id);
             console.debug('[seating] drag blocked', {
               reason: 'obstacle-collision',
@@ -2652,11 +2664,35 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           x: drag.tableStartX,
           y: drag.tableStartY,
         };
-        updateDraftPosition(tableId, lastValid.x, lastValid.y);
+        const candidateX = { x: nextX, y: lastValid.y };
+        const candidateY = { x: lastValid.x, y: nextY };
+        let resolved = lastValid;
+        if (
+          !isTableOverlappingObstacle(
+            candidateX.x,
+            candidateX.y,
+            drag.width,
+            drag.height,
+            rotForClamp
+          )
+        ) {
+          resolved = candidateX;
+        } else if (
+          !isTableOverlappingObstacle(
+            candidateY.x,
+            candidateY.y,
+            drag.width,
+            drag.height,
+            rotForClamp
+          )
+        ) {
+          resolved = candidateY;
+        }
+        updateDraftPosition(tableId, resolved.x, resolved.y);
         releaseDragPointerCaptureRef.current(drag);
         unregisterWindowTableDragListenersRef.current();
         setDragState(null);
-        void finalizeDragRef.current(tableId, lastValid.x, lastValid.y);
+        void finalizeDragRef.current(tableId, resolved.x, resolved.y);
         return;
       }
       lastValidTablePosRef.current = { x: nextX, y: nextY };
@@ -2673,11 +2709,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeDragBounds,
       clampTableToBounds,
       isTableOverlappingObstacle,
-      getRenderedTableRect,
-      getObstacleRect,
-      getTableRotationBounds,
-      isRectIntersectingEpsilon,
-      isRectIntersecting,
+      getTableAabbForCollision,
+      getObstacleRenderRect,
+      rectIntersectEps,
       mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -3044,7 +3078,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.preventDefault();
     event.stopPropagation();
     setSelectedObstacleId(obstacle.id);
-    const rect = getObstacleRect(obstacle);
+    const rect = getObstacleRenderRect(obstacle);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const transform = getCurrentTransform();
     if (debugSeating) {
@@ -4549,7 +4583,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               : 'n/a'}
                           </div>
                           <div>boundsMode: floorplan</div>
-                          <div>overlapEps: 0.1</div>
+                          <div>overlapEps: {COLLISION_EPS}</div>
                           {debugSeating && isOverlappingObstacle && (
                             <div>
                               tableRect: {Math.round(tableRect.x)},{Math.round(tableRect.y)}{' '}
@@ -4585,7 +4619,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       />
                     )}
                     {activeObstacles.map(obstacle => {
-                      const rect = getObstacleRect(obstacle);
+                      const rect = getObstacleRenderRect(obstacle);
                       const isSelected = selectedObstacleId === obstacle.id;
                       return (
                         <div
@@ -4650,22 +4684,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       const isSelected = selectedTableId === table.id;
                       const isSaving = Boolean(savingById[table.id]);
                       const tableVisualState = getTableVisualState();
-                      const tableRect = getRenderedTableRect(
+                      const tableRect = getTableAabbForCollision(
                         position.x,
                         position.y,
                         geometry.w,
                         geometry.h,
-                        renderRot,
-                        'move'
+                        renderRot
                       );
                       const obstacleHits =
                         floorplanMode === 'edit'
                           ? activeObstacles
                               .map(obstacle => ({
                                 id: obstacle.id,
-                                rect: getObstacleRect(obstacle),
+                                rect: getObstacleRenderRect(obstacle),
                               }))
-                              .filter(hit => isRectIntersectingEpsilon(tableRect, hit.rect))
+                              .filter(hit => rectIntersectEps(tableRect, hit.rect))
                           : [];
                       const isOverlappingObstacle = obstacleHits.length > 0;
                       return (
