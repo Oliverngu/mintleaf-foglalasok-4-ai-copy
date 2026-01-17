@@ -142,6 +142,18 @@ export interface Booking {
     locked?: boolean | null;
   };
   allocationFinalComputedAt?: Timestamp | null;
+  allocated?: {
+    zoneId?: string | null;
+    tableIds?: string[];
+    traceId?: string;
+    decidedAtMs?: number;
+    strategy?: string | null;
+    diagnosticsSummary?: string;
+    computedForStartTimeMs?: number;
+    computedForEndTimeMs?: number;
+    computedForHeadcount?: number;
+    algoVersion?: string;
+  };
 }
 
 export interface Zone {
@@ -189,9 +201,20 @@ export interface Floorplan {
   isActive?: boolean;
   gridSize?: number;
   backgroundImageUrl?: string | null;
+  obstacles?: FloorplanObstacle[];
   unitId?: string | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+}
+
+export interface FloorplanObstacle {
+  id: string;
+  name?: string | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot?: number | null;
 }
 
 export interface TableCombination {

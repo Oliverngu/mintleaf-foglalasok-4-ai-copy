@@ -29,9 +29,11 @@ import {
 import PublicReservationLayout from './PublicReservationLayout';
 import { formatTimeSlot } from '../../utils/timeSlot';
 import {
-  normalizeReservationError,
-  type ReservationError,
-} from '../../utils/normalizeReservationError';
+  normalizeSubmitError,
+  type SubmitError,
+} from '../../utils/normalizeSubmitError';
+import { getOnlineStatus } from '../../utils/getOnlineStatus';
+import { v4 as uuidv4 } from 'uuid';
 
 type Locale = 'hu' | 'en';
 
@@ -229,7 +231,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [errorState, setErrorState] = useState<ReservationError | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitState, setSubmitState] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle');
+  const [submitError, setSubmitError] = useState<SubmitError | null>(null);
   const [locale, setLocale] = useState<Locale>('hu');
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -246,7 +252,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   });
   const [submittedData, setSubmittedData] = useState<any>(null);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmitting = submitState === 'submitting';
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
@@ -278,16 +284,13 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
 
   useEffect(() => {
     if (!unitId) {
-      setErrorState({
-        kind: 'invalid',
-        messagePublic: 'Hiányzik az egység azonosítója.',
-        retryable: false,
-      });
+      setLoadError('Hiányzik az egység azonosítója.');
       setLoading(false);
       return;
     }
     const fetchSettings = async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const docRef = doc(db, 'reservation_settings', unitId);
         const docSnap = await getDoc(docRef);
@@ -331,11 +334,7 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         }
       } catch (err) {
         console.error('Error fetching reservation settings:', err);
-        setErrorState({
-          kind: 'server',
-          messagePublic: translations[localeRef.current].genericError,
-          retryable: true,
-        });
+        setLoadError(translations[localeRef.current].genericError);
       } finally {
         setLoading(false);
       }
@@ -423,6 +422,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
     });
     setSubmittedData(null);
     setStep(1);
+    setSubmitState('idle');
+    setSubmitError(null);
   };
 
   const handleDateSelect = (day: Date) => {
@@ -456,28 +457,49 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorState(null);
+    if (submitState === 'submitting') return;
+    setSubmitError(null);
+    setSubmitState('submitting');
+    const traceId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : uuidv4();
+
+    console.log(
+      `[reserve-submit] start traceId=${traceId} unitId=${unitId} date=${
+        selectedDate ? toDateKey(selectedDate) : 'unknown'
+      } partySize=${formData.headcount}`
+    );
 
     if (!selectedDate || !formData.startTime || !unit || !settings) {
-      setErrorState({
-        kind: 'invalid',
-        messagePublic: t.errorRequired,
-        retryable: false,
+      const normalized = normalizeSubmitError({
+        error: new Error(t.errorRequired),
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
       });
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
       return;
     }
 
     const headcount = Number.parseInt(formData.headcount, 10);
     if (!Number.isFinite(headcount) || headcount < 1) {
-      setErrorState({
-        kind: 'invalid',
-        messagePublic: t.errorRequired,
-        retryable: false,
+      const normalized = normalizeSubmitError({
+        error: new Error(t.errorRequired),
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
       });
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
       return;
     }
-
-    setIsSubmitting(true);
 
     let startDateTime: Date;
     let endDateTime: Date;
@@ -555,21 +577,17 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       );
 
       if (!response.ok) {
-        const normalized = await normalizeReservationError({
+        const normalized = normalizeSubmitError({
           response,
-          messages: {
-            invalid: t.errorRequired,
-            conflict: t.errorDailyLimitReached,
-            rate_limited: t.actionFailed,
-            unauthorized: t.actionFailed,
-            not_found: t.actionFailed,
-            server: t.genericError,
-            network: t.actionFailed,
-            timeout: t.actionFailed,
-            unknown: t.genericError,
-          },
+          traceId,
+          isOnline: getOnlineStatus(),
+          locale,
         });
-        setErrorState(normalized);
+        setSubmitError(normalized);
+        setSubmitState('error');
+        console.log(
+          `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+        );
         return;
       }
 
@@ -586,28 +604,24 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         capacityByDate,
       });
       setStep(3);
+      setSubmitState('success');
+      console.log(`[reserve-submit] success traceId=${traceId}`);
 
       // !!! FRONTEND NEM KÜLD EMAILT !!!
       // A backend (onReservationCreated / onReservationStatusChange) intézi.
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
-      const normalized = await normalizeReservationError({
+      const normalized = normalizeSubmitError({
         error: err,
-        messages: {
-          invalid: t.errorRequired,
-          conflict: t.errorDailyLimitReached,
-          rate_limited: t.actionFailed,
-          unauthorized: t.actionFailed,
-          not_found: t.actionFailed,
-          server: t.genericError,
-          network: t.actionFailed,
-          timeout: t.actionFailed,
-          unknown: t.genericError,
-        },
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
       });
-      setErrorState(normalized);
-    } finally {
-      setIsSubmitting(false);
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
     }
   };
 
@@ -673,14 +687,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   };
 
   useEffect(() => {
-    if (errorState && errorBannerRef.current) {
+    if (loadError && errorBannerRef.current) {
       errorBannerRef.current.focus();
     }
-  }, [errorState, step]);
+  }, [loadError, step]);
 
   const retryLabel = locale === 'hu' ? 'Próbáld újra' : 'Try again';
 
-  if (errorState && step !== 2) {
+  if (loadError && step !== 2) {
     return (
       <PublicReservationLayout
         {...baseLayoutProps}
@@ -701,18 +715,16 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
               }`}
             >
-              {errorState.messagePublic}
+              {loadError}
             </p>
-            {errorState.retryable && (
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className={`mt-4 ${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`}
-                style={{ backgroundColor: 'var(--color-primary)' }}
-              >
-                {retryLabel}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className={`mt-4 ${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`}
+              style={{ backgroundColor: 'var(--color-primary)' }}
+            >
+              {retryLabel}
+            </button>
           </div>
         }
       />
@@ -799,7 +811,8 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 setFormData={setFormData}
                 onBack={() => {
                   setStep(1);
-                  setErrorState(null);
+                  setSubmitError(null);
+                  setSubmitState('idle');
                 }}
                 onSubmit={handleSubmit}
                 isSubmitting={isSubmitting}
@@ -807,8 +820,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 themeProps={themeClassProps}
                 t={t}
                 locale={locale}
-                error={errorState}
-                onRetry={() => setErrorState(null)}
+                error={submitError}
+                onRetry={() => {
+                  setSubmitError(null);
+                  setSubmitState('idle');
+                }}
                 buttonClasses={{
                   primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
                   secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
@@ -1022,7 +1038,7 @@ interface Step2DetailsProps {
   themeProps: any;
   t: any;
   locale: Locale;
-  error: ReservationError | null;
+  error: SubmitError | null;
   onRetry: () => void;
   buttonClasses: { primary: string; secondary: string };
   unit: Unit;
@@ -1139,6 +1155,12 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
 
+  const fieldErrorItems = [
+    { key: 'name', label: t.name, message: formErrors.name },
+    { key: 'phone', label: t.phone, message: formErrors.phone },
+    { key: 'email', label: t.email, message: formErrors.email },
+  ].filter((item) => item.message);
+
   useEffect(() => {
     if (error && errorBannerRef.current) {
       errorBannerRef.current.focus();
@@ -1165,17 +1187,23 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
           tabIndex={-1}
           className="p-4 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm flex flex-col gap-3"
         >
-          <span>{error.messagePublic}</span>
-          {error.retryable && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className={`${buttonClasses.primary} ${themeProps.radiusClass} text-sm`}
-              style={{ backgroundColor: 'var(--color-primary)' }}
-            >
-              {locale === 'hu' ? 'Próbáld újra' : 'Try again'}
-            </button>
+          <div>
+            <p className="text-base font-bold">{error.userTitle}</p>
+            <p className="mt-1">{error.userMessage}</p>
+          </div>
+          {error.debugId && (
+            <p className="text-xs font-medium">
+              {locale === 'hu' ? 'Hiba azonosító' : 'Error ID'}: {error.debugId}
+            </p>
           )}
+          <button
+            type="button"
+            onClick={onRetry}
+            className={`${buttonClasses.primary} ${themeProps.radiusClass} text-sm`}
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          >
+            {locale === 'hu' ? 'Próbáld újra' : 'Try again'}
+          </button>
         </div>
       )}
       {hasTimeWindowInfo && (
@@ -1208,6 +1236,27 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {fieldErrorItems.length > 0 && (
+        <div
+          className={`mb-4 p-3 ${themeProps.radiusClass}`}
+          style={{
+            backgroundColor: `${themeProps.colors.danger}15`,
+            color: themeProps.colors.textPrimary,
+            border: `1px solid ${themeProps.colors.danger}40`,
+          }}
+        >
+          <p className="text-sm font-semibold">
+            {locale === 'hu' ? 'Ellenőrizd az alábbi mezőket:' : 'Please review:'}
+          </p>
+          <ul className="mt-2 space-y-1 text-xs list-disc list-inside">
+            {fieldErrorItems.map((item) => (
+              <li key={item.key}>
+                {item.label}: {item.message}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-5">
@@ -1520,6 +1569,10 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const nextStepsText =
+    locale === 'hu'
+      ? 'Mi történik ezután? A foglalás részleteit e-mailben küldjük, és a linken bármikor módosíthatod vagy lemondhatod.'
+      : 'What happens next? We will email your reservation details, and you can modify or cancel anytime via the link.';
   const primaryButtonClass =
     buttonClasses?.primary ||
     `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
@@ -1544,6 +1597,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
       <p className="text-sm mt-2" style={{ color: themeProps.colors.textSecondary }}>
         {t.emailConfirmationSent}
+      </p>
+      <p className="text-sm" style={{ color: themeProps.colors.textSecondary }}>
+        {nextStepsText}
       </p>
 
       {submittedData && (
