@@ -949,6 +949,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const rot = draftRotationsRef.current?.[tableId];
     return Number.isFinite(rot) ? rot : fallback;
   }
+  function getObstacleRect(obstacle: FloorplanObstacle) {
+    const draft = draftObstacles[obstacle.id];
+    const base = draft ?? obstacle;
+    const maxX = Math.max(0, floorplanWidth - base.w);
+    const maxY = Math.max(0, floorplanHeight - base.h);
+    return {
+      x: clamp(base.x, 0, maxX),
+      y: clamp(base.y, 0, maxY),
+      w: Math.max(20, base.w),
+      h: Math.max(20, base.h),
+    };
+  }
   function isTableOverlappingObstacle(
     x: number,
     y: number,
@@ -2857,19 +2869,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
     abortDragRef.current(drag);
-  };
-
-  const getObstacleRect = (obstacle: FloorplanObstacle) => {
-    const draft = draftObstacles[obstacle.id];
-    const base = draft ?? obstacle;
-    const maxX = Math.max(0, floorplanWidth - base.w);
-    const maxY = Math.max(0, floorplanHeight - base.h);
-    return {
-      x: clamp(base.x, 0, maxX),
-      y: clamp(base.y, 0, maxY),
-      w: Math.max(20, base.w),
-      h: Math.max(20, base.h),
-    };
   };
 
   const updateDraftObstacle = (
