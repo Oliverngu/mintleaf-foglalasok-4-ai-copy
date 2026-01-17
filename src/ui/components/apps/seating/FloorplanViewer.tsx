@@ -6,6 +6,7 @@ import {
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
 } from '../../../../core/utils/seatingNormalize';
+import { getTableVisualState } from './floorplanUtils';
 
 const ZONE_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#0f766e', '#ca8a04'];
 
@@ -110,6 +111,18 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
+  const resolveTableVisualStyle = (state: ReturnType<typeof getTableVisualState>) => {
+    switch (state) {
+      case 'free':
+        return 'color-mix(in srgb, var(--color-success) 18%, transparent)';
+      case 'occupied':
+        return 'color-mix(in srgb, var(--color-danger) 18%, transparent)';
+      case 'unknown':
+      default:
+        return 'rgba(255,255,255,0.9)';
+    }
+  };
+
   if (loading) {
     return <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>;
   }
@@ -156,6 +169,19 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
+          {(floorplan.obstacles ?? []).map(obstacle => (
+            <div
+              key={obstacle.id}
+              className="absolute border border-dashed border-gray-400 bg-gray-200/40"
+              style={{
+                left: obstacle.x,
+                top: obstacle.y,
+                width: obstacle.w,
+                height: obstacle.h,
+                transform: `rotate(${obstacle.rot ?? 0}deg)`,
+              }}
+            />
+          ))}
           {visibleTables.map(table => {
             const geometry = normalizeTableGeometry(table);
             const maxX = Math.max(0, floorplanWidth - geometry.w);
@@ -166,6 +192,7 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
             const isStrongHighlight = highlightedTableIds.has(table.id);
             const isZoneHighlight = zoneHighlightTableIds.has(table.id);
             const baseColor = zoneColors.get(table.zoneId) ?? '#6b7280';
+            const tableVisualState = getTableVisualState();
 
             return (
               <div
@@ -179,7 +206,9 @@ const FloorplanViewer: React.FC<FloorplanViewerProps> = ({
                   height: geometry.h,
                   borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
                   border: `2px solid ${baseColor}`,
-                  backgroundColor: isZoneHighlight ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255,255,255,0.9)',
+                  backgroundColor: isZoneHighlight
+                    ? 'rgba(251, 191, 36, 0.2)'
+                    : resolveTableVisualStyle(tableVisualState),
                   transform: `rotate(${rotation}deg)`,
                   boxShadow: isStrongHighlight
                     ? '0 0 0 3px rgba(59, 130, 246, 0.7)'
