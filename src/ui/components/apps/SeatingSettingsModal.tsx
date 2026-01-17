@@ -917,10 +917,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   function getTableMoveBounds(x: number, y: number, w: number, h: number) {
     return { x, y, w, h };
   }
+  function getRenderedTableRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotDeg: number,
+    mode: 'move' | 'rotate'
+  ) {
+    return mode === 'move' ? getTableMoveBounds(x, y, w, h) : getTableRotationBounds(x, y, w, h, rotDeg);
+  }
+  function getRenderedObstacleRect(obstacle: FloorplanObstacle) {
+    const draft = draftObstacles[obstacle.id];
+    const base = draft ?? obstacle;
+    return {
+      x: base.x,
+      y: base.y,
+      w: Math.max(20, base.w),
+      h: Math.max(20, base.h),
+    };
+  }
   function isRectIntersectingEpsilon(
     a: { x: number; y: number; w: number; h: number },
     b: { x: number; y: number; w: number; h: number },
-    eps = 0.5
+    eps = 0.1
   ) {
     return (
       a.x + a.w > b.x + eps &&
@@ -956,10 +976,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') {
       return false;
     }
-    const bounds =
-      mode === 'move' ? getTableMoveBounds(x, y, w, h) : getTableRotationBounds(x, y, w, h, rotDeg);
+    const bounds = getRenderedTableRect(x, y, w, h, rotDeg, mode);
     return activeObstacles.some(obstacle => {
-      const rect = getObstacleRect(obstacle);
+      const rect = getRenderedObstacleRect(obstacle);
       return isRectIntersectingEpsilon(bounds, rect);
     });
   }
@@ -2356,14 +2375,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            const bounds =
-              drag.mode === 'move'
-                ? getTableMoveBounds(nextX, nextY, drag.width, drag.height)
-                : getTableRotationBounds(nextX, nextY, drag.width, drag.height, rotForClamp);
+            const bounds = getRenderedTableRect(
+              nextX,
+              nextY,
+              drag.width,
+              drag.height,
+              rotForClamp,
+              drag.mode
+            );
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getObstacleRect(obstacle),
+                rect: getRenderedObstacleRect(obstacle),
               }))
               .filter(hit => isRectIntersectingEpsilon(bounds, hit.rect));
             const obstacleIds = obstacleHits.map(hit => hit.id);
@@ -2424,7 +2447,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       clampTableToBounds,
       computeDragBounds,
       debugSeating,
-      getTableMoveBounds,
+      getRenderedTableRect,
       getObstacleRect,
       getTableRotationBounds,
       isTableOverlappingObstacle,
@@ -2568,14 +2591,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            const bounds =
-              drag.mode === 'move'
-                ? getTableMoveBounds(nextX, nextY, drag.width, drag.height)
-                : getTableRotationBounds(nextX, nextY, drag.width, drag.height, rotForClamp);
+            const bounds = getRenderedTableRect(
+              nextX,
+              nextY,
+              drag.width,
+              drag.height,
+              rotForClamp,
+              drag.mode
+            );
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getObstacleRect(obstacle),
+                rect: getRenderedObstacleRect(obstacle),
               }))
               .filter(hit => isRectIntersectingEpsilon(bounds, hit.rect));
             const obstacleIds = obstacleHits.map(hit => hit.id);
@@ -2621,7 +2648,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeDragBounds,
       clampTableToBounds,
       isTableOverlappingObstacle,
-      getTableMoveBounds,
+      getRenderedTableRect,
       getObstacleRect,
       getTableRotationBounds,
       isRectIntersectingEpsilon,
@@ -4496,6 +4523,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               : 'n/a'}
                           </div>
                           <div>boundsMode: floorplan</div>
+                          <div>overlapEps: 0.1</div>
+                          {debugSeating && isOverlappingObstacle && (
+                            <div>
+                              tableRect: {Math.round(tableRect.x)},{Math.round(tableRect.y)}{' '}
+                              {Math.round(tableRect.w)}×{Math.round(tableRect.h)} | obstacles:{' '}
+                              {obstacleHits
+                                .map(
+                                  hit =>
+                                    `${hit.id}:${Math.round(hit.rect.x)},${Math.round(
+                                      hit.rect.y
+                                    )} ${Math.round(hit.rect.w)}×${Math.round(hit.rect.h)}`
+                                )
+                                .join(' | ')}
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -4582,18 +4624,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       const isSelected = selectedTableId === table.id;
                       const isSaving = Boolean(savingById[table.id]);
                       const tableVisualState = getTableVisualState();
-                      const tableRect = {
-                        x: position.x,
-                        y: position.y,
-                        w: geometry.w,
-                        h: geometry.h,
-                      };
-                      const isOverlappingObstacle =
-                        floorplanMode === 'edit' &&
-                        activeObstacles.some(obstacle => {
-                          const rect = getObstacleRect(obstacle);
-                          return isRectIntersecting(tableRect, rect);
-                        });
+                      const tableRect = getRenderedTableRect(
+                        position.x,
+                        position.y,
+                        geometry.w,
+                        geometry.h,
+                        renderRot,
+                        'move'
+                      );
+                      const obstacleHits =
+                        floorplanMode === 'edit'
+                          ? activeObstacles
+                              .map(obstacle => ({
+                                id: obstacle.id,
+                                rect: getRenderedObstacleRect(obstacle),
+                              }))
+                              .filter(hit => isRectIntersectingEpsilon(tableRect, hit.rect))
+                          : [];
+                      const isOverlappingObstacle = obstacleHits.length > 0;
                       return (
                         <div
                           key={table.id}
@@ -4652,21 +4700,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               event.currentTarget.setPointerCapture?.(event.pointerId);
                               const centerX = position.x + geometry.w / 2;
                               const centerY = position.y + geometry.h / 2;
-                              const liveRect = getViewportRect();
-                              if (liveRect.width <= 0 || liveRect.height <= 0) {
-                                return;
-                              }
-                              const transform = computeFloorplanTransformFromRect(
-                                liveRect,
-                                floorplanWidth,
-                                floorplanHeight
-                              );
-                              const pointer = mapClientToFloorplan(
+                              const pointer = mapClientToFloorplanUsingRenderTransform(
                                 event.clientX,
-                                event.clientY,
-                                transform
+                                event.clientY
                               );
-                              if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) {
+                              if (!pointer) {
                                 return;
                               }
                               const startAngle =
@@ -4680,8 +4718,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 pointerStartClientY: event.clientY,
                                 pointerStartFloorX: pointer.x,
                                 pointerStartFloorY: pointer.y,
-                                dragStartTransform: transform,
-                                dragStartScale: safeScale(transform.scale),
+                                dragStartTransform: floorplanRenderTransform,
+                                dragStartScale: safeScale(floorplanRenderTransform.scale),
                                 tableStartX: position.x,
                                 tableStartY: position.y,
                                 width: geometry.w,
@@ -4718,6 +4756,31 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
                           !
                         </span>
+                      )}
+                      {debugSeating && isOverlappingObstacle && (
+                        <>
+                          <div
+                            className="pointer-events-none absolute border border-dashed border-amber-500"
+                            style={{
+                              left: tableRect.x,
+                              top: tableRect.y,
+                              width: tableRect.w,
+                              height: tableRect.h,
+                            }}
+                          />
+                          {obstacleHits.map(hit => (
+                            <div
+                              key={`overlap-${table.id}-${hit.id}`}
+                              className="pointer-events-none absolute border border-dashed border-rose-500"
+                              style={{
+                                left: hit.rect.x,
+                                top: hit.rect.y,
+                                width: hit.rect.w,
+                                height: hit.rect.h,
+                              }}
+                            />
+                          ))}
+                        </>
                       )}
                       {table.name}
                       <div className="flex gap-1 mt-1">
