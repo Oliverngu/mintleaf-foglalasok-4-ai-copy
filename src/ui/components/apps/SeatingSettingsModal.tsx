@@ -2376,13 +2376,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
         return;
       }
-      const pointerNow = mapClientToFloorplanUsingTransform(
-        clientX,
-        clientY,
-        drag.dragStartTransform,
-        drag.dragStartRect
-      );
-      if (!pointerNow) {
+      // Manual check: add 3 tables, ensure side-by-side placement on same y-level.
+      // Manual check: vertical movement clamps at floorplan edge, rotate still works.
+      const scale = safeScale(drag.dragStartScale);
+      if (!Number.isFinite(scale) || scale <= 0) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragMoveDebugRef.current > 500) {
@@ -2397,9 +2394,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
+      const deltaClientX = clientX - drag.pointerStartClientX;
+      const deltaClientY = clientY - drag.pointerStartClientY;
+      const deltaLocalX = deltaClientX / scale;
+      const deltaLocalY = deltaClientY / scale;
+      const pointerNow = {
+        x: drag.pointerStartFloorX + deltaLocalX,
+        y: drag.pointerStartFloorY + deltaLocalY,
+      };
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
-      const deltaLocalX = pointerNow.x - drag.pointerStartFloorX;
-      const deltaLocalY = pointerNow.y - drag.pointerStartFloorY;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
@@ -2615,13 +2618,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         void finalizeRotationRef.current(tableId, snappedRot, prevRot);
         return;
       }
-      const pointerNow = mapClientToFloorplanUsingTransform(
-        clientX,
-        clientY,
-        drag.dragStartTransform,
-        drag.dragStartRect
-      );
-      if (!pointerNow) {
+      const scale = safeScale(drag.dragStartScale);
+      if (!Number.isFinite(scale) || scale <= 0) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragMoveDebugRef.current > 500) {
@@ -2636,9 +2634,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
+      const deltaClientX = clientX - drag.pointerStartClientX;
+      const deltaClientY = clientY - drag.pointerStartClientY;
+      const deltaLocalX = deltaClientX / scale;
+      const deltaLocalY = deltaClientY / scale;
+      const pointerNow = {
+        x: drag.pointerStartFloorX + deltaLocalX,
+        y: drag.pointerStartFloorY + deltaLocalY,
+      };
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
-      const deltaLocalX = pointerNow.x - drag.pointerStartFloorX;
-      const deltaLocalY = pointerNow.y - drag.pointerStartFloorY;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
