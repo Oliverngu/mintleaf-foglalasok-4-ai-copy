@@ -249,6 +249,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   } | null>(null);
   const dragStateRef = useRef<typeof dragState>(null);
   const obstacleDragRef = useRef<typeof obstacleDrag>(null);
+  const lastValidTablePosRef = useRef<{ x: number; y: number } | null>(null);
   const finalizeDragRef = useRef<
     (tableId: string, x: number, y: number) => Promise<void>
   >(async () => {});
@@ -725,9 +726,65 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       hy,
     };
   }
+  function clampTopLeftToViewportArea(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    viewportRect: { width: number; height: number; left: number; top: number },
+    transform: FloorplanTransform
+  ) {
+    const rectWidth = viewportRect.width;
+    const rectHeight = viewportRect.height;
+    const scale = safeScale(transform.scale);
+    if (rectWidth <= 0 || rectHeight <= 0) {
+      return { x, y };
+    }
+    const visibleLeft = (viewportRect.left - transform.rectLeft - transform.offsetX) / scale;
+    const visibleTop = (viewportRect.top - transform.rectTop - transform.offsetY) / scale;
+    const visibleRight =
+      (viewportRect.left + rectWidth - transform.rectLeft - transform.offsetX) / scale;
+    const visibleBottom =
+      (viewportRect.top + rectHeight - transform.rectTop - transform.offsetY) / scale;
+    const minX = Math.max(0, visibleLeft);
+    const minY = Math.max(0, visibleTop);
+    const maxX = Math.min(floorplanWidth, visibleRight) - w;
+    const maxY = Math.min(floorplanHeight, visibleBottom) - h;
+    return {
+      x: clamp(x, minX, Math.max(minX, maxX)),
+      y: clamp(y, minY, Math.max(minY, maxY)),
+    };
+  }
+  function getTableRotationBounds(x: number, y: number, w: number, h: number, rotDeg: number) {
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
+    const { hx, hy } = getRotatedHalfExtents(w, h, rotDeg);
+    return {
+      x: centerX - hx,
+      y: centerY - hy,
+      w: hx * 2,
+      h: hy * 2,
+    };
+  }
   function getEffectiveRotationForClamp(tableId: string, fallback: number) {
     const rot = draftRotationsRef.current?.[tableId];
     return Number.isFinite(rot) ? rot : fallback;
+  }
+  function isTableOverlappingObstacle(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotDeg: number
+  ) {
+    if (floorplanMode !== 'edit') {
+      return false;
+    }
+    const bounds = getTableRotationBounds(x, y, w, h, rotDeg);
+    return activeObstacles.some(obstacle => {
+      const rect = getObstacleRect(obstacle);
+      return isRectIntersecting(bounds, rect);
+    });
   }
 
   // Order matters to avoid TDZ in minified builds.
@@ -2042,6 +2099,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
+      const viewportClamped = clampTopLeftToViewportArea(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        floorplanViewportRect,
+        floorplanRenderTransform
+      );
+      nextX = viewportClamped.x;
+      nextY = viewportClamped.y;
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const clamped = clampTopLeftForRotation(
         nextX,
@@ -2055,6 +2122,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       );
       nextX = clamped.x;
       nextY = clamped.y;
+      if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
+        return;
+      }
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2087,6 +2158,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       applyGrid,
       clamp,
       debugSeating,
+      floorplanRenderTransform,
+      floorplanViewportRect,
+      isTableOverlappingObstacle,
       mapClientToFloorplan,
       normalizeRotation,
       snapRotation,
@@ -2163,6 +2237,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
+      const viewportClamped = clampTopLeftToViewportArea(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        floorplanViewportRect,
+        floorplanRenderTransform
+      );
+      nextX = viewportClamped.x;
+      nextY = viewportClamped.y;
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const clamped = clampTopLeftForRotation(
         nextX,
@@ -2176,12 +2260,33 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       );
       nextX = clamped.x;
       nextY = clamped.y;
+      if (isTableOverlappingObstacle(nextX, nextY, drag.width, drag.height, rotForClamp)) {
+        const lastValid = lastValidTablePosRef.current ?? {
+          x: drag.tableStartX,
+          y: drag.tableStartY,
+        };
+        updateDraftPosition(tableId, lastValid.x, lastValid.y);
+        releaseDragPointerCaptureRef.current(drag);
+        setDragState(null);
+        void finalizeDragRef.current(tableId, lastValid.x, lastValid.y);
+        return;
+      }
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
       setDragState(null);
       void finalizeDragRef.current(tableId, nextX, nextY);
     },
-    [applyGrid, clamp, mapClientToFloorplan, normalizeRotation, snapRotation]
+    [
+      applyGrid,
+      clamp,
+      floorplanRenderTransform,
+      floorplanViewportRect,
+      isTableOverlappingObstacle,
+      mapClientToFloorplan,
+      normalizeRotation,
+      snapRotation,
+    ]
   );
 
   const handleTablePointerDown = (
@@ -2197,6 +2302,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
+    lastValidTablePosRef.current = { x: position.x, y: position.y };
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
