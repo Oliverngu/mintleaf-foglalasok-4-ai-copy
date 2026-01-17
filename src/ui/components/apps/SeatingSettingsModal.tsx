@@ -2920,66 +2920,138 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [unregisterWindowTableDragListeners]);
 
   const handleTablePointerDown = (
-    event: React.PointerEvent<HTMLDivElement>,
-    table: Table,
-    geometry: ReturnType<typeof normalizeTableGeometry>
-  ) => {
-    if (!activeFloorplan) return;
-    if (floorplanMode !== 'edit') return;
-    if (table.locked) return;
-    event.preventDefault();
-    setSelectedTableId(table.id);
-    if (debugSeating) {
-      requestDebugFlush(null);
-      console.debug('[seating] floorplan dims source', {
-        floorplanId: activeFloorplan?.id ?? null,
-        active: {
-          w: activeFloorplan?.width ?? null,
-          h: activeFloorplan?.height ?? null,
-        },
-        form: { w: floorplanForm.width ?? null, h: floorplanForm.height ?? null },
-        used: { w: floorplanW, h: floorplanH },
-      });
-    }
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const position = getRenderPosition(table, geometry);
-    const renderRot = draftRotations[table.id] ?? geometry.rot;
-    lastValidTablePosRef.current = { x: position.x, y: position.y };
-    const mode = event.shiftKey ? 'rotate' : 'move';
-    const centerX = position.x + geometry.w / 2;
-    const centerY = position.y + geometry.h / 2;
-    const dragRect = getViewportRect();
-    const dragTransform = computeFloorplanTransformFromRect(dragRect, floorplanW, floorplanH);
-    const pointer = mapClientToFloorplanUsingTransform(
-      event.clientX,
-      event.clientY,
-      dragTransform,
-      dragRect
-    );
-    if (!pointer) {
-      return;
-    }
-    const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
-    const rad = (renderRot * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    const boundW = Math.ceil(Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin));
-    const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
-    if (debugSeating) {
-      console.debug('[seating] drag scale', {
-        scale: dragTransform.scale,
-        offsetX: dragTransform.offsetX,
-        offsetY: dragTransform.offsetY,
-        rectWidth: dragTransform.rectWidth,
-        rectHeight: dragTransform.rectHeight,
-        floorplanWidth: floorplanW,
-        floorplanHeight: floorplanH,
-        pointerId: event.pointerId,
-        pointerType: event.pointerType,
-        isPrimary: event.isPrimary,
-        buttons: event.buttons,
-      });
-    }
+  event: React.PointerEvent<HTMLDivElement>,
+  table: Table,
+  geometry: ReturnType<typeof normalizeTableGeometry>
+) => {
+  if (!activeFloorplan) return;
+  if (floorplanMode !== 'edit') return;
+  if (table.locked) return;
+
+  event.preventDefault();
+  setSelectedTableId(table.id);
+
+  if (debugSeating) {
+    requestDebugFlush(null);
+
+    console.debug('[seating] floorplan dims source', {
+      floorplanId: activeFloorplan?.id ?? null,
+      active: {
+        w: activeFloorplan?.width ?? null,
+        h: activeFloorplan?.height ?? null,
+      },
+      form: { w: floorplanForm.width ?? null, h: floorplanForm.height ?? null },
+      used: { w: floorplanW, h: floorplanH },
+    });
+
+    // --- obstacles snapshot (hard proof) ---
+    const fpObstacles = activeFloorplan?.obstacles ?? [];
+    console.debug('[seating] obstacles snapshot', {
+      floorplanId: activeFloorplan?.id ?? null,
+      obstaclesCount: fpObstacles.length,
+      obstacles: fpObstacles.map(o => ({
+        id: o.id,
+        name: (o as any).name ?? null,
+        x: o.x,
+        y: o.y,
+        w: o.w,
+        h: o.h,
+        // quick sanity flags
+        finite:
+          Number.isFinite(o.x) &&
+          Number.isFinite(o.y) &&
+          Number.isFinite(o.w) &&
+          Number.isFinite(o.h),
+      })),
+      draftObstacleIds: Object.keys(draftObstacles),
+      draftObstacles: Object.keys(draftObstacles).slice(0, 12).reduce((acc, id) => {
+        acc[id] = draftObstacles[id];
+        return acc;
+      }, {} as Record<string, { x: number; y: number; w: number; h: number }>),
+    });
+  }
+
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+
+  const position = getRenderPosition(table, geometry);
+  const renderRot = draftRotations[table.id] ?? geometry.rot;
+  lastValidTablePosRef.current = { x: position.x, y: position.y };
+
+  const mode = event.shiftKey ? 'rotate' : 'move';
+  const centerX = position.x + geometry.w / 2;
+  const centerY = position.y + geometry.h / 2;
+
+  const dragRect = getViewportRect();
+  const dragTransform = computeFloorplanTransformFromRect(dragRect, floorplanW, floorplanH);
+
+  const pointer = mapClientToFloorplanUsingTransform(
+    event.clientX,
+    event.clientY,
+    dragTransform,
+    dragRect
+  );
+  if (!pointer) {
+    return;
+  }
+
+  const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
+
+  const rad = (renderRot * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const boundW = Math.ceil(Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin));
+  const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
+
+  if (debugSeating) {
+    console.debug('[seating] drag scale', {
+      scale: dragTransform.scale,
+      offsetX: dragTransform.offsetX,
+      offsetY: dragTransform.offsetY,
+      rectWidth: dragTransform.rectWidth,
+      rectHeight: dragTransform.rectHeight,
+      floorplanWidth: floorplanW,
+      floorplanHeight: floorplanH,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      isPrimary: event.isPrimary,
+      buttons: event.buttons,
+    });
+  }
+
+  setDragState({
+    tableId: table.id,
+    pointerId: event.pointerId,
+    pointerTarget: event.currentTarget,
+    pointerStartClientX: event.clientX,
+    pointerStartClientY: event.clientY,
+    pointerStartFloorX: pointer.x,
+    pointerStartFloorY: pointer.y,
+    dragStartTransform: dragTransform,
+    dragStartRect: dragRect,
+    dragStartScale: safeScale(dragTransform.scale),
+    tableStartX: position.x,
+    tableStartY: position.y,
+    width: geometry.w,
+    height: geometry.h,
+    boundW,
+    boundH,
+    mode,
+    tableStartRot: renderRot,
+    rotStartAngleDeg: startAngle,
+    rotCenterX: centerX,
+    rotCenterY: centerY,
+    floorplanWidth: floorplanW,
+    floorplanHeight: floorplanH,
+    gridSize: editorGridSize,
+    snapToGrid: table.snapToGrid ?? false,
+  });
+
+  registerWindowTableDragListeners();
+  setLastSaved(current => (current[table.id] ? current : { ...current, [table.id]: position }));
+  setLastSavedRot(current =>
+    current[table.id] !== undefined ? current : { ...current, [table.id]: renderRot }
+  );
+};
     setDragState({
       tableId: table.id,
       pointerId: event.pointerId,
