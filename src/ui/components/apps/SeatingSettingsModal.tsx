@@ -2312,12 +2312,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerId,
       shiftKey,
       altKey,
+      movementX,
+      movementY,
     }: {
       clientX: number;
       clientY: number;
       pointerId: number;
       shiftKey: boolean;
       altKey: boolean;
+      movementX: number;
+      movementY: number;
     }) => {
       const drag = dragStateRef.current;
       if (!drag) return;
@@ -2394,17 +2398,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
-      const deltaClientX = clientX - drag.pointerStartClientX;
-      const deltaClientY = clientY - drag.pointerStartClientY;
-      const deltaLocalX = deltaClientX / scale;
-      const deltaLocalY = deltaClientY / scale;
+      const deltaLocalX = movementX / scale;
+      const deltaLocalY = movementY / scale;
+      const basePos =
+        lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
       const pointerNow = {
-        x: drag.pointerStartFloorX + deltaLocalX,
-        y: drag.pointerStartFloorY + deltaLocalY,
+        x: basePos.x + deltaLocalX + drag.width / 2,
+        y: basePos.y + deltaLocalY + drag.height / 2,
       };
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
-      let nextX = drag.tableStartX + deltaLocalX;
-      let nextY = drag.tableStartY + deltaLocalY;
+      let nextX = basePos.x + deltaLocalX;
+      let nextY = basePos.y + deltaLocalY;
       const unclampedX = nextX;
       const unclampedY = nextY;
       const shouldSnap =
@@ -2440,57 +2444,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           requestDebugFlush('bounds-clamp');
         }
       }
-      const start =
-        lastValidTablePosRef.current ?? {
-          x: drag.tableStartX,
-          y: drag.tableStartY,
-        };
-      const sweepResult = resolveTablePositionWithSweep({
-        startX: start.x,
-        startY: start.y,
-        endX: nextX,
-        endY: nextY,
-        drag,
-        rotDeg: rotForClamp,
-        bounds,
-        mode: drag.mode,
-      });
-      if (sweepResult.collided && debugSeating) {
-        const now = Date.now();
-        if (now - dragClampDebugRef.current > 500) {
-          dragClampDebugRef.current = now;
-          const obstacleIds = sweepResult.obstacleHits.map(hit => hit.id);
-          console.debug('[seating] drag blocked', {
-            reason: 'obstacle-sweep',
-            tableId: drag.tableId,
-            start,
-            end: { x: nextX, y: nextY },
-            resolved: { x: sweepResult.x, y: sweepResult.y },
-            rot: rotForClamp,
-            obstacleIds,
-            tableRect: getTableAabbForCollision(
-              sweepResult.x,
-              sweepResult.y,
-              drag.width,
-              drag.height,
-              rotForClamp
-            ),
-            obstacleRects: sweepResult.obstacleHits,
-          });
-          requestDebugFlush(
-            obstacleIds.length > 0
-              ? `obstacle-sweep:${obstacleIds.join(',')}`
-              : 'obstacle-sweep'
-          );
-        }
-      }
-      lastValidTablePosRef.current = { x: sweepResult.x, y: sweepResult.y };
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
           dragClampDebugRef.current = now;
-          const deltaX = Math.abs(sweepResult.x - unclampedX);
-          const deltaY = Math.abs(sweepResult.y - unclampedY);
+          console.debug('[seating] move delta', {
+            movementX,
+            movementY,
+            scale,
+            proposed: { x: unclampedX, y: unclampedY },
+            clamped: { x: nextX, y: nextY },
+          });
+        }
+      }
+      if (
+        isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        if (debugSeating) {
+          const now = Date.now();
+          if (now - dragClampDebugRef.current > 500) {
+            dragClampDebugRef.current = now;
+            console.debug('[seating] drag blocked', {
+              reason: 'obstacle-collision',
+              tableId: drag.tableId,
+              nextX,
+              nextY,
+              rot: rotForClamp,
+            });
+            requestDebugFlush('obstacle-collision');
+          }
+        }
+        return;
+      }
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragClampDebugRef.current > 500) {
+          dragClampDebugRef.current = now;
+          const deltaX = Math.abs(nextX - unclampedX);
+          const deltaY = Math.abs(nextY - unclampedY);
           if (deltaX > 1 || deltaY > 1) {
             console.debug('[seating] drag clamp', {
               reason: 'rotation-clamp',
@@ -2505,15 +2503,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               rotatedHy: clamped.hy,
               floorplanWidth: drag.floorplanWidth,
               floorplanHeight: drag.floorplanHeight,
-              nextX: sweepResult.x,
-              nextY: sweepResult.y,
+              nextX,
+              nextY,
               shouldSnap,
               gridSize: drag.gridSize,
             });
           }
         }
       }
-      updateDraftPosition(drag.tableId, sweepResult.x, sweepResult.y);
+      updateDraftPosition(drag.tableId, nextX, nextY);
     },
     [
       activeObstacles,
@@ -2522,9 +2520,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       clampTableToBounds,
       computeDragBounds,
       debugSeating,
-      getTableAabbForCollision,
       isTableOverlappingObstacle,
-      resolveTablePositionWithSweep,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -2545,12 +2541,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerId,
       shiftKey,
       altKey,
+      movementX,
+      movementY,
     }: {
       clientX: number;
       clientY: number;
       pointerId: number;
       shiftKey: boolean;
       altKey: boolean;
+      movementX: number;
+      movementY: number;
     }) => {
       const drag = dragStateRef.current;
       if (!drag) return;
@@ -2634,17 +2634,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
-      const deltaClientX = clientX - drag.pointerStartClientX;
-      const deltaClientY = clientY - drag.pointerStartClientY;
-      const deltaLocalX = deltaClientX / scale;
-      const deltaLocalY = deltaClientY / scale;
+      const deltaLocalX = movementX / scale;
+      const deltaLocalY = movementY / scale;
+      const basePos =
+        lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
       const pointerNow = {
-        x: drag.pointerStartFloorX + deltaLocalX,
-        y: drag.pointerStartFloorY + deltaLocalY,
+        x: basePos.x + deltaLocalX + drag.width / 2,
+        y: basePos.y + deltaLocalY + drag.height / 2,
       };
       lastDragPointerRef.current = { x: pointerNow.x, y: pointerNow.y };
-      let nextX = drag.tableStartX + deltaLocalX;
-      let nextY = drag.tableStartY + deltaLocalY;
+      let nextX = basePos.x + deltaLocalX;
+      let nextY = basePos.y + deltaLocalY;
       const unclampedX = nextX;
       const unclampedY = nextY;
       const shouldSnap =
@@ -2680,56 +2680,44 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           requestDebugFlush('bounds-clamp');
         }
       }
-      const start =
-        lastValidTablePosRef.current ?? {
-          x: drag.tableStartX,
-          y: drag.tableStartY,
-        };
-      const sweepResult = resolveTablePositionWithSweep({
-        startX: start.x,
-        startY: start.y,
-        endX: nextX,
-        endY: nextY,
-        drag,
-        rotDeg: rotForClamp,
-        bounds,
-        mode: drag.mode,
-      });
-      if (sweepResult.collided && debugSeating) {
-        const now = Date.now();
-        if (now - dragClampDebugRef.current > 500) {
-          dragClampDebugRef.current = now;
-          const obstacleIds = sweepResult.obstacleHits.map(hit => hit.id);
-          console.debug('[seating] drag blocked', {
-            reason: 'obstacle-sweep',
-            tableId: drag.tableId,
-            start,
-            end: { x: nextX, y: nextY },
-            resolved: { x: sweepResult.x, y: sweepResult.y },
-            rot: rotForClamp,
-            obstacleIds,
-            tableRect: getTableAabbForCollision(
-              sweepResult.x,
-              sweepResult.y,
-              drag.width,
-              drag.height,
-              rotForClamp
-            ),
-            obstacleRects: sweepResult.obstacleHits,
-          });
-          requestDebugFlush(
-            obstacleIds.length > 0
-              ? `obstacle-sweep:${obstacleIds.join(',')}`
-              : 'obstacle-sweep'
-          );
+      if (
+        isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        if (debugSeating) {
+          const now = Date.now();
+          if (now - dragClampDebugRef.current > 500) {
+            dragClampDebugRef.current = now;
+            console.debug('[seating] drag blocked', {
+              reason: 'obstacle-collision',
+              tableId: drag.tableId,
+              nextX,
+              nextY,
+              rot: rotForClamp,
+            });
+            requestDebugFlush('obstacle-collision');
+          }
         }
+        const lastValid =
+          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
+        updateDraftPosition(tableId, lastValid.x, lastValid.y);
+        releaseDragPointerCaptureRef.current(drag);
+        unregisterWindowTableDragListenersRef.current();
+        setDragState(null);
+        void finalizeDragRef.current(tableId, lastValid.x, lastValid.y);
+        return;
       }
-      lastValidTablePosRef.current = { x: sweepResult.x, y: sweepResult.y };
-      updateDraftPosition(tableId, sweepResult.x, sweepResult.y);
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
+      updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
       setDragState(null);
-      void finalizeDragRef.current(tableId, sweepResult.x, sweepResult.y);
+      void finalizeDragRef.current(tableId, nextX, nextY);
     },
     [
       activeObstacles,
@@ -2738,8 +2726,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeDragBounds,
       clampTableToBounds,
       isTableOverlappingObstacle,
-      getTableAabbForCollision,
-      resolveTablePositionWithSweep,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -2778,6 +2764,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         pointerId: event.pointerId,
         shiftKey: event.shiftKey,
         altKey: event.altKey,
+        movementX: event.movementX,
+        movementY: event.movementY,
       });
     };
     const handleUp = (event: PointerEvent) => {
@@ -2793,6 +2781,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         pointerId: event.pointerId,
         shiftKey: event.shiftKey,
         altKey: event.altKey,
+        movementX: event.movementX,
+        movementY: event.movementY,
       });
     };
     const handleCancel = (event: PointerEvent) => {
@@ -2952,6 +2942,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerId: event.pointerId,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
+      movementX: event.movementX,
+      movementY: event.movementY,
     });
   };
 
@@ -2966,6 +2958,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       pointerId: event.pointerId,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
+      movementX: event.movementX,
+      movementY: event.movementY,
     });
   };
 
