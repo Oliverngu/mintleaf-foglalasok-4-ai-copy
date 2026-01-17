@@ -859,7 +859,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       hy,
     };
   }
-  const getBackgroundContentBox = useCallback(() => {
+  const backgroundContentBox = useMemo(() => {
     if (!activeFloorplan?.backgroundImageUrl) {
       return null;
     }
@@ -890,7 +890,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [activeFloorplan?.backgroundImageUrl, bgNatural, floorplanHeight, floorplanWidth]);
   const computeDragBounds = useCallback(
     (drag: NonNullable<typeof dragState>, shouldSnap: boolean) => {
-      const contentBox = getBackgroundContentBox();
+      const contentBox = backgroundContentBox;
       let minX = contentBox ? contentBox.x : 0;
       let minY = contentBox ? contentBox.y : 0;
       let maxX = contentBox ? contentBox.x + contentBox.w : drag.floorplanWidth;
@@ -918,7 +918,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       return { minX, minY, maxX, maxY };
     },
-    [getBackgroundContentBox]
+    [backgroundContentBox]
   );
   const clampTableToBounds = useCallback(
     (
