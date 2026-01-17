@@ -266,6 +266,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const obstacleMoveDebugRef = useRef(0);
   const rotatedBoundsLogRef = useRef(0);
   const [lastDragBlockReason, setLastDragBlockReason] = useState<string | null>(null);
+  const [debugTick, setDebugTick] = useState(0);
   const lastDragBlockReasonRef = useRef<string | null>(null);
   const lastDragDebugFrameRef = useRef<number | null>(null);
   const lastDragPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -441,24 +442,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastDragDebugFrameRef.current = requestAnimationFrame(() => {
       lastDragDebugFrameRef.current = null;
       setLastDragBlockReason(lastDragBlockReasonRef.current);
+      setDebugTick(tick => tick + 1);
     });
   }, []);
+
+  const scheduleDebugFlush = useCallback(() => {
+    if (!debugSeating) {
+      return;
+    }
+    if (lastDragDebugFrameRef.current !== null) {
+      return;
+    }
+    lastDragDebugFrameRef.current = requestAnimationFrame(() => {
+      lastDragDebugFrameRef.current = null;
+      setDebugTick(tick => tick + 1);
+      setLastDragBlockReason(lastDragBlockReasonRef.current);
+    });
+  }, [debugSeating]);
 
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
     if (prevBgUrlRef.current !== url) {
       prevBgUrlRef.current = url;
       setBgNatural(null);
-      if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
-        setBgNatural({
-          w: bgImgRef.current.naturalWidth,
-          h: bgImgRef.current.naturalHeight,
-        });
-      }
     }
-  }, [activeFloorplan?.backgroundImageUrl]);
-
-  useEffect(() => {
     if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
       setBgNatural({
         w: bgImgRef.current.naturalWidth,
@@ -889,10 +896,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       let maxX = contentBox ? contentBox.x + contentBox.w : drag.floorplanWidth;
       let maxY = contentBox ? contentBox.y + contentBox.h : drag.floorplanHeight;
       if (shouldSnap) {
-        minX = ceilToGrid(minX, drag.gridSize);
-        minY = ceilToGrid(minY, drag.gridSize);
-        maxX = floorToGrid(maxX, drag.gridSize);
-        maxY = floorToGrid(maxY, drag.gridSize);
+        minX = floorToGrid(minX, drag.gridSize);
+        minY = floorToGrid(minY, drag.gridSize);
+        maxX = ceilToGrid(maxX, drag.gridSize);
+        maxY = ceilToGrid(maxY, drag.gridSize);
       } else {
         minX = Math.round(minX);
         minY = Math.round(minY);
@@ -1288,6 +1295,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       if (rafRotId.current !== null) {
         cancelAnimationFrame(rafRotId.current);
+      }
+      if (lastDragDebugFrameRef.current !== null) {
+        cancelAnimationFrame(lastDragDebugFrameRef.current);
+        lastDragDebugFrameRef.current = null;
       }
       unregisterWindowTableDragListenersRef.current();
     };
@@ -2315,6 +2326,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         !altKey &&
         !precisionEnabledRef.current;
       lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
+      if (debugSeating) {
+        scheduleDebugFlush();
+      }
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -2324,6 +2338,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
+      if (debugSeating) {
+        scheduleDebugFlush();
+      }
       if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2414,6 +2431,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       isRectIntersecting,
       mapClientToFloorplan,
       normalizeRotation,
+      scheduleDebugFlush,
       setDragReason,
       snapRotation,
     ]
@@ -2534,6 +2552,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         !altKey &&
         !precisionEnabledRef.current;
       lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
+      if (debugSeating) {
+        scheduleDebugFlush();
+      }
       if (shouldSnap) {
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
@@ -2543,6 +2564,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
       nextX = clamped.x;
       nextY = clamped.y;
+      if (debugSeating) {
+        scheduleDebugFlush();
+      }
       if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2617,6 +2641,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       isRectIntersecting,
       mapClientToFloorplan,
       normalizeRotation,
+      scheduleDebugFlush,
       setDragReason,
       snapRotation,
     ]
