@@ -38,7 +38,7 @@ import {
 } from '../../../core/utils/seatingNormalize';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
-import { getTableVisualState, isRectIntersecting } from './seating/floorplanUtils';
+import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 
 const FloorplanSquareViewport = React.forwardRef<
   HTMLDivElement,
@@ -671,6 +671,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => new Set(activeZones.map(zone => zone.id)),
     [activeZones]
   );
+  function isRectIntersecting(
+    a: { x: number; y: number; w: number; h: number },
+    b: { x: number; y: number; w: number; h: number }
+  ) {
+    return isRectIntersectingFn(a, b);
+  }
 
   const visibleFloorplans = useMemo(
     () => floorplans.filter(plan => plan.isActive !== false),
@@ -874,8 +880,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ) => {
       lastDragBoundsRef.current = bounds;
       if (mode === 'move') {
-        const maxX = bounds.maxX - drag.width;
-        const maxY = bounds.maxY - drag.height;
+        let maxX = bounds.maxX - drag.width;
+        let maxY = bounds.maxY - drag.height;
+        if (maxX < bounds.minX) {
+          maxX = bounds.minX;
+        }
+        if (maxY < bounds.minY) {
+          maxY = bounds.minY;
+        }
         return {
           x: clamp(nextX, bounds.minX, maxX),
           y: clamp(nextY, bounds.minY, maxY),
