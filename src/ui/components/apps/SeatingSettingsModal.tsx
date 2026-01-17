@@ -726,35 +726,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       hy,
     };
   }
-  function clampTopLeftToViewportArea(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    viewportRect: { width: number; height: number; left: number; top: number },
-    transform: FloorplanTransform
-  ) {
-    const rectWidth = viewportRect.width;
-    const rectHeight = viewportRect.height;
-    const scale = safeScale(transform.scale);
-    if (rectWidth <= 0 || rectHeight <= 0) {
-      return { x, y };
-    }
-    const visibleLeft = (viewportRect.left - transform.rectLeft - transform.offsetX) / scale;
-    const visibleTop = (viewportRect.top - transform.rectTop - transform.offsetY) / scale;
-    const visibleRight =
-      (viewportRect.left + rectWidth - transform.rectLeft - transform.offsetX) / scale;
-    const visibleBottom =
-      (viewportRect.top + rectHeight - transform.rectTop - transform.offsetY) / scale;
-    const minX = Math.max(0, visibleLeft);
-    const minY = Math.max(0, visibleTop);
-    const maxX = Math.min(floorplanWidth, visibleRight) - w;
-    const maxY = Math.min(floorplanHeight, visibleBottom) - h;
-    return {
-      x: clamp(x, minX, Math.max(minX, maxX)),
-      y: clamp(y, minY, Math.max(minY, maxY)),
-    };
-  }
   function getTableRotationBounds(x: number, y: number, w: number, h: number, rotDeg: number) {
     const centerX = x + w / 2;
     const centerY = y + h / 2;
@@ -2099,16 +2070,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const viewportClamped = clampTopLeftToViewportArea(
-        nextX,
-        nextY,
-        drag.width,
-        drag.height,
-        floorplanViewportRect,
-        floorplanRenderTransform
-      );
-      nextX = viewportClamped.x;
-      nextY = viewportClamped.y;
+      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      nextX = clamp(nextX, 0, maxX);
+      nextY = clamp(nextY, 0, maxY);
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const clamped = clampTopLeftForRotation(
         nextX,
@@ -2158,8 +2123,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       applyGrid,
       clamp,
       debugSeating,
-      floorplanRenderTransform,
-      floorplanViewportRect,
       isTableOverlappingObstacle,
       mapClientToFloorplan,
       normalizeRotation,
@@ -2237,16 +2200,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextX = applyGrid(nextX, drag.gridSize);
         nextY = applyGrid(nextY, drag.gridSize);
       }
-      const viewportClamped = clampTopLeftToViewportArea(
-        nextX,
-        nextY,
-        drag.width,
-        drag.height,
-        floorplanViewportRect,
-        floorplanRenderTransform
-      );
-      nextX = viewportClamped.x;
-      nextY = viewportClamped.y;
+      const maxX = Math.max(0, drag.floorplanWidth - drag.width);
+      const maxY = Math.max(0, drag.floorplanHeight - drag.height);
+      nextX = clamp(nextX, 0, maxX);
+      nextY = clamp(nextY, 0, maxY);
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const clamped = clampTopLeftForRotation(
         nextX,
@@ -2280,8 +2237,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [
       applyGrid,
       clamp,
-      floorplanRenderTransform,
-      floorplanViewportRect,
       isTableOverlappingObstacle,
       mapClientToFloorplan,
       normalizeRotation,
