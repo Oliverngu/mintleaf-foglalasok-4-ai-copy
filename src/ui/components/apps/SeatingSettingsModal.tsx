@@ -205,6 +205,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
+  const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -2478,23 +2479,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           rotForClamp
         )
       ) {
-        if (debugSeating) {
+        const start =
+          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
+        const resolved = resolveTablePositionWithSweep({
+          startX: start.x,
+          startY: start.y,
+          endX: nextX,
+          endY: nextY,
+          drag,
+          rotDeg: rotForClamp,
+          bounds,
+          mode: 'move',
+        });
+        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
+          nextX = start.x;
+          nextY = start.y;
+        } else {
+          nextX = resolved.x;
+          nextY = resolved.y;
+        }
+        if (debugSeating && resolved.collided) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
+            console.debug('[seating] drag sweep', {
+              reason: 'obstacle-sweep',
               tableId: drag.tableId,
               nextX,
               nextY,
               rot: rotForClamp,
             });
-            requestDebugFlush('obstacle-collision');
+            requestDebugFlush('obstacle-sweep');
           }
         }
-        return;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
+      if (
+        !isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        lastValidTablePosRef.current = { x: nextX, y: nextY };
+      }
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2714,30 +2743,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           rotForClamp
         )
       ) {
-        if (debugSeating) {
+        const start =
+          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
+        const resolved = resolveTablePositionWithSweep({
+          startX: start.x,
+          startY: start.y,
+          endX: nextX,
+          endY: nextY,
+          drag,
+          rotDeg: rotForClamp,
+          bounds,
+          mode: 'move',
+        });
+        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
+          nextX = start.x;
+          nextY = start.y;
+        } else {
+          nextX = resolved.x;
+          nextY = resolved.y;
+        }
+        if (debugSeating && resolved.collided) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
+            console.debug('[seating] drag sweep', {
+              reason: 'obstacle-sweep',
               tableId: drag.tableId,
               nextX,
               nextY,
               rot: rotForClamp,
             });
-            requestDebugFlush('obstacle-collision');
+            requestDebugFlush('obstacle-sweep');
           }
         }
+      }
+      if (
+        !isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        lastValidTablePosRef.current = { x: nextX, y: nextY };
+      } else {
         const lastValid =
           lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
-        updateDraftPosition(tableId, lastValid.x, lastValid.y);
-        releaseDragPointerCaptureRef.current(drag);
-        unregisterWindowTableDragListenersRef.current();
-        setDragState(null);
-        void finalizeDragRef.current(tableId, lastValid.x, lastValid.y);
-        return;
+        nextX = lastValid.x;
+        nextY = lastValid.y;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
@@ -4445,6 +4500,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               >
                 Precision {precisionEnabled ? 'ON' : 'OFF'}
               </button>
+              {floorplanMode === 'edit' && (isDev || debugSeating) && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      showObstacleDebug
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setShowObstacleDebug(current => !current)}
+                  >
+                    Obstacles {showObstacleDebug ? 'ON' : 'OFF'}
+                  </button>
+                  <span className="text-[11px] text-gray-500">
+                    obstacles: {activeObstacles.length}
+                  </span>
+                </div>
+              )}
               {floorplanMode === 'edit' && (
                 <>
                   <button
@@ -4680,6 +4753,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         }}
                       />
                     )}
+                    {showObstacleDebug &&
+                      activeObstacles.map(obstacle => {
+                        const rect = getObstacleRenderRect(obstacle);
+                        return (
+                          <div
+                            key={`debug-${obstacle.id}`}
+                            className="absolute z-[8] border border-dashed border-emerald-400 bg-emerald-200/30 text-[9px] text-emerald-900 pointer-events-none"
+                            style={{
+                              left: rect.x,
+                              top: rect.y,
+                              width: rect.w,
+                              height: rect.h,
+                            }}
+                          >
+                            <span className="absolute left-1 top-1">
+                              {obstacle.name ?? obstacle.id}
+                            </span>
+                          </div>
+                        );
+                      })}
                     {activeObstacles.map(obstacle => {
                       const rect = getObstacleRenderRect(obstacle);
                       const isSelected = selectedObstacleId === obstacle.id;
