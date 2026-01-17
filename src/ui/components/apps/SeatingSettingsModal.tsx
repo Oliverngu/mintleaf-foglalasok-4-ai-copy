@@ -898,10 +898,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       shouldSnap: boolean
     ) => {
       const { hx, hy } = getRotatedHalfExtents(drag.width, drag.height, rotDeg);
-      let minX = hx - drag.width / 2;
-      let maxX = drag.floorplanWidth - hx - drag.width / 2;
-      let minY = hy - drag.height / 2;
-      let maxY = drag.floorplanHeight - hy - drag.height / 2;
+      const aabbW = hx * 2;
+      const aabbH = hy * 2;
+      let minX = 0;
+      let minY = 0;
+      let maxX = drag.floorplanWidth - aabbW;
+      let maxY = drag.floorplanHeight - aabbH;
       if (shouldSnap) {
         minX = ceilToGrid(minX, drag.gridSize);
         minY = ceilToGrid(minY, drag.gridSize);
