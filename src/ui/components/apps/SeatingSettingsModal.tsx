@@ -205,8 +205,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
+  const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
+  const lastDragComputedBoundsRef = useRef<{
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  } | null>(null);
+  const dragBoundsChangeLogRef = useRef(0);
   const [userRole, setUserRole] = useState<string | null>(null);
   // Order matters to avoid TDZ issues in minified builds.
   const canEditFloorplan = useMemo(
@@ -888,16 +896,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
   const computeDragBounds = useCallback(
-    (drag: NonNullable<typeof dragState>, shouldSnap: boolean) => {
+    (
+      drag: Pick<
+        NonNullable<typeof dragState>,
+        'floorplanWidth' | 'floorplanHeight' | 'width' | 'height' | 'gridSize'
+      >,
+      rotDeg: number,
+      shouldSnap: boolean
+    ) => {
+      const { hx, hy } = getRotatedHalfExtents(drag.width, drag.height, rotDeg);
+      const aabbW = hx * 2;
+      const aabbH = hy * 2;
       let minX = 0;
       let minY = 0;
-      let maxX = drag.floorplanWidth;
-      let maxY = drag.floorplanHeight;
+      let maxX = drag.floorplanWidth - aabbW;
+      let maxY = drag.floorplanHeight - aabbH;
+      maxX = Math.max(0, maxX);
+      maxY = Math.max(0, maxY);
       if (shouldSnap) {
-        minX = floorToGrid(minX, drag.gridSize);
-        minY = floorToGrid(minY, drag.gridSize);
-        maxX = ceilToGrid(maxX, drag.gridSize);
-        maxY = ceilToGrid(maxY, drag.gridSize);
+        minX = ceilToGrid(minX, drag.gridSize);
+        minY = ceilToGrid(minY, drag.gridSize);
+        maxX = floorToGrid(maxX, drag.gridSize);
+        maxY = floorToGrid(maxY, drag.gridSize);
       } else {
         minX = Math.round(minX);
         minY = Math.round(minY);
@@ -929,19 +949,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ) => {
       lastDragBoundsRef.current = bounds;
       if (mode === 'move') {
-        let maxX = bounds.maxX - drag.width;
-        let maxY = bounds.maxY - drag.height;
-        if (maxX < bounds.minX) {
-          maxX = bounds.minX;
-        }
-        if (maxY < bounds.minY) {
-          maxY = bounds.minY;
-        }
+        const { hx, hy } = getRotatedHalfExtents(drag.width, drag.height, rotForClamp);
         return {
-          x: clamp(nextX, bounds.minX, maxX),
-          y: clamp(nextY, bounds.minY, maxY),
-          hx: drag.width / 2,
-          hy: drag.height / 2,
+          x: clamp(nextX, bounds.minX, bounds.maxX),
+          y: clamp(nextY, bounds.minY, bounds.maxY),
+          hx,
+          hy,
         };
       }
       return clampTopLeftForRotationWithinBounds(
@@ -2436,7 +2449,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, shouldSnap);
+      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
+      if (debugSeating) {
+        const prevBounds = lastDragComputedBoundsRef.current;
+        const boundsChanged =
+          !prevBounds ||
+          prevBounds.minX !== bounds.minX ||
+          prevBounds.minY !== bounds.minY ||
+          prevBounds.maxX !== bounds.maxX ||
+          prevBounds.maxY !== bounds.maxY;
+        if (boundsChanged) {
+          const now = Date.now();
+          if (now - dragBoundsChangeLogRef.current > 500) {
+            dragBoundsChangeLogRef.current = now;
+            console.debug('[seating] drag bounds changed', {
+              tableId: drag.tableId,
+              prev: prevBounds,
+              next: bounds,
+            });
+          }
+          lastDragComputedBoundsRef.current = bounds;
+        }
+      }
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
@@ -2477,23 +2511,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           rotForClamp
         )
       ) {
-        if (debugSeating) {
+        const start =
+          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
+        const resolved = resolveTablePositionWithSweep({
+          startX: start.x,
+          startY: start.y,
+          endX: nextX,
+          endY: nextY,
+          drag,
+          rotDeg: rotForClamp,
+          bounds,
+          mode: 'move',
+        });
+        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
+          nextX = start.x;
+          nextY = start.y;
+        } else {
+          nextX = resolved.x;
+          nextY = resolved.y;
+        }
+        if (debugSeating && resolved.collided) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
+            console.debug('[seating] drag sweep', {
+              reason: 'obstacle-sweep',
               tableId: drag.tableId,
               nextX,
               nextY,
               rot: rotForClamp,
             });
-            requestDebugFlush('obstacle-collision');
+            requestDebugFlush('obstacle-sweep');
           }
         }
-        return;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
+      if (
+        !isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        lastValidTablePosRef.current = { x: nextX, y: nextY };
+      }
       if (debugSeating) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
@@ -2683,7 +2745,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, shouldSnap);
+      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
@@ -2713,30 +2775,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           rotForClamp
         )
       ) {
-        if (debugSeating) {
+        const start =
+          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
+        const resolved = resolveTablePositionWithSweep({
+          startX: start.x,
+          startY: start.y,
+          endX: nextX,
+          endY: nextY,
+          drag,
+          rotDeg: rotForClamp,
+          bounds,
+          mode: 'move',
+        });
+        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
+          nextX = start.x;
+          nextY = start.y;
+        } else {
+          nextX = resolved.x;
+          nextY = resolved.y;
+        }
+        if (debugSeating && resolved.collided) {
           const now = Date.now();
           if (now - dragClampDebugRef.current > 500) {
             dragClampDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'obstacle-collision',
+            console.debug('[seating] drag sweep', {
+              reason: 'obstacle-sweep',
               tableId: drag.tableId,
               nextX,
               nextY,
               rot: rotForClamp,
             });
-            requestDebugFlush('obstacle-collision');
+            requestDebugFlush('obstacle-sweep');
           }
         }
+      }
+      if (
+        !isTableOverlappingObstacle(
+          nextX,
+          nextY,
+          drag.width,
+          drag.height,
+          rotForClamp
+        )
+      ) {
+        lastValidTablePosRef.current = { x: nextX, y: nextY };
+      } else {
         const lastValid =
           lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
-        updateDraftPosition(tableId, lastValid.x, lastValid.y);
-        releaseDragPointerCaptureRef.current(drag);
-        unregisterWindowTableDragListenersRef.current();
-        setDragState(null);
-        void finalizeDragRef.current(tableId, lastValid.x, lastValid.y);
-        return;
+        nextX = lastValid.x;
+        nextY = lastValid.y;
       }
-      lastValidTablePosRef.current = { x: nextX, y: nextY };
       updateDraftPosition(tableId, nextX, nextY);
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
@@ -2907,6 +2995,41 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const sin = Math.sin(rad);
     const boundW = Math.ceil(Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin));
     const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
+    if (debugSeating) {
+      const shouldSnap =
+        snapEnabledRef.current &&
+        (table.snapToGrid ?? false) &&
+        !precisionEnabledRef.current;
+      const bounds = computeDragBounds(
+        {
+          floorplanWidth: floorplanW,
+          floorplanHeight: floorplanH,
+          width: geometry.w,
+          height: geometry.h,
+          gridSize: editorGridSize,
+        },
+        renderRot,
+        shouldSnap
+      );
+      const { hx, hy } = getRotatedHalfExtents(geometry.w, geometry.h, renderRot);
+      const aabbW = hx * 2;
+      const aabbH = hy * 2;
+      lastDragComputedBoundsRef.current = bounds;
+      console.debug('[seating] drag bounds init', {
+        tableId: table.id,
+        floorplanW,
+        floorplanH,
+        width: geometry.w,
+        height: geometry.h,
+        rot: renderRot,
+        bounds,
+        aabbW,
+        aabbH,
+        shouldSnap,
+      });
+    } else {
+      lastDragComputedBoundsRef.current = null;
+    }
     if (debugSeating) {
       console.debug('[seating] drag scale', {
         scale: dragTransform.scale,
@@ -4444,6 +4567,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               >
                 Precision {precisionEnabled ? 'ON' : 'OFF'}
               </button>
+              {floorplanMode === 'edit' && (isDev || debugSeating) && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      showObstacleDebug
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setShowObstacleDebug(current => !current)}
+                  >
+                    Obstacles {showObstacleDebug ? 'ON' : 'OFF'}
+                  </button>
+                  <span className="text-[11px] text-gray-500">
+                    obstacles: {activeObstacles.length}
+                  </span>
+                </div>
+              )}
               {floorplanMode === 'edit' && (
                 <>
                   <button
@@ -4679,6 +4820,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         }}
                       />
                     )}
+                    {showObstacleDebug &&
+                      activeObstacles.map(obstacle => {
+                        const rect = getObstacleRenderRect(obstacle);
+                        return (
+                          <div
+                            key={`debug-${obstacle.id}`}
+                            className="absolute z-[8] border border-dashed border-emerald-400 bg-emerald-200/30 text-[9px] text-emerald-900 pointer-events-none"
+                            style={{
+                              left: rect.x,
+                              top: rect.y,
+                              width: rect.w,
+                              height: rect.h,
+                            }}
+                          >
+                            <span className="absolute left-1 top-1">
+                              {obstacle.name ?? obstacle.id}
+                            </span>
+                          </div>
+                        );
+                      })}
                     {activeObstacles.map(obstacle => {
                       const rect = getObstacleRenderRect(obstacle);
                       const isSelected = selectedObstacleId === obstacle.id;
@@ -4765,7 +4926,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       return (
                         <div
                           key={table.id}
-                          className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none relative touch-none ${
+                          className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none touch-none ${
                             floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
                           }`}
                           style={{
@@ -4799,201 +4960,211 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             floorplanMode === 'edit' ? handleLostPointerCapture : undefined
                           }
                         >
-                      {isSelected && !table.locked && floorplanMode === 'edit' && (
-                        <>
-                          <span
-                            className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
-                            aria-hidden="true"
-                          />
-                          <button
-                            type="button"
-                            className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
-                            style={{ touchAction: 'none' }}
-                            onPointerDown={event => {
-                              if (!activeFloorplan) return;
-                              event.preventDefault();
-                              event.stopPropagation();
-                              setSelectedTableId(table.id);
-                              if (debugSeating) {
-                                requestDebugFlush(null);
-                              }
-                              event.currentTarget.setPointerCapture?.(event.pointerId);
-                              const centerX = position.x + geometry.w / 2;
-                              const centerY = position.y + geometry.h / 2;
-                              const dragRect = getViewportRect();
-                              const dragTransform = computeFloorplanTransformFromRect(
-                                dragRect,
-                                floorplanW,
-                                floorplanH
-                              );
-                              const pointer = mapClientToFloorplanUsingTransform(
-                                event.clientX,
-                                event.clientY,
-                                dragTransform,
-                                dragRect
-                              );
-                              if (!pointer) {
-                                return;
-                              }
-                              const startAngle =
-                                Math.atan2(pointer.y - centerY, pointer.x - centerX) *
-                                (180 / Math.PI);
-                              setDragState({
-                                tableId: table.id,
-                                pointerId: event.pointerId,
-                                pointerTarget: event.currentTarget,
-                                pointerStartClientX: event.clientX,
-                                pointerStartClientY: event.clientY,
-                                pointerStartFloorX: pointer.x,
-                                pointerStartFloorY: pointer.y,
-                                dragStartTransform: dragTransform,
-                                dragStartRect: dragRect,
-                                dragStartScale: safeScale(dragTransform.scale),
-                                tableStartX: position.x,
-                                tableStartY: position.y,
-                                width: geometry.w,
-                                height: geometry.h,
-                                boundW: geometry.w,
-                                boundH: geometry.h,
-                                mode: 'rotate',
-                                tableStartRot: renderRot,
-                                rotStartAngleDeg: startAngle,
-                                rotCenterX: centerX,
-                                rotCenterY: centerY,
-                                floorplanWidth: floorplanW,
-                                floorplanHeight: floorplanH,
-                                gridSize: editorGridSize,
-                                snapToGrid: table.snapToGrid ?? false,
-                              });
-                              registerWindowTableDragListeners();
-                              setLastSavedRot(current =>
-                                current[table.id] !== undefined
-                                  ? current
-                                  : { ...current, [table.id]: renderRot }
-                              );
-                            }}
-                            onPointerMove={handleTablePointerMove}
-                            onPointerUp={handleTablePointerUp}
-                            onPointerCancel={handleTablePointerCancel}
-                            onLostPointerCapture={handleLostPointerCapture}
-                          >
-                            <span className="h-1 w-1 rounded-full bg-gray-500" />
-                          </button>
-                        </>
-                      )}
-                      {isOverlappingObstacle && (
-                        <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
-                          !
-                        </span>
-                      )}
-                      {debugSeating && isOverlappingObstacle && (
-                        <>
-                          <div
-                            className="pointer-events-none absolute border border-dashed border-amber-500"
-                            style={{
-                              left: tableRect.x,
-                              top: tableRect.y,
-                              width: tableRect.w,
-                              height: tableRect.h,
-                            }}
-                          />
-                          {obstacleHits.map(hit => (
-                            <div
-                              key={`overlap-${table.id}-${hit.id}`}
-                              className="pointer-events-none absolute border border-dashed border-rose-500"
-                              style={{
-                                left: hit.rect.x,
-                                top: hit.rect.y,
-                                width: hit.rect.w,
-                                height: hit.rect.h,
-                              }}
-                            />
-                          ))}
-                        </>
-                      )}
-                      {table.name}
-                      <div className="flex gap-1 mt-1">
-                        {table.locked && (
-                          <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
-                        )}
-                        {table.canCombine && (
-                          <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
-                        )}
-                        {isSaving && (
-                          <span className="px-1 rounded bg-blue-100 text-[9px]">Saving...</span>
-                        )}
-                        {isSelected && (
-                          <span className="px-1 rounded bg-gray-100 text-[9px]">
-                            {Math.round(renderRot)}°
-                          </span>
-                        )}
-                      </div>
-                      {isSelected && !table.locked && (
-                        <div className="flex gap-1 mt-1">
-                          <button
-                            type="button"
-                            className="px-1 rounded bg-gray-100 text-[9px]"
-                            onPointerDown={event => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            }}
-                            onClick={event => {
-                              event.stopPropagation();
-                              const nextRot = normalizeRotation(renderRot - 5);
-                              updateDraftRotation(table.id, nextRot);
-                              setLastSavedRot(current => ({
-                                ...current,
-                                [table.id]:
-                                  current[table.id] !== undefined ? current[table.id] : renderRot,
-                              }));
-                              void finalizeRotationRef.current(table.id, nextRot, renderRot);
-                            }}
-                          >
-                            ↺
-                          </button>
-                          <button
-                            type="button"
-                            className="px-1 rounded bg-gray-100 text-[9px]"
-                            onPointerDown={event => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            }}
-                            onClick={event => {
-                              event.stopPropagation();
-                              const nextRot = normalizeRotation(renderRot + 5);
-                              updateDraftRotation(table.id, nextRot);
-                              setLastSavedRot(current => ({
-                                ...current,
-                                [table.id]:
-                                  current[table.id] !== undefined ? current[table.id] : renderRot,
-                              }));
-                              void finalizeRotationRef.current(table.id, nextRot, renderRot);
-                            }}
-                          >
-                            ↻
-                          </button>
-                          <button
-                            type="button"
-                            className="px-1 rounded bg-gray-100 text-[9px]"
-                            onPointerDown={event => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            }}
-                            onClick={event => {
-                              event.stopPropagation();
-                              updateDraftRotation(table.id, 0);
-                              setLastSavedRot(current => ({
-                                ...current,
-                                [table.id]:
-                                  current[table.id] !== undefined ? current[table.id] : renderRot,
-                              }));
-                              void finalizeRotationRef.current(table.id, 0, renderRot);
-                            }}
-                          >
-                            Reset
-                          </button>
-                        </div>
-                      )}
+                          <div className="relative h-full w-full">
+                            {isSelected && !table.locked && floorplanMode === 'edit' && (
+                              <>
+                                <span
+                                  className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
+                                  aria-hidden="true"
+                                />
+                                <button
+                                  type="button"
+                                  className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
+                                  style={{ touchAction: 'none' }}
+                                  onPointerDown={event => {
+                                    if (!activeFloorplan) return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setSelectedTableId(table.id);
+                                    if (debugSeating) {
+                                      requestDebugFlush(null);
+                                    }
+                                    event.currentTarget.setPointerCapture?.(event.pointerId);
+                                    const centerX = position.x + geometry.w / 2;
+                                    const centerY = position.y + geometry.h / 2;
+                                    const dragRect = getViewportRect();
+                                    const dragTransform = computeFloorplanTransformFromRect(
+                                      dragRect,
+                                      floorplanW,
+                                      floorplanH
+                                    );
+                                    const pointer = mapClientToFloorplanUsingTransform(
+                                      event.clientX,
+                                      event.clientY,
+                                      dragTransform,
+                                      dragRect
+                                    );
+                                    if (!pointer) {
+                                      return;
+                                    }
+                                    const startAngle =
+                                      Math.atan2(pointer.y - centerY, pointer.x - centerX) *
+                                      (180 / Math.PI);
+                                    setDragState({
+                                      tableId: table.id,
+                                      pointerId: event.pointerId,
+                                      pointerTarget: event.currentTarget,
+                                      pointerStartClientX: event.clientX,
+                                      pointerStartClientY: event.clientY,
+                                      pointerStartFloorX: pointer.x,
+                                      pointerStartFloorY: pointer.y,
+                                      dragStartTransform: dragTransform,
+                                      dragStartRect: dragRect,
+                                      dragStartScale: safeScale(dragTransform.scale),
+                                      tableStartX: position.x,
+                                      tableStartY: position.y,
+                                      width: geometry.w,
+                                      height: geometry.h,
+                                      boundW: geometry.w,
+                                      boundH: geometry.h,
+                                      mode: 'rotate',
+                                      tableStartRot: renderRot,
+                                      rotStartAngleDeg: startAngle,
+                                      rotCenterX: centerX,
+                                      rotCenterY: centerY,
+                                      floorplanWidth: floorplanW,
+                                      floorplanHeight: floorplanH,
+                                      gridSize: editorGridSize,
+                                      snapToGrid: table.snapToGrid ?? false,
+                                    });
+                                    registerWindowTableDragListeners();
+                                    setLastSavedRot(current =>
+                                      current[table.id] !== undefined
+                                        ? current
+                                        : { ...current, [table.id]: renderRot }
+                                    );
+                                  }}
+                                  onPointerMove={handleTablePointerMove}
+                                  onPointerUp={handleTablePointerUp}
+                                  onPointerCancel={handleTablePointerCancel}
+                                  onLostPointerCapture={handleLostPointerCapture}
+                                >
+                                  <span className="h-1 w-1 rounded-full bg-gray-500" />
+                                </button>
+                              </>
+                            )}
+                            {isOverlappingObstacle && (
+                              <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
+                                !
+                              </span>
+                            )}
+                            {debugSeating && isOverlappingObstacle && (
+                              <>
+                                <div
+                                  className="pointer-events-none absolute border border-dashed border-amber-500"
+                                  style={{
+                                    left: tableRect.x,
+                                    top: tableRect.y,
+                                    width: tableRect.w,
+                                    height: tableRect.h,
+                                  }}
+                                />
+                                {obstacleHits.map(hit => (
+                                  <div
+                                    key={`overlap-${table.id}-${hit.id}`}
+                                    className="pointer-events-none absolute border border-dashed border-rose-500"
+                                    style={{
+                                      left: hit.rect.x,
+                                      top: hit.rect.y,
+                                      width: hit.rect.w,
+                                      height: hit.rect.h,
+                                    }}
+                                  />
+                                ))}
+                              </>
+                            )}
+                            {table.name}
+                            <div className="flex gap-1 mt-1">
+                              {table.locked && (
+                                <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
+                              )}
+                              {table.canCombine && (
+                                <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
+                              )}
+                              {isSaving && (
+                                <span className="px-1 rounded bg-blue-100 text-[9px]">
+                                  Saving...
+                                </span>
+                              )}
+                              {isSelected && (
+                                <span className="px-1 rounded bg-gray-100 text-[9px]">
+                                  {Math.round(renderRot)}°
+                                </span>
+                              )}
+                            </div>
+                            {isSelected && !table.locked && (
+                              <div className="flex gap-1 mt-1">
+                                <button
+                                  type="button"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    const nextRot = normalizeRotation(renderRot - 5);
+                                    updateDraftRotation(table.id, nextRot);
+                                    setLastSavedRot(current => ({
+                                      ...current,
+                                      [table.id]:
+                                        current[table.id] !== undefined
+                                          ? current[table.id]
+                                          : renderRot,
+                                    }));
+                                    void finalizeRotationRef.current(table.id, nextRot, renderRot);
+                                  }}
+                                >
+                                  ↺
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    const nextRot = normalizeRotation(renderRot + 5);
+                                    updateDraftRotation(table.id, nextRot);
+                                    setLastSavedRot(current => ({
+                                      ...current,
+                                      [table.id]:
+                                        current[table.id] !== undefined
+                                          ? current[table.id]
+                                          : renderRot,
+                                    }));
+                                    void finalizeRotationRef.current(table.id, nextRot, renderRot);
+                                  }}
+                                >
+                                  ↻
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    updateDraftRotation(table.id, 0);
+                                    setLastSavedRot(current => ({
+                                      ...current,
+                                      [table.id]:
+                                        current[table.id] !== undefined
+                                          ? current[table.id]
+                                          : renderRot,
+                                    }));
+                                    void finalizeRotationRef.current(table.id, 0, renderRot);
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
