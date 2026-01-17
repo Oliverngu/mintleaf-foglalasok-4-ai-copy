@@ -869,9 +869,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       nextY: number,
       drag: NonNullable<typeof dragState>,
       rotForClamp: number,
-      bounds: { minX: number; minY: number; maxX: number; maxY: number }
+      bounds: { minX: number; minY: number; maxX: number; maxY: number },
+      mode: 'move' | 'rotate'
     ) => {
       lastDragBoundsRef.current = bounds;
+      if (mode === 'move') {
+        const maxX = bounds.maxX - drag.width;
+        const maxY = bounds.maxY - drag.height;
+        return {
+          x: clamp(nextX, bounds.minX, maxX),
+          y: clamp(nextY, bounds.minY, maxY),
+          hx: drag.width / 2,
+          hy: drag.height / 2,
+        };
+      }
       return clampTopLeftForRotationWithinBounds(
         nextX,
         nextY,
@@ -927,16 +938,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ) {
     return mode === 'move' ? getTableMoveBounds(x, y, w, h) : getTableRotationBounds(x, y, w, h, rotDeg);
   }
-  function getRenderedObstacleRect(obstacle: FloorplanObstacle) {
-    const draft = draftObstacles[obstacle.id];
-    const base = draft ?? obstacle;
-    return {
-      x: base.x,
-      y: base.y,
-      w: Math.max(20, base.w),
-      h: Math.max(20, base.h),
-    };
-  }
   function isRectIntersectingEpsilon(
     a: { x: number; y: number; w: number; h: number },
     b: { x: number; y: number; w: number; h: number },
@@ -978,8 +979,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     const bounds = getRenderedTableRect(x, y, w, h, rotDeg, mode);
     return activeObstacles.some(obstacle => {
-      const rect = getRenderedObstacleRect(obstacle);
-      return isRectIntersectingEpsilon(bounds, rect);
+      const rect = getObstacleRect(obstacle);
+      if (mode === 'move') {
+        return isRectIntersectingEpsilon(bounds, rect);
+      }
+      return isRectIntersecting(bounds, rect);
     });
   }
 
@@ -2341,7 +2345,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const bounds = computeDragBounds(drag, shouldSnap);
-      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
+      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
       requestDebugFlush();
@@ -2386,9 +2390,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getRenderedObstacleRect(obstacle),
+                rect: getObstacleRect(obstacle),
               }))
-              .filter(hit => isRectIntersectingEpsilon(bounds, hit.rect));
+              .filter(hit =>
+                drag.mode === 'move'
+                  ? isRectIntersectingEpsilon(bounds, hit.rect)
+                  : isRectIntersecting(bounds, hit.rect)
+              );
             const obstacleIds = obstacleHits.map(hit => hit.id);
             console.debug('[seating] drag blocked', {
               reason: 'obstacle-collision',
@@ -2452,6 +2460,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       getTableRotationBounds,
       isTableOverlappingObstacle,
       isRectIntersectingEpsilon,
+      isRectIntersecting,
       mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -2557,7 +2566,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
       const bounds = computeDragBounds(drag, shouldSnap);
-      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds);
+      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
       requestDebugFlush();
@@ -2602,9 +2611,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             const obstacleHits = activeObstacles
               .map(obstacle => ({
                 id: obstacle.id,
-                rect: getRenderedObstacleRect(obstacle),
+                rect: getObstacleRect(obstacle),
               }))
-              .filter(hit => isRectIntersectingEpsilon(bounds, hit.rect));
+              .filter(hit =>
+                drag.mode === 'move'
+                  ? isRectIntersectingEpsilon(bounds, hit.rect)
+                  : isRectIntersecting(bounds, hit.rect)
+              );
             const obstacleIds = obstacleHits.map(hit => hit.id);
             console.debug('[seating] drag blocked', {
               reason: 'obstacle-collision',
@@ -2652,6 +2665,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       getObstacleRect,
       getTableRotationBounds,
       isRectIntersectingEpsilon,
+      isRectIntersecting,
       mapClientToFloorplanUsingRenderTransform,
       normalizeRotation,
       requestDebugFlush,
@@ -4637,7 +4651,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           ? activeObstacles
                               .map(obstacle => ({
                                 id: obstacle.id,
-                                rect: getRenderedObstacleRect(obstacle),
+                                rect: getObstacleRect(obstacle),
                               }))
                               .filter(hit => isRectIntersectingEpsilon(tableRect, hit.rect))
                           : [];
