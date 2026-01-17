@@ -4,6 +4,7 @@
 Ez a projekt elő van készítve Capacitor integrációra.
 A folyamat indítása előtt futtasd:
 ```bash
+npm install
 npm run build
 npx cap init
 ```
