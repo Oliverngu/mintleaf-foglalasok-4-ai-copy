@@ -888,16 +888,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
   const computeDragBounds = useCallback(
-    (drag: NonNullable<typeof dragState>, shouldSnap: boolean) => {
-      let minX = 0;
-      let minY = 0;
-      let maxX = drag.floorplanWidth;
-      let maxY = drag.floorplanHeight;
+    (
+      drag: Pick<
+        NonNullable<typeof dragState>,
+        'floorplanWidth' | 'floorplanHeight' | 'width' | 'height' | 'gridSize'
+      >,
+      rotDeg: number,
+      shouldSnap: boolean
+    ) => {
+      const { hx, hy } = getRotatedHalfExtents(drag.width, drag.height, rotDeg);
+      let minX = hx - drag.width / 2;
+      let maxX = drag.floorplanWidth - hx - drag.width / 2;
+      let minY = hy - drag.height / 2;
+      let maxY = drag.floorplanHeight - hy - drag.height / 2;
       if (shouldSnap) {
-        minX = floorToGrid(minX, drag.gridSize);
-        minY = floorToGrid(minY, drag.gridSize);
-        maxX = ceilToGrid(maxX, drag.gridSize);
-        maxY = ceilToGrid(maxY, drag.gridSize);
+        minX = ceilToGrid(minX, drag.gridSize);
+        minY = ceilToGrid(minY, drag.gridSize);
+        maxX = floorToGrid(maxX, drag.gridSize);
+        maxY = floorToGrid(maxY, drag.gridSize);
       } else {
         minX = Math.round(minX);
         minY = Math.round(minY);
@@ -929,19 +937,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ) => {
       lastDragBoundsRef.current = bounds;
       if (mode === 'move') {
-        let maxX = bounds.maxX - drag.width;
-        let maxY = bounds.maxY - drag.height;
-        if (maxX < bounds.minX) {
-          maxX = bounds.minX;
-        }
-        if (maxY < bounds.minY) {
-          maxY = bounds.minY;
-        }
+        const { hx, hy } = getRotatedHalfExtents(drag.width, drag.height, rotForClamp);
         return {
-          x: clamp(nextX, bounds.minX, maxX),
-          y: clamp(nextY, bounds.minY, maxY),
-          hx: drag.width / 2,
-          hy: drag.height / 2,
+          x: clamp(nextX, bounds.minX, bounds.maxX),
+          y: clamp(nextY, bounds.minY, bounds.maxY),
+          hx,
+          hy,
         };
       }
       return clampTopLeftForRotationWithinBounds(
@@ -2436,7 +2437,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, shouldSnap);
+      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
@@ -2683,7 +2684,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = applyGrid(nextY, drag.gridSize);
       }
       const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, shouldSnap);
+      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
       const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
       nextX = clamped.x;
       nextY = clamped.y;
