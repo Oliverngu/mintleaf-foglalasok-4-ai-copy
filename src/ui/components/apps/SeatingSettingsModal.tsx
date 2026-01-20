@@ -403,6 +403,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     locked: false,
   });
 
+  const [selectedTableDraft, setSelectedTableDraft] = useState<{
+    id: string;
+    capacityTotal: number;
+    sideCapacities: { north: number; east: number; south: number; west: number };
+    combinableWithIds: string[];
+  } | null>(null);
+  const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
+
   const [comboSelection, setComboSelection] = useState<string[]>([]);
   const [bgNatural, setBgNatural] = useState<{ w: number; h: number } | null>(null);
   const [floorplanForm, setFloorplanForm] = useState<{
@@ -458,6 +466,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       console.warn('[seating] debug allocation log failed', error);
     }
   }, [debugSeating, unitId]);
+
+  const defaultSideCapacities = (capacityTotal: number) => {
+    const north = Math.ceil(capacityTotal / 2);
+    const south = Math.max(0, capacityTotal - north);
+    return { north, east: 0, south, west: 0 };
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -641,9 +655,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           throw err;
         }
         if (!isMounted) return;
+        const tableIds = new Set(tablesData.map(table => table.id));
+        const prunedTables = tablesData.map(table => {
+          const prunedCombinable = (table.combinableWithIds ?? []).filter(
+            id => tableIds.has(id) && id !== table.id
+          );
+          if (prunedCombinable.length === (table.combinableWithIds ?? []).length) {
+            return table;
+          }
+          return { ...table, combinableWithIds: prunedCombinable };
+        });
         setSettings(settingsData);
         setZones(zonesData);
-        setTables(tablesData);
+        setTables(prunedTables);
         setCombos(combosData);
         setFloorplans(floorplansData);
         lastSavedSnapshotRef.current = settingsData
@@ -797,6 +821,57 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table => !table.floorplanId || table.floorplanId === activeFloorplan.id
     );
   }, [activeFloorplan, tables]);
+  const selectedTable = useMemo(
+    () => tables.find(table => table.id === selectedTableId) ?? null,
+    [selectedTableId, tables]
+  );
+  useEffect(() => {
+    if (!selectedTable) {
+      setSelectedTableDraft(null);
+      return;
+    }
+    const capacityTotal =
+      typeof selectedTable.capacityTotal === 'number' &&
+      Number.isFinite(selectedTable.capacityTotal)
+        ? selectedTable.capacityTotal
+        : selectedTable.capacityMax > 0
+        ? selectedTable.capacityMax
+        : selectedTable.minCapacity > 0
+        ? selectedTable.minCapacity
+        : 2;
+    setSelectedTableDraft({
+      id: selectedTable.id,
+      capacityTotal,
+      sideCapacities:
+        selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
+      combinableWithIds: selectedTable.combinableWithIds ?? [],
+    });
+  }, [
+    selectedTable?.id,
+    selectedTable?.capacityTotal,
+    selectedTable?.capacityMax,
+    selectedTable?.minCapacity,
+    selectedTable?.sideCapacities?.north,
+    selectedTable?.sideCapacities?.east,
+    selectedTable?.sideCapacities?.south,
+    selectedTable?.sideCapacities?.west,
+    selectedTable?.combinableWithIds?.join('|'),
+  ]);
+  const combinableTableOptions = useMemo(() => {
+    if (!selectedTable) return [] as Table[];
+    return editorTables.filter(
+      table => table.id !== selectedTable.id && table.zoneId === selectedTable.zoneId
+    );
+  }, [editorTables, selectedTable]);
+  const sideCapacitySum = useMemo(() => {
+    if (!selectedTableDraft) return 0;
+    return (
+      selectedTableDraft.sideCapacities.north +
+      selectedTableDraft.sideCapacities.east +
+      selectedTableDraft.sideCapacities.south +
+      selectedTableDraft.sideCapacities.west
+    );
+  }, [selectedTableDraft]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -1851,6 +1926,79 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           snapToGrid: true,
           locked: false,
         });
+      },
+    });
+  };
+
+  const sanitizeCapacityValue = (value: number) =>
+    Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+
+  const handleSelectedTableMetadataSave = async () => {
+    if (!selectedTableDraft) return;
+    const capacityTotal = sanitizeCapacityValue(selectedTableDraft.capacityTotal);
+    const sideCapacities = {
+      north: sanitizeCapacityValue(selectedTableDraft.sideCapacities.north),
+      east: sanitizeCapacityValue(selectedTableDraft.sideCapacities.east),
+      south: sanitizeCapacityValue(selectedTableDraft.sideCapacities.south),
+      west: sanitizeCapacityValue(selectedTableDraft.sideCapacities.west),
+    };
+    const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
+      id => id !== selectedTableDraft.id
+    );
+    const payload = { capacityTotal, sideCapacities, combinableWithIds };
+    await runAction({
+      key: `table-meta-${selectedTableDraft.id}`,
+      errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
+      errorContext: 'Error saving table capacity metadata:',
+      successMessage: 'Asztal kapacitás mentve.',
+      action: async () => {
+        await updateTable(unitId, selectedTableDraft.id, payload);
+        setTables(current =>
+          current.map(table =>
+            table.id === selectedTableDraft.id ? { ...table, ...payload } : table
+          )
+        );
+        setSelectedTableDraft(current =>
+          current && current.id === selectedTableDraft.id
+            ? { ...current, capacityTotal, sideCapacities, combinableWithIds }
+            : current
+        );
+      },
+    });
+  };
+
+  const handleCreateBaseCombo = async () => {
+    if (baseComboSelection.length < 2) {
+      setError('Legalább két asztalt válassz a base kombinációhoz.');
+      setSuccess(null);
+      return;
+    }
+    const groupId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `base-combo-${Date.now()}`;
+    const updates = baseComboSelection.map(tableId => ({
+      tableId,
+      baseCombo: { groupId, role: 'member' as const },
+    }));
+    await runAction({
+      key: `base-combo-${groupId}`,
+      errorMessage: 'Nem sikerült létrehozni a base kombinációt.',
+      errorContext: 'Error creating base combo:',
+      successMessage: 'Base kombináció létrehozva.',
+      action: async () => {
+        await Promise.all(
+          updates.map(update =>
+            updateTable(unitId, update.tableId, { baseCombo: update.baseCombo })
+          )
+        );
+        setTables(current =>
+          current.map(table => {
+            const update = updates.find(item => item.tableId === table.id);
+            return update ? { ...table, baseCombo: update.baseCombo } : table;
+          })
+        );
+        setBaseComboSelection([]);
       },
     });
   };
@@ -4926,9 +5074,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       return (
                         <div
                           key={table.id}
+                          // Drag root must stay non-relative to preserve pointer math.
                           className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none touch-none ${
                             floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
                           }`}
+                          data-seating-table-root="1"
                           style={{
                             left: position.x,
                             top: position.y,
@@ -5174,6 +5324,221 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             </div>
           </div>
         )}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="border rounded-lg p-3 text-sm space-y-3">
+            <h4 className="font-semibold">Kiválasztott asztal</h4>
+            {!selectedTable || !selectedTableDraft ? (
+              <div className="text-xs text-[var(--color-text-secondary)]">
+                Kattints egy asztalra az alaprajzon a szerkesztéshez.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">
+                  {selectedTable.name || selectedTable.id} • zóna: {selectedTable.zoneId}
+                  {selectedTable.baseCombo ? (
+                    <>
+                      {' '}
+                      • base combo: {selectedTable.baseCombo.groupId} (
+                      {selectedTable.baseCombo.role})
+                    </>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1">
+                    Kapacitás összesen
+                    <input
+                      type="number"
+                      min={0}
+                      className="border rounded p-2"
+                      value={selectedTableDraft.capacityTotal}
+                      onChange={event =>
+                        setSelectedTableDraft(current =>
+                          current
+                            ? {
+                                ...current,
+                                capacityTotal: Number(event.target.value),
+                              }
+                            : current
+                        )
+                      }
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 text-xs">
+                      Észak
+                      <input
+                        type="number"
+                        min={0}
+                        className="border rounded p-2"
+                        value={selectedTableDraft.sideCapacities.north}
+                        onChange={event =>
+                          setSelectedTableDraft(current =>
+                            current
+                              ? {
+                                  ...current,
+                                  sideCapacities: {
+                                    ...current.sideCapacities,
+                                    north: Number(event.target.value),
+                                  },
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      Kelet
+                      <input
+                        type="number"
+                        min={0}
+                        className="border rounded p-2"
+                        value={selectedTableDraft.sideCapacities.east}
+                        onChange={event =>
+                          setSelectedTableDraft(current =>
+                            current
+                              ? {
+                                  ...current,
+                                  sideCapacities: {
+                                    ...current.sideCapacities,
+                                    east: Number(event.target.value),
+                                  },
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      Dél
+                      <input
+                        type="number"
+                        min={0}
+                        className="border rounded p-2"
+                        value={selectedTableDraft.sideCapacities.south}
+                        onChange={event =>
+                          setSelectedTableDraft(current =>
+                            current
+                              ? {
+                                  ...current,
+                                  sideCapacities: {
+                                    ...current.sideCapacities,
+                                    south: Number(event.target.value),
+                                  },
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      Nyugat
+                      <input
+                        type="number"
+                        min={0}
+                        className="border rounded p-2"
+                        value={selectedTableDraft.sideCapacities.west}
+                        onChange={event =>
+                          setSelectedTableDraft(current =>
+                            current
+                              ? {
+                                  ...current,
+                                  sideCapacities: {
+                                    ...current.sideCapacities,
+                                    west: Number(event.target.value),
+                                  },
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+                {sideCapacitySum !== selectedTableDraft.capacityTotal && (
+                  <div className="text-xs text-amber-600">
+                    Figyelem: az oldal kapacitások összege ({sideCapacitySum}) nem
+                    egyezik a teljes kapacitással ({selectedTableDraft.capacityTotal}).
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-600">
+                    Kombinálható asztalok (azonos zóna)
+                  </div>
+                  {combinableTableOptions.length === 0 ? (
+                    <div className="text-xs text-[var(--color-text-secondary)]">
+                      Nincs elérhető asztal a zónában.
+                    </div>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {combinableTableOptions.map(option => (
+                        <label key={option.id} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={selectedTableDraft.combinableWithIds.includes(option.id)}
+                            onChange={event =>
+                              setSelectedTableDraft(current => {
+                                if (!current) return current;
+                                const next = event.target.checked
+                                  ? [...current.combinableWithIds, option.id]
+                                  : current.combinableWithIds.filter(id => id !== option.id);
+                                return { ...current, combinableWithIds: next };
+                              })
+                            }
+                          />
+                          {option.name || option.id}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={event =>
+                    handleActionButtonClick(event, handleSelectedTableMetadataSave)
+                  }
+                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-50"
+                  disabled={actionSaving[`table-meta-${selectedTableDraft.id}`]}
+                >
+                  {actionSaving[`table-meta-${selectedTableDraft.id}`]
+                    ? 'Mentés...'
+                    : 'Kapacitás mentése'}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="border rounded-lg p-3 text-sm space-y-3">
+            <h4 className="font-semibold">Base kombináció</h4>
+            <div className="text-xs text-[var(--color-text-secondary)]">
+              Jelölj ki több asztalt, majd hozd létre a base kombót (csak metaadat).
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {editorTables.map(table => (
+                <label key={table.id} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={baseComboSelection.includes(table.id)}
+                    onChange={event =>
+                      setBaseComboSelection(current =>
+                        event.target.checked
+                          ? [...current, table.id]
+                          : current.filter(id => id !== table.id)
+                      )
+                    }
+                  />
+                  {table.name || table.id}
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={event => handleActionButtonClick(event, handleCreateBaseCombo)}
+              className="px-3 py-2 rounded-lg bg-amber-500 text-white text-xs disabled:opacity-50"
+              disabled={baseComboSelection.length < 2}
+            >
+              Base combo létrehozása
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   );

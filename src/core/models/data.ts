@@ -174,6 +174,19 @@ export interface Table {
   zoneId: string;
   capacityMax: number;
   minCapacity: number;
+  capacityTotal?: number;
+  sideCapacities?: {
+    north: number;
+    east: number;
+    south: number;
+    west: number;
+  };
+  combinableWithIds?: string[];
+  baseCombo?: {
+    groupId: string;
+    role: 'member' | 'aggregate';
+    memberIds?: string[];
+  };
   isActive: boolean;
   tableGroup?: string | null;
   tags?: string[];
@@ -313,6 +326,11 @@ export interface ReservationSetting {
     id: string; // unitId
     blackoutDates: string[]; // "YYYY-MM-DD"
     dailyCapacity?: number | null;
+    capacityMode?: 'daily' | 'timeWindow';
+    timeWindowCapacity?: number | null;
+    bucketMinutes?: number;
+    bufferMinutes?: number;
+    upcomingWarningMinutes?: number;
     bookableWindow?: { from: string; to: string }; // "HH:mm"
     kitchenStartTime?: string | null;
     kitchenEndTime?: string | null;
@@ -331,6 +349,7 @@ export interface ReservationCapacity {
   count?: number;
   totalCount?: number;
   byTimeSlot?: Record<string, number>;
+  byTimeBucket?: Record<string, number>;
   byZone?: Record<string, number>;
   byTableGroup?: Record<string, number>;
   limit?: number;
