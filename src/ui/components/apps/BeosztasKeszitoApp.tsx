@@ -67,6 +67,21 @@ const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
 const SUCCESS_TOAST_DURATION_MS = 3200;
 const SUCCESS_TOAST_EXIT_MS = 240;
 
+const getScrollParent = (el: HTMLElement | null): HTMLElement | Window => {
+  if (!el) return window;
+  let p: HTMLElement | null = el.parentElement;
+  while (p) {
+    const style = window.getComputedStyle(p);
+    const overflowY = style.overflowY;
+    const canScroll =
+      overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+
+    if (canScroll || p.scrollHeight > p.clientHeight) return p;
+    p = p.parentElement;
+  }
+  return window;
+};
+
 // Helper function to calculate shift duration in hours
 const calculateShiftDuration = (
   shift: Shift,
@@ -1645,6 +1660,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [toolbarHeight, setToolbarHeight] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const toolbarSentinelRef = useRef<HTMLDivElement | null>(null);
+  const toolbarFloatingRafId = useRef<number | null>(null);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
@@ -1719,27 +1735,42 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [clearToastTimers, successToast, triggerToastExit]);
 
   useEffect(() => {
-  const sentinel = toolbarSentinelRef.current;
-  if (!sentinel) return;
+    const sentinel = toolbarSentinelRef.current;
+    if (!sentinel) return;
 
-  const topOffset = topOffsetPx > 0 ? topOffsetPx : 0;
+    const topOffset = topOffsetPx > 0 ? topOffsetPx : 0;
+    const scrollParent = getScrollParent(sentinel);
+    const scrollTarget = scrollParent === window ? window : scrollParent;
 
-  const recompute = () => {
-    const top = sentinel.getBoundingClientRect().top;
-    // ha a sentinel felment a "fix header alá", akkor floating
-    setIsFloatingToolbar(top <= topOffset);
-  };
+    const recompute = () => {
+      const top = sentinel.getBoundingClientRect().top;
+      setIsFloatingToolbar(top <= topOffset);
+    };
 
-  recompute();
+    const handleScroll = () => {
+      if (toolbarFloatingRafId.current !== null) return;
+      toolbarFloatingRafId.current = window.requestAnimationFrame(() => {
+        toolbarFloatingRafId.current = null;
+        recompute();
+      });
+    };
 
-  window.addEventListener('scroll', recompute, { passive: true });
-  window.addEventListener('resize', recompute);
+    recompute();
 
-  return () => {
-    window.removeEventListener('scroll', recompute);
-    window.removeEventListener('resize', recompute);
-  };
-}, [topOffsetPx]);
+    scrollTarget.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', recompute);
+
+    return () => {
+      scrollTarget.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', recompute);
+      if (toolbarFloatingRafId.current !== null) {
+        cancelAnimationFrame(toolbarFloatingRafId.current);
+        toolbarFloatingRafId.current = null;
+      }
+    };
+  }, [topOffsetPx]);
   useEffect(() => {
     if (!toolbarRef.current) return;
     const updateHeight = () => {
