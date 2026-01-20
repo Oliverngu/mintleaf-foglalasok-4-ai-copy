@@ -34,6 +34,7 @@ import { suggestSeating } from '../../../core/services/seatingSuggestionService'
 import SeatingSettingsModal from './SeatingSettingsModal';
 import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
 import FloorplanViewer from './seating/FloorplanViewer';
+import ReservationFloorplanPreview from './reservations/ReservationFloorplanPreview';
 import {
   clearOverride,
   getOverride,
@@ -1938,6 +1939,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return map;
   }, [bookings]);
 
+  const previewDate = selectedDate ?? new Date();
+  const previewBookings = bookingsByDate.get(toLocalDateKey(previewDate)) || [];
+
   if (!activeUnitId) {
     return (
       <div className="flex items-center justify-center h-full p-8 text-center">
@@ -2197,6 +2201,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {!loading && !error && (
         <>
           {renderCalendar()}
+          <div className="mt-6">
+            <ReservationFloorplanPreview
+              unitId={activeUnitId}
+              selectedDate={previewDate}
+              bookings={previewBookings}
+            />
+          </div>
           {logsLoading ? (
             <div className="mt-6">
               <LoadingSpinner />
