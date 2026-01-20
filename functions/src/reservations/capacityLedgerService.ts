@@ -18,6 +18,78 @@ export type CapacityLedger = {
   lastMutationTraceId?: string | null;
 };
 
+export type ReservationCapacitySettings = {
+  capacityMode: 'daily' | 'timeWindow';
+  timeWindowCapacity: number | null;
+  bucketMinutes: number;
+  bufferMinutes: number;
+};
+
+export const normalizeReservationCapacitySettings = (
+  settings?: Record<string, unknown> | null
+): ReservationCapacitySettings => {
+  const capacityMode =
+    settings?.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily';
+  const timeWindowCapacity =
+    typeof settings?.timeWindowCapacity === 'number' &&
+    Number.isFinite(settings.timeWindowCapacity) &&
+    settings.timeWindowCapacity > 0
+      ? settings.timeWindowCapacity
+      : null;
+  const bucketMinutes =
+    typeof settings?.bucketMinutes === 'number' &&
+    Number.isFinite(settings.bucketMinutes) &&
+    settings.bucketMinutes > 0
+      ? Math.round(settings.bucketMinutes)
+      : 15;
+  const bufferMinutes =
+    typeof settings?.bufferMinutes === 'number' &&
+    Number.isFinite(settings.bufferMinutes) &&
+    settings.bufferMinutes >= 0
+      ? Math.round(settings.bufferMinutes)
+      : 15;
+  return { capacityMode, timeWindowCapacity, bucketMinutes, bufferMinutes };
+};
+
+const toBucketKey = (date: Date) => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+export const computeReservationBucketKeys = ({
+  startTime,
+  endTime,
+  bufferMinutes,
+  bucketMinutes,
+}: {
+  startTime: Date | null;
+  endTime: Date | null;
+  bufferMinutes: number;
+  bucketMinutes: number;
+}): string[] => {
+  if (!startTime || !endTime) return [];
+  const startMs = startTime.getTime();
+  const endMs = endTime.getTime() + bufferMinutes * 60 * 1000;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return [];
+  }
+  const dayStart = new Date(startTime);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+  const clampedStart = Math.max(startMs, dayStartMs);
+  const clampedEnd = Math.min(endMs, dayEndMs);
+  if (clampedEnd <= clampedStart) return [];
+  const bucketMs = Math.max(1, bucketMinutes) * 60 * 1000;
+  const firstBucket = Math.floor(clampedStart / bucketMs) * bucketMs;
+  const keys: string[] = [];
+  for (let t = firstBucket; t < clampedEnd; t += bucketMs) {
+    keys.push(toBucketKey(new Date(t)));
+  }
+  return Array.from(new Set(keys));
+};
+
 const warnedCapacityInvariantKeys = new Set<string>();
 const warnedCapacityReplayKeys = new Set<string>();
 
@@ -134,6 +206,9 @@ export const applyCapacityLedgerTx = async ({
   nextStatus,
   nextDateKey,
   nextHeadcount,
+  nextStartTime,
+  nextEndTime,
+  capacitySettings,
   mutationTraceId,
 }: {
   transaction: Transaction;
@@ -144,6 +219,9 @@ export const applyCapacityLedgerTx = async ({
   nextStatus: string;
   nextDateKey: string;
   nextHeadcount: number;
+  nextStartTime?: Date | null;
+  nextEndTime?: Date | null;
+  capacitySettings?: ReservationCapacitySettings;
   mutationTraceId?: string | null;
 }): Promise<void> => {
   const reservation = reservationData
@@ -156,6 +234,11 @@ export const applyCapacityLedgerTx = async ({
     ? reservation.startTime.toDate()
     : reservation.startTime instanceof Date
     ? reservation.startTime
+    : null;
+  const reservationEnd = reservation.endTime?.toDate
+    ? reservation.endTime.toDate()
+    : reservation.endTime instanceof Date
+    ? reservation.endTime
     : null;
   const currentKey = resolveLedgerCurrentKey({
     ledgerKey: ledger.key ?? null,
@@ -170,6 +253,25 @@ export const applyCapacityLedgerTx = async ({
       : 0;
   const currentSlotKey = slotKeyFromReservation(reservation);
   const desiredSlotKey = slotKeyFromReservation(reservation);
+  const normalizedCapacitySettings =
+    capacitySettings ?? normalizeReservationCapacitySettings(null);
+  const includeBuckets = normalizedCapacitySettings.capacityMode === 'timeWindow';
+  const oldBucketKeys = includeBuckets
+    ? computeReservationBucketKeys({
+        startTime: reservationStart,
+        endTime: reservationEnd,
+        bufferMinutes: normalizedCapacitySettings.bufferMinutes,
+        bucketMinutes: normalizedCapacitySettings.bucketMinutes,
+      })
+    : [];
+  const newBucketKeys = includeBuckets
+    ? computeReservationBucketKeys({
+        startTime: nextStartTime ?? reservationStart,
+        endTime: nextEndTime ?? reservationEnd,
+        bufferMinutes: normalizedCapacitySettings.bufferMinutes,
+        bucketMinutes: normalizedCapacitySettings.bucketMinutes,
+      })
+    : [];
 
   const desiredIncluded = countsTowardCapacity(nextStatus);
   const desiredKey = nextDateKey;
@@ -210,6 +312,8 @@ export const applyCapacityLedgerTx = async ({
     newIncluded: desiredIncluded,
     oldSlotKey: currentSlotKey,
     newSlotKey: desiredSlotKey,
+    oldBucketKeys: includeBuckets ? oldBucketKeys : undefined,
+    newBucketKeys: includeBuckets ? newBucketKeys : undefined,
   });
 
   for (const mutation of mutations) {
@@ -234,6 +338,7 @@ export const applyCapacityLedgerTx = async ({
     const nextDoc = applyCapacityDelta(prevDoc, {
       totalDelta: mutation.totalDelta,
       slotDeltas: mutation.slotDeltas,
+      bucketDeltas: mutation.bucketDeltas,
     });
     const normalized = normalizeCapacityForWrite(nextDoc);
     const update: Record<string, unknown> = {
@@ -250,6 +355,12 @@ export const applyCapacityLedgerTx = async ({
       update.byTimeSlot = normalized.payload.byTimeSlot;
     } else if (normalized.deletesByTimeSlot && prevHadSlots) {
       update.byTimeSlot = FieldValue.delete();
+    }
+    const prevHadBuckets = !!prevDoc.byTimeBucket;
+    if (normalized.payload.byTimeBucket) {
+      update.byTimeBucket = normalized.payload.byTimeBucket;
+    } else if (normalized.deletesByTimeBucket && prevHadBuckets) {
+      update.byTimeBucket = FieldValue.delete();
     }
     if (
       shouldWarnCapacityInvariant({

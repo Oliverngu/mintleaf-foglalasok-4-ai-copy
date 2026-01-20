@@ -5,11 +5,13 @@ export interface CapacityDoc {
   totalCount: number;
   count?: number;
   byTimeSlot?: Record<string, number>;
+  byTimeBucket?: Record<string, number>;
 }
 
 export type CapacityWriteNormalization = {
   payload: CapacityDoc;
   deletesByTimeSlot: boolean;
+  deletesByTimeBucket: boolean;
   reasons: CapacityInvariantReason[];
 };
 
@@ -31,6 +33,16 @@ const normalizeByTimeSlot = (value: unknown): Record<string, number> | undefined
   return Object.fromEntries(entries) as Record<string, number>;
 };
 
+const normalizeByTimeBucket = (value: unknown): Record<string, number> | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([, bucketValue]) =>
+      typeof bucketValue === 'number' && Number.isFinite(bucketValue) && bucketValue >= 0
+  );
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries) as Record<string, number>;
+};
+
 export const normalizeCapacityDoc = (data: unknown): CapacityDoc => {
   if (!data || typeof data !== 'object') {
     return { totalCount: 0 };
@@ -40,8 +52,10 @@ export const normalizeCapacityDoc = (data: unknown): CapacityDoc => {
   const totalCount = Math.max(0, baseCount);
   const count = totalCount;
   let byTimeSlot = normalizeByTimeSlot(record.byTimeSlot);
+  let byTimeBucket = normalizeByTimeBucket(record.byTimeBucket);
   if (totalCount === 0) {
     byTimeSlot = undefined;
+    byTimeBucket = undefined;
   } else if (byTimeSlot) {
     const sum = Object.values(byTimeSlot).reduce((acc, value) => acc + value, 0);
     if (sum !== totalCount) {
@@ -52,6 +66,7 @@ export const normalizeCapacityDoc = (data: unknown): CapacityDoc => {
     totalCount,
     count,
     ...(byTimeSlot ? { byTimeSlot } : {}),
+    ...(byTimeBucket ? { byTimeBucket } : {}),
   };
 };
 
@@ -75,7 +90,9 @@ export const normalizeCapacityForWrite = (data: unknown): CapacityWriteNormaliza
   }
 
   const hasByTimeSlot = Object.prototype.hasOwnProperty.call(record, 'byTimeSlot');
+  const hasByTimeBucket = Object.prototype.hasOwnProperty.call(record, 'byTimeBucket');
   let byTimeSlot: Record<string, number> | undefined;
+  let byTimeBucket: Record<string, number> | undefined;
   if (hasByTimeSlot) {
     if (totalCount === 0) {
       reasons.push(CAPACITY_INVARIANT_REASONS.byTimeSlotRemovedZero);
@@ -93,23 +110,36 @@ export const normalizeCapacityForWrite = (data: unknown): CapacityWriteNormaliza
       }
     }
   }
+  if (hasByTimeBucket) {
+    if (totalCount === 0) {
+      byTimeBucket = undefined;
+    } else {
+      byTimeBucket = normalizeByTimeBucket(record.byTimeBucket);
+    }
+  }
 
   const payload: CapacityDoc = {
     totalCount,
     count: totalCount,
     ...(byTimeSlot ? { byTimeSlot } : {}),
+    ...(byTimeBucket ? { byTimeBucket } : {}),
   };
 
   return {
     payload,
     deletesByTimeSlot: hasByTimeSlot && !byTimeSlot,
+    deletesByTimeBucket: hasByTimeBucket && !byTimeBucket,
     reasons,
   };
 };
 
 export const applyCapacityDelta = (
   prevDoc: CapacityDoc,
-  delta: { totalDelta: number; slotDeltas?: Record<string, number> }
+  delta: {
+    totalDelta: number;
+    slotDeltas?: Record<string, number>;
+    bucketDeltas?: Record<string, number>;
+  }
 ): CapacityDoc => {
   const nextTotal = Math.max(0, prevDoc.totalCount + delta.totalDelta);
   if (nextTotal === 0) {
@@ -118,6 +148,7 @@ export const applyCapacityDelta = (
   const nextCount = nextTotal;
 
   let nextByTimeSlot = prevDoc.byTimeSlot ? { ...prevDoc.byTimeSlot } : undefined;
+  let nextByTimeBucket = prevDoc.byTimeBucket ? { ...prevDoc.byTimeBucket } : undefined;
   if (nextByTimeSlot && delta.slotDeltas) {
     for (const [slotKey, slotDelta] of Object.entries(delta.slotDeltas)) {
       if (typeof slotDelta !== 'number' || !Number.isFinite(slotDelta) || slotDelta === 0) continue;
@@ -131,6 +162,31 @@ export const applyCapacityDelta = (
     }
     if (Object.keys(nextByTimeSlot).length === 0) {
       nextByTimeSlot = undefined;
+    }
+  }
+  if (!nextByTimeBucket && delta.bucketDeltas) {
+    nextByTimeBucket = {};
+  }
+  if (nextByTimeBucket && delta.bucketDeltas) {
+    for (const [bucketKey, bucketDelta] of Object.entries(delta.bucketDeltas)) {
+      if (
+        typeof bucketDelta !== 'number' ||
+        !Number.isFinite(bucketDelta) ||
+        bucketDelta === 0
+      ) {
+        continue;
+      }
+      const currentBucket =
+        typeof nextByTimeBucket[bucketKey] === 'number' ? nextByTimeBucket[bucketKey] : 0;
+      const nextBucket = currentBucket + bucketDelta;
+      if (nextBucket <= 0) {
+        delete nextByTimeBucket[bucketKey];
+      } else {
+        nextByTimeBucket[bucketKey] = nextBucket;
+      }
+    }
+    if (Object.keys(nextByTimeBucket).length === 0) {
+      nextByTimeBucket = undefined;
     }
   }
   if (nextByTimeSlot) {
@@ -148,6 +204,7 @@ export const applyCapacityDelta = (
     totalCount: nextTotal,
     count: nextCount,
     ...(nextByTimeSlot ? { byTimeSlot: nextByTimeSlot } : {}),
+    ...(nextByTimeBucket ? { byTimeBucket: nextByTimeBucket } : {}),
   };
 };
 

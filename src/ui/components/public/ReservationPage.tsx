@@ -56,6 +56,44 @@ const toDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const toBucketKey = (date: Date) => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+const computeReservationBucketKeys = ({
+  startTime,
+  endTime,
+  bufferMinutes,
+  bucketMinutes,
+}: {
+  startTime: Date;
+  endTime: Date;
+  bufferMinutes: number;
+  bucketMinutes: number;
+}): string[] => {
+  const startMs = startTime.getTime();
+  const endMs = endTime.getTime() + bufferMinutes * 60 * 1000;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return [];
+  }
+  const dayStart = new Date(startTime);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+  const clampedStart = Math.max(startMs, dayStartMs);
+  const clampedEnd = Math.min(endMs, dayEndMs);
+  if (clampedEnd <= clampedStart) return [];
+  const bucketMs = Math.max(1, bucketMinutes) * 60 * 1000;
+  const firstBucket = Math.floor(clampedStart / bucketMs) * bucketMs;
+  const keys: string[] = [];
+  for (let t = firstBucket; t < clampedEnd; t += bucketMs) {
+    keys.push(toBucketKey(new Date(t)));
+  }
+  return Array.from(new Set(keys));
+};
+
 const DEFAULT_THEME: ThemeSettings = {
   primary: '#166534',
   surface: '#ffffff',
@@ -297,6 +335,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         const defaultSettings: ReservationSetting = {
           id: unitId,
           blackoutDates: [],
+          dailyCapacity: null,
+          capacityMode: 'daily',
+          timeWindowCapacity: null,
+          bucketMinutes: 15,
+          bufferMinutes: 15,
           bookableWindow: { from: '11:00', to: '23:00' },
           kitchenStartTime: null,
           kitchenEndTime: null,
@@ -321,6 +364,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
               ...DEFAULT_THEME,
               ...(dbData.theme || {}),
             },
+            capacityMode: dbData.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily',
+            bucketMinutes: Number.isFinite(dbData.bucketMinutes) ? dbData.bucketMinutes : 15,
+            bufferMinutes: Number.isFinite(dbData.bufferMinutes) ? dbData.bufferMinutes : 15,
           };
           setSettings(finalSettings);
           const publicUnit = buildPublicUnit(unitId, finalSettings);
@@ -529,6 +575,48 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
           endDateTime = potentialEndDateTime;
       }
 
+      const capacityMode = settings.capacityMode ?? 'daily';
+      const timeWindowCapacity =
+        typeof settings.timeWindowCapacity === 'number' &&
+        Number.isFinite(settings.timeWindowCapacity) &&
+        settings.timeWindowCapacity > 0
+          ? settings.timeWindowCapacity
+          : null;
+      if (capacityMode === 'timeWindow' && timeWindowCapacity) {
+        const bucketMinutes = settings.bucketMinutes ?? 15;
+        const bufferMinutes = settings.bufferMinutes ?? 15;
+        const bucketKeys = computeReservationBucketKeys({
+          startTime: startDateTime,
+          endTime: endDateTime,
+          bufferMinutes,
+          bucketMinutes,
+        });
+        const capacityEntry = capacityByDate.get(toDateKey(selectedDate));
+        const byTimeBucket = capacityEntry?.byTimeBucket ?? {};
+        const used = bucketKeys.reduce(
+          (max, key) => Math.max(max, byTimeBucket[key] ?? 0),
+          0
+        );
+        if (used + headcount > timeWindowCapacity) {
+          const remaining = Math.max(0, timeWindowCapacity - used);
+          const userMessage =
+            locale === 'hu'
+              ? `Erre az időpontra jelenleg ${remaining} fő fér el. Kérjük, válassz másik időpontot.`
+              : `Only ${remaining} seats are available for this time. Please pick another time.`;
+          setSubmitError({
+            kind: 'validation',
+            userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+            userMessage,
+            debugId: traceId,
+          });
+          setSubmitState('error');
+          console.log(
+            `[reserve-submit] capacity_full traceId=${traceId} remaining=${remaining}`
+          );
+          return;
+        }
+      }
+
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -577,6 +665,34 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       );
 
       if (!response.ok) {
+        if (response.status === 409) {
+          const payload = await response.json().catch(() => ({}));
+          if (payload?.error === 'capacity_full') {
+            const remaining =
+              typeof payload.remaining === 'number' && Number.isFinite(payload.remaining)
+                ? Math.max(0, payload.remaining)
+                : null;
+            const userMessage =
+              locale === 'hu'
+                ? remaining !== null
+                  ? `Erre az időpontra jelenleg ${remaining} fő fér el. Kérjük, válassz másik időpontot.`
+                  : t.errorCapacityFull
+                : remaining !== null
+                ? `Only ${remaining} seats are available for this time. Please pick another time.`
+                : t.errorCapacityFull;
+            setSubmitError({
+              kind: 'validation',
+              userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+              userMessage,
+              debugId: traceId,
+            });
+            setSubmitState('error');
+            console.log(
+              `[reserve-submit] error traceId=${traceId} kind=capacity_full remaining=${remaining ?? 'n/a'}`
+            );
+            return;
+          }
+        }
         const normalized = normalizeSubmitError({
           response,
           traceId,
@@ -988,7 +1104,11 @@ const Step1Date: React.FC<{
           const isBlackout = blackoutSet.has(dateKey);
           const isPast = day < today;
           let isFull = false;
-          if (settings.dailyCapacity && settings.dailyCapacity > 0) {
+          if (
+            (settings.capacityMode ?? 'daily') === 'daily' &&
+            settings.dailyCapacity &&
+            settings.dailyCapacity > 0
+          ) {
             const currentHeadcount = dailyHeadcounts.get(dateKey) || 0;
             isFull = currentHeadcount >= settings.dailyCapacity;
           }

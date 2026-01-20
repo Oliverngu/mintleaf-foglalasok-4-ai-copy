@@ -98,6 +98,10 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, cur
                     id: unitId,
                     blackoutDates: data.blackoutDates || [],
                     dailyCapacity: data.dailyCapacity ?? null,
+                    capacityMode: data.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily',
+                    timeWindowCapacity: data.timeWindowCapacity ?? null,
+                    bucketMinutes: Number.isFinite(data.bucketMinutes) ? data.bucketMinutes : 15,
+                    bufferMinutes: Number.isFinite(data.bufferMinutes) ? data.bufferMinutes : 15,
                     bookableWindow: data.bookableWindow || { from: '11:00', to: '23:00' },
                     kitchenStartTime: data.kitchenStartTime ?? data.kitchenOpen ?? null,
                     kitchenEndTime: data.kitchenEndTime ?? null,
@@ -114,6 +118,10 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, cur
                     id: unitId,
                     blackoutDates: [],
                     dailyCapacity: null,
+                    capacityMode: 'daily',
+                    timeWindowCapacity: null,
+                    bucketMinutes: 15,
+                    bufferMinutes: 15,
                     bookableWindow: { from: '11:00', to: '23:00' },
                     kitchenStartTime: null,
                     kitchenEndTime: null,
@@ -323,6 +331,71 @@ const GeneralSettingsTab: FC<{
             <div className="p-4 bg-white border rounded-lg">
                 <label className="font-bold mb-2 block">Napi létszám limit</label>
                 <input type="number" placeholder="Nincs limit" value={settings.dailyCapacity || ''} onChange={e => handleFieldChange('dailyCapacity', e.target.value ? Number(e.target.value) : null)} className="w-full p-2 border rounded-md"/>
+            </div>
+            <div className="p-4 bg-white border rounded-lg space-y-3">
+                <h3 className="font-bold">Kapacitás mód</h3>
+                <label className="text-sm block">
+                    Mód
+                    <select
+                        value={settings.capacityMode ?? 'daily'}
+                        onChange={e =>
+                            handleFieldChange('capacityMode', e.target.value === 'timeWindow' ? 'timeWindow' : 'daily')
+                        }
+                        className="w-full p-2 border rounded-md mt-1"
+                    >
+                        <option value="daily">Napi limit</option>
+                        <option value="timeWindow">Idősávos limit</option>
+                    </select>
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="text-sm block">
+                        Idősávos kapacitás
+                        <input
+                            type="number"
+                            min="0"
+                            placeholder="Nincs limit"
+                            value={settings.timeWindowCapacity || ''}
+                            onChange={e =>
+                                handleFieldChange(
+                                    'timeWindowCapacity',
+                                    e.target.value ? Number(e.target.value) : null
+                                )
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                    <label className="text-sm block">
+                        Bucket (perc)
+                        <input
+                            type="number"
+                            min="1"
+                            value={settings.bucketMinutes ?? 15}
+                            onChange={e =>
+                                handleFieldChange('bucketMinutes', Number(e.target.value) || 15)
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                    <label className="text-sm block">
+                        Buffer (perc)
+                        <input
+                            type="number"
+                            min="0"
+                            value={settings.bufferMinutes ?? 15}
+                            onChange={e =>
+                                handleFieldChange('bufferMinutes', Number(e.target.value) || 0)
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                </div>
+                <p className="text-xs text-gray-500">
+                    Idősávos módban a foglalás a kezdés + időtartam + buffer szerint fogyaszt
+                    kapacitást a bucketekben.
+                </p>
             </div>
             <div className="p-4 bg-white border rounded-lg">
                 <h3 className="font-bold mb-2">Napi limit felülbírálása</h3>
