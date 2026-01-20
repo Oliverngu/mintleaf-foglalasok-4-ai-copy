@@ -227,6 +227,21 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     [visibleTables]
   );
 
+  const geometryStats = useMemo(() => {
+    let maxValue = 0;
+    visibleTables.forEach(table => {
+      const geometry = normalizeTableGeometry(table);
+      maxValue = Math.max(
+        maxValue,
+        geometry.x,
+        geometry.y,
+        geometry.w,
+        geometry.h
+      );
+    });
+    return { maxValue, count: visibleTables.length };
+  }, [visibleTables]);
+
   const upcomingWarningMinutes = useMemo(() => {
     if (
       typeof settings?.upcomingWarningMinutes === 'number' &&
@@ -543,6 +558,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     ? 'stored'
     : 'default';
   const showDebug = process.env.NODE_ENV !== 'production';
+  const geometryMode = geometryStats.maxValue <= 1.5 ? 'normalized' : 'absolute';
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -575,7 +591,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           {showDebug && (
             <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
               dims: {floorplanWidth}x{floorplanHeight} | source: {dimsSource} | img:{' '}
-              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'}
+              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | mode:{' '}
+              {geometryMode} | maxGeom: {geometryStats.maxValue.toFixed(2)} | tables:{' '}
+              {geometryStats.count}
             </p>
           )}
         </div>
@@ -662,10 +680,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           ))}
           {visibleTables.map(table => {
             const geometry = normalizeTableGeometry(table);
-            const maxX = Math.max(0, floorplanWidth - geometry.w);
-            const maxY = Math.max(0, floorplanHeight - geometry.h);
-            const left = clamp(geometry.x, 0, maxX);
-            const top = clamp(geometry.y, 0, maxY);
+            const isNormalizedGeometry = geometryMode === 'normalized';
+            const tableWidth = isNormalizedGeometry
+              ? geometry.w * floorplanWidth
+              : geometry.w;
+            const tableHeight = isNormalizedGeometry
+              ? geometry.h * floorplanHeight
+              : geometry.h;
+            const maxX = Math.max(0, floorplanWidth - tableWidth);
+            const maxY = Math.max(0, floorplanHeight - tableHeight);
+            const left = clamp(
+              isNormalizedGeometry ? geometry.x * floorplanWidth : geometry.x,
+              0,
+              maxX
+            );
+            const top = clamp(
+              isNormalizedGeometry ? geometry.y * floorplanHeight : geometry.y,
+              0,
+              maxY
+            );
             const rotation = geometry.rot;
             const status = tableStatusById.get(table.id) ?? 'free';
             const isSelected = selectedAssignedTableIds.has(table.id);
@@ -685,8 +718,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 style={{
                   left,
                   top,
-                  width: geometry.w,
-                  height: geometry.h,
+                  width: tableWidth,
+                  height: tableHeight,
                   borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
                   border: '2px solid rgba(148, 163, 184, 0.6)',
                   backgroundColor: renderStatusColor(status),
