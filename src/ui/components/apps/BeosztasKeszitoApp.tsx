@@ -4834,11 +4834,11 @@ if (expected === 0) {
           top: topOffsetPx,
           left: 0,
           right: 0,
-          pointerEvents: 'none',
+          pointerEvents: isSidebarOpen ? 'none' : 'auto',
         }}
       >
         <GlassOverlay
-          className={`w-full ${toolbarDisabledClass} ${isSidebarOpen ? 'pointer-events-none' : 'pointer-events-auto'}`}
+          className={`w-full ${toolbarDisabledClass}`}
           elevation="high"
           radius={18}
           style={{ padding: 12 }}
