@@ -2696,7 +2696,7 @@ if (expected === 0) {
   const toolbarButtonDisabledClass = isToolbarDisabled
     ? 'pointer-events-none'
     : '';
-  const toolbarWrapperClassName = `export-hide sticky top-2 mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
+  const toolbarWrapperClassName = `export-hide mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
   const toolbarPillBase = 'shrink-0 whitespace-nowrap';
 
   const toolbarButtonClass = useCallback(
@@ -4941,7 +4941,7 @@ if (expected === 0) {
         style={{
           zIndex: LAYERS.toolbar,
           position: 'sticky',
-          top: topOffsetPx,
+          top: topOffsetPx > 0 ? topOffsetPx : 0,
           pointerEvents: isSidebarOpen ? 'none' : 'auto',
         }}
       >
