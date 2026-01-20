@@ -726,6 +726,7 @@ interface BeosztasAppProps {
   allUnits: Unit[];
   activeUnitIds: string[];
   isSidebarOpen?: boolean;
+  onWeekRangeChange?: (range: { start: Date; end: Date }) => void;
 }
 
 const startOfWeekMonday = (date: Date): Date => {
@@ -1530,7 +1531,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   canManage,
   allUnits,
   activeUnitIds,
-  isSidebarOpen = false
+  isSidebarOpen = false,
+  onWeekRangeChange,
 }) => {
   const isDevEnv =
     typeof process !== 'undefined' &&
@@ -2185,6 +2187,19 @@ if (expected === 0) {
       ),
     [currentDate, finalWeekBlocksDays]
   );
+
+  useEffect(() => {
+    if (!onWeekRangeChange || weekDays.length < 7) return;
+    const weekStart = new Date(weekDays[0]);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekDays[6]);
+    weekEnd.setHours(23, 59, 59, 999);
+    const bufferedStart = new Date(weekStart);
+    bufferedStart.setDate(bufferedStart.getDate() - 2);
+    const bufferedEnd = new Date(weekEnd);
+    bufferedEnd.setDate(bufferedEnd.getDate() + 2);
+    onWeekRangeChange({ start: bufferedStart, end: bufferedEnd });
+  }, [onWeekRangeChange, weekDays]);
 
   const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
 
@@ -3267,6 +3282,35 @@ if (expected === 0) {
     setIsPublishModalOpen(true);
   };
 
+  const getEmailEnabledForUnit = async (
+    unitId?: string | null
+  ): Promise<boolean> => {
+    const isEnabledField = (value: unknown): value is boolean =>
+      typeof value === 'boolean';
+
+    if (unitId) {
+      const unitSnap = await getDoc(
+        doc(db, 'units', unitId, 'settings', 'email')
+      );
+      if (unitSnap.exists()) {
+        const data = unitSnap.data();
+        if (isEnabledField(data?.enabled)) {
+          return data.enabled;
+        }
+      }
+    }
+
+    const globalSnap = await getDoc(doc(db, 'app_config', 'email'));
+    if (globalSnap.exists()) {
+      const data = globalSnap.data();
+      if (isEnabledField(data?.enabled)) {
+        return data.enabled;
+      }
+    }
+
+    return true;
+  };
+
   const handleConfirmPublish = async (selectedUnitIds: string[]) => {
     if (selectedUnitIds.length === 0) {
       setIsPublishModalOpen(false);
@@ -3288,14 +3332,22 @@ if (expected === 0) {
     );
 
     if (shiftsToPublish.length > 0) {
-      const batch = writeBatch(db);
-      shiftsToPublish.forEach(shift =>
-        batch.update(doc(db, 'shifts', shift.id), {
-          status: 'published'
-        })
-      );
+      const chunkSize = 450;
+      const shiftChunks: Shift[][] = [];
+      for (let i = 0; i < shiftsToPublish.length; i += chunkSize) {
+        shiftChunks.push(shiftsToPublish.slice(i, i + chunkSize));
+      }
+
       try {
-        await batch.commit();
+        for (const chunk of shiftChunks) {
+          const batch = writeBatch(db);
+          chunk.forEach(shift =>
+            batch.update(doc(db, 'shifts', shift.id), {
+              status: 'published'
+            })
+          );
+          await batch.commit();
+        }
         alert('A kiválasztott műszakok sikeresen publikálva!');
       } catch (err) {
         console.error('Error publishing shifts:', err);
@@ -3327,19 +3379,26 @@ if (expected === 0) {
       const publicScheduleUrl = window.location?.href || '';
 
       if (recipients.length > 0) {
-        await addDoc(collection(db, 'email_queue'), {
-          typeId: 'schedule_published',
-          unitId,
-          payload: {
-            unitName,
-            weekLabel,
-            url: publicScheduleUrl,
-            editorName: currentUser.fullName,
-            recipients
-          },
-          createdAt: serverTimestamp(),
-          status: 'pending'
-        });
+        const emailEnabled = await getEmailEnabledForUnit(unitId);
+        if (!emailEnabled) {
+          setSuccessToast(
+            'Az email értesítések jelenleg ki vannak kapcsolva, ezért most nem küldtünk levelet.'
+          );
+        } else {
+          await addDoc(collection(db, 'email_queue'), {
+            typeId: 'schedule_published',
+            unitId,
+            payload: {
+              unitName,
+              weekLabel,
+              url: publicScheduleUrl,
+              editorName: currentUser.fullName,
+              recipients
+            },
+            createdAt: serverTimestamp(),
+            status: 'pending'
+          });
+        }
       }
     }
     setIsPublishModalOpen(false);

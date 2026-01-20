@@ -404,6 +404,37 @@ const getEmailSettingsForUnit = async (
   }
 };
 
+const getEmailEnabledForUnit = async (
+  unitId?: string | null
+): Promise<boolean> => {
+  const isEnabledField = (value: unknown): value is boolean =>
+    typeof value === 'boolean';
+
+  try {
+    if (unitId) {
+      const unitSnap = await db.doc(`units/${unitId}/settings/email`).get();
+      if (unitSnap.exists) {
+        const data = unitSnap.data();
+        if (isEnabledField(data?.enabled)) {
+          return data.enabled;
+        }
+      }
+    }
+
+    const globalSnap = await db.doc('app_config/email').get();
+    if (globalSnap.exists) {
+      const data = globalSnap.data();
+      if (isEnabledField(data?.enabled)) {
+        return data.enabled;
+      }
+    }
+  } catch (err) {
+    logger.error('Failed to fetch email enabled config', { unitId, err });
+  }
+
+  return true;
+};
+
 const shouldSendEmail = async (typeId: string, unitId: string | null) => {
   if (!unitId) return true;
   const unitSettings = await getEmailSettingsForUnit(unitId);
@@ -785,12 +816,30 @@ export const onQueuedEmailCreated = onDocumentCreated(
       return;
     }
 
-    const allowed = await shouldSendEmail(typeId, unitId);
+    const unitIdForConfig =
+      unitId || payload?.unitId || payload?.unit || null;
+    const enabled = await getEmailEnabledForUnit(unitIdForConfig);
+    if (!enabled) {
+      logger.info("Email sending disabled via config", {
+        typeId,
+        unitId: unitIdForConfig,
+        emailId,
+      });
+      await ref.update({
+        status: "skipped",
+        skippedReason: "EMAIL_DISABLED",
+        skippedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    const allowed = await shouldSendEmail(typeId, unitIdForConfig);
     if (!allowed) {
       logger.info("Email sending disabled via settings", { typeId, unitId, emailId });
       await ref.update({
-        status: "sent",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "skipped",
+        skippedReason: "TYPE_DISABLED",
+        skippedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       return;
     }
@@ -959,6 +1008,9 @@ const sendGuestCreatedEmail = async (
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const allowed = await shouldSendEmail('booking_created_guest', unitId);
   if (!allowed) return;
 
@@ -1016,6 +1068,9 @@ const sendAdminCreatedEmail = async (
   unitName: string,
   bookingId: string
 ) => {
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
   const recipients = await getAdminRecipientsOverride(
@@ -1102,6 +1157,9 @@ const sendGuestStatusEmail = async (
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const allowed = await shouldSendEmail('booking_status_updated_guest', unitId);
   if (!allowed) return;
 
@@ -1164,6 +1222,9 @@ const sendAdminCancellationEmail = async (
   unitName: string,
   bookingId: string
 ) => {
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
   const cancellationRecipients = await getAdminRecipientsOverride(
@@ -1244,6 +1305,9 @@ const sendGuestModifiedEmail = async (
   const guestEmail = booking.contact?.email || booking.email;
   if (!guestEmail) return;
 
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const allowed = await shouldSendEmail('booking_modified_guest', unitId);
   if (!allowed) return;
 
@@ -1278,6 +1342,9 @@ const sendAdminModifiedEmail = async (
   booking: BookingRecord,
   unitName: string
 ) => {
+  const enabled = await getEmailEnabledForUnit(unitId);
+  if (!enabled) return;
+
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
   const recipients = await getAdminRecipientsOverride(
