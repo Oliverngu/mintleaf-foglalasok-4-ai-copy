@@ -60,6 +60,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
+  const [bgNaturalSize, setBgNaturalSize] = useState<{ w: number; h: number } | null>(
+    null
+  );
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -186,6 +189,29 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (booking.zoneId === activeZoneId) return;
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
+
+  useEffect(() => {
+    if (!floorplan?.backgroundImageUrl) {
+      setBgNaturalSize(null);
+      return;
+    }
+
+    let isActive = true;
+    const image = new Image();
+    image.onload = () => {
+      if (!isActive) return;
+      setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
+    };
+    image.onerror = () => {
+      if (!isActive) return;
+      setBgNaturalSize(null);
+    };
+    image.src = floorplan.backgroundImageUrl;
+
+    return () => {
+      isActive = false;
+    };
+  }, [floorplan?.backgroundImageUrl]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -496,8 +522,27 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     );
   }
 
-  const { width: floorplanWidth, height: floorplanHeight } =
+  const { width: normalizedWidth, height: normalizedHeight } =
     normalizeFloorplanDimensions(floorplan);
+  const hasStoredDims =
+    typeof floorplan.width === 'number' &&
+    floorplan.width > 0 &&
+    typeof floorplan.height === 'number' &&
+    floorplan.height > 0;
+  const maxWidth = 900;
+  const hasBgSize = Boolean(bgNaturalSize?.w && bgNaturalSize?.h);
+  const floorplanWidth =
+    !hasStoredDims && hasBgSize ? Math.min(maxWidth, bgNaturalSize!.w) : normalizedWidth;
+  const floorplanHeight =
+    !hasStoredDims && hasBgSize
+      ? Math.round(floorplanWidth * (bgNaturalSize!.h / bgNaturalSize!.w))
+      : normalizedHeight;
+  const dimsSource = !hasStoredDims && hasBgSize
+    ? 'autoFromImage'
+    : hasStoredDims
+    ? 'stored'
+    : 'default';
+  const showDebug = process.env.NODE_ENV !== 'production';
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -527,6 +572,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               day: 'numeric',
             })}
           </p>
+          {showDebug && (
+            <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+              dims: {floorplanWidth}x{floorplanHeight} | source: {dimsSource} | img:{' '}
+              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end text-sm font-semibold text-[var(--color-text-main)] leading-tight">
           {capacityLimit !== null ? (
