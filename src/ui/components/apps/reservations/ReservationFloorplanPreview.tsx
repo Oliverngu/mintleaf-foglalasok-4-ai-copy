@@ -196,6 +196,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     });
   }, [activeZoneId, floorplan, tables]);
 
+  const visibleTableIdSet = useMemo(
+    () => new Set(visibleTables.map(table => table.id)),
+    [visibleTables]
+  );
+
   const upcomingWarningMinutes = useMemo(() => {
     if (
       typeof settings?.upcomingWarningMinutes === 'number' &&
@@ -414,10 +419,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       if (!overlapsSelectionWindow) return;
       const tableIds = resolveBookingTableIds(booking);
       if (!tableIds.size) return;
-      tableIds.forEach(tableId => blocked.add(tableId));
+      tableIds.forEach(tableId => {
+        if (visibleTableIdSet.has(tableId)) {
+          blocked.add(tableId);
+        }
+      });
     });
     return blocked;
-  }, [bookings, selectedBookingId, selectedWindow]);
+  }, [bookings, selectedBookingId, selectedWindow, visibleTableIdSet]);
 
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
