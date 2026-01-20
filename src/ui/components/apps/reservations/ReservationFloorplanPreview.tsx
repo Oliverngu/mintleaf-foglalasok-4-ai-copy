@@ -482,22 +482,22 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             })}
           </p>
         </div>
-        <div className="text-sm font-semibold text-[var(--color-text-main)]">
+        <div className="flex flex-col items-end text-sm font-semibold text-[var(--color-text-main)] leading-tight">
           {capacityLimit !== null ? (
             <>
               {capacityUsed} / {capacityLimit}{' '}
               <span className="text-xs text-[var(--color-text-secondary)]">
                 {capacityMode === 'timeWindow' ? 'aktuális idősáv' : 'napi kapacitás'}
               </span>
-              {recommendedTableIds.size > 0 && (
-                <div className="text-[11px] text-[var(--color-text-secondary)]">
-                  Ajánlott asztalok: szaggatott keret
-                </div>
-              )}
             </>
           ) : (
             <span className="text-xs text-[var(--color-text-secondary)]">
               Kapacitás nincs megadva.
+            </span>
+          )}
+          {recommendedTableIds.size > 0 && (
+            <span className="mt-0.5 text-[11px] text-[var(--color-text-secondary)]">
+              Ajánlott asztalok: szaggatott keret
             </span>
           )}
         </div>
