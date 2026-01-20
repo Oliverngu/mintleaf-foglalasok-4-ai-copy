@@ -727,6 +727,7 @@ interface BeosztasAppProps {
   activeUnitIds: string[];
   isSidebarOpen?: boolean;
   onWeekRangeChange?: (range: { start: Date; end: Date }) => void;
+  topOffsetPx?: number;
 }
 
 const startOfWeekMonday = (date: Date): Date => {
@@ -1533,6 +1534,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   activeUnitIds,
   isSidebarOpen = false,
   onWeekRangeChange,
+  topOffsetPx = 0,
 }) => {
   const isDevEnv =
     typeof process !== 'undefined' &&
@@ -4829,7 +4831,7 @@ if (expected === 0) {
         style={{
           zIndex: LAYERS.toolbar,
           position: 'fixed',
-          top: 0,
+          top: topOffsetPx,
           left: 0,
           right: 0,
           pointerEvents: 'none',

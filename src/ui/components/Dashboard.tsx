@@ -627,6 +627,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             activeUnitIds={activeUnitIds}
             isSidebarOpen={isSidebarOpen}
             onWeekRangeChange={onWeekRangeChange}
+            topOffsetPx={HEADER_PILL_H}
           />
         );
       case 'settings':
