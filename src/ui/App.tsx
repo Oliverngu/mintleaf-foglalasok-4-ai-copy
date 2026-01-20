@@ -7,7 +7,7 @@ import ManageReservationPage from './components/public/ManageReservationPage';
 import { User, Request, Booking, Shift, Todo, Unit, RolePermissions, Permissions, demoUser, demoUnit, demoData, TimeEntry, Feedback, Poll } from '../core/models/data';
 import { auth, db } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy } from 'firebase/firestore';
+import { collection, collectionGroup, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where, orderBy, Timestamp } from 'firebase/firestore';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { UnitProvider, useUnitContext } from './context/UnitContext';
 import ThemeManager from '../core/theme/ThemeManager';
@@ -50,6 +50,22 @@ const ThemeManagerBridge: React.FC<{
   );
 };
 
+const getBufferedWeekRange = (baseDate: Date) => {
+  const start = new Date(baseDate);
+  const day = start.getDay();
+  const diffToMonday = (day + 6) % 7;
+  start.setDate(start.getDate() - diffToMonday);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  const bufferedStart = new Date(start);
+  bufferedStart.setDate(start.getDate() - 2);
+  const bufferedEnd = new Date(end);
+  bufferedEnd.setDate(end.getDate() + 2);
+  return { start: bufferedStart, end: bufferedEnd };
+};
+
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('loading');
   const [publicPage, setPublicPage] = useState<PublicPage | null>(null);
@@ -62,6 +78,7 @@ const App: React.FC = () => {
   // --- Data States ---
   const [requests, setRequests] = useState<Request[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [scheduleShifts, setScheduleShifts] = useState<Shift[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [adminTodos, setAdminTodos] = useState<Todo[]>([]);
   const [allUnits, setAllUnits] = useState<Unit[]>([]);
@@ -71,6 +88,9 @@ const App: React.FC = () => {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [shiftRange, setShiftRange] = useState<{ start: Date; end: Date }>(() =>
+    getBufferedWeekRange(new Date())
+  );
 
   // --- Theme States ---
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadMode());
@@ -313,13 +333,57 @@ const App: React.FC = () => {
         unsubAdminTodos = onSnapshot(collection(db, 'admin_todos'), snapshot => setAdminTodos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Todo))));
     }
 
+    const range = shiftRange || getBufferedWeekRange(new Date());
+    const rangeStart = Timestamp.fromDate(range.start);
+    const rangeEnd = Timestamp.fromDate(range.end);
+
+    const generalStart = new Date();
+    generalStart.setDate(generalStart.getDate() - 14);
+    generalStart.setHours(0, 0, 0, 0);
+    const generalEnd = new Date();
+    generalEnd.setDate(generalEnd.getDate() + 45);
+    generalEnd.setHours(23, 59, 59, 999);
+    const generalRangeStart = Timestamp.fromDate(generalStart);
+    const generalRangeEnd = Timestamp.fromDate(generalEnd);
+
     let shiftsQueryRef;
     if (currentUser.role !== 'Admin' && currentUser.unitIds?.length) {
-      shiftsQueryRef = query(collection(db, 'shifts'), where('unitId', 'in', currentUser.unitIds));
+      // Composite index required: shifts(unitId, start)
+      shiftsQueryRef = query(
+        collection(db, 'shifts'),
+        where('unitId', 'in', currentUser.unitIds),
+        where('start', '>=', generalRangeStart),
+        where('start', '<=', generalRangeEnd)
+      );
     } else {
-      shiftsQueryRef = collection(db, 'shifts');
+      shiftsQueryRef = query(
+        collection(db, 'shifts'),
+        where('start', '>=', generalRangeStart),
+        where('start', '<=', generalRangeEnd)
+      );
     }
     const unsubShifts = onSnapshot(shiftsQueryRef, snapshot => setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))));
+
+    let scheduleShiftsQueryRef;
+    if (currentUser.role !== 'Admin' && currentUser.unitIds?.length) {
+      // Composite index required: shifts(unitId, start)
+      scheduleShiftsQueryRef = query(
+        collection(db, 'shifts'),
+        where('unitId', 'in', currentUser.unitIds),
+        where('start', '>=', rangeStart),
+        where('start', '<=', rangeEnd)
+      );
+    } else {
+      scheduleShiftsQueryRef = query(
+        collection(db, 'shifts'),
+        where('start', '>=', rangeStart),
+        where('start', '<=', rangeEnd)
+      );
+    }
+    const unsubScheduleShifts = onSnapshot(
+      scheduleShiftsQueryRef,
+      snapshot => setScheduleShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)))
+    );
 
     let requestsQueryRef;
     if (isUnitAdmin) {
@@ -371,12 +435,13 @@ const App: React.FC = () => {
       unsubTodos();
       unsubAdminTodos();
       unsubShifts();
+      unsubScheduleShifts();
       unsubRequests();
       unsubTimeEntries();
       unsubFeedback();
       unsubPolls();
     };
-  }, [currentUser, isDemoMode]);
+  }, [currentUser, isDemoMode, shiftRange]);
 
   useEffect(() => {
     switch (appState) {
@@ -427,6 +492,7 @@ const App: React.FC = () => {
             isDemoMode={isDemoMode}
             requests={requests}
             shifts={shifts}
+            scheduleShifts={scheduleShifts}
             todos={todos}
             adminTodos={adminTodos}
             allUnits={allUnits}
@@ -445,6 +511,7 @@ const App: React.FC = () => {
             // Brand propok
             useBrandTheme={useBrandTheme}
             onBrandChange={setUseBrandTheme}
+            onWeekRangeChange={setShiftRange}
           />
         </UnitProvider>
       );
