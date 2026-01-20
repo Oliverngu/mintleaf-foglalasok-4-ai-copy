@@ -1719,22 +1719,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   }, [clearToastTimers, successToast, triggerToastExit]);
 
   useEffect(() => {
-    if (!toolbarSentinelRef.current) return;
-    const topOffset = topOffsetPx > 0 ? topOffsetPx : 0;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsFloatingToolbar(!entry.isIntersecting);
-      },
-      {
-        root: null,
-        threshold: 0,
-        rootMargin: `${-topOffset}px 0px 0px 0px`,
-      }
-    );
-    observer.observe(toolbarSentinelRef.current);
-    return () => observer.disconnect();
-  }, [topOffsetPx]);
+  const sentinel = toolbarSentinelRef.current;
+  if (!sentinel) return;
 
+  const topOffset = topOffsetPx > 0 ? topOffsetPx : 0;
+
+  const recompute = () => {
+    const top = sentinel.getBoundingClientRect().top;
+    // ha a sentinel felment a "fix header alá", akkor floating
+    setIsFloatingToolbar(top <= topOffset);
+  };
+
+  recompute();
+
+  window.addEventListener('scroll', recompute, { passive: true });
+  window.addEventListener('resize', recompute);
+
+  return () => {
+    window.removeEventListener('scroll', recompute);
+    window.removeEventListener('resize', recompute);
+  };
+}, [topOffsetPx]);
   useEffect(() => {
     if (!toolbarRef.current) return;
     const updateHeight = () => {
