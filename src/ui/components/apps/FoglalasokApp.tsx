@@ -1197,7 +1197,10 @@ const BookingSeatingPanel: React.FC<{
     <div className="rounded-lg border border-gray-200 bg-white/70">
       <button
         type="button"
-        onClick={onToggleFloorplan}
+        onClick={event => {
+          event.stopPropagation();
+          onToggleFloorplan();
+        }}
         className="w-full text-left px-3 py-2 text-sm font-semibold"
       >
         {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
@@ -1226,6 +1229,7 @@ const BookingDetailsModal: React.FC<{
   selectedDate: Date;
   bookings: Booking[];
   onClose: () => void;
+  onSelectBooking?: (bookingId: string | null) => void;
   isAdmin: boolean;
   onDelete: (booking: Booking) => void;
   unitId: string;
@@ -1242,6 +1246,7 @@ const BookingDetailsModal: React.FC<{
   selectedDate,
   bookings,
   onClose,
+  onSelectBooking,
   isAdmin,
   onDelete,
   unitId,
@@ -1291,8 +1296,9 @@ const BookingDetailsModal: React.FC<{
     setOpenAllocationId(null);
     setOpenFloorplanBookingId(null);
     setActiveSection('summary');
+    onSelectBooking?.(null);
     onClose();
-  }, [onClose]);
+  }, [onClose, onSelectBooking]);
 
   const handleRecalcCapacity = async () => {
     if (!unitId || !dateKey) {
@@ -1540,6 +1546,7 @@ const BookingDetailsModal: React.FC<{
                     key={booking.id}
                     className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
                     style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                    onClick={() => onSelectBooking?.(booking.id)}
                   >
                     <div className="space-y-4">
                       <BookingHeaderMini booking={booking} />
@@ -1560,11 +1567,12 @@ const BookingDetailsModal: React.FC<{
                             <SectionCard title="Allokáció override">
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={event => {
+                                  event.stopPropagation();
                                   setOpenAllocationId(current =>
                                     current === booking.id ? null : booking.id
-                                  )
-                                }
+                                  );
+                                }}
                                 className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
                               >
                                 {openAllocationId === booking.id
@@ -1614,7 +1622,10 @@ const BookingDetailsModal: React.FC<{
                     </div>
                   {isAdmin && (
                     <button
-                      onClick={() => onDelete(booking)}
+                      onClick={event => {
+                        event.stopPropagation();
+                        onDelete(booking);
+                      }}
                       className="absolute top-3 right-3 p-2 text-gray-400 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
                       style={{
                         backgroundColor: 'var(--color-surface)',
@@ -1756,6 +1767,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [seatingSettings, setSeatingSettings] = useState<SeatingSettings | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
@@ -1941,6 +1953,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const previewDate = selectedDate ?? new Date();
   const previewBookings = bookingsByDate.get(toLocalDateKey(previewDate)) || [];
+
+  useEffect(() => {
+    setSelectedBookingId(null);
+  }, [selectedDate]);
 
   if (!activeUnitId) {
     return (
@@ -2206,6 +2222,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               unitId={activeUnitId}
               selectedDate={previewDate}
               bookings={previewBookings}
+              selectedBookingId={selectedBookingId}
             />
           </div>
           {logsLoading ? (
@@ -2222,7 +2239,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         <BookingDetailsModal
           selectedDate={selectedDate}
           bookings={bookingsByDate.get(toLocalDateKey(selectedDate)) || []}
-          onClose={() => setSelectedDate(null)}
+          onClose={() => {
+            setSelectedBookingId(null);
+            setSelectedDate(null);
+          }}
+          onSelectBooking={setSelectedBookingId}
           isAdmin={isAdmin}
           onDelete={setBookingToDelete}
           unitId={activeUnitId}

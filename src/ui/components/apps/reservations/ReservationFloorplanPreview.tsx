@@ -23,6 +23,7 @@ type ReservationFloorplanPreviewProps = {
   unitId: string;
   selectedDate: Date;
   bookings: Booking[];
+  selectedBookingId?: string | null;
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
@@ -48,6 +49,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   unitId,
   selectedDate,
   bookings,
+  selectedBookingId,
 }) => {
   const [floorplan, setFloorplan] = useState<Floorplan | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
@@ -168,10 +170,22 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       setActiveZoneId(null);
       return;
     }
-    if (!activeZoneId || !zones.some(zone => zone.id === activeZoneId)) {
+    if (activeZoneId === null) {
+      return;
+    }
+    if (!zones.some(zone => zone.id === activeZoneId)) {
       setActiveZoneId(zones[0].id);
     }
   }, [activeZoneId, zones]);
+
+  useEffect(() => {
+    if (!selectedBookingId) return;
+    const booking = bookings.find(item => item.id === selectedBookingId);
+    if (!booking?.zoneId) return;
+    if (!zones.some(zone => zone.id === booking.zoneId)) return;
+    if (booking.zoneId === activeZoneId) return;
+    setActiveZoneId(booking.zoneId);
+  }, [activeZoneId, bookings, selectedBookingId, zones]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -238,6 +252,136 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     return statusMap;
   }, [bookings, now, upcomingWarningMinutes]);
 
+  const resolveBookingDate = (value: unknown) => {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      const maybeDate = value as { toDate?: () => Date };
+      if (typeof maybeDate.toDate === 'function') {
+        const resolved = maybeDate.toDate();
+        return resolved instanceof Date ? resolved : null;
+      }
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    return null;
+  };
+
+  const resolveBookingTableIds = (booking: Booking) =>
+    new Set<string>([
+      ...(booking.assignedTableIds ?? []),
+      ...(booking.allocationFinal?.tableIds ?? []),
+      ...(booking.allocated?.tableIds ?? []),
+    ]);
+
+  const resolveBookingHeadcount = (booking: Booking) => {
+    const count = Number(booking.headcount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return count;
+  };
+
+  const selectedBooking = useMemo(
+    () => bookings.find(booking => booking.id === selectedBookingId) ?? null,
+    [bookings, selectedBookingId]
+  );
+
+  const selectedAssignedTableIds = useMemo(() => {
+    if (!selectedBooking) return new Set<string>();
+    return resolveBookingTableIds(selectedBooking);
+  }, [selectedBooking]);
+
+  const selectedBookingHasTables = useMemo(
+    () => selectedAssignedTableIds.size > 0,
+    [selectedAssignedTableIds]
+  );
+
+  const recommendedTableIds = useMemo(() => {
+    const recommendations = new Set<string>();
+    if (!selectedBooking || selectedBookingHasTables) return recommendations;
+    const headcount = resolveBookingHeadcount(selectedBooking);
+    const candidates = visibleTables.filter(
+      table =>
+        tableStatusById.get(table.id) !== 'occupied' &&
+        !selectedAssignedTableIds.has(table.id)
+    );
+    if (!candidates.length) return recommendations;
+    const ranked = candidates.map(table => {
+      const capacityMax =
+        typeof table.capacityMax === 'number' && Number.isFinite(table.capacityMax)
+          ? table.capacityMax
+          : null;
+      let rank = 2;
+      if (headcount !== null && capacityMax !== null) {
+        rank = capacityMax >= headcount ? 1 : 3;
+      }
+      return { table, rank };
+    });
+    const rank1 = ranked.filter(item => item.rank === 1);
+    const rank2 = ranked.filter(item => item.rank === 2);
+    const rank3 = ranked.filter(item => item.rank === 3);
+    const preferred =
+      rank1.length > 0
+        ? [...rank1, ...rank2]
+        : rank2.length > 0
+        ? rank2
+        : rank3;
+    preferred.slice(0, 3).forEach(item => recommendations.add(item.table.id));
+    return recommendations;
+  }, [
+    selectedAssignedTableIds,
+    selectedBooking,
+    selectedBookingHasTables,
+    tableStatusById,
+    visibleTables,
+  ]);
+
+  const conflictTableIds = useMemo(() => {
+    const tableMap = new Map<
+      string,
+      Array<{ start: Date; end: Date }>
+    >();
+
+    bookings.forEach(booking => {
+      const start = resolveBookingDate(booking.startTime);
+      const end = resolveBookingDate(booking.endTime);
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return;
+      }
+      if (end.getTime() <= start.getTime()) {
+        return;
+      }
+      const tableIds = resolveBookingTableIds(booking);
+      if (!tableIds.size) return;
+      tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ start, end });
+        tableMap.set(tableId, entries);
+      });
+    });
+
+    const conflicts = new Set<string>();
+    tableMap.forEach((entries, tableId) => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start.getTime() - b.start.getTime());
+      let latestEnd = sorted[0].end.getTime();
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start.getTime() < latestEnd) {
+          conflicts.add(tableId);
+          break;
+        }
+        latestEnd = Math.max(latestEnd, entry.end.getTime());
+      }
+    });
+
+    return conflicts;
+  }, [bookings]);
+
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
@@ -276,6 +420,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [capacity?.limit, capacityMode, settings?.dailyCapacity, timeWindowCapacity]);
 
   const hasCapacitySettings = Boolean(settings);
+  const upcomingWarningLabel =
+    typeof settings?.upcomingWarningMinutes === 'number' &&
+    Number.isFinite(settings.upcomingWarningMinutes)
+      ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
+      : null;
 
   if (floorplanLoading) {
     return (
@@ -340,6 +489,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               <span className="text-xs text-[var(--color-text-secondary)]">
                 {capacityMode === 'timeWindow' ? 'aktuális idősáv' : 'napi kapacitás'}
               </span>
+              {recommendedTableIds.size > 0 && (
+                <div className="text-[11px] text-[var(--color-text-secondary)]">
+                  Ajánlott asztalok: szaggatott keret
+                </div>
+              )}
             </>
           ) : (
             <span className="text-xs text-[var(--color-text-secondary)]">
@@ -349,21 +503,39 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {zones.map(zone => (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
-            key={zone.id}
             type="button"
-            onClick={() => setActiveZoneId(zone.id)}
+            onClick={() => setActiveZoneId(null)}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-              activeZoneId === zone.id
+              activeZoneId === null
                 ? 'bg-[var(--color-primary)] text-white border-transparent'
                 : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
             }`}
           >
-            {zone.name}
+            Összes
           </button>
-        ))}
+          {zones.map(zone => (
+            <button
+              key={zone.id}
+              type="button"
+              onClick={() => setActiveZoneId(zone.id)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                activeZoneId === zone.id
+                  ? 'bg-[var(--color-primary)] text-white border-transparent'
+                  : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
+              }`}
+            >
+              {zone.name}
+            </button>
+          ))}
+        </div>
+        {upcomingWarningLabel && (
+          <span className="text-[11px] text-[var(--color-text-secondary)]">
+            {upcomingWarningLabel}
+          </span>
+        )}
       </div>
 
       <div className="overflow-auto">
@@ -399,11 +571,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             const top = clamp(geometry.y, 0, maxY);
             const rotation = geometry.rot;
             const status = tableStatusById.get(table.id) ?? 'free';
+            const isSelected = selectedAssignedTableIds.has(table.id);
+            const hasConflict = conflictTableIds.has(table.id);
+            const isRecommended = !isSelected && recommendedTableIds.has(table.id);
 
             return (
               <div
                 key={table.id}
-                className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none"
+                className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
+                  isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                }`}
                 style={{
                   left,
                   top,
@@ -414,12 +591,21 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   backgroundColor: renderStatusColor(status),
                   transform: `rotate(${rotation}deg)`,
                   boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                  outline: isRecommended
+                    ? '2px dashed rgba(251, 191, 36, 0.9)'
+                    : undefined,
+                  outlineOffset: isRecommended ? 2 : undefined,
                 }}
               >
                 <span>{table.name}</span>
                 {table.capacityMax && (
                   <span className="text-[9px] text-gray-500">
                     max {table.capacityMax}
+                  </span>
+                )}
+                {hasConflict && (
+                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
+                    !
                   </span>
                 )}
               </div>
