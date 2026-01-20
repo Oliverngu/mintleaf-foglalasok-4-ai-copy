@@ -78,12 +78,99 @@ const normalizeTable = (raw: unknown, idFallback?: string): Table => {
       : typeof data.isCombinable === 'boolean'
       ? data.isCombinable
       : false;
+  const capacityMax =
+    typeof data.capacityMax === 'number' && Number.isFinite(data.capacityMax)
+      ? data.capacityMax
+      : 0;
+  const minCapacity =
+    typeof data.minCapacity === 'number' && Number.isFinite(data.minCapacity)
+      ? data.minCapacity
+      : 0;
+  const capacityTotalCandidate =
+    typeof data.capacityTotal === 'number' && Number.isFinite(data.capacityTotal)
+      ? Math.max(0, data.capacityTotal)
+      : null;
+  const capacityTotal =
+    capacityTotalCandidate ??
+    (capacityMax > 0 ? capacityMax : minCapacity > 0 ? minCapacity : 2);
+  const rawSideCapacities = data.sideCapacities as
+    | { north?: unknown; east?: unknown; south?: unknown; west?: unknown }
+    | undefined;
+  const parsedSides = {
+    north:
+      typeof rawSideCapacities?.north === 'number' &&
+      Number.isFinite(rawSideCapacities.north)
+        ? Math.max(0, rawSideCapacities.north)
+        : undefined,
+    east:
+      typeof rawSideCapacities?.east === 'number' && Number.isFinite(rawSideCapacities.east)
+        ? Math.max(0, rawSideCapacities.east)
+        : undefined,
+    south:
+      typeof rawSideCapacities?.south === 'number' && Number.isFinite(rawSideCapacities.south)
+        ? Math.max(0, rawSideCapacities.south)
+        : undefined,
+    west:
+      typeof rawSideCapacities?.west === 'number' && Number.isFinite(rawSideCapacities.west)
+        ? Math.max(0, rawSideCapacities.west)
+        : undefined,
+  };
+  const hasAnySide = Object.values(parsedSides).some(value => typeof value === 'number');
+  const fallbackNorth = Math.ceil(capacityTotal / 2);
+  const fallbackSouth = Math.max(0, capacityTotal - fallbackNorth);
+  const sideCapacities = hasAnySide
+    ? {
+        north: parsedSides.north ?? 0,
+        east: parsedSides.east ?? 0,
+        south: parsedSides.south ?? 0,
+        west: parsedSides.west ?? 0,
+      }
+    : {
+        north: fallbackNorth,
+        east: 0,
+        south: fallbackSouth,
+        west: 0,
+      };
+  const rawCombinable = Array.isArray(data.combinableWithIds) ? data.combinableWithIds : [];
+  const tableId = typeof data.id === 'string' ? data.id : idFallback || '';
+  const combinableWithIds = Array.from(
+    new Set(
+      rawCombinable
+        .filter(id => typeof id === 'string')
+        .map(id => id.trim())
+        .filter(Boolean)
+    )
+  ).filter(id => id !== tableId);
+  const rawBaseCombo = data.baseCombo as
+    | { groupId?: unknown; role?: unknown; memberIds?: unknown }
+    | undefined;
+  const baseComboGroupId =
+    typeof rawBaseCombo?.groupId === 'string' ? rawBaseCombo.groupId : '';
+  const baseComboRole =
+    rawBaseCombo?.role === 'member' || rawBaseCombo?.role === 'aggregate'
+      ? rawBaseCombo.role
+      : undefined;
+  const baseComboMemberIds = Array.isArray(rawBaseCombo?.memberIds)
+    ? rawBaseCombo?.memberIds.filter(id => typeof id === 'string')
+    : undefined;
+  const baseCombo =
+    baseComboGroupId && baseComboRole
+      ? {
+          groupId: baseComboGroupId,
+          role: baseComboRole,
+          ...(baseComboMemberIds ? { memberIds: baseComboMemberIds } : {}),
+        }
+      : undefined;
   return {
-    id: typeof data.id === 'string' ? data.id : idFallback || '',
+    id: tableId,
     name: typeof data.name === 'string' ? data.name : '',
     zoneId: typeof data.zoneId === 'string' ? data.zoneId : '',
-    capacityMax: typeof data.capacityMax === 'number' ? data.capacityMax : 0,
-    minCapacity: typeof data.minCapacity === 'number' ? data.minCapacity : 0,
+    capacityMax,
+    minCapacity,
+    capacityTotal,
+    sideCapacities,
+    combinableWithIds,
+    baseCombo,
     isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
     tableGroup: typeof data.tableGroup === 'string' ? data.tableGroup : undefined,
     tags: normalizeTags(data.tags),
@@ -230,6 +317,48 @@ const normalizeTableUpdatePatch = (
   } else if ('isCombinable' in table) {
     payload.canCombine =
       typeof table.isCombinable === 'boolean' ? table.isCombinable : false;
+  }
+  if (typeof table.capacityTotal === 'number' && Number.isFinite(table.capacityTotal)) {
+    payload.capacityTotal = table.capacityTotal;
+  }
+  if (table.sideCapacities) {
+    const { north, east, south, west } = table.sideCapacities;
+    if (
+      [north, east, south, west].every(
+        value => typeof value === 'number' && Number.isFinite(value)
+      )
+    ) {
+      payload.sideCapacities = { north, east, south, west };
+    }
+  }
+  if (Array.isArray(table.combinableWithIds)) {
+    const selfId = typeof table.id === 'string' ? table.id : undefined;
+    const combinableWithIds = Array.from(
+      new Set(
+        table.combinableWithIds
+          .filter(id => typeof id === 'string')
+          .map(id => id.trim())
+          .filter(Boolean)
+      )
+    ).filter(id => id !== selfId);
+    payload.combinableWithIds = combinableWithIds;
+  }
+  if (table.baseCombo) {
+    const groupId =
+      typeof table.baseCombo.groupId === 'string' ? table.baseCombo.groupId.trim() : '';
+    const role =
+      table.baseCombo.role === 'member' || table.baseCombo.role === 'aggregate'
+        ? table.baseCombo.role
+        : undefined;
+    if (groupId && role) {
+      const memberIds = Array.isArray(table.baseCombo.memberIds)
+        ? table.baseCombo.memberIds
+            .filter(id => typeof id === 'string')
+            .map(id => id.trim())
+            .filter(Boolean)
+        : undefined;
+      payload.baseCombo = memberIds ? { groupId, role, memberIds } : { groupId, role };
+    }
   }
   return payload;
 };

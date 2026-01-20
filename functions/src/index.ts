@@ -13,7 +13,12 @@ import { buildAllocationRecord } from "./allocation/allocated";
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
-import { applyCapacityLedgerTx, countsTowardCapacity } from "./reservations/capacityLedgerService";
+import {
+  applyCapacityLedgerTx,
+  countsTowardCapacity,
+  computeReservationBucketKeys,
+  normalizeReservationCapacitySettings,
+} from "./reservations/capacityLedgerService";
 import { normalizeTable, normalizeZone } from "./allocation/normalize";
 import type { FloorplanTable, FloorplanZone } from "./allocation/types";
 
@@ -557,6 +562,9 @@ export const guestUpdateReservation = onRequest(
       }
 
       if (action === 'cancel') {
+        const capacitySettings = normalizeReservationCapacitySettings(
+          await getReservationSettings(unitId)
+        );
         const result = await db.runTransaction(async (transaction) => {
           const latestSnap = await transaction.get(docRef);
           if (!latestSnap.exists) {
@@ -584,6 +592,13 @@ export const guestUpdateReservation = onRequest(
             nextStatus: 'cancelled',
             nextDateKey: dateKey,
             nextHeadcount: Number(latest.headcount || 0),
+            nextStartTime: startDate,
+            nextEndTime: latest.endTime?.toDate
+              ? latest.endTime.toDate()
+              : latest.endTime instanceof Date
+              ? latest.endTime
+              : null,
+            capacitySettings,
             mutationTraceId: `guest-cancel-${docRef.id}`,
           });
 
@@ -792,6 +807,7 @@ export const guestModifyReservation = onRequest(
 
       const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
       const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+      const capacitySettings = normalizeReservationCapacitySettings(settings);
       let allocationZones: FloorplanZone[] = [];
       let allocationTables: FloorplanTable[] = [];
       let allocationContextReady = false;
@@ -1056,12 +1072,52 @@ export const guestModifyReservation = onRequest(
           (nextCapData.totalCount as number | undefined) ??
           (nextCapData.count as number | undefined) ??
           0;
+        const oldBucketKeys =
+          capacitySettings.capacityMode === 'timeWindow'
+            ? computeReservationBucketKeys({
+                startTime: existingStart,
+                endTime: existingEnd,
+                bufferMinutes: capacitySettings.bufferMinutes,
+                bucketMinutes: capacitySettings.bucketMinutes,
+              })
+            : [];
+        const newBucketKeys =
+          capacitySettings.capacityMode === 'timeWindow'
+            ? computeReservationBucketKeys({
+                startTime,
+                endTime,
+                bufferMinutes: capacitySettings.bufferMinutes,
+                bucketMinutes: capacitySettings.bucketMinutes,
+              })
+            : [];
+        const byTimeBucket =
+          (nextCapData.byTimeBucket as Record<string, number> | undefined) ?? {};
+        const adjustedBuckets =
+          capacitySettings.capacityMode === 'timeWindow' &&
+          currentDateKey === nextDateKey &&
+          countsTowardCapacity(latest.status || 'pending')
+            ? oldBucketKeys.reduce((acc, bucketKey) => {
+                const currentValue = acc[bucketKey] ?? 0;
+                const nextValue = Math.max(0, currentValue - existingHeadcount);
+                if (nextValue === 0) {
+                  delete acc[bucketKey];
+                } else {
+                  acc[bucketKey] = nextValue;
+                }
+                return acc;
+              }, { ...byTimeBucket })
+            : byTimeBucket;
         const limitFromDoc = (nextCapData.limit as number | undefined) ?? undefined;
         const limitFromSettings =
-          settings.dailyCapacity && settings.dailyCapacity > 0
+          capacitySettings.capacityMode === 'timeWindow'
+            ? capacitySettings.timeWindowCapacity ?? undefined
+            : settings.dailyCapacity && settings.dailyCapacity > 0
             ? settings.dailyCapacity
             : undefined;
-        const limit = limitFromDoc ?? limitFromSettings;
+        const limit =
+          capacitySettings.capacityMode === 'timeWindow'
+            ? limitFromSettings
+            : limitFromDoc ?? limitFromSettings;
         const allocationOverrideDecision = await readAllocationOverrideTx(
           transaction,
           db,
@@ -1070,7 +1126,12 @@ export const guestModifyReservation = onRequest(
         );
         const existingIncluded = countsTowardCapacity(latest.status || 'pending');
         const decisionBaseline =
-          currentDateKey === nextDateKey
+          capacitySettings.capacityMode === 'timeWindow'
+            ? newBucketKeys.reduce(
+                (max, bucketKey) => Math.max(max, adjustedBuckets[bucketKey] ?? 0),
+                0
+              )
+            : currentDateKey === nextDateKey
             ? Math.max(0, currentCount - (existingIncluded ? existingHeadcount : 0))
             : nextCountBase;
         const allocationDecision = decideAllocation({
@@ -1085,7 +1146,9 @@ export const guestModifyReservation = onRequest(
         });
 
         if (allocationDecision.decision.status !== 'accepted') {
-          return { rejected: true, allocationDecision };
+          const capacityRemaining =
+            typeof limit === 'number' ? Math.max(0, limit - decisionBaseline) : null;
+          return { rejected: true, allocationDecision, capacityRemaining };
         }
 
         let allocationDiagnostics: AllocationDiagnostics;
@@ -1125,6 +1188,9 @@ export const guestModifyReservation = onRequest(
           nextStatus: latest.status || 'pending',
           nextDateKey: nextDateKey,
           nextHeadcount: parsedHeadcount,
+          nextStartTime: startTime,
+          nextEndTime: endTime,
+          capacitySettings,
           mutationTraceId: `guest-modify-${reservationId}-${allocationDecision.auditLog.traceId}`,
         });
 
@@ -1310,6 +1376,7 @@ export const guestModifyReservation = onRequest(
           startTimeMs: startTime.getTime(),
           endTimeMs: endTime.getTime(),
           allocationDecision,
+          capacityRemaining: null,
         };
       });
 
@@ -1322,7 +1389,10 @@ export const guestModifyReservation = onRequest(
 
       if (result.rejected) {
         if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
-          res.status(409).json({ error: 'capacity_full' });
+          res.status(409).json({
+            error: 'capacity_full',
+            remaining: result.capacityRemaining ?? undefined,
+          });
           return;
         }
         res.status(400).json({ error: 'A foglalás nem módosítható.' });
@@ -1447,7 +1517,6 @@ export const guestCreateReservation = onRequest(
       }
 
       const startTime = reservation.startTime ? new Date(reservation.startTime) : null;
-      const endTime = reservation.endTime ? new Date(reservation.endTime) : null;
       const headcount = Number(reservation.headcount || 0);
       const preferredTimeSlot = normalizePreferredTimeSlot(reservation.preferredTimeSlot);
       const seatingPreference = normalizeSeatingPreference(reservation.seatingPreference);
@@ -1456,8 +1525,15 @@ export const guestCreateReservation = onRequest(
         res.status(400).json({ error: 'startTime hiányzik vagy érvénytelen' });
         return;
       }
-      if (!endTime || Number.isNaN(endTime.getTime())) {
+      const endTime = reservation.endTime
+        ? new Date(reservation.endTime)
+        : new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
+      if (Number.isNaN(endTime.getTime())) {
         res.status(400).json({ error: 'endTime hiányzik vagy érvénytelen' });
+        return;
+      }
+      if (endTime.getTime() <= startTime.getTime()) {
+        res.status(400).json({ error: 'A befejezési időpontnak a kezdés után kell lennie.' });
         return;
       }
       if (!reservation.name || headcount <= 0) {
@@ -1475,6 +1551,7 @@ export const guestCreateReservation = onRequest(
 
       const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
       const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+      const capacitySettings = normalizeReservationCapacitySettings(settings);
       const reservationMode = settings.reservationMode || 'request';
       const status = reservationMode === 'auto' ? 'confirmed' : 'pending';
 
@@ -1538,18 +1615,42 @@ export const guestCreateReservation = onRequest(
       const createResult = await db.runTransaction(async (transaction) => {
         const capacitySnap = await transaction.get(capacityRef);
         const capacityData = capacitySnap.exists ? capacitySnap.data() || {} : {};
-        const currentCount =
+        const baseCount =
           (capacityData.totalCount as number | undefined) ??
           (capacityData.count as number | undefined) ??
           0;
+        const bucketKeys =
+          capacitySettings.capacityMode === 'timeWindow'
+            ? computeReservationBucketKeys({
+                startTime,
+                endTime,
+                bufferMinutes: capacitySettings.bufferMinutes,
+                bucketMinutes: capacitySettings.bucketMinutes,
+              })
+            : [];
+        const byTimeBucket =
+          (capacityData.byTimeBucket as Record<string, number> | undefined) ?? {};
+        const maxBucketUsed = bucketKeys.reduce(
+          (max, key) => Math.max(max, byTimeBucket[key] ?? 0),
+          0
+        );
+        const currentCount =
+          capacitySettings.capacityMode === 'timeWindow' ? maxBucketUsed : baseCount;
         const limitFromDoc = capacitySnap.exists
           ? (capacityData.limit as number | undefined)
           : undefined;
         const limitFromSettings =
-          settings.dailyCapacity && settings.dailyCapacity > 0
+          capacitySettings.capacityMode === 'timeWindow'
+            ? capacitySettings.timeWindowCapacity ?? undefined
+            : settings.dailyCapacity && settings.dailyCapacity > 0
             ? settings.dailyCapacity
             : undefined;
-        const limit = limitFromDoc ?? limitFromSettings;
+        const limit =
+          capacitySettings.capacityMode === 'timeWindow'
+            ? limitFromSettings
+            : limitFromDoc ?? limitFromSettings;
+        const capacityRemaining =
+          typeof limit === 'number' ? Math.max(0, limit - currentCount) : null;
 
         const allocationOverrideDecision = await readAllocationOverrideTx(
           transaction,
@@ -1570,7 +1671,7 @@ export const guestCreateReservation = onRequest(
         });
 
         if (allocationDecision.decision.status !== 'accepted') {
-          return { bookingId: null, allocationDecision };
+          return { bookingId: null, allocationDecision, capacityRemaining };
         }
 
         const nextCount = allocationDecision.capacityEffects.nextTotal;
@@ -1655,6 +1756,13 @@ export const guestCreateReservation = onRequest(
           totalCount: nextCount,
           updatedAt: FieldValue.serverTimestamp(),
         };
+        if (capacitySettings.capacityMode === 'timeWindow' && bucketKeys.length > 0) {
+          const nextBuckets = { ...byTimeBucket };
+          bucketKeys.forEach(bucketKey => {
+            nextBuckets[bucketKey] = (nextBuckets[bucketKey] || 0) + headcount;
+          });
+          capacityUpdate.byTimeBucket = nextBuckets;
+        }
         if (allocationIntent.timeSlot) {
           const byTimeSlot = {
             ...(capacityData.byTimeSlot as Record<string, number> | undefined),
@@ -1715,7 +1823,7 @@ export const guestCreateReservation = onRequest(
           message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})${diagnosticSuffix}`,
         });
 
-        return { bookingId: referenceCode, allocationDecision };
+        return { bookingId: referenceCode, allocationDecision, capacityRemaining };
       });
 
       const allocationDecision = createResult.allocationDecision;
@@ -1728,7 +1836,10 @@ export const guestCreateReservation = onRequest(
 
       if (allocationDecision.decision.status !== 'accepted') {
         if (allocationDecision.decision.reasonCode === 'CAPACITY_FULL') {
-          res.status(409).json({ error: 'capacity_full' });
+          res.status(409).json({
+            error: 'capacity_full',
+            remaining: createResult.capacityRemaining ?? undefined,
+          });
           return;
         }
         res.status(400).json({ error: 'reservation_not_available' });
@@ -2043,15 +2154,18 @@ export const adminHandleReservationAction = onRequest(
           throw new Error('NOT_FOUND');
         }
 
-        if (booking.status && booking.status !== 'pending') {
-          throw new Error('NOT_FOUND');
-        }
+      if (booking.status && booking.status !== 'pending') {
+        throw new Error('NOT_FOUND');
+      }
 
-        const bookingStart = booking.startTime?.toDate
-          ? booking.startTime.toDate()
-          : booking.startTime instanceof Date
-          ? booking.startTime
-          : null;
+      const capacitySettings = normalizeReservationCapacitySettings(
+        await getReservationSettings(unitId)
+      );
+      const bookingStart = booking.startTime?.toDate
+        ? booking.startTime.toDate()
+        : booking.startTime instanceof Date
+        ? booking.startTime
+        : null;
         const bookingDateKey = bookingStart ? toDateKey(bookingStart) : toDateKey(new Date());
 
         const status = action === 'approve' ? 'confirmed' : 'cancelled';
@@ -2064,6 +2178,13 @@ export const adminHandleReservationAction = onRequest(
           nextStatus: status,
           nextDateKey: bookingDateKey,
           nextHeadcount: Number(booking.headcount || 0),
+          nextStartTime: bookingStart,
+          nextEndTime: booking.endTime?.toDate
+            ? booking.endTime.toDate()
+            : booking.endTime instanceof Date
+            ? booking.endTime
+            : null,
+          capacitySettings,
           mutationTraceId: `admin-action-${docRef.id}-${status}`,
         });
 
@@ -3261,6 +3382,12 @@ interface ReservationSettings {
   publicBaseUrl?: string;
   themeMode?: 'light' | 'dark';
   uiTheme?: 'minimal_glass' | 'elegant' | 'bubbly';
+  dailyCapacity?: number | null;
+  capacityMode?: 'daily' | 'timeWindow';
+  timeWindowCapacity?: number | null;
+  bucketMinutes?: number;
+  bufferMinutes?: number;
+  bookableWindow?: { from: string; to: string };
 }
 
 const decisionLabels: Record<
@@ -5390,6 +5517,9 @@ export const onReservationStatusChange = onDocumentUpdated(
     }
 
     if (adminCancelled && after.startTime && after.headcount && after.headcount > 0) {
+      const capacitySettings = normalizeReservationCapacitySettings(
+        await getReservationSettings(unitId)
+      );
       tasks.push(
         db
           .runTransaction(async transaction => {
@@ -5414,6 +5544,13 @@ export const onReservationStatusChange = onDocumentUpdated(
               nextStatus: 'cancelled',
               nextDateKey: dateKey,
               nextHeadcount: Number(after.headcount || 0),
+              nextStartTime: startDate,
+              nextEndTime: after.endTime?.toDate
+                ? after.endTime.toDate()
+                : after.endTime instanceof Date
+                ? after.endTime
+                : null,
+              capacitySettings,
               mutationTraceId: `admin-cancel-${bookingId}`,
             });
           })
