@@ -290,6 +290,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     [bookings, selectedBookingId]
   );
 
+  const selectedWindow = useMemo(() => {
+    if (!selectedBookingId || !selectedBooking) return null;
+    const start = resolveBookingDate(selectedBooking.startTime);
+    const end = resolveBookingDate(selectedBooking.endTime);
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return null;
+    }
+    if (end.getTime() <= start.getTime()) {
+      return null;
+    }
+    return { start, end };
+  }, [selectedBooking, selectedBookingId]);
+
   const selectedAssignedTableIds = useMemo(() => {
     if (!selectedBooking) return new Set<string>();
     return resolveBookingTableIds(selectedBooking);
@@ -381,6 +394,30 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
     return conflicts;
   }, [bookings]);
+
+  const blockedForSelectedTableIds = useMemo(() => {
+    if (!selectedWindow || !selectedBookingId) return new Set<string>();
+    const blocked = new Set<string>();
+    bookings.forEach(booking => {
+      if (booking.id === selectedBookingId) return;
+      const start = resolveBookingDate(booking.startTime);
+      const end = resolveBookingDate(booking.endTime);
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return;
+      }
+      if (end.getTime() <= start.getTime()) {
+        return;
+      }
+      const overlapsSelectionWindow =
+        start.getTime() < selectedWindow.end.getTime() &&
+        selectedWindow.start.getTime() < end.getTime();
+      if (!overlapsSelectionWindow) return;
+      const tableIds = resolveBookingTableIds(booking);
+      if (!tableIds.size) return;
+      tableIds.forEach(tableId => blocked.add(tableId));
+    });
+    return blocked;
+  }, [bookings, selectedBookingId, selectedWindow]);
 
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
@@ -574,6 +611,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             const isSelected = selectedAssignedTableIds.has(table.id);
             const hasConflict = conflictTableIds.has(table.id);
             const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+            const isBlocked =
+              blockedForSelectedTableIds.has(table.id) &&
+              !isSelected &&
+              status !== 'occupied';
 
             return (
               <div
@@ -591,6 +632,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   backgroundColor: renderStatusColor(status),
                   transform: `rotate(${rotation}deg)`,
                   boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                  opacity: isBlocked ? 0.55 : undefined,
                   outline: isRecommended
                     ? '2px dashed rgba(251, 191, 36, 0.9)'
                     : undefined,
