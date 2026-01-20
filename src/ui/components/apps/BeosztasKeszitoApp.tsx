@@ -4826,14 +4826,122 @@ if (expected === 0) {
         layer={LAYERS.modal}
       />
 
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handlePrevWeek}
+            className="p-2 rounded-full hover:bg-gray-200"
+          >
+            &lt;
+          </button>
+          <h2 className="text-xl font-bold text-center">
+            {headerStart?.toLocaleDateString('hu-HU', {
+              month: 'long',
+              day: 'numeric'
+            })}{' '}
+            -{' '}
+            {headerEnd?.toLocaleDateString('hu-HU', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}
+          </h2>
+          <button
+            onClick={handleNextWeek}
+            className="p-2 rounded-full hover:bg-gray-200"
+          >
+            &gt;
+          </button>
+        </div>
+        <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
+          <div className="flex w-full flex-wrap items-center justify-center gap-3 md:justify-end">
+            {canManage && (
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Heti beállítások"
+              >
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+            )}
+            {canManage && (
+              <div className="flex items-center bg-gray-200 rounded-full p-1">
+                <button
+                  onClick={() => setViewMode('draft')}
+                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
+                    viewMode === 'draft'
+                      ? 'bg-white shadow'
+                      : ''
+                  }`}
+                >
+                  Piszkozat
+                </button>
+                <button
+                  onClick={() => setViewMode('published')}
+                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
+                    viewMode === 'published'
+                      ? 'bg-white shadow'
+                      : ''
+                  }`}
+                >
+                  Publikált
+                </button>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() =>
+                  setExportConfirmation({ type: 'PNG' })
+                }
+                disabled={isPngExporting || isPngExportConfirming}
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Exportálás PNG-be"
+              >
+                {isPngExporting ? (
+                  <svg
+                    className="animate-spin h-6 w-6 text-gray-700"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                ) : (
+                  <ImageIcon className="h-6 w-6" />
+                )}
+              </button>
+              <button
+                onClick={() =>
+                  setExportConfirmation({ type: 'Excel' })
+                }
+                className="p-2 rounded-full hover:bg-gray-200"
+                title="Exportálás Excelbe"
+              >
+                <DownloadIcon className="h-6 w-6" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div
         className={toolbarWrapperClassName}
         style={{
           zIndex: LAYERS.toolbar,
-          position: 'fixed',
+          position: 'sticky',
           top: topOffsetPx,
-          left: 0,
-          right: 0,
           pointerEvents: isSidebarOpen ? 'none' : 'auto',
         }}
       >
@@ -4980,117 +5088,6 @@ if (expected === 0) {
             </div>
           </div>
         </GlassOverlay>
-      </div>
-
-
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handlePrevWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &lt;
-          </button>
-          <h2 className="text-xl font-bold text-center">
-            {headerStart?.toLocaleDateString('hu-HU', {
-              month: 'long',
-              day: 'numeric'
-            })}{' '}
-            -{' '}
-            {headerEnd?.toLocaleDateString('hu-HU', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </h2>
-          <button
-            onClick={handleNextWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &gt;
-          </button>
-        </div>
-        <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex w-full flex-wrap items-center justify-center gap-3 md:justify-end">
-            {canManage && (
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Heti beállítások"
-              >
-                <SettingsIcon className="h-6 w-6" />
-              </button>
-            )}
-            {canManage && (
-              <div className="flex items-center bg-gray-200 rounded-full p-1">
-                <button
-                  onClick={() => setViewMode('draft')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'draft'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Piszkozat
-                </button>
-                <button
-                  onClick={() => setViewMode('published')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'published'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Publikált
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'PNG' })
-                }
-                disabled={isPngExporting || isPngExportConfirming}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás PNG-be"
-              >
-                {isPngExporting ? (
-                  <svg
-                    className="animate-spin h-6 w-6 text-gray-700"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                ) : (
-                  <ImageIcon className="h-6 w-6" />
-                )}
-              </button>
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'Excel' })
-                }
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás Excelbe"
-              >
-                <DownloadIcon className="h-6 w-6" />
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       {staffWarning && !isAdminUser && (
