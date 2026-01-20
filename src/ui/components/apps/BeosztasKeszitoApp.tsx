@@ -1641,6 +1641,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [isPngExportRenderMode, setIsPngExportRenderMode] =
     useState(false);
   const [pngHideEmptyUsers, setPngHideEmptyUsers] = useState(false);
+  const [isFloatingToolbar, setIsFloatingToolbar] = useState(false);
+  const [toolbarHeight, setToolbarHeight] = useState(0);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const toolbarSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [clickGuardUntil, setClickGuardUntil] = useState<number>(0);
   const isMultiUnitView = activeUnitIds.length > 1;
@@ -1713,6 +1717,40 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
     return () => clearToastTimers();
   }, [clearToastTimers, successToast, triggerToastExit]);
+
+  useEffect(() => {
+    if (!toolbarSentinelRef.current) return;
+    const topOffset = topOffsetPx > 0 ? topOffsetPx : 0;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsFloatingToolbar(!entry.isIntersecting);
+      },
+      {
+        root: null,
+        threshold: 0,
+        rootMargin: `${-topOffset}px 0px 0px 0px`,
+      }
+    );
+    observer.observe(toolbarSentinelRef.current);
+    return () => observer.disconnect();
+  }, [topOffsetPx]);
+
+  useEffect(() => {
+    if (!toolbarRef.current) return;
+    const updateHeight = () => {
+      const rect = toolbarRef.current?.getBoundingClientRect();
+      if (rect) {
+        setToolbarHeight(rect.height);
+      }
+    };
+    updateHeight();
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => updateHeight());
+      observer.observe(toolbarRef.current);
+    }
+    return () => observer?.disconnect();
+  }, []);
 
   // Subtle zebra palette for the UI table, mirroring export defaults
   const tableZebraDelta = useMemo(
@@ -4936,14 +4974,30 @@ if (expected === 0) {
         </div>
       </div>
 
+      <div ref={toolbarSentinelRef} style={{ height: 1 }} />
+
+      {isFloatingToolbar && (
+        <div
+          className="export-hide"
+          style={{ height: toolbarHeight || undefined }}
+        />
+      )}
+
       <div
+        ref={toolbarRef}
         className={toolbarWrapperClassName}
-        style={{
-          zIndex: LAYERS.toolbar,
-          position: 'sticky',
-          top: topOffsetPx > 0 ? topOffsetPx : 0,
-          pointerEvents: isSidebarOpen ? 'none' : 'auto',
-        }}
+        style={
+          isFloatingToolbar
+            ? {
+                zIndex: LAYERS.toolbar,
+                position: 'fixed',
+                top: topOffsetPx > 0 ? topOffsetPx : 0,
+                left: 0,
+                right: 0,
+                pointerEvents: isSidebarOpen ? 'none' : 'auto',
+              }
+            : undefined
+        }
       >
         <GlassOverlay
           className={`w-full ${toolbarDisabledClass}`}
