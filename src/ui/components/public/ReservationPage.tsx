@@ -56,6 +56,45 @@ const toDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const toBucketKey = (date: Date) => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+// Keep bucket math consistent with functions/src/reservations/capacityLedgerService.ts.
+const computeReservationBucketKeys = ({
+  startTime,
+  endTime,
+  bufferMinutes,
+  bucketMinutes,
+}: {
+  startTime: Date;
+  endTime: Date;
+  bufferMinutes: number;
+  bucketMinutes: number;
+}): string[] => {
+  const startMs = startTime.getTime();
+  const endMs = endTime.getTime() + bufferMinutes * 60 * 1000;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return [];
+  }
+  const dayStart = new Date(startTime);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+  const clampedStart = Math.max(startMs, dayStartMs);
+  const clampedEnd = Math.min(endMs, dayEndMs);
+  if (clampedEnd <= clampedStart) return [];
+  const bucketMs = Math.max(1, bucketMinutes) * 60 * 1000;
+  const firstBucket = Math.floor(clampedStart / bucketMs) * bucketMs;
+  const keys: string[] = [];
+  for (let t = firstBucket; t < clampedEnd; t += bucketMs) {
+    keys.push(toBucketKey(new Date(t)));
+  }
+  return Array.from(new Set(keys));
+};
+
 const DEFAULT_THEME: ThemeSettings = {
   primary: '#166534',
   surface: '#ffffff',
@@ -263,6 +302,12 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   >(new Map());
   const errorBannerRef = useRef<HTMLDivElement | null>(null);
   const localeRef = useRef(locale);
+  const timeWindowCapacityValue =
+    typeof settings?.timeWindowCapacity === 'number' &&
+    Number.isFinite(settings.timeWindowCapacity) &&
+    settings.timeWindowCapacity > 0
+      ? settings.timeWindowCapacity
+      : null;
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
@@ -297,6 +342,11 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         const defaultSettings: ReservationSetting = {
           id: unitId,
           blackoutDates: [],
+          dailyCapacity: null,
+          capacityMode: 'daily',
+          timeWindowCapacity: null,
+          bucketMinutes: 15,
+          bufferMinutes: 15,
           bookableWindow: { from: '11:00', to: '23:00' },
           kitchenStartTime: null,
           kitchenEndTime: null,
@@ -321,6 +371,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
               ...DEFAULT_THEME,
               ...(dbData.theme || {}),
             },
+            capacityMode: dbData.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily',
+            bucketMinutes: Number.isFinite(dbData.bucketMinutes) ? dbData.bucketMinutes : 15,
+            bufferMinutes: Number.isFinite(dbData.bufferMinutes) ? dbData.bufferMinutes : 15,
           };
           setSettings(finalSettings);
           const publicUnit = buildPublicUnit(unitId, finalSettings);
@@ -525,8 +578,47 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
         const potentialEndDateTime = new Date(
           `${toDateKey(selectedDate)}T${formData.endTime}`
         );
-        if (potentialEndDateTime > startDateTime)
-          endDateTime = potentialEndDateTime;
+        if (Number.isNaN(potentialEndDateTime.getTime())) {
+          throw new Error(t.errorTime);
+        }
+        if (potentialEndDateTime.getTime() <= startDateTime.getTime()) {
+          throw new Error(t.errorTime);
+        }
+        endDateTime = potentialEndDateTime;
+      }
+
+      const capacityMode = settings.capacityMode ?? 'daily';
+      if (capacityMode === 'timeWindow' && timeWindowCapacityValue) {
+        const bucketKeys = timeWindowSelection.bucketKeys;
+        const capacityEntry = capacityByDate.get(toDateKey(selectedDate));
+        const byTimeBucket = capacityEntry?.byTimeBucket ?? {};
+        let remaining = timeWindowCapacityValue;
+        let overLimit = false;
+        bucketKeys.forEach(key => {
+          const current = byTimeBucket[key] ?? 0;
+          remaining = Math.min(remaining, timeWindowCapacityValue - current);
+          if (current + headcount > timeWindowCapacityValue) {
+            overLimit = true;
+          }
+        });
+        if (bucketKeys.length && overLimit) {
+          const safeRemaining = Math.max(0, remaining);
+          const userMessage =
+            locale === 'hu'
+              ? `Erre az időpontra jelenleg ${safeRemaining} fő fér el. Kérjük, válassz másik időpontot.`
+              : `Only ${safeRemaining} seats are available for this time. Please pick another time.`;
+          setSubmitError({
+            kind: 'validation',
+            userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+            userMessage,
+            debugId: traceId,
+          });
+          setSubmitState('error');
+          console.log(
+            `[reserve-submit] capacity_full traceId=${traceId} remaining=${safeRemaining}`
+          );
+          return;
+        }
       }
 
       const reservationStatus: 'confirmed' | 'pending' =
@@ -577,6 +669,34 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       );
 
       if (!response.ok) {
+        if (response.status === 409) {
+          const payload = await response.json().catch(() => ({}));
+          if (payload?.error === 'capacity_full') {
+            const remaining =
+              typeof payload.remaining === 'number' && Number.isFinite(payload.remaining)
+                ? Math.max(0, payload.remaining)
+                : null;
+            const userMessage =
+              locale === 'hu'
+                ? remaining !== null
+                  ? `Erre az időpontra jelenleg ${remaining} fő fér el. Kérjük, válassz másik időpontot.`
+                  : t.errorCapacityFull
+                : remaining !== null
+                ? `Only ${remaining} seats are available for this time. Please pick another time.`
+                : t.errorCapacityFull;
+            setSubmitError({
+              kind: 'validation',
+              userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+              userMessage,
+              debugId: traceId,
+            });
+            setSubmitState('error');
+            console.log(
+              `[reserve-submit] error traceId=${traceId} kind=capacity_full remaining=${remaining ?? 'n/a'}`
+            );
+            return;
+          }
+        }
         const normalized = normalizeSubmitError({
           response,
           traceId,
@@ -691,6 +811,95 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
       errorBannerRef.current.focus();
     }
   }, [loadError, step]);
+
+  const timeWindowSelection = useMemo(() => {
+    if (!settings || (settings.capacityMode ?? 'daily') !== 'timeWindow') {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    if (!selectedDate || !formData.startTime) {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    const startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
+    const defaultEnd = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
+    const endDateTime = formData.endTime
+      ? new Date(`${toDateKey(selectedDate)}T${formData.endTime}`)
+      : defaultEnd;
+    if (Number.isNaN(startDateTime.getTime()) || Number.isNaN(endDateTime.getTime())) {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    if (endDateTime.getTime() <= startDateTime.getTime()) {
+      return {
+        dateKey: null,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    const bucketMinutes = settings.bucketMinutes ?? 15;
+    const bufferMinutes = settings.bufferMinutes ?? 15;
+    const bucketKeys = computeReservationBucketKeys({
+      startTime: startDateTime,
+      endTime: endDateTime,
+      bufferMinutes,
+      bucketMinutes,
+    });
+    const dateKey = toDateKey(selectedDate);
+    const capacityEntry = capacityByDate.get(dateKey);
+    const byTimeBucket = capacityEntry?.byTimeBucket ?? {};
+    const remaining =
+      timeWindowCapacityValue && bucketKeys.length
+        ? bucketKeys.reduce(
+            (min, key) => Math.min(min, timeWindowCapacityValue - (byTimeBucket[key] ?? 0)),
+            timeWindowCapacityValue
+          )
+        : null;
+    const headcount = Number.parseInt(formData.headcount, 10);
+    const overLimit =
+      timeWindowCapacityValue && bucketKeys.length && Number.isFinite(headcount)
+        ? bucketKeys.some(
+            key => (byTimeBucket[key] ?? 0) + headcount > timeWindowCapacityValue
+          )
+        : false;
+    return {
+      dateKey,
+      startTime: startDateTime,
+      endTime: endDateTime,
+      bucketKeys,
+      remaining: remaining !== null ? Math.max(0, remaining) : null,
+      overLimit,
+    };
+  }, [
+    capacityByDate,
+    formData.endTime,
+    formData.headcount,
+    formData.startTime,
+    selectedDate,
+    settings,
+    timeWindowCapacityValue,
+  ]);
 
   const retryLabel = locale === 'hu' ? 'Próbáld újra' : 'Try again';
 
@@ -817,6 +1026,9 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
                 onSubmit={handleSubmit}
                 isSubmitting={isSubmitting}
                 settings={settings}
+                timeWindowRemaining={timeWindowSelection.remaining}
+                timeWindowCapacity={timeWindowCapacityValue}
+                timeWindowOverLimit={timeWindowSelection.overLimit}
                 themeProps={themeClassProps}
                 t={t}
                 locale={locale}
@@ -988,7 +1200,11 @@ const Step1Date: React.FC<{
           const isBlackout = blackoutSet.has(dateKey);
           const isPast = day < today;
           let isFull = false;
-          if (settings.dailyCapacity && settings.dailyCapacity > 0) {
+          if (
+            (settings.capacityMode ?? 'daily') === 'daily' &&
+            settings.dailyCapacity &&
+            settings.dailyCapacity > 0
+          ) {
             const currentHeadcount = dailyHeadcounts.get(dateKey) || 0;
             isFull = currentHeadcount >= settings.dailyCapacity;
           }
@@ -1035,6 +1251,9 @@ interface Step2DetailsProps {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   isSubmitting: boolean;
   settings: ReservationSetting;
+  timeWindowRemaining: number | null;
+  timeWindowCapacity: number | null;
+  timeWindowOverLimit: boolean;
   themeProps: any;
   t: any;
   locale: Locale;
@@ -1052,6 +1271,9 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   onSubmit,
   isSubmitting,
   settings,
+  timeWindowRemaining,
+  timeWindowCapacity,
+  timeWindowOverLimit,
   themeProps,
   t,
   locale,
@@ -1154,6 +1376,11 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
 
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
+  const showTimeWindowRemaining =
+    (settings.capacityMode ?? 'daily') === 'timeWindow' &&
+    typeof timeWindowCapacity === 'number' &&
+    timeWindowCapacity > 0 &&
+    timeWindowRemaining !== null;
 
   const fieldErrorItems = [
     { key: 'name', label: t.name, message: formErrors.name },
@@ -1363,6 +1590,17 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               style={inputTextStyle}
               min={formData.startTime}
             />
+            {showTimeWindowRemaining && (
+              <p
+                className={`mt-2 text-xs ${
+                  timeWindowOverLimit ? 'text-red-600' : 'text-[var(--color-text-secondary)]'
+                }`}
+              >
+                {locale === 'hu'
+                  ? `Szabad kapacitás ebben az idősávban: ${timeWindowRemaining} fő`
+                  : `Remaining capacity for this window: ${timeWindowRemaining}`}
+              </p>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
