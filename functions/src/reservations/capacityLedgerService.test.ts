@@ -143,6 +143,7 @@ class FakeTransaction {
   }
 
   set(ref: FakeDocRef, data: Record<string, any>) {
+    this.store.set(ref.path, data);
     this.sets.push({ ref, data });
   }
 
@@ -150,6 +151,8 @@ class FakeTransaction {
     if (!this.store.has(ref.path)) {
       throw new Error('update called on missing doc');
     }
+    const existing = this.store.get(ref.path) ?? {};
+    this.store.set(ref.path, { ...existing, ...data });
     this.updates.push({ ref, data });
   }
 }
@@ -241,6 +244,89 @@ test('applyCapacityLedgerTx skips capacity mutation when trace matches', async (
 
   assert.equal(transaction.sets.length, 0);
   assert.equal(transaction.updates.length, 1);
+});
+
+test('applyCapacityLedgerTx can update reservation doc after set in same tx', async () => {
+  const store = new Map<string, Record<string, any>>();
+  const transaction = new FakeTransaction(store);
+  const db = new FakeFirestore();
+  const reservationRef = new FakeDocRef('reservations/res-tx-order');
+  const startTime = new Date('2025-01-01T10:00:00');
+  const endTime = new Date('2025-01-01T11:00:00');
+  const reservationData = {
+    capacityLedger: { applied: false },
+    headcount: 2,
+    startTime,
+    endTime,
+  };
+
+  transaction.set(reservationRef, reservationData);
+
+  await applyCapacityLedgerTx({
+    transaction: transaction as unknown as Transaction,
+    db: db as unknown as Firestore,
+    unitId: 'unit-1',
+    reservationRef: reservationRef as unknown as FirebaseFirestore.DocumentReference,
+    reservationData,
+    nextStatus: 'confirmed',
+    nextDateKey: '2025-01-01',
+    nextHeadcount: 2,
+    nextStartTime: startTime,
+    nextEndTime: endTime,
+    capacitySettings: {
+      capacityMode: 'timeWindow',
+      timeWindowCapacity: 8,
+      bucketMinutes: 30,
+      bufferMinutes: 0,
+    },
+    mutationTraceId: 'trace-order',
+  });
+
+  const updateEntry = transaction.updates.find(
+    entry => entry.ref.path === reservationRef.path
+  );
+  assert.ok(updateEntry);
+  assert.equal(updateEntry?.data.capacityLedger?.applied, true);
+});
+
+test('applyCapacityLedgerTx does not write byTimeBucket when start/end missing', async () => {
+  const store = new Map<string, Record<string, any>>();
+  const transaction = new FakeTransaction(store);
+  const db = new FakeFirestore();
+  const reservationRef = new FakeDocRef('reservations/res-missing-times');
+  const reservationData = {
+    capacityLedger: { applied: false },
+    headcount: 2,
+  };
+
+  transaction.set(reservationRef, reservationData);
+
+  await applyCapacityLedgerTx({
+    transaction: transaction as unknown as Transaction,
+    db: db as unknown as Firestore,
+    unitId: 'unit-1',
+    reservationRef: reservationRef as unknown as FirebaseFirestore.DocumentReference,
+    reservationData,
+    nextStatus: 'confirmed',
+    nextDateKey: '2025-01-01',
+    nextHeadcount: 2,
+    capacitySettings: {
+      capacityMode: 'timeWindow',
+      timeWindowCapacity: 8,
+      bucketMinutes: 30,
+      bufferMinutes: 0,
+    },
+    mutationTraceId: 'trace-missing-times',
+  });
+
+  const capacityEntry = transaction.sets.find(entry =>
+    entry.ref.path.includes('reservation_capacity/2025-01-01')
+  );
+  assert.ok(capacityEntry);
+  const written = capacityEntry.data as Record<string, any>;
+  assert.equal(written.byTimeBucket, undefined);
+  assert.equal(written.totalCount, 2);
+  assert.equal(written.count, 2);
 });
 
 test('applyCapacityLedgerTx applies bucket-only mutations when total delta is zero', async () => {
