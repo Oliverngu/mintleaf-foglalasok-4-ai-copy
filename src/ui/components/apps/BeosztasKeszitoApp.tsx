@@ -4826,10 +4826,17 @@ if (expected === 0) {
 
       <div
         className={toolbarWrapperClassName}
-        style={{ zIndex: LAYERS.toolbar }}
+        style={{
+          zIndex: LAYERS.toolbar,
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          pointerEvents: 'none',
+        }}
       >
         <GlassOverlay
-          className={`w-full ${toolbarDisabledClass}`}
+          className={`w-full ${toolbarDisabledClass} ${isSidebarOpen ? 'pointer-events-none' : 'pointer-events-auto'}`}
           elevation="high"
           radius={18}
           style={{ padding: 12 }}
