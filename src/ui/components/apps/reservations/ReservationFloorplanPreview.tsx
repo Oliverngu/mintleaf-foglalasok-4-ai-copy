@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -262,6 +262,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     });
   }, [activeZoneId, floorplan, tables]);
 
+  const displayZones = useMemo(
+    () =>
+      zones.filter(zone => {
+        const name =
+          typeof zone.name === 'string' ? zone.name.trim().toLocaleLowerCase('hu-HU') : '';
+        return !(zone.id === 'all' || name === 'összes');
+      }),
+    [zones]
+  );
+
   const visibleTableIdSet = useMemo(
     () => new Set(visibleTables.map(table => table.id)),
     [visibleTables]
@@ -305,20 +315,39 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const bgUrl = floorplan?.backgroundImageUrl ?? null;
   const hasBgUrl = Boolean(bgUrl && !bgFailed);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver(entries => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width, height } = entry.contentRect;
+  useLayoutEffect(() => {
+    const measureViewportRect = () => {
+      const node = containerRef.current;
+      if (!node) return;
+      const { width, height } = node.getBoundingClientRect();
       setRenderMetrics(prev =>
         prev.containerW === width && prev.containerH === height
           ? prev
           : { ...prev, containerW: width, containerH: height }
       );
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    };
+
+    let rafId = window.requestAnimationFrame(measureViewportRect);
+    const handleViewportEvent = () => {
+      window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(measureViewportRect);
+    };
+
+    window.addEventListener('resize', handleViewportEvent, { passive: true });
+    window.addEventListener('scroll', handleViewportEvent, { passive: true });
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      observer = new ResizeObserver(() => handleViewportEvent());
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleViewportEvent);
+      window.removeEventListener('scroll', handleViewportEvent);
+      observer?.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -656,6 +685,42 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
   const showDebug = process.env.NODE_ENV !== 'production';
+  const debugWarningReasons = useMemo(() => {
+    if (!showDebug || renderContext.ready) return [] as string[];
+    if (!(tablesTotal > 0 || tables.length > 0)) return [] as string[];
+    const reasons: string[] = [];
+    if (renderMetrics.containerW <= 0 || renderMetrics.containerH <= 0) {
+      reasons.push('viewport rect 0x0');
+    }
+    if (logicalWidth <= 0 || logicalHeight <= 0) {
+      reasons.push('logical dims invalid');
+    }
+    if (
+      renderMetrics.containerW > 0 &&
+      renderMetrics.containerH > 0 &&
+      logicalWidth > 0 &&
+      logicalHeight > 0
+    ) {
+      const transform = computeFloorplanTransformFromRect(
+        { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
+        logicalWidth,
+        logicalHeight
+      );
+      if (!Number.isFinite(transform.scale) || transform.scale <= 0) {
+        reasons.push('transform scale invalid');
+      }
+    }
+    return reasons;
+  }, [
+    logicalHeight,
+    logicalWidth,
+    renderContext.ready,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    showDebug,
+    tables.length,
+    tablesTotal,
+  ]);
   const geometryMode = 'absolute';
   const bgStatus = !bgUrl
     ? 'missing'
@@ -721,6 +786,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               </p>
             </>
           )}
+          {showDebug && debugWarningReasons.length > 0 && (
+            <p className="text-[10px] font-mono text-amber-600">
+              render warnings: {debugWarningReasons.join(' · ')}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end text-sm font-semibold text-[var(--color-text-main)] leading-tight">
           {capacityLimit !== null ? (
@@ -757,7 +827,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           >
             Összes
           </button>
-          {zones.map(zone => (
+          {displayZones.map(zone => (
             <button
               key={zone.id}
               type="button"
