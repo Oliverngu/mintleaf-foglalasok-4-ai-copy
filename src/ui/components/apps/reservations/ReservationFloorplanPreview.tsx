@@ -219,19 +219,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [floorplan?.backgroundImageUrl]);
 
   useEffect(() => {
-    if (!containerRef.current) return undefined;
-    const observer = new ResizeObserver(entries => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width, height } = entry.contentRect;
-      setRenderMetrics(prev =>
-        prev.containerW === width && prev.containerH === height
-          ? prev
-          : { ...prev, containerW: width, containerH: height }
-      );
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    if (!containerRef.current) return;
+    const { width, height } = containerRef.current.getBoundingClientRect();
+    setRenderMetrics(prev =>
+      prev.containerW === width && prev.containerH === height
+        ? prev
+        : { ...prev, containerW: width, containerH: height }
+    );
   }, []);
 
   const visibleTables = useMemo(() => {
