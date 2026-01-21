@@ -33,6 +33,7 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import {
+  isPlaceholderFloorplanDims,
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
   normalizeTableGeometryToFloorplan,
@@ -773,14 +774,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans, resolvedActiveFloorplanId]
   );
 
-  const floorplanDimsById = useMemo(() => {
-    const entries = new Map<string, { width: number; height: number }>();
-    floorplans.forEach(plan => {
-      entries.set(plan.id, normalizeFloorplanDimensions(plan));
-    });
-    return entries;
-  }, [floorplans]);
-
   const getStableFloorplanKey = useCallback(
     (id?: string | null) => (typeof id === 'string' && id.trim().length > 0 ? id : null),
     []
@@ -818,16 +811,34 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const src = activeFloorplan ?? floorplanForm;
     const width = Number(src?.width);
     const height = Number(src?.height);
-    return {
-      w: Number.isFinite(width) && width > 0 ? width : 1,
-      h: Number.isFinite(height) && height > 0 ? height : 1,
-    };
+    const hasStored = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    if (hasStored && !isPlaceholderFloorplanDims(width, height)) {
+      return { w: width, h: height, source: 'stored' as const };
+    }
+    if (bgNatural?.w && bgNatural?.h) {
+      return { w: bgNatural.w, h: bgNatural.h, source: 'image' as const };
+    }
+    return { w: 1, h: 1, source: 'fallback' as const };
   }
-  const { w: floorplanW, h: floorplanH } = getFloorplanDims();
+  const { w: floorplanW, h: floorplanH, source: floorplanDimsSource } = getFloorplanDims();
   const activeFloorplanRef = useMemo(
     () => ({ width: floorplanW, height: floorplanH }),
     [floorplanH, floorplanW]
   );
+  const floorplanDimsById = useMemo(() => {
+    const entries = new Map<string, { width: number; height: number }>();
+    floorplans.forEach(plan => {
+      const dims = normalizeFloorplanDimensions(plan);
+      const key = getStableFloorplanKey(plan.id);
+      if (!key) return;
+      entries.set(key, dims);
+    });
+    const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+    if (activeKey && floorplanDimsSource === 'image') {
+      entries.set(activeKey, { width: floorplanW, height: floorplanH });
+    }
+    return entries;
+  }, [floorplanDimsSource, floorplanH, floorplanW, floorplans, getStableFloorplanKey, resolvedActiveFloorplanId]);
   const getFloorplanDimsForId = useCallback(
     (floorplanId?: string | null) => {
       const key = getStableFloorplanKey(floorplanId);

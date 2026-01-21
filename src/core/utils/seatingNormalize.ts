@@ -9,6 +9,9 @@ type TableGeometryDefaults = {
   circleRadius?: number;
 };
 
+export const isPlaceholderFloorplanDims = (width?: number | null, height?: number | null) =>
+  Number(width) === 1 && Number(height) === 1;
+
 export const normalizeFloorplanDimensions = (
   floorplan?: Pick<Floorplan, 'width' | 'height'> | null
 ) => {

@@ -309,18 +309,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return {
         logicalWidth: 1,
         logicalHeight: 1,
-        logicalDimsSource: 'defaultNormalized' as const,
+        logicalDimsSource: 'fallback' as const,
       };
     }
     const width = Number(floorplan.width);
     const height = Number(floorplan.height);
     const hasStoredDims = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
-    return {
-      logicalWidth: hasStoredDims ? width : 1,
-      logicalHeight: hasStoredDims ? height : 1,
-      logicalDimsSource: hasStoredDims ? 'stored' : 'defaultNormalized',
-    };
-  }, [floorplan]);
+    const hasImageDims = Boolean(bgNaturalSize?.w && bgNaturalSize?.h);
+    if (hasStoredDims && !(width === 1 && height === 1)) {
+      return { logicalWidth: width, logicalHeight: height, logicalDimsSource: 'stored' as const };
+    }
+    if (hasImageDims) {
+      return {
+        logicalWidth: bgNaturalSize?.w ?? 1,
+        logicalHeight: bgNaturalSize?.h ?? 1,
+        logicalDimsSource: 'image' as const,
+      };
+    }
+    return { logicalWidth: 1, logicalHeight: 1, logicalDimsSource: 'fallback' as const };
+  }, [bgNaturalSize, floorplan]);
 
   const logicalWidth = floorplanDimensions.logicalWidth;
   const logicalHeight = floorplanDimensions.logicalHeight;
