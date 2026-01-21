@@ -248,27 +248,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   useEffect(() => {
     if (!containerRef.current) return;
-    let frame = 0;
-    const measure = () => {
-      if (!containerRef.current) return;
-      const { width, height } = containerRef.current.getBoundingClientRect();
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
       setRenderMetrics(prev =>
         prev.containerW === width && prev.containerH === height
           ? prev
           : { ...prev, containerW: width, containerH: height }
       );
-    };
-    const scheduleMeasure = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(measure);
-    };
-    scheduleMeasure();
-    window.addEventListener('resize', scheduleMeasure);
-    return () => {
-      window.removeEventListener('resize', scheduleMeasure);
-      window.cancelAnimationFrame(frame);
-    };
-  }, [floorplan?.backgroundImageUrl]);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (
@@ -660,6 +652,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const contentHeight = renderContext.ready
     ? Math.round(floorplanHeight * renderContext.sy)
     : 0;
+  const stageMaxWidth = Math.min(900, floorplanWidth);
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -759,11 +752,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="overflow-auto">
+      <div className="w-full" style={{ maxWidth: stageMaxWidth }}>
         <div
           ref={containerRef}
           className="relative border border-gray-200 rounded-xl bg-white/80"
-          style={{ width: floorplanWidth, height: floorplanHeight }}
+          style={{ width: '100%', aspectRatio: `${floorplanWidth} / ${floorplanHeight}` }}
         >
           {floorplan.backgroundImageUrl && (
             <img
