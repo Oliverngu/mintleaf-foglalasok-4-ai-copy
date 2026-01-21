@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -63,6 +63,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [bgNaturalSize, setBgNaturalSize] = useState<{ w: number; h: number } | null>(
     null
   );
+  const [renderMetrics, setRenderMetrics] = useState({
+    containerW: 0,
+    containerH: 0,
+    imgW: 0,
+    imgH: 0,
+  });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -212,6 +220,37 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       isActive = false;
     };
   }, [floorplan?.backgroundImageUrl]);
+
+  useEffect(() => {
+    if (!containerRef.current) return undefined;
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setRenderMetrics(prev =>
+        prev.containerW === width && prev.containerH === height
+          ? prev
+          : { ...prev, containerW: width, containerH: height }
+      );
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!imageRef.current || !floorplan?.backgroundImageUrl) {
+      setRenderMetrics(prev =>
+        prev.imgW === 0 && prev.imgH === 0 ? prev : { ...prev, imgW: 0, imgH: 0 }
+      );
+      return;
+    }
+    const { clientWidth, clientHeight } = imageRef.current;
+    setRenderMetrics(prev =>
+      prev.imgW === clientWidth && prev.imgH === clientHeight
+        ? prev
+        : { ...prev, imgW: clientWidth, imgH: clientHeight }
+    );
+  }, [floorplan?.backgroundImageUrl, renderMetrics.containerH, renderMetrics.containerW]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -559,6 +598,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     : 'default';
   const showDebug = process.env.NODE_ENV !== 'production';
   const geometryMode = geometryStats.maxValue <= 1.5 ? 'normalized' : 'absolute';
+  const renderScale = useMemo(() => {
+    if (
+      !floorplan.backgroundImageUrl ||
+      renderMetrics.imgW <= 0 ||
+      renderMetrics.imgH <= 0
+    ) {
+      return { sx: 1, sy: 1, offsetX: 0, offsetY: 0 };
+    }
+    const offsetX = (renderMetrics.containerW - renderMetrics.imgW) / 2;
+    const offsetY = (renderMetrics.containerH - renderMetrics.imgH) / 2;
+    return {
+      sx: renderMetrics.imgW / floorplanWidth,
+      sy: renderMetrics.imgH / floorplanHeight,
+      offsetX,
+      offsetY,
+    };
+  }, [
+    floorplan.backgroundImageUrl,
+    floorplanHeight,
+    floorplanWidth,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    renderMetrics.imgH,
+    renderMetrics.imgW,
+  ]);
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -593,7 +657,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               dims: {floorplanWidth}x{floorplanHeight} | source: {dimsSource} | img:{' '}
               {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | mode:{' '}
               {geometryMode} | maxGeom: {geometryStats.maxValue.toFixed(2)} | tables:{' '}
-              {geometryStats.count}
+              {geometryStats.count} | box: {Math.round(renderMetrics.containerW)}x
+              {Math.round(renderMetrics.containerH)} img: {Math.round(renderMetrics.imgW)}x
+              {Math.round(renderMetrics.imgH)} off: {renderScale.offsetX.toFixed(1)}/
+              {renderScale.offsetY.toFixed(1)}
             </p>
           )}
         </div>
@@ -655,6 +722,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
       <div className="overflow-auto">
         <div
+          ref={containerRef}
           className="relative border border-gray-200 rounded-xl bg-white/80"
           style={{ width: floorplanWidth, height: floorplanHeight }}
         >
@@ -662,6 +730,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             <img
               src={floorplan.backgroundImageUrl}
               alt={floorplan.name}
+              ref={imageRef}
+              onLoad={() => {
+                if (!imageRef.current) return;
+                const { clientWidth, clientHeight } = imageRef.current;
+                setRenderMetrics(prev =>
+                  prev.imgW === clientWidth && prev.imgH === clientHeight
+                    ? prev
+                    : { ...prev, imgW: clientWidth, imgH: clientHeight }
+                );
+              }}
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
@@ -670,10 +748,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               key={obstacle.id}
               className="absolute border border-dashed border-gray-300 bg-gray-200/40"
               style={{
-                left: obstacle.x,
-                top: obstacle.y,
-                width: obstacle.w,
-                height: obstacle.h,
+                left: renderScale.offsetX + obstacle.x * renderScale.sx,
+                top: renderScale.offsetY + obstacle.y * renderScale.sy,
+                width: obstacle.w * renderScale.sx,
+                height: obstacle.h * renderScale.sy,
                 transform: `rotate(${obstacle.rot ?? 0}deg)`,
               }}
             />
@@ -681,24 +759,24 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           {visibleTables.map(table => {
             const geometry = normalizeTableGeometry(table);
             const isNormalizedGeometry = geometryMode === 'normalized';
-            const tableWidth = isNormalizedGeometry
+            const logicalWidth = isNormalizedGeometry
               ? geometry.w * floorplanWidth
               : geometry.w;
-            const tableHeight = isNormalizedGeometry
+            const logicalHeight = isNormalizedGeometry
               ? geometry.h * floorplanHeight
               : geometry.h;
-            const maxX = Math.max(0, floorplanWidth - tableWidth);
-            const maxY = Math.max(0, floorplanHeight - tableHeight);
-            const left = clamp(
+            const maxX = Math.max(0, floorplanWidth - logicalWidth);
+            const maxY = Math.max(0, floorplanHeight - logicalHeight);
+            const left = renderScale.offsetX + clamp(
               isNormalizedGeometry ? geometry.x * floorplanWidth : geometry.x,
               0,
               maxX
-            );
-            const top = clamp(
+            ) * renderScale.sx;
+            const top = renderScale.offsetY + clamp(
               isNormalizedGeometry ? geometry.y * floorplanHeight : geometry.y,
               0,
               maxY
-            );
+            ) * renderScale.sy;
             const rotation = geometry.rot;
             const status = tableStatusById.get(table.id) ?? 'free';
             const isSelected = selectedAssignedTableIds.has(table.id);
@@ -718,8 +796,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 style={{
                   left,
                   top,
-                  width: tableWidth,
-                  height: tableHeight,
+                  width: logicalWidth * renderScale.sx,
+                  height: logicalHeight * renderScale.sy,
                   borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
                   border: '2px solid rgba(148, 163, 184, 0.6)',
                   backgroundColor: renderStatusColor(status),
