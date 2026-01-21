@@ -59,13 +59,22 @@ const safeScaleOk = (scaleX: number, scaleY: number) =>
   scaleY >= 0.2 &&
   scaleY <= 5;
 
-const inferLegacyDimsForFloorplan = (tables: Table[], floorplanIdKey: string) => {
+const inferLegacyDimsForFloorplan = (
+  tables: Table[],
+  floorplanIdKey: string,
+  includeUnassigned: boolean
+) => {
   let maxX = 0;
   let maxY = 0;
   let considered = 0;
   tables.forEach(table => {
     if (table.floorplanRef) return;
-    if (table.floorplanId && table.floorplanId !== floorplanIdKey) return;
+    const tableFloorplanId = table.floorplanId ?? null;
+    if (tableFloorplanId === null) {
+      if (!includeUnassigned) return;
+    } else if (tableFloorplanId !== floorplanIdKey) {
+      return;
+    }
     const geometry = normalizeTableGeometry(table);
     const nextX = geometry.x + geometry.w;
     const nextY = geometry.y + geometry.h;
@@ -74,7 +83,8 @@ const inferLegacyDimsForFloorplan = (tables: Table[], floorplanIdKey: string) =>
     considered += 1;
   });
   if (considered === 0) return null;
-  if (maxX > 50 && maxY > 50 && isSaneDims({ width: maxX, height: maxY })) {
+  const hasEnoughTables = considered >= 2 || (maxX > 200 && maxY > 200);
+  if (hasEnoughTables && isSaneDims({ width: maxX, height: maxY })) {
     return { width: maxX, height: maxY };
   }
   return null;
@@ -813,16 +823,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const legacyDimsByFloorplanKey = useMemo(() => {
     const map = new Map<string, { width: number; height: number }>();
+    const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
     floorplans.forEach(plan => {
       const key = getStableFloorplanKey(plan.id);
       if (!key) return;
-      const inferred = inferLegacyDimsForFloorplan(tables, key);
+      const includeUnassigned = Boolean(activeKey && key === activeKey);
+      const inferred = inferLegacyDimsForFloorplan(tables, key, includeUnassigned);
       if (inferred) {
         map.set(key, inferred);
       }
     });
     return map;
-  }, [floorplans, getStableFloorplanKey, tables]);
+  }, [floorplans, getStableFloorplanKey, resolvedActiveFloorplanId, tables]);
 
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
