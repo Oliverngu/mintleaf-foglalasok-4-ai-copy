@@ -781,6 +781,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return entries;
   }, [floorplans]);
 
+  const getStableFloorplanKey = useCallback(
+    (id?: string | null) => (typeof id === 'string' && id.trim().length > 0 ? id : null),
+    []
+  );
+
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
     if (prevBgUrlRef.current !== url) {
@@ -825,15 +830,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const getFloorplanDimsForId = useCallback(
     (floorplanId?: string | null) => {
-      if (floorplanId && floorplanDimsById.has(floorplanId)) {
-        return floorplanDimsById.get(floorplanId) ?? null;
+      const key = getStableFloorplanKey(floorplanId);
+      if (key && floorplanDimsById.has(key)) {
+        return floorplanDimsById.get(key) ?? null;
       }
-      if (resolvedActiveFloorplanId && floorplanDimsById.has(resolvedActiveFloorplanId)) {
-        return floorplanDimsById.get(resolvedActiveFloorplanId) ?? null;
+      const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+      if (activeKey && floorplanDimsById.has(activeKey)) {
+        return floorplanDimsById.get(activeKey) ?? null;
       }
       return { width: floorplanW, height: floorplanH };
     },
-    [floorplanDimsById, floorplanH, floorplanW, resolvedActiveFloorplanId]
+    [floorplanDimsById, floorplanH, floorplanW, getStableFloorplanKey, resolvedActiveFloorplanId]
   );
   const editorGridSize =
     (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
@@ -849,50 +856,79 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!tables.length) return;
     let hasChanges = false;
     const normalizedTables = tables.map(table => {
-      const floorplanId = table.floorplanId ?? resolvedActiveFloorplanId ?? '';
-      const targetDims = getFloorplanDimsForId(floorplanId);
+      const floorplanKey =
+        getStableFloorplanKey(table.floorplanId) ??
+        getStableFloorplanKey(resolvedActiveFloorplanId);
+      const targetDims = getFloorplanDimsForId(floorplanKey);
       if (!targetDims) return table;
       const ref = table.floorplanRef;
       const refMatches =
         ref &&
         ref.width === targetDims.width &&
         ref.height === targetDims.height;
-      if (refMatches) return table;
-      let fromDims = ref ?? lastKnownFloorplanDimsRef.current[floorplanId];
-      if (!fromDims) {
-        if (isDev) {
-          console.warn('[seating] missing floorplanRef; fallback to current dims', {
-            tableId: table.id,
-            floorplanId,
-            targetDims,
-          });
-        }
-        fromDims = targetDims;
+      const hasGeometry =
+        Number.isFinite(table.x) ||
+        Number.isFinite(table.y) ||
+        Number.isFinite(table.w) ||
+        Number.isFinite(table.h) ||
+        Number.isFinite(table.radius);
+      const fromDims =
+        ref ??
+        (floorplanKey ? lastKnownFloorplanDimsRef.current[floorplanKey] : null) ??
+        targetDims;
+      const dimsMatch =
+        fromDims.width === targetDims.width && fromDims.height === targetDims.height;
+      const shouldNormalize = hasGeometry && !dimsMatch;
+      if (!shouldNormalize && refMatches) {
+        return table;
+      }
+      if (!ref && isDev && floorplanKey && !lastKnownFloorplanDimsRef.current[floorplanKey]) {
+        console.warn('[seating] missing floorplanRef; fallback to current dims', {
+          tableId: table.id,
+          floorplanId: floorplanKey,
+          targetDims,
+        });
       }
       // Normalize geometry in the editor/save flow so previews can stay dumb.
-      const normalized = normalizeTableGeometryToFloorplan(table, fromDims, targetDims);
-      hasChanges = true;
-      return {
+      const normalized = shouldNormalize
+        ? normalizeTableGeometryToFloorplan(table, fromDims, targetDims)
+        : table;
+      const nextTable = {
         ...table,
         ...normalized,
         floorplanRef: { width: targetDims.width, height: targetDims.height },
       };
+      if (
+        nextTable.x !== table.x ||
+        nextTable.y !== table.y ||
+        nextTable.w !== table.w ||
+        nextTable.h !== table.h ||
+        nextTable.radius !== table.radius ||
+        !refMatches
+      ) {
+        hasChanges = true;
+        return nextTable;
+      }
+      return table;
     });
     if (!hasChanges) return;
     setTables(normalizedTables);
     setIsDirty(true);
     setSaveFeedback(null);
-  }, [getFloorplanDimsForId, isDev, resolvedActiveFloorplanId, tables]);
+  }, [getFloorplanDimsForId, getStableFloorplanKey, isDev, resolvedActiveFloorplanId, tables]);
   useEffect(() => {
     const next = { ...lastKnownFloorplanDimsRef.current };
     floorplanDimsById.forEach((dims, id) => {
-      next[id] = dims;
+      const key = getStableFloorplanKey(id);
+      if (!key) return;
+      next[key] = dims;
     });
-    if (resolvedActiveFloorplanId) {
-      next[resolvedActiveFloorplanId] = { width: floorplanW, height: floorplanH };
+    const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+    if (activeKey) {
+      next[activeKey] = { width: floorplanW, height: floorplanH };
     }
     lastKnownFloorplanDimsRef.current = next;
-  }, [floorplanDimsById, floorplanH, floorplanW, resolvedActiveFloorplanId]);
+  }, [floorplanDimsById, floorplanH, floorplanW, getStableFloorplanKey, resolvedActiveFloorplanId]);
   const selectedTable = useMemo(
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
@@ -1948,14 +1984,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       successMessage: 'Asztal mentve.',
       action: async () => {
         const floorplanId = normalizeOptionalString(tableForm.floorplanId);
+        const floorplanKey = getStableFloorplanKey(floorplanId);
         const currentTable = tableForm.id
           ? tables.find(table => table.id === tableForm.id) ?? null
           : null;
-        const targetDims = getFloorplanDimsForId(floorplanId);
+        const targetDims = getFloorplanDimsForId(floorplanKey);
+        const currentFloorplanKey = getStableFloorplanKey(currentTable?.floorplanId);
         const fallbackDims =
-          lastKnownFloorplanDimsRef.current[
-            currentTable?.floorplanId ?? floorplanId ?? ''
-          ];
+          (currentFloorplanKey && lastKnownFloorplanDimsRef.current[currentFloorplanKey]) ??
+          (floorplanKey && lastKnownFloorplanDimsRef.current[floorplanKey]);
         const isRect = tableForm.shape === 'rect';
         const isCircle = tableForm.shape === 'circle';
         const width = tableForm.w;
@@ -1972,14 +2009,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           radius: Number.isFinite(radius) ? radius : undefined,
         };
         const fromDims = currentTable?.floorplanRef ?? fallbackDims ?? targetDims ?? null;
+        const hasGeometry =
+          Number.isFinite(geometry.x) ||
+          Number.isFinite(geometry.y) ||
+          Number.isFinite(geometry.w) ||
+          Number.isFinite(geometry.h) ||
+          Number.isFinite(geometry.radius);
+        const dimsMatch =
+          targetDims &&
+          fromDims &&
+          fromDims.width === targetDims.width &&
+          fromDims.height === targetDims.height;
         const normalizedGeometry =
-          targetDims && fromDims
+          targetDims && fromDims && hasGeometry && !dimsMatch
             ? normalizeTableGeometryToFloorplan(geometry, fromDims, targetDims)
             : geometry;
         if (!fromDims && isDev && targetDims) {
           console.warn('[seating] missing floorplanRef on save; using current dims', {
             tableId: currentTable?.id ?? null,
-            floorplanId,
+            floorplanId: floorplanKey ?? null,
             targetDims,
           });
         }
@@ -2049,7 +2097,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       id => id !== selectedTableDraft.id
     );
     const targetDims = getFloorplanDimsForId(
-      selectedTable?.floorplanId ?? resolvedActiveFloorplanId ?? ''
+      getStableFloorplanKey(selectedTable?.floorplanId) ??
+        getStableFloorplanKey(resolvedActiveFloorplanId)
     );
     const payload = {
       capacityTotal,

@@ -13,9 +13,9 @@ export const normalizeFloorplanDimensions = (
   floorplan?: Pick<Floorplan, 'width' | 'height'> | null
 ) => {
   const width =
-    isFiniteNumber(floorplan?.width) && floorplan.width > 0 ? floorplan.width : 800;
+    isFiniteNumber(floorplan?.width) && floorplan.width > 0 ? floorplan.width : 1;
   const height =
-    isFiniteNumber(floorplan?.height) && floorplan.height > 0 ? floorplan.height : 500;
+    isFiniteNumber(floorplan?.height) && floorplan.height > 0 ? floorplan.height : 1;
   return { width, height };
 };
 
@@ -48,8 +48,16 @@ export const normalizeTableGeometry = (
   return { x, y, rot, w, h, radius, shape };
 };
 
+type TableGeometry = {
+  x?: number | null;
+  y?: number | null;
+  w?: number | null;
+  h?: number | null;
+  radius?: number | null;
+};
+
 export const normalizeTableGeometryToFloorplan = (
-  table: Partial<Table>,
+  table: TableGeometry,
   fromDims: { width: number; height: number },
   toDims: { width: number; height: number }
 ) => {
@@ -58,7 +66,7 @@ export const normalizeTableGeometryToFloorplan = (
   }
   const scaleX = toDims.width / fromDims.width;
   const scaleY = toDims.height / fromDims.height;
-  const next: Partial<Table> = { ...table };
+  const next: TableGeometry = { ...table };
   if (isFiniteNumber(table.x)) {
     next.x = table.x * scaleX;
   }
