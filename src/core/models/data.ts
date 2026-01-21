@@ -200,6 +200,10 @@ export interface Table {
   x?: number | null;
   y?: number | null;
   rot?: number | null;
+  floorplanRef?: {
+    width: number;
+    height: number;
+  };
   canSeatSolo?: boolean;
   canCombine?: boolean | null;
   createdAt?: Timestamp;

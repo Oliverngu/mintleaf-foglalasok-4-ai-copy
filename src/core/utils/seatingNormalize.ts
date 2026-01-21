@@ -47,3 +47,32 @@ export const normalizeTableGeometry = (
 
   return { x, y, rot, w, h, radius, shape };
 };
+
+export const normalizeTableGeometryToFloorplan = (
+  table: Partial<Table>,
+  fromDims: { width: number; height: number },
+  toDims: { width: number; height: number }
+) => {
+  if (!fromDims.width || !fromDims.height || !toDims.width || !toDims.height) {
+    return { ...table };
+  }
+  const scaleX = toDims.width / fromDims.width;
+  const scaleY = toDims.height / fromDims.height;
+  const next: Partial<Table> = { ...table };
+  if (isFiniteNumber(table.x)) {
+    next.x = table.x * scaleX;
+  }
+  if (isFiniteNumber(table.y)) {
+    next.y = table.y * scaleY;
+  }
+  if (isFiniteNumber(table.w)) {
+    next.w = table.w * scaleX;
+  }
+  if (isFiniteNumber(table.h)) {
+    next.h = table.h * scaleY;
+  }
+  if (isFiniteNumber(table.radius)) {
+    next.radius = table.radius * Math.min(scaleX, scaleY);
+  }
+  return next;
+};

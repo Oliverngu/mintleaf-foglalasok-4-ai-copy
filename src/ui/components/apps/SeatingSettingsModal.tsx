@@ -32,7 +32,11 @@ import {
   updateTable,
   updateZone,
 } from '../../../core/services/seatingAdminService';
-import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
+import {
+  normalizeFloorplanDimensions,
+  normalizeTableGeometry,
+  normalizeTableGeometryToFloorplan,
+} from '../../../core/utils/seatingNormalize';
 import {
   computeFloorplanTransformFromRect,
   FloorplanTransform,
@@ -351,6 +355,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ts: number;
   }>(null);
   const prevActiveFloorplanIdRef = useRef<string | null>(null);
+  const lastKnownFloorplanDimsRef = useRef<Record<string, { width: number; height: number }>>({});
   const isMountedRef = useRef(true);
 
   const [zoneForm, setZoneForm] = useState<{
@@ -768,6 +773,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans, resolvedActiveFloorplanId]
   );
 
+  const floorplanDimsById = useMemo(() => {
+    const entries = new Map<string, { width: number; height: number }>();
+    floorplans.forEach(plan => {
+      entries.set(plan.id, normalizeFloorplanDimensions(plan));
+    });
+    return entries;
+  }, [floorplans]);
+
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
     if (prevBgUrlRef.current !== url) {
@@ -806,6 +819,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }
   const { w: floorplanW, h: floorplanH } = getFloorplanDims();
+  const activeFloorplanRef = useMemo(
+    () => ({ width: floorplanW, height: floorplanH }),
+    [floorplanH, floorplanW]
+  );
+  const getFloorplanDimsForId = useCallback(
+    (floorplanId?: string | null) => {
+      if (floorplanId && floorplanDimsById.has(floorplanId)) {
+        return floorplanDimsById.get(floorplanId) ?? null;
+      }
+      if (resolvedActiveFloorplanId && floorplanDimsById.has(resolvedActiveFloorplanId)) {
+        return floorplanDimsById.get(resolvedActiveFloorplanId) ?? null;
+      }
+      return { width: floorplanW, height: floorplanH };
+    },
+    [floorplanDimsById, floorplanH, floorplanW, resolvedActiveFloorplanId]
+  );
   const editorGridSize =
     (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
       ? activeFloorplan.gridSize
@@ -816,6 +845,54 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table => !table.floorplanId || table.floorplanId === activeFloorplan.id
     );
   }, [activeFloorplan, tables]);
+  useEffect(() => {
+    if (!tables.length) return;
+    let hasChanges = false;
+    const normalizedTables = tables.map(table => {
+      const floorplanId = table.floorplanId ?? resolvedActiveFloorplanId ?? '';
+      const targetDims = getFloorplanDimsForId(floorplanId);
+      if (!targetDims) return table;
+      const ref = table.floorplanRef;
+      const refMatches =
+        ref &&
+        ref.width === targetDims.width &&
+        ref.height === targetDims.height;
+      if (refMatches) return table;
+      let fromDims = ref ?? lastKnownFloorplanDimsRef.current[floorplanId];
+      if (!fromDims) {
+        if (isDev) {
+          console.warn('[seating] missing floorplanRef; fallback to current dims', {
+            tableId: table.id,
+            floorplanId,
+            targetDims,
+          });
+        }
+        fromDims = targetDims;
+      }
+      // Normalize geometry in the editor/save flow so previews can stay dumb.
+      const normalized = normalizeTableGeometryToFloorplan(table, fromDims, targetDims);
+      hasChanges = true;
+      return {
+        ...table,
+        ...normalized,
+        floorplanRef: { width: targetDims.width, height: targetDims.height },
+      };
+    });
+    if (!hasChanges) return;
+    setTables(normalizedTables);
+    setIsDirty(true);
+    setSaveFeedback(null);
+  }, [getFloorplanDimsForId, isDev, resolvedActiveFloorplanId, tables]);
+  useEffect(() => {
+    const next = { ...lastKnownFloorplanDimsRef.current };
+    floorplanDimsById.forEach((dims, id) => {
+      next[id] = dims;
+    });
+    if (resolvedActiveFloorplanId) {
+      next[resolvedActiveFloorplanId] = { width: floorplanW, height: floorplanH };
+    }
+    lastKnownFloorplanDimsRef.current = next;
+  }, [floorplanDimsById, floorplanH, floorplanW, resolvedActiveFloorplanId]);
   const selectedTable = useMemo(
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
@@ -1871,6 +1948,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       successMessage: 'Asztal mentve.',
       action: async () => {
         const floorplanId = normalizeOptionalString(tableForm.floorplanId);
+        const currentTable = tableForm.id
+          ? tables.find(table => table.id === tableForm.id) ?? null
+          : null;
+        const targetDims = getFloorplanDimsForId(floorplanId);
+        const fallbackDims =
+          lastKnownFloorplanDimsRef.current[
+            currentTable?.floorplanId ?? floorplanId ?? ''
+          ];
         const isRect = tableForm.shape === 'rect';
         const isCircle = tableForm.shape === 'circle';
         const width = tableForm.w;
@@ -1879,6 +1964,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
         const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
         const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
+        const geometry = {
+          x,
+          y,
+          w: Number.isFinite(width) ? width : undefined,
+          h: Number.isFinite(height) ? height : undefined,
+          radius: Number.isFinite(radius) ? radius : undefined,
+        };
+        const fromDims = currentTable?.floorplanRef ?? fallbackDims ?? targetDims ?? null;
+        const normalizedGeometry =
+          targetDims && fromDims
+            ? normalizeTableGeometryToFloorplan(geometry, fromDims, targetDims)
+            : geometry;
+        if (!fromDims && isDev && targetDims) {
+          console.warn('[seating] missing floorplanRef on save; using current dims', {
+            tableId: currentTable?.id ?? null,
+            floorplanId,
+            targetDims,
+          });
+        }
         const payload = {
           name: tableForm.name.trim(),
           zoneId: tableForm.zoneId,
@@ -1888,14 +1992,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           canSeatSolo: tableForm.canSeatSolo,
           ...(floorplanId ? { floorplanId } : {}),
           shape: tableForm.shape,
-          ...(isRect && Number.isFinite(width) ? { w: width } : {}),
-          ...(isRect && Number.isFinite(height) ? { h: height } : {}),
-          ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
-          x,
-          y,
+          ...(isRect && Number.isFinite(normalizedGeometry.w) ? { w: normalizedGeometry.w } : {}),
+          ...(isRect && Number.isFinite(normalizedGeometry.h) ? { h: normalizedGeometry.h } : {}),
+          ...(isCircle && Number.isFinite(normalizedGeometry.radius)
+            ? { radius: normalizedGeometry.radius }
+            : {}),
+          x: Number.isFinite(normalizedGeometry.x) ? normalizedGeometry.x : x,
+          y: Number.isFinite(normalizedGeometry.y) ? normalizedGeometry.y : y,
           rot,
           snapToGrid: tableForm.snapToGrid,
           locked: tableForm.locked,
+          // Normalize geometry at save-time so the preview can stay dumb.
+          ...(targetDims ? { floorplanRef: { width: targetDims.width, height: targetDims.height } } : {}),
         };
         if (tableForm.id) {
           await updateTable(unitId, tableForm.id, payload);
@@ -1940,7 +2048,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
-    const payload = { capacityTotal, sideCapacities, combinableWithIds };
+    const targetDims = getFloorplanDimsForId(
+      selectedTable?.floorplanId ?? resolvedActiveFloorplanId ?? ''
+    );
+    const payload = {
+      capacityTotal,
+      sideCapacities,
+      combinableWithIds,
+      ...(targetDims ? { floorplanRef: { width: targetDims.width, height: targetDims.height } } : {}),
+    };
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
       errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
@@ -2281,13 +2397,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setDraftRotations(current => ({ ...current, [action.tableId]: action.prev.rot }));
     try {
       if (action.kind === 'move') {
-        await updateTable(unitId, action.tableId, { x: action.prev.x, y: action.prev.y });
+        await updateTable(unitId, action.tableId, {
+          x: action.prev.x,
+          y: action.prev.y,
+          floorplanRef: activeFloorplanRef,
+        });
         setLastSaved(current => ({
           ...current,
           [action.tableId]: { x: action.prev.x, y: action.prev.y },
         }));
       } else {
-        await updateTable(unitId, action.tableId, { rot: action.prev.rot });
+        await updateTable(unitId, action.tableId, {
+          rot: action.prev.rot,
+          floorplanRef: activeFloorplanRef,
+        });
         setLastSavedRot(current => ({ ...current, [action.tableId]: action.prev.rot }));
       }
       lastActionRef.current = null;
@@ -2303,7 +2426,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } finally {
       setSavingById(current => ({ ...current, [action.tableId]: false }));
     }
-  }, [savingById, unitId]);
+  }, [activeFloorplanRef, savingById, unitId]);
 
   const isUndoAvailable = useMemo(() => Boolean(lastActionRef.current), [undoTick]);
 
@@ -2364,7 +2487,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const finalizeDrag = async (tableId: string, x: number, y: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
-      await updateTable(unitId, tableId, { x, y });
+      await updateTable(unitId, tableId, { x, y, floorplanRef: activeFloorplanRef });
       const prevPos = lastSavedByIdRef.current[tableId] ?? { x, y };
       const prevRot =
         lastSavedRotByIdRef.current[tableId] ?? draftRotations[tableId] ?? 0;
@@ -2399,7 +2522,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
-      await updateTable(unitId, tableId, { rot });
+      await updateTable(unitId, tableId, { rot, floorplanRef: activeFloorplanRef });
       const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
       lastActionRef.current = {
         tableId,
