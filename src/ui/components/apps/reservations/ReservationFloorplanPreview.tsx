@@ -60,6 +60,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [tables, setTables] = useState<Table[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+  const [activeFloorplanId, setActiveFloorplanId] = useState<string | null>(null);
+  const [tablesTotal, setTablesTotal] = useState(0);
+  const [zonesTotal, setZonesTotal] = useState(0);
   const [floorplanLoading, setFloorplanLoading] = useState(true);
   const [floorplanError, setFloorplanError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
@@ -163,15 +166,30 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
         if (!isMounted) return;
 
-        const targetFloorplanId = settingsData.activeFloorplanId;
+        const targetFloorplanId = settingsData.activeFloorplanId ?? null;
         const resolvedFloorplan =
           floorplansData.find(plan => plan.id === targetFloorplanId) ??
-          floorplansData.find(plan => plan.isActive) ??
+          floorplansData[0] ??
           null;
+        setActiveFloorplanId(targetFloorplanId);
+        setTablesTotal(tablesData.length);
+        setZonesTotal(zonesData.length);
+
+        const baseZones = zonesData.filter(zone => zone.isActive !== false);
+        const hasZoneFloorplanId = baseZones.some(zone => zone.floorplanId);
+        const filteredZones =
+          resolvedFloorplan && hasZoneFloorplanId
+            ? baseZones.filter(zone => zone.floorplanId === resolvedFloorplan.id)
+            : baseZones;
+        const hasTableFloorplanId = tablesData.some(table => table.floorplanId);
+        const filteredTables =
+          resolvedFloorplan && hasTableFloorplanId
+            ? tablesData.filter(table => table.floorplanId === resolvedFloorplan.id)
+            : tablesData;
 
         setFloorplan(resolvedFloorplan);
-        setZones(zonesData.filter(zone => zone.isActive !== false));
-        setTables(tablesData);
+        setZones(filteredZones);
+        setTables(filteredTables);
       } catch (err) {
         console.error('Error loading floorplan preview data:', err);
         if (isMounted) {
@@ -203,7 +221,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return;
     }
     if (!zones.some(zone => zone.id === activeZoneId)) {
-      setActiveZoneId(zones[0].id);
+      setActiveZoneId(null);
     }
   }, [activeZoneId, zones]);
 
@@ -669,17 +687,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             })}
           </p>
           {showDebug && (
-            <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
-              dims: {logicalWidth}x{logicalHeight} | source: {logicalDimsSource} | img:{' '}
-              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | bg:{' '}
-              {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
-              {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | rect:{' '}
-              {Math.round(renderMetrics.containerW)}x{Math.round(renderMetrics.containerH)} | content:{' '}
-              {contentWidth}x{contentHeight} off: {renderContext.offsetX.toFixed(1)}/
-              {renderContext.offsetY.toFixed(1)} | logical: {logicalWidth}x
-              {logicalHeight} | sx/sy: {renderContext.sx.toFixed(3)}/
-              {renderContext.sy.toFixed(3)}
-            </p>
+            <>
+              <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                floorplan: {activeFloorplanId ?? 'n/a'} | selected:{' '}
+                {floorplan?.id ?? 'n/a'} | tables: {tablesTotal}/{visibleTables.length} | zones:{' '}
+                {zonesTotal}/{zones.length} | zone:{' '}
+                {activeZoneId === null ? 'Összes' : activeZoneId}
+              </p>
+              <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                dims: {logicalWidth}x{logicalHeight} | source: {logicalDimsSource} | img:{' '}
+                {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | bg:{' '}
+                {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
+                {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | rect:{' '}
+                {Math.round(renderMetrics.containerW)}x{Math.round(renderMetrics.containerH)} | content:{' '}
+                {contentWidth}x{contentHeight} off: {renderContext.offsetX.toFixed(1)}/
+                {renderContext.offsetY.toFixed(1)} | logical: {logicalWidth}x
+                {logicalHeight} | sx/sy: {renderContext.sx.toFixed(3)}/
+                {renderContext.sy.toFixed(3)}
+              </p>
+            </>
           )}
         </div>
         <div className="flex flex-col items-end text-sm font-semibold text-[var(--color-text-main)] leading-tight">
