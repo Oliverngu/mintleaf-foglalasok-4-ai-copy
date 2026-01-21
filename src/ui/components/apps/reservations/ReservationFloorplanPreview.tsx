@@ -814,14 +814,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               const ow = safeNum(obstacle.w, 0);
               const oh = safeNum(obstacle.h, 0);
               const orot = safeNum(obstacle.rot ?? 0, 0);
-              const baseW = Math.max(0, ow);
-              const baseH = Math.max(0, oh);
-              const maxX = Math.max(0, logicalWidth - baseW);
-              const maxY = Math.max(0, logicalHeight - baseH);
+              const finalW = Math.max(20, Math.max(0, ow));
+              const finalH = Math.max(20, Math.max(0, oh));
+              const maxX = Math.max(0, logicalWidth - finalW);
+              const maxY = Math.max(0, logicalHeight - finalH);
               const obstacleX = clamp(ox, 0, maxX);
               const obstacleY = clamp(oy, 0, maxY);
-              const obstacleW = Math.max(20, baseW);
-              const obstacleH = Math.max(20, baseH);
+              const obstacleW = finalW;
+              const obstacleH = finalH;
               return (
                 <div
                   key={obstacle.id}
