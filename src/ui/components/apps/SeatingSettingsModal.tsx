@@ -48,6 +48,38 @@ import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from 
 
 const COLLISION_EPS = 0.5;
 
+const isSaneDims = (dims: { width: number; height: number }) =>
+  dims.width > 0 && dims.height > 0 && dims.width < 10000 && dims.height < 10000;
+
+const safeScaleOk = (scaleX: number, scaleY: number) =>
+  Number.isFinite(scaleX) &&
+  Number.isFinite(scaleY) &&
+  scaleX >= 0.2 &&
+  scaleX <= 5 &&
+  scaleY >= 0.2 &&
+  scaleY <= 5;
+
+const inferLegacyDimsForFloorplan = (tables: Table[], floorplanIdKey: string) => {
+  let maxX = 0;
+  let maxY = 0;
+  let considered = 0;
+  tables.forEach(table => {
+    if (table.floorplanRef) return;
+    if (table.floorplanId && table.floorplanId !== floorplanIdKey) return;
+    const geometry = normalizeTableGeometry(table);
+    const nextX = geometry.x + geometry.w;
+    const nextY = geometry.y + geometry.h;
+    maxX = Math.max(maxX, nextX);
+    maxY = Math.max(maxY, nextY);
+    considered += 1;
+  });
+  if (considered === 0) return null;
+  if (maxX > 50 && maxY > 50 && isSaneDims({ width: maxX, height: maxY })) {
+    return { width: maxX, height: maxY };
+  }
+  return null;
+};
+
 function rectIntersectEps(
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
@@ -779,6 +811,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     []
   );
 
+  const legacyDimsByFloorplanKey = useMemo(() => {
+    const map = new Map<string, { width: number; height: number }>();
+    floorplans.forEach(plan => {
+      const key = getStableFloorplanKey(plan.id);
+      if (!key) return;
+      const inferred = inferLegacyDimsForFloorplan(tables, key);
+      if (inferred) {
+        map.set(key, inferred);
+      }
+    });
+    return map;
+  }, [floorplans, getStableFloorplanKey, tables]);
+
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
     if (prevBgUrlRef.current !== url) {
@@ -872,6 +917,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         getStableFloorplanKey(resolvedActiveFloorplanId);
       const targetDims = getFloorplanDimsForId(floorplanKey);
       if (!targetDims) return table;
+      const inferredLegacy = floorplanKey ? legacyDimsByFloorplanKey.get(floorplanKey) ?? null : null;
       const ref = table.floorplanRef;
       const refMatches =
         ref &&
@@ -883,13 +929,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         Number.isFinite(table.w) ||
         Number.isFinite(table.h) ||
         Number.isFinite(table.radius);
-      const fromDims =
-        ref ??
-        (floorplanKey ? lastKnownFloorplanDimsRef.current[floorplanKey] : null) ??
-        targetDims;
+      const lastKnown = floorplanKey ? lastKnownFloorplanDimsRef.current[floorplanKey] : null;
+      const fromDims = ref ?? lastKnown ?? inferredLegacy ?? targetDims;
       const dimsMatch =
         fromDims.width === targetDims.width && fromDims.height === targetDims.height;
-      const shouldNormalize = hasGeometry && !dimsMatch;
+      const hasMeaningfulFrom = Boolean(ref || lastKnown || inferredLegacy);
+      const shouldNormalize = hasGeometry && !dimsMatch && hasMeaningfulFrom;
       if (!shouldNormalize && refMatches) {
         return table;
       }
@@ -900,10 +945,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           targetDims,
         });
       }
+      const scaleX = targetDims.width / fromDims.width;
+      const scaleY = targetDims.height / fromDims.height;
+      const canScale = shouldNormalize && safeScaleOk(scaleX, scaleY);
       // Normalize geometry in the editor/save flow so previews can stay dumb.
-      const normalized = shouldNormalize
+      const normalized = canScale
         ? normalizeTableGeometryToFloorplan(table, fromDims, targetDims)
         : table;
+      if (canScale && inferredLegacy && fromDims === inferredLegacy && isDev) {
+        console.debug('[seating] legacy geometry normalized', {
+          tableId: table.id,
+          floorplanId: floorplanKey,
+          fromDims,
+          toDims: targetDims,
+          scaleX,
+          scaleY,
+        });
+      }
       const nextTable = {
         ...table,
         ...normalized,
@@ -926,7 +984,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setTables(normalizedTables);
     setIsDirty(true);
     setSaveFeedback(null);
-  }, [getFloorplanDimsForId, getStableFloorplanKey, isDev, resolvedActiveFloorplanId, tables]);
+  }, [
+    getFloorplanDimsForId,
+    getStableFloorplanKey,
+    isDev,
+    legacyDimsByFloorplanKey,
+    resolvedActiveFloorplanId,
+    tables,
+  ]);
   useEffect(() => {
     const next = { ...lastKnownFloorplanDimsRef.current };
     floorplanDimsById.forEach((dims, id) => {
