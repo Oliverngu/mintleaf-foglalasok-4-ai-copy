@@ -734,30 +734,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
 
-  if (floorplanLoading) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Betöltés...
-      </div>
-    );
-  }
-
-  if (floorplanError) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        {floorplanError}
-      </div>
-    );
-  }
-
-  if (!floorplan || !hasCapacitySettings) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
-      </div>
-    );
-  }
-
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
   const showDebug = process.env.NODE_ENV !== 'production';
   const debugWarningReasons = useMemo(() => {
@@ -796,6 +772,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     tables.length,
     tablesTotal,
   ]);
+
+  if (floorplanLoading) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Betöltés...
+      </div>
+    );
+  }
+
+  if (floorplanError) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {floorplanError}
+      </div>
+    );
+  }
+
+  if (!floorplan || !hasCapacitySettings) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
+      </div>
+    );
+  }
+
   const geometryMode = 'absolute';
   const bgStatus = !bgUrl
     ? 'missing'
