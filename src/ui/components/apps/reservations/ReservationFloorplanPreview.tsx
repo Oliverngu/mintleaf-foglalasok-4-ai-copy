@@ -53,6 +53,15 @@ const safeNum = (value: unknown, fallback = 0) => {
 const MIN_TABLE_W = 24;
 const MIN_TABLE_H = 24;
 
+const measureContainer = (node: HTMLDivElement | null) => {
+  if (!node) return null;
+  const rect = node.getBoundingClientRect();
+  const width = rect.width || node.clientWidth || 0;
+  const height = rect.height || node.clientHeight || 0;
+  if (width <= 0 || height <= 0) return null;
+  return { width, height };
+};
+
 const getFloorplanIdLike = (value: unknown) => {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
@@ -390,6 +399,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalWidth <= 0 ||
       logicalHeight <= 0
     ) {
+      if (renderMetrics.containerW <= 0 || renderMetrics.containerH <= 0) {
+        const measured = measureContainer(containerRef.current);
+        if (measured) {
+          setRenderMetrics(prev =>
+            prev.containerW === measured.width && prev.containerH === measured.height
+              ? prev
+              : { ...prev, containerW: measured.width, containerH: measured.height }
+          );
+        }
+      }
       setRenderContext(prev =>
         !prev.ready &&
         prev.sx === 1 &&
@@ -420,6 +439,29 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         : { ready: true, sx, sy, offsetX, offsetY }
     );
   }, [logicalHeight, logicalWidth, renderMetrics.containerH, renderMetrics.containerW]);
+
+  const effectiveRenderContext = useMemo(() => {
+    if (renderContext.ready) {
+      return { ...renderContext, effectiveReady: true };
+    }
+    const measured = measureContainer(containerRef.current);
+    if (measured && logicalWidth > 0 && logicalHeight > 0) {
+      const transform = computeFloorplanTransformFromRect(
+        { width: measured.width, height: measured.height, left: 0, top: 0 },
+        logicalWidth,
+        logicalHeight
+      );
+      return {
+        ready: true,
+        effectiveReady: true,
+        sx: transform.scale,
+        sy: transform.scale,
+        offsetX: transform.offsetX,
+        offsetY: transform.offsetY,
+      };
+    }
+    return { ready: false, effectiveReady: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 };
+  }, [logicalHeight, logicalWidth, renderContext]);
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
@@ -762,11 +804,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     : bgNaturalSize
     ? 'loaded'
     : 'missing';
-  const contentWidth = renderContext.ready
-    ? Math.round(logicalWidth * renderContext.sx)
+  const contentWidth = effectiveRenderContext.effectiveReady
+    ? Math.round(logicalWidth * effectiveRenderContext.sx)
     : 0;
-  const contentHeight = renderContext.ready
-    ? Math.round(logicalHeight * renderContext.sy)
+  const contentHeight = effectiveRenderContext.effectiveReady
+    ? Math.round(logicalHeight * effectiveRenderContext.sy)
     : 0;
   const stageMaxWidth = 900;
   const clamp = (value: number, min: number, max: number) =>
@@ -907,19 +949,23 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
-          {showDebug && !renderContext.ready && (
+          {showDebug && !effectiveRenderContext.effectiveReady && (
             <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
               Render not ready ({Math.round(renderMetrics.containerW)}x
               {Math.round(renderMetrics.containerH)})
             </div>
           )}
-          {renderContext.ready && visibleTables.length === 0 && (
+          {!effectiveRenderContext.effectiveReady && (tablesTotal > 0 || tables.length > 0) && (
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
+              Asztaltérkép pozicionálása…
+            </div>
+          )}
+          {effectiveRenderContext.effectiveReady && visibleTables.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
               Nincs megjeleníthető asztal ehhez a floorplanhoz / zónához.
             </div>
           )}
-          {renderContext.ready &&
-            (floorplan.obstacles ?? []).map(obstacle => {
+          {(floorplan.obstacles ?? []).map(obstacle => {
               const ox = safeNum(obstacle.x, 0);
               const oy = safeNum(obstacle.y, 0);
               const ow = safeNum(obstacle.w, 0);
@@ -938,16 +984,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   key={obstacle.id}
                   className="absolute border border-dashed border-gray-300 bg-gray-200/30"
                   style={{
-                    left: renderContext.offsetX + obstacleX * renderContext.sx,
-                    top: renderContext.offsetY + obstacleY * renderContext.sy,
-                    width: obstacleW * renderContext.sx,
-                    height: obstacleH * renderContext.sy,
+                    left: effectiveRenderContext.offsetX + obstacleX * effectiveRenderContext.sx,
+                    top: effectiveRenderContext.offsetY + obstacleY * effectiveRenderContext.sy,
+                    width: obstacleW * effectiveRenderContext.sx,
+                    height: obstacleH * effectiveRenderContext.sy,
                     transform: `rotate(${orot}deg)`,
                   }}
                 />
               );
             })}
-          {renderContext.ready && visibleTables.map(table => {
+          {visibleTables.map(table => {
             const geometry = normalizeTableGeometry(table);
             const tx = safeNum(geometry.x, 0);
             const ty = safeNum(geometry.y, 0);
@@ -959,16 +1005,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             const tableHeight = Math.max(MIN_TABLE_H, Math.max(0, thRaw));
             const maxX = Math.max(0, logicalWidth - tableWidth);
             const maxY = Math.max(0, logicalHeight - tableHeight);
-            const left = renderContext.offsetX + clamp(
+            const left = effectiveRenderContext.offsetX + clamp(
               tx,
               0,
               maxX
-            ) * renderContext.sx;
-            const top = renderContext.offsetY + clamp(
+            ) * effectiveRenderContext.sx;
+            const top = effectiveRenderContext.offsetY + clamp(
               ty,
               0,
               maxY
-            ) * renderContext.sy;
+            ) * effectiveRenderContext.sy;
             const rotation = trot;
             const circleRadius = Math.max(0, tradius) || Math.min(tableWidth, tableHeight) / 2;
             const status = tableStatusById.get(table.id) ?? 'free';
@@ -989,8 +1035,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 style={{
                   left,
                   top,
-                  width: tableWidth * renderContext.sx,
-                  height: tableHeight * renderContext.sy,
+                  width: tableWidth * effectiveRenderContext.sx,
+                  height: tableHeight * effectiveRenderContext.sy,
                   borderRadius: geometry.shape === 'circle' ? circleRadius : 8,
                   border: '2px solid rgba(148, 163, 184, 0.6)',
                   backgroundColor: renderStatusColor(status),
