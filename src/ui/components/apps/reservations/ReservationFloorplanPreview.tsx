@@ -50,6 +50,9 @@ const safeNum = (value: unknown, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const MIN_TABLE_W = 24;
+const MIN_TABLE_H = 24;
+
 const getFloorplanIdLike = (value: unknown) => {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
@@ -360,12 +363,23 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       observer = new ResizeObserver(() => handleViewportEvent());
       observer.observe(containerRef.current);
     }
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined' && containerRef.current) {
+      intersectionObserver = new IntersectionObserver(entries => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          handleViewportEvent();
+        }
+      });
+      intersectionObserver.observe(containerRef.current);
+    }
 
     return () => {
       window.cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleViewportEvent);
       window.removeEventListener('scroll', handleViewportEvent);
       observer?.disconnect();
+      intersectionObserver?.disconnect();
     };
   }, [floorplan?.id, logicalHeight, logicalWidth]);
 
@@ -893,6 +907,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
+          {showDebug && !renderContext.ready && (
+            <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
+              Render not ready ({Math.round(renderMetrics.containerW)}x
+              {Math.round(renderMetrics.containerH)})
+            </div>
+          )}
           {renderContext.ready && visibleTables.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
               Nincs megjeleníthető asztal ehhez a floorplanhoz / zónához.
@@ -935,8 +955,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             const thRaw = safeNum(geometry.h, 0);
             const trot = safeNum(geometry.rot, 0);
             const tradius = safeNum((geometry as { radius?: number }).radius, 0);
-            const tableWidth = Math.max(0, twRaw);
-            const tableHeight = Math.max(0, thRaw);
+            const tableWidth = Math.max(MIN_TABLE_W, Math.max(0, twRaw));
+            const tableHeight = Math.max(MIN_TABLE_H, Math.max(0, thRaw));
             const maxX = Math.max(0, logicalWidth - tableWidth);
             const maxY = Math.max(0, logicalHeight - tableHeight);
             const left = renderContext.offsetX + clamp(
