@@ -50,6 +50,17 @@ const safeNum = (value: unknown, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const getFloorplanIdLike = (value: unknown) => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const candidate =
+    record.floorplanId ??
+    record.floorplanRefId ??
+    record.floorplanUid ??
+    record.floorplanUID;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+};
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -60,7 +71,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [tables, setTables] = useState<Table[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
-  const [activeFloorplanId, setActiveFloorplanId] = useState<string | null>(null);
+  const [settingsActiveFloorplanId, setSettingsActiveFloorplanId] = useState<string | null>(null);
+  const [resolvedFloorplanId, setResolvedFloorplanId] = useState<string | null>(null);
   const [tablesTotal, setTablesTotal] = useState(0);
   const [zonesTotal, setZonesTotal] = useState(0);
   const [floorplanLoading, setFloorplanLoading] = useState(true);
@@ -171,20 +183,21 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           floorplansData.find(plan => plan.id === targetFloorplanId) ??
           floorplansData[0] ??
           null;
-        setActiveFloorplanId(targetFloorplanId);
+        setSettingsActiveFloorplanId(targetFloorplanId);
+        setResolvedFloorplanId(resolvedFloorplan?.id ?? null);
         setTablesTotal(tablesData.length);
         setZonesTotal(zonesData.length);
 
         const baseZones = zonesData.filter(zone => zone.isActive !== false);
-        const hasZoneFloorplanId = baseZones.some(zone => zone.floorplanId);
+        const hasZoneFloorplanId = baseZones.some(zone => getFloorplanIdLike(zone));
         const filteredZones =
           resolvedFloorplan && hasZoneFloorplanId
-            ? baseZones.filter(zone => zone.floorplanId === resolvedFloorplan.id)
+            ? baseZones.filter(zone => getFloorplanIdLike(zone) === resolvedFloorplan.id)
             : baseZones;
-        const hasTableFloorplanId = tablesData.some(table => table.floorplanId);
+        const hasTableFloorplanId = tablesData.some(table => getFloorplanIdLike(table));
         const filteredTables =
           resolvedFloorplan && hasTableFloorplanId
-            ? tablesData.filter(table => table.floorplanId === resolvedFloorplan.id)
+            ? tablesData.filter(table => getFloorplanIdLike(table) === resolvedFloorplan.id)
             : tablesData;
 
         setFloorplan(resolvedFloorplan);
@@ -242,7 +255,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
-      const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
+      const tableFloorplanId = getFloorplanIdLike(table);
+      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
       const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
@@ -689,9 +703,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           {showDebug && (
             <>
               <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
-                floorplan: {activeFloorplanId ?? 'n/a'} | selected:{' '}
-                {floorplan?.id ?? 'n/a'} | tables: {tablesTotal}/{visibleTables.length} | zones:{' '}
-                {zonesTotal}/{zones.length} | zone:{' '}
+                floorplan: {settingsActiveFloorplanId ?? 'n/a'} | selected:{' '}
+                {resolvedFloorplanId ?? floorplan?.id ?? 'n/a'} | tables:{' '}
+                {tablesTotal}/{visibleTables.length} | zones: {zonesTotal}/{zones.length} | zone:{' '}
                 {activeZoneId === null ? 'Összes' : activeZoneId}
               </p>
               <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
@@ -787,6 +801,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               }}
               className="absolute inset-0 w-full h-full object-contain"
             />
+          )}
+          {renderContext.ready && visibleTables.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
+              Nincs megjeleníthető asztal ehhez a floorplanhoz / zónához.
+            </div>
           )}
           {renderContext.ready &&
             (floorplan.obstacles ?? []).map(obstacle => {
