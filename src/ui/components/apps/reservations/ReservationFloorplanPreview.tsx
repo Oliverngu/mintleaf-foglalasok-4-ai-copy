@@ -66,11 +66,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [renderMetrics, setRenderMetrics] = useState({
     containerW: 0,
     containerH: 0,
-    imgW: 0,
-    imgH: 0,
   });
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -236,21 +233,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (!imageRef.current || !floorplan?.backgroundImageUrl) {
-      setRenderMetrics(prev =>
-        prev.imgW === 0 && prev.imgH === 0 ? prev : { ...prev, imgW: 0, imgH: 0 }
-      );
-      return;
-    }
-    const { clientWidth, clientHeight } = imageRef.current;
-    setRenderMetrics(prev =>
-      prev.imgW === clientWidth && prev.imgH === clientHeight
-        ? prev
-        : { ...prev, imgW: clientWidth, imgH: clientHeight }
-    );
-  }, [floorplan?.backgroundImageUrl, renderMetrics.containerH, renderMetrics.containerW]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -601,27 +583,35 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const renderScale = useMemo(() => {
     if (
       !floorplan.backgroundImageUrl ||
-      renderMetrics.imgW <= 0 ||
-      renderMetrics.imgH <= 0
+      !bgNaturalSize ||
+      renderMetrics.containerW <= 0 ||
+      renderMetrics.containerH <= 0
     ) {
-      return { sx: 1, sy: 1, offsetX: 0, offsetY: 0 };
+      return { sx: 1, sy: 1, offsetX: 0, offsetY: 0, contentW: 0, contentH: 0 };
     }
-    const offsetX = (renderMetrics.containerW - renderMetrics.imgW) / 2;
-    const offsetY = (renderMetrics.containerH - renderMetrics.imgH) / 2;
+    const scale = Math.min(
+      renderMetrics.containerW / bgNaturalSize.w,
+      renderMetrics.containerH / bgNaturalSize.h
+    );
+    const contentW = bgNaturalSize.w * scale;
+    const contentH = bgNaturalSize.h * scale;
+    const offsetX = (renderMetrics.containerW - contentW) / 2;
+    const offsetY = (renderMetrics.containerH - contentH) / 2;
     return {
-      sx: renderMetrics.imgW / floorplanWidth,
-      sy: renderMetrics.imgH / floorplanHeight,
+      sx: contentW / floorplanWidth,
+      sy: contentH / floorplanHeight,
       offsetX,
       offsetY,
+      contentW,
+      contentH,
     };
   }, [
+    bgNaturalSize,
     floorplan.backgroundImageUrl,
     floorplanHeight,
     floorplanWidth,
     renderMetrics.containerH,
     renderMetrics.containerW,
-    renderMetrics.imgH,
-    renderMetrics.imgW,
   ]);
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
@@ -658,9 +648,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | mode:{' '}
               {geometryMode} | maxGeom: {geometryStats.maxValue.toFixed(2)} | tables:{' '}
               {geometryStats.count} | box: {Math.round(renderMetrics.containerW)}x
-              {Math.round(renderMetrics.containerH)} img: {Math.round(renderMetrics.imgW)}x
-              {Math.round(renderMetrics.imgH)} off: {renderScale.offsetX.toFixed(1)}/
-              {renderScale.offsetY.toFixed(1)}
+              {Math.round(renderMetrics.containerH)} natural:{' '}
+              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} content:{' '}
+              {Math.round(renderScale.contentW)}x{Math.round(renderScale.contentH)} off:{' '}
+              {renderScale.offsetX.toFixed(1)}/{renderScale.offsetY.toFixed(1)}
             </p>
           )}
         </div>
@@ -730,16 +721,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             <img
               src={floorplan.backgroundImageUrl}
               alt={floorplan.name}
-              ref={imageRef}
-              onLoad={() => {
-                if (!imageRef.current) return;
-                const { clientWidth, clientHeight } = imageRef.current;
-                setRenderMetrics(prev =>
-                  prev.imgW === clientWidth && prev.imgH === clientHeight
-                    ? prev
-                    : { ...prev, imgW: clientWidth, imgH: clientHeight }
-                );
-              }}
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
