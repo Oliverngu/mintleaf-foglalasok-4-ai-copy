@@ -325,12 +325,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           ? prev
           : { ...prev, containerW: width, containerH: height }
       );
+      return { width, height };
     };
 
-    let rafId = window.requestAnimationFrame(measureViewportRect);
+    let rafId = 0;
+    let retries = 0;
+    const maxRetries = 6;
+    const retryMeasure = () => {
+      const result = measureViewportRect();
+      if (
+        result &&
+        result.width > 0 &&
+        result.height > 0
+      ) {
+        return;
+      }
+      if (retries < maxRetries) {
+        retries += 1;
+        rafId = window.requestAnimationFrame(retryMeasure);
+      }
+    };
+    rafId = window.requestAnimationFrame(retryMeasure);
     const handleViewportEvent = () => {
       window.cancelAnimationFrame(rafId);
-      rafId = window.requestAnimationFrame(measureViewportRect);
+      retries = 0;
+      rafId = window.requestAnimationFrame(retryMeasure);
     };
 
     window.addEventListener('resize', handleViewportEvent, { passive: true });
@@ -348,7 +367,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       window.removeEventListener('scroll', handleViewportEvent);
       observer?.disconnect();
     };
-  }, []);
+  }, [floorplan?.id, logicalHeight, logicalWidth]);
 
   useEffect(() => {
     if (
@@ -735,7 +754,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const contentHeight = renderContext.ready
     ? Math.round(logicalHeight * renderContext.sy)
     : 0;
-  const stageMaxWidth = Math.min(900, logicalWidth);
+  const stageMaxWidth = 900;
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -779,7 +798,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
                 {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | rect:{' '}
                 {Math.round(renderMetrics.containerW)}x{Math.round(renderMetrics.containerH)} | content:{' '}
-                {contentWidth}x{contentHeight} off: {renderContext.offsetX.toFixed(1)}/
+                {contentWidth}x{contentHeight} | stageMax:{stageMaxWidth} | ready:{' '}
+                {renderContext.ready ? 'yes' : 'no'} off: {renderContext.offsetX.toFixed(1)}/
                 {renderContext.offsetY.toFixed(1)} | logical: {logicalWidth}x
                 {logicalHeight} | sx/sy: {renderContext.sx.toFixed(3)}/
                 {renderContext.sy.toFixed(3)}
@@ -853,7 +873,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         <div
           ref={containerRef}
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
-          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}` }}
+          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}`, minHeight: 240 }}
         >
           {hasBgUrl && (
             <img
