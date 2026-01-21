@@ -220,13 +220,17 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const { width, height } = containerRef.current.getBoundingClientRect();
-    setRenderMetrics(prev =>
-      prev.containerW === width && prev.containerH === height
-        ? prev
-        : { ...prev, containerW: width, containerH: height }
-    );
-  }, []);
+    const frame = window.requestAnimationFrame(() => {
+      if (!containerRef.current) return;
+      const { width, height } = containerRef.current.getBoundingClientRect();
+      setRenderMetrics(prev =>
+        prev.containerW === width && prev.containerH === height
+          ? prev
+          : { ...prev, containerW: width, containerH: height }
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [bgNaturalSize, floorplan?.backgroundImageUrl, floorplanHeight, floorplanWidth]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
