@@ -63,6 +63,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [bgNaturalSize, setBgNaturalSize] = useState<{ w: number; h: number } | null>(
     null
   );
+  const [bgFailed, setBgFailed] = useState(false);
   const [renderMetrics, setRenderMetrics] = useState({
     containerW: 0,
     containerH: 0,
@@ -82,6 +83,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     offsetY: 0,
   });
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -210,26 +212,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [activeZoneId, bookings, selectedBookingId, zones]);
 
   useEffect(() => {
-    if (!floorplan?.backgroundImageUrl) {
-      setBgNaturalSize(null);
-      return;
-    }
-
-    let isActive = true;
-    const image = new Image();
-    image.onload = () => {
-      if (!isActive) return;
-      setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
-    };
-    image.onerror = () => {
-      if (!isActive) return;
-      setBgNaturalSize(null);
-    };
-    image.src = floorplan.backgroundImageUrl;
-
-    return () => {
-      isActive = false;
-    };
+    setBgNaturalSize(null);
+    setBgFailed(false);
   }, [floorplan?.backgroundImageUrl]);
 
   const floorplanDimensions = useMemo(() => {
@@ -264,7 +248,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const frame = window.requestAnimationFrame(() => {
+    let frame = 0;
+    const measure = () => {
       if (!containerRef.current) return;
       const { width, height } = containerRef.current.getBoundingClientRect();
       setRenderMetrics(prev =>
@@ -272,26 +257,48 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           ? prev
           : { ...prev, containerW: width, containerH: height }
       );
+    };
+    const scheduleMeasure = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    scheduleMeasure();
+    window.addEventListener('resize', scheduleMeasure);
+    return () => {
+      window.removeEventListener('resize', scheduleMeasure);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [floorplan?.backgroundImageUrl]);
+
+  useEffect(() => {
     if (
       !floorplan?.backgroundImageUrl ||
+      bgFailed ||
       !bgNaturalSize ||
-      width <= 0 ||
-      height <= 0 ||
+      renderMetrics.containerW <= 0 ||
+      renderMetrics.containerH <= 0 ||
       floorplanWidth <= 0 ||
       floorplanHeight <= 0
     ) {
       setRenderContext(prev =>
-        !prev.ready
+        prev.ready &&
+        prev.sx === 1 &&
+        prev.sy === 1 &&
+        prev.offsetX === 0 &&
+        prev.offsetY === 0
           ? prev
-          : { ready: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
+          : { ready: true, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
       );
       return;
     }
-    const scale = Math.min(width / bgNaturalSize.w, height / bgNaturalSize.h);
+    const scale = Math.min(
+      renderMetrics.containerW / bgNaturalSize.w,
+      renderMetrics.containerH / bgNaturalSize.h
+    );
     const contentW = bgNaturalSize.w * scale;
     const contentH = bgNaturalSize.h * scale;
-    const offsetX = (width - contentW) / 2;
-    const offsetY = (height - contentH) / 2;
+    const offsetX = (renderMetrics.containerW - contentW) / 2;
+    const offsetY = (renderMetrics.containerH - contentH) / 2;
     const sx = contentW / floorplanWidth;
     const sy = contentH / floorplanHeight;
     setRenderContext(prev =>
@@ -303,13 +310,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         ? prev
         : { ready: true, sx, sy, offsetX, offsetY }
     );
-    });
-    return () => window.cancelAnimationFrame(frame);
   }, [
+    bgFailed,
     bgNaturalSize,
     floorplan?.backgroundImageUrl,
     floorplanHeight,
     floorplanWidth,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
   ]);
 
   const visibleTables = useMemo(() => {
@@ -639,6 +647,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const dimsSource = floorplanDimensions.dimsSource;
   const showDebug = process.env.NODE_ENV !== 'production';
   const geometryMode = geometryStats.maxValue <= 1.5 ? 'normalized' : 'absolute';
+  const bgStatus = !floorplan.backgroundImageUrl
+    ? 'missing'
+    : bgFailed
+    ? 'failed'
+    : bgNaturalSize
+    ? 'loaded'
+    : 'missing';
   const contentWidth = renderContext.ready
     ? Math.round(floorplanWidth * renderContext.sx)
     : 0;
@@ -677,13 +692,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           {showDebug && (
             <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
               dims: {floorplanWidth}x{floorplanHeight} | source: {dimsSource} | img:{' '}
-              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | mode:{' '}
-              {geometryMode} | maxGeom: {geometryStats.maxValue.toFixed(2)} | tables:{' '}
-              {geometryStats.count} | box: {Math.round(renderMetrics.containerW)}x
-              {Math.round(renderMetrics.containerH)} natural:{' '}
-              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} content:{' '}
-              {contentWidth}x{contentHeight} off: {renderContext.offsetX.toFixed(1)}/
-              {renderContext.offsetY.toFixed(1)}
+              {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | bg:{' '}
+              {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
+              {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | box:{' '}
+              {Math.round(renderMetrics.containerW)}x{Math.round(renderMetrics.containerH)} | ctx:{' '}
+              {renderContext.ready ? 'ready' : 'init'} {renderContext.sx.toFixed(3)}x
+              {renderContext.sy.toFixed(3)} @{renderContext.offsetX.toFixed(1)}/
+              {renderContext.offsetY.toFixed(1)} | content: {contentWidth}x
+              {contentHeight}
             </p>
           )}
         </div>
@@ -753,6 +769,17 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             <img
               src={floorplan.backgroundImageUrl}
               alt={floorplan.name}
+              ref={imageRef}
+              onLoad={() => {
+                const image = imageRef.current;
+                if (!image) return;
+                setBgFailed(false);
+                setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
+              }}
+              onError={() => {
+                setBgFailed(true);
+                setBgNaturalSize(null);
+              }}
               className="absolute inset-0 w-full h-full object-contain"
             />
           )}
