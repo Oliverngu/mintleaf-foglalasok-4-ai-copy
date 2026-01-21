@@ -746,6 +746,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           <button
+            key="all"
             type="button"
             onClick={() => setActiveZoneId(null)}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
