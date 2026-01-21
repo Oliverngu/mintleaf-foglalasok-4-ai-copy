@@ -33,6 +33,10 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
+import {
+  computeFloorplanTransformFromRect,
+  FloorplanTransform,
+} from '../../../core/utils/seatingFloorplanTransform';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
@@ -236,15 +240,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
   const [lastSavedRotById, setLastSavedRotById] = useState<Record<string, number>>({});
   const lastSavedRotByIdRef = useRef<Record<string, number>>({});
-  type FloorplanTransform = {
-    scale: number;
-    offsetX: number;
-    offsetY: number;
-    rectLeft: number;
-    rectTop: number;
-    rectWidth: number;
-    rectHeight: number;
-  };
   type DragViewportRect = {
     left: number;
     top: number;
@@ -2074,40 +2069,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
-  function computeFloorplanTransformFromRect(
-    rect: { width: number; height: number; left?: number; top?: number },
-    width: number,
-    height: number
-  ): FloorplanTransform {
-    const rectWidth = rect?.width ?? 0;
-    const rectHeight = rect?.height ?? 0;
-    const rectLeft = rect?.left ?? 0;
-    const rectTop = rect?.top ?? 0;
-    if (rectWidth <= 0 || rectHeight <= 0) {
-      return {
-        scale: 1,
-        offsetX: 0,
-        offsetY: 0,
-        rectLeft: 0,
-        rectTop: 0,
-        rectWidth: 0,
-        rectHeight: 0,
-      };
-    }
-    const rawScale = Math.min(rectWidth / width, rectHeight / height);
-    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-    const offsetX = (rectWidth - width * scale) / 2;
-    const offsetY = (rectHeight - height * scale) / 2;
-    return {
-      scale,
-      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
-      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
-      rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
-      rectTop: Number.isFinite(rectTop) ? rectTop : 0,
-      rectWidth,
-      rectHeight,
-    };
-  }
 
   function getViewportRect(): { width: number; height: number; left: number; top: number } {
     const rect = floorplanViewportRef.current?.getBoundingClientRect();
