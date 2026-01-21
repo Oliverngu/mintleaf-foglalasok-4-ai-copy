@@ -230,7 +230,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       );
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [bgNaturalSize, floorplan?.backgroundImageUrl, floorplanHeight, floorplanWidth]);
+  }, [bgNaturalSize, floorplan?.backgroundImageUrl]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
