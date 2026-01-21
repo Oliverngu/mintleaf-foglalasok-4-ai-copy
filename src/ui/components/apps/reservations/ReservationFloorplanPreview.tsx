@@ -247,7 +247,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   const floorplanDimensions = useMemo(() => {
     if (!floorplan) {
-      return { logicalWidth: 0, logicalHeight: 0, dimsSource: 'default' as const };
+      return {
+        logicalWidth: 0,
+        logicalHeight: 0,
+        logicalDimsSource: 'defaultNormalized' as const,
+      };
     }
     const { width: normalizedWidth, height: normalizedHeight } =
       normalizeFloorplanDimensions(floorplan);
@@ -262,12 +266,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       hasBgSize && isAbsoluteGeometry ? bgNaturalSize!.w : normalizedWidth;
     const logicalHeight =
       hasBgSize && isAbsoluteGeometry ? bgNaturalSize!.h : normalizedHeight;
-    const dimsSource = !hasStoredDims && hasBgSize
-      ? 'autoFromImage'
+    const logicalDimsSource = hasBgSize && isAbsoluteGeometry
+      ? 'imageNatural'
       : hasStoredDims
       ? 'stored'
-      : 'default';
-    return { logicalWidth, logicalHeight, dimsSource };
+      : 'defaultNormalized';
+    return { logicalWidth, logicalHeight, logicalDimsSource };
   }, [bgNaturalSize, floorplan, geometryStats.maxValue]);
 
   const logicalWidth = floorplanDimensions.logicalWidth;
@@ -300,13 +304,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalHeight <= 0
     ) {
       setRenderContext(prev =>
-        prev.ready &&
+        !prev.ready &&
         prev.sx === 1 &&
         prev.sy === 1 &&
         prev.offsetX === 0 &&
         prev.offsetY === 0
           ? prev
-          : { ready: true, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
+          : { ready: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
       );
       return;
     }
@@ -634,7 +638,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     );
   }
 
-  const dimsSource = floorplanDimensions.dimsSource;
+  const logicalDimsSource = floorplanDimensions.logicalDimsSource;
   const showDebug = process.env.NODE_ENV !== 'production';
   const geometryMode = geometryStats.maxValue <= 1.5 ? 'normalized' : 'absolute';
   const bgStatus = !floorplan.backgroundImageUrl
@@ -682,7 +686,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           </p>
           {showDebug && (
             <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
-              dims: {logicalWidth}x{logicalHeight} | source: {dimsSource} | img:{' '}
+              dims: {logicalWidth}x{logicalHeight} | source: {logicalDimsSource} | img:{' '}
               {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | bg:{' '}
               {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
               {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | box:{' '}
@@ -750,10 +754,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="w-full" style={{ maxWidth: stageMaxWidth }}>
+      <div className="w-full mx-auto" style={{ maxWidth: stageMaxWidth }}>
         <div
           ref={containerRef}
-          className="relative border border-gray-200 rounded-xl bg-white/80 overflow-hidden"
+          className="relative border border-gray-300 rounded-xl bg-white/80 overflow-hidden shadow-sm"
           style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}` }}
         >
           {floorplan.backgroundImageUrl && (
