@@ -32,12 +32,25 @@ import {
   updateTable,
   updateZone,
 } from '../../../core/services/seatingAdminService';
-import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
+import {
+  TableGeometry,
+  isPlaceholderFloorplanDims,
+  normalizeFloorplanDimensions,
+  normalizeTableGeometry,
+  normalizeTableGeometryToFloorplan,
+  scaleTableGeometry,
+} from '../../../core/utils/seatingNormalize';
+import {
+  computeFloorplanTransformFromRect,
+  FloorplanTransform,
+} from '../../../core/utils/seatingFloorplanTransform';
+import { computeCanonicalFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 
 const COLLISION_EPS = 0.5;
+
 
 function rectIntersectEps(
   a: { x: number; y: number; w: number; h: number },
@@ -236,15 +249,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastSavedByIdRef = useRef<Record<string, { x: number; y: number }>>({});
   const [lastSavedRotById, setLastSavedRotById] = useState<Record<string, number>>({});
   const lastSavedRotByIdRef = useRef<Record<string, number>>({});
-  type FloorplanTransform = {
-    scale: number;
-    offsetX: number;
-    offsetY: number;
-    rectLeft: number;
-    rectTop: number;
-    rectWidth: number;
-    rectHeight: number;
-  };
+  const [showMigrationModal, setShowMigrationModal] = useState(false);
+  const [migrationFloorplanId, setMigrationFloorplanId] = useState<string>('');
+  const [legacyBaseDims, setLegacyBaseDims] = useState({ width: 1000, height: 1000 });
+  const [includeUnassignedInMigration, setIncludeUnassignedInMigration] = useState(false);
+  const [migrationRunning, setMigrationRunning] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
   type DragViewportRect = {
     left: number;
     top: number;
@@ -356,6 +366,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ts: number;
   }>(null);
   const prevActiveFloorplanIdRef = useRef<string | null>(null);
+  const lastKnownFloorplanDimsRef = useRef<Record<string, { width: number; height: number }>>({});
   const isMountedRef = useRef(true);
 
   const [zoneForm, setZoneForm] = useState<{
@@ -773,6 +784,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [floorplans, resolvedActiveFloorplanId]
   );
 
+  const getStableFloorplanKey = useCallback(
+    (id?: string | null) => (typeof id === 'string' && id.trim().length > 0 ? id : null),
+    []
+  );
+
   useEffect(() => {
     const url = activeFloorplan?.backgroundImageUrl ?? null;
     if (prevBgUrlRef.current !== url) {
@@ -805,12 +821,48 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const src = activeFloorplan ?? floorplanForm;
     const width = Number(src?.width);
     const height = Number(src?.height);
-    return {
-      w: Number.isFinite(width) && width > 0 ? width : 1,
-      h: Number.isFinite(height) && height > 0 ? height : 1,
-    };
+    const hasStored = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    if (hasStored && !isPlaceholderFloorplanDims(width, height)) {
+      return { w: width, h: height, source: 'stored' as const };
+    }
+    if (bgNatural?.w && bgNatural?.h) {
+      return { w: bgNatural.w, h: bgNatural.h, source: 'image' as const };
+    }
+    return { w: 1, h: 1, source: 'fallback' as const };
   }
-  const { w: floorplanW, h: floorplanH } = getFloorplanDims();
+  const { w: floorplanW, h: floorplanH, source: floorplanDimsSource } = getFloorplanDims();
+  const activeFloorplanRef = useMemo(
+    () => ({ width: floorplanW, height: floorplanH }),
+    [floorplanH, floorplanW]
+  );
+  const floorplanDimsById = useMemo(() => {
+    const entries = new Map<string, { width: number; height: number }>();
+    floorplans.forEach(plan => {
+      const dims = normalizeFloorplanDimensions(plan);
+      const key = getStableFloorplanKey(plan.id);
+      if (!key) return;
+      entries.set(key, dims);
+    });
+    const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+    if (activeKey && floorplanDimsSource === 'image') {
+      entries.set(activeKey, { width: floorplanW, height: floorplanH });
+    }
+    return entries;
+  }, [floorplanDimsSource, floorplanH, floorplanW, floorplans, getStableFloorplanKey, resolvedActiveFloorplanId]);
+  const getFloorplanDimsForId = useCallback(
+    (floorplanId?: string | null) => {
+      const key = getStableFloorplanKey(floorplanId);
+      if (key && floorplanDimsById.has(key)) {
+        return floorplanDimsById.get(key) ?? null;
+      }
+      const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+      if (activeKey && floorplanDimsById.has(activeKey)) {
+        return floorplanDimsById.get(activeKey) ?? null;
+      }
+      return { width: floorplanW, height: floorplanH };
+    },
+    [floorplanDimsById, floorplanH, floorplanW, getStableFloorplanKey, resolvedActiveFloorplanId]
+  );
   const editorGridSize =
     (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
       ? activeFloorplan.gridSize
@@ -821,6 +873,148 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table => !table.floorplanId || table.floorplanId === activeFloorplan.id
     );
   }, [activeFloorplan, tables]);
+  const legacyTables = useMemo(
+    () =>
+      tables.filter(table => {
+        const ref = table.floorplanRef;
+        if (!ref) return true;
+        const width = Number(ref.width);
+        const height = Number(ref.height);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          return true;
+        }
+        return isPlaceholderFloorplanDims(width, height);
+      }),
+    [tables]
+  );
+  const legacyCount = legacyTables.length;
+  useEffect(() => {
+    if (!resolvedActiveFloorplanId) return;
+    setMigrationFloorplanId(current =>
+      current ? current : resolvedActiveFloorplanId
+    );
+  }, [resolvedActiveFloorplanId]);
+  useEffect(() => {
+    if (!migrationFloorplanId) return;
+    setIncludeUnassignedInMigration(migrationFloorplanId === resolvedActiveFloorplanId);
+  }, [migrationFloorplanId, resolvedActiveFloorplanId]);
+  useEffect(() => {
+    const next = { ...lastKnownFloorplanDimsRef.current };
+    floorplanDimsById.forEach((dims, id) => {
+      const key = getStableFloorplanKey(id);
+      if (!key) return;
+      next[key] = dims;
+    });
+    const activeKey = getStableFloorplanKey(resolvedActiveFloorplanId);
+    if (activeKey) {
+      next[activeKey] = { width: floorplanW, height: floorplanH };
+    }
+    lastKnownFloorplanDimsRef.current = next;
+  }, [floorplanDimsById, floorplanH, floorplanW, getStableFloorplanKey, resolvedActiveFloorplanId]);
+  const migrationTargetDims = useMemo(() => {
+    const key = getStableFloorplanKey(migrationFloorplanId) ?? resolvedActiveFloorplanId;
+    return getFloorplanDimsForId(key);
+  }, [getFloorplanDimsForId, getStableFloorplanKey, migrationFloorplanId, resolvedActiveFloorplanId]);
+  type MigrationPreview = {
+    count: number;
+    samples: Array<{ id: string; before: string; after: string }>;
+    error: 'missing-target' | 'unsafe-scale' | 'invalid-dims' | null;
+    scaleX: number | null;
+    scaleY: number | null;
+    suggestedDims: { width: number; height: number } | null;
+  };
+
+  const migrationPreview = useMemo<MigrationPreview>(() => {
+    if (!migrationTargetDims) {
+      return {
+        count: 0,
+        samples: [],
+        error: 'missing-target',
+        scaleX: null,
+        scaleY: null,
+        suggestedDims: null,
+      };
+    }
+    const fromDims = { width: legacyBaseDims.width, height: legacyBaseDims.height };
+    const toDims = migrationTargetDims;
+    const scaleX = toDims.width / fromDims.width;
+    const scaleY = toDims.height / fromDims.height;
+    const eligibleTables = legacyTables.filter(table => {
+      const tableFloorplanId = getStableFloorplanKey(table.floorplanId);
+      if (!tableFloorplanId) {
+        return includeUnassignedInMigration;
+      }
+      return tableFloorplanId === getStableFloorplanKey(migrationFloorplanId);
+    });
+    let error: MigrationPreview['error'] = null;
+    let suggestedMaxX = 0;
+    let suggestedMaxY = 0;
+    let suggestedCount = 0;
+    eligibleTables.forEach(table => {
+      const geometryForBounds = normalizeTableGeometry(table);
+      const hasValidGeom =
+        Number.isFinite(geometryForBounds.x) &&
+        Number.isFinite(geometryForBounds.y) &&
+        Number.isFinite(geometryForBounds.w) &&
+        Number.isFinite(geometryForBounds.h) &&
+        geometryForBounds.w > 0 &&
+        geometryForBounds.h > 0;
+      if (!hasValidGeom) return;
+      suggestedMaxX = Math.max(suggestedMaxX, geometryForBounds.x + geometryForBounds.w);
+      suggestedMaxY = Math.max(suggestedMaxY, geometryForBounds.y + geometryForBounds.h);
+      suggestedCount += 1;
+    });
+    const samples = eligibleTables.slice(0, 5).flatMap(table => {
+      const geometry: TableGeometry = {
+        x: Number.isFinite(table.x) ? table.x : undefined,
+        y: Number.isFinite(table.y) ? table.y : undefined,
+        w: Number.isFinite(table.w) ? table.w : undefined,
+        h: Number.isFinite(table.h) ? table.h : undefined,
+        radius: Number.isFinite(table.radius) ? table.radius : undefined,
+      };
+      const scaled = scaleTableGeometry(geometry, fromDims, toDims);
+      if (!scaled.didScale && scaled.reason === 'unsafe-scale') {
+        error = 'unsafe-scale';
+      }
+      if (!scaled.didScale && scaled.reason === 'invalid-dims') {
+        error = 'invalid-dims';
+      }
+      if (!scaled.didScale) return [];
+      return [
+        {
+          id: table.id,
+          before: `x:${geometry.x ?? 'n/a'} y:${geometry.y ?? 'n/a'} w:${geometry.w ?? 'n/a'} h:${geometry.h ?? 'n/a'}`,
+          after: `x:${scaled.geometry.x ?? 'n/a'} y:${scaled.geometry.y ?? 'n/a'} w:${scaled.geometry.w ?? 'n/a'} h:${scaled.geometry.h ?? 'n/a'}`,
+        },
+      ];
+    });
+    const suggestedWidth = Math.ceil(suggestedMaxX);
+    const suggestedHeight = Math.ceil(suggestedMaxY);
+    const suggestedOk =
+      suggestedCount >= 2 &&
+      suggestedWidth >= 50 &&
+      suggestedHeight >= 50 &&
+      suggestedWidth <= 10000 &&
+      suggestedHeight <= 10000;
+    return {
+      count: eligibleTables.length,
+      samples,
+      error,
+      scaleX,
+      scaleY,
+      suggestedDims: suggestedOk
+        ? { width: suggestedWidth, height: suggestedHeight }
+        : null,
+    };
+  }, [
+    getStableFloorplanKey,
+    includeUnassignedInMigration,
+    legacyBaseDims.height,
+    legacyBaseDims.width,
+    legacyTables,
+    migrationFloorplanId,
+    migrationTargetDims,
+  ]);
   const selectedTable = useMemo(
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
@@ -1876,6 +2070,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       successMessage: 'Asztal mentve.',
       action: async () => {
         const floorplanId = normalizeOptionalString(tableForm.floorplanId);
+        const floorplanKey = getStableFloorplanKey(floorplanId);
+        const currentTable = tableForm.id
+          ? tables.find(table => table.id === tableForm.id) ?? null
+          : null;
+        const targetDims = getFloorplanDimsForId(floorplanKey);
+        const currentFloorplanKey = getStableFloorplanKey(currentTable?.floorplanId);
+        const fallbackDims =
+          (currentFloorplanKey && lastKnownFloorplanDimsRef.current[currentFloorplanKey]) ??
+          (floorplanKey && lastKnownFloorplanDimsRef.current[floorplanKey]);
         const isRect = tableForm.shape === 'rect';
         const isCircle = tableForm.shape === 'circle';
         const width = tableForm.w;
@@ -1884,6 +2087,36 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         const x = Number.isFinite(tableForm.x) ? tableForm.x : 0;
         const y = Number.isFinite(tableForm.y) ? tableForm.y : 0;
         const rot = Number.isFinite(tableForm.rot) ? tableForm.rot : 0;
+        const geometry = {
+          x,
+          y,
+          w: Number.isFinite(width) ? width : undefined,
+          h: Number.isFinite(height) ? height : undefined,
+          radius: Number.isFinite(radius) ? radius : undefined,
+        };
+        const fromDims = currentTable?.floorplanRef ?? fallbackDims ?? targetDims ?? null;
+        const hasGeometry =
+          Number.isFinite(geometry.x) ||
+          Number.isFinite(geometry.y) ||
+          Number.isFinite(geometry.w) ||
+          Number.isFinite(geometry.h) ||
+          Number.isFinite(geometry.radius);
+        const dimsMatch =
+          targetDims &&
+          fromDims &&
+          fromDims.width === targetDims.width &&
+          fromDims.height === targetDims.height;
+        const normalizedGeometry =
+          targetDims && fromDims && hasGeometry && !dimsMatch
+            ? normalizeTableGeometryToFloorplan(geometry, fromDims, targetDims)
+            : geometry;
+        if (!fromDims && isDev && targetDims) {
+          console.warn('[seating] missing floorplanRef on save; using current dims', {
+            tableId: currentTable?.id ?? null,
+            floorplanId: floorplanKey ?? null,
+            targetDims,
+          });
+        }
         const payload = {
           name: tableForm.name.trim(),
           zoneId: tableForm.zoneId,
@@ -1893,14 +2126,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           canSeatSolo: tableForm.canSeatSolo,
           ...(floorplanId ? { floorplanId } : {}),
           shape: tableForm.shape,
-          ...(isRect && Number.isFinite(width) ? { w: width } : {}),
-          ...(isRect && Number.isFinite(height) ? { h: height } : {}),
-          ...(isCircle && Number.isFinite(radius) ? { radius } : {}),
-          x,
-          y,
+          ...(isRect && Number.isFinite(normalizedGeometry.w) ? { w: normalizedGeometry.w } : {}),
+          ...(isRect && Number.isFinite(normalizedGeometry.h) ? { h: normalizedGeometry.h } : {}),
+          ...(isCircle && Number.isFinite(normalizedGeometry.radius)
+            ? { radius: normalizedGeometry.radius }
+            : {}),
+          x: Number.isFinite(normalizedGeometry.x) ? normalizedGeometry.x : x,
+          y: Number.isFinite(normalizedGeometry.y) ? normalizedGeometry.y : y,
           rot,
           snapToGrid: tableForm.snapToGrid,
           locked: tableForm.locked,
+          // Normalize geometry at save-time so the preview can stay dumb.
+          ...(targetDims ? { floorplanRef: { width: targetDims.width, height: targetDims.height } } : {}),
         };
         if (tableForm.id) {
           await updateTable(unitId, tableForm.id, payload);
@@ -1930,6 +2167,99 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const handleMigrateLegacyGeometry = async () => {
+    if (!migrationTargetDims) {
+      setMigrationError('Hiányzó cél alaprajz méretek.');
+      return;
+    }
+    if (migrationPreview.error === 'unsafe-scale') {
+      setMigrationError('A skálázás túl nagy eltérést okozna. Ellenőrizd a bázisméreteket.');
+      return;
+    }
+    if (migrationPreview.error === 'invalid-dims') {
+      setMigrationError('Érvénytelen alap dimenziók. Ellenőrizd a megadott értékeket.');
+      return;
+    }
+    if (migrationPreview.error === 'missing-target') {
+      setMigrationError('Hiányzó cél alaprajz méretek.');
+      return;
+    }
+    const fromDims = { width: legacyBaseDims.width, height: legacyBaseDims.height };
+    const targetKey = getStableFloorplanKey(migrationFloorplanId);
+    if (!targetKey) {
+      setMigrationError('Válassz cél alaprajzot.');
+      return;
+    }
+    const eligibleTables = legacyTables.filter(table => {
+      const tableFloorplanId = getStableFloorplanKey(table.floorplanId);
+      if (!tableFloorplanId) {
+        return includeUnassignedInMigration;
+      }
+      return tableFloorplanId === targetKey;
+    });
+    if (eligibleTables.length === 0) {
+      setMigrationError('Nincs migrálható asztal.');
+      return;
+    }
+    setMigrationRunning(true);
+    setMigrationError(null);
+    await runAction({
+      key: `migrate-legacy-${targetKey}`,
+      errorMessage: 'Nem sikerült migrálni a legacy geometriát.',
+      errorContext: 'Error migrating legacy geometry:',
+      successMessage: 'Legacy geometria migrálva.',
+      action: async () => {
+        const updates = eligibleTables.map(table => {
+          const geometry = {
+            x: Number.isFinite(table.x) ? table.x : undefined,
+            y: Number.isFinite(table.y) ? table.y : undefined,
+            w: Number.isFinite(table.w) ? table.w : undefined,
+            h: Number.isFinite(table.h) ? table.h : undefined,
+            radius: Number.isFinite(table.radius) ? table.radius : undefined,
+          };
+          const scaled = scaleTableGeometry(geometry, fromDims, migrationTargetDims);
+          if (!scaled.didScale && scaled.reason === 'unsafe-scale') {
+            throw new Error('unsafe-scale');
+          }
+          if (!scaled.didScale && scaled.reason === 'invalid-dims') {
+            throw new Error('invalid-dims');
+          }
+          if (!scaled.didScale) {
+            return null;
+          }
+          const payload: Partial<Table> = {
+            ...(Number.isFinite(scaled.geometry.x) ? { x: scaled.geometry.x } : {}),
+            ...(Number.isFinite(scaled.geometry.y) ? { y: scaled.geometry.y } : {}),
+            ...(Number.isFinite(scaled.geometry.w) ? { w: scaled.geometry.w } : {}),
+            ...(Number.isFinite(scaled.geometry.h) ? { h: scaled.geometry.h } : {}),
+            ...(Number.isFinite(scaled.geometry.radius)
+              ? { radius: scaled.geometry.radius }
+              : {}),
+            floorplanRef: {
+              width: migrationTargetDims.width,
+              height: migrationTargetDims.height,
+            },
+            ...(includeUnassignedInMigration && !table.floorplanId
+              ? { floorplanId: targetKey }
+              : {}),
+          };
+          return { id: table.id, payload };
+        });
+        const batched = updates.filter(Boolean) as Array<{ id: string; payload: Partial<Table> }>;
+        const concurrency = 10;
+        for (let i = 0; i < batched.length; i += concurrency) {
+          const slice = batched.slice(i, i + concurrency);
+          await Promise.all(
+            slice.map(item => updateTable(unitId, item.id, item.payload))
+          );
+        }
+        setTables(await listTables(unitId));
+        setShowMigrationModal(false);
+      },
+    });
+    setMigrationRunning(false);
+  };
+
   const sanitizeCapacityValue = (value: number) =>
     Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 
@@ -1945,7 +2275,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
-    const payload = { capacityTotal, sideCapacities, combinableWithIds };
+    const targetDims = getFloorplanDimsForId(
+      getStableFloorplanKey(selectedTable?.floorplanId) ??
+        getStableFloorplanKey(resolvedActiveFloorplanId)
+    );
+    const payload = {
+      capacityTotal,
+      sideCapacities,
+      combinableWithIds,
+      ...(targetDims ? { floorplanRef: { width: targetDims.width, height: targetDims.height } } : {}),
+    };
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
       errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
@@ -2074,40 +2413,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
-  function computeFloorplanTransformFromRect(
-    rect: { width: number; height: number; left?: number; top?: number },
-    width: number,
-    height: number
-  ): FloorplanTransform {
-    const rectWidth = rect?.width ?? 0;
-    const rectHeight = rect?.height ?? 0;
-    const rectLeft = rect?.left ?? 0;
-    const rectTop = rect?.top ?? 0;
-    if (rectWidth <= 0 || rectHeight <= 0) {
-      return {
-        scale: 1,
-        offsetX: 0,
-        offsetY: 0,
-        rectLeft: 0,
-        rectTop: 0,
-        rectWidth: 0,
-        rectHeight: 0,
-      };
-    }
-    const rawScale = Math.min(rectWidth / width, rectHeight / height);
-    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-    const offsetX = (rectWidth - width * scale) / 2;
-    const offsetY = (rectHeight - height * scale) / 2;
-    return {
-      scale,
-      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
-      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
-      rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
-      rectTop: Number.isFinite(rectTop) ? rectTop : 0,
-      rectWidth,
-      rectHeight,
-    };
-  }
 
   function getViewportRect(): { width: number; height: number; left: number; top: number } {
     const rect = floorplanViewportRef.current?.getBoundingClientRect();
@@ -2181,10 +2486,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
-      const transform = computeFloorplanTransformFromRect(nextRect, floorplanW, floorplanH);
+      const transform = computeCanonicalFloorplanRenderContext(
+        nextRect,
+        floorplanW,
+        floorplanH
+      );
       console.debug('[seating] viewport measure', {
         rect: nextRect,
-        scale: transform.scale,
+        scale: transform.sx,
       });
       lastViewportLogRef.current = now;
     } catch (error) {
@@ -2240,9 +2549,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [scheduleViewportMeasure]);
 
-  const floorplanRenderTransform = useMemo(
+  const floorplanRenderContext = useMemo(
     () =>
-      computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
+      computeCanonicalFloorplanRenderContext(
+        floorplanViewportRect,
+        floorplanW,
+        floorplanH
+      ),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
   const zeroRectLogRef = useRef(false);
@@ -2266,11 +2579,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanH <= 0) {
       reasons.push(`floorplanHeight=${floorplanH}`);
     }
-    if (floorplanRenderTransform.rectWidth <= 0) {
-      reasons.push(`rectWidth=${floorplanRenderTransform.rectWidth}`);
+    if (floorplanViewportRect.width <= 0) {
+      reasons.push(`rectWidth=${floorplanViewportRect.width}`);
     }
-    if (floorplanRenderTransform.rectHeight <= 0) {
-      reasons.push(`rectHeight=${floorplanRenderTransform.rectHeight}`);
+    if (floorplanViewportRect.height <= 0) {
+      reasons.push(`rectHeight=${floorplanViewportRect.height}`);
     }
     return reasons;
   }, [
@@ -2278,8 +2591,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     debugSeating,
     editorTables.length,
     floorplanH,
-    floorplanRenderTransform.rectHeight,
-    floorplanRenderTransform.rectWidth,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
     floorplanW,
   ]);
 
@@ -2292,21 +2605,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     if (
       editorTables.length > 0 &&
-      (floorplanRenderTransform.rectWidth <= 0 ||
-        floorplanRenderTransform.rectHeight <= 0)
+      (floorplanViewportRect.width <= 0 ||
+        floorplanViewportRect.height <= 0)
     ) {
       zeroRectLogRef.current = true;
       try {
         console.debug('[seating] viewport zero rect with tables', {
           tablesCount: editorTables.length,
           rect: floorplanViewportRect,
-          transform: floorplanRenderTransform,
+          transform: floorplanRenderContext,
         });
       } catch (error) {
         console.warn('[seating] zero-rect debug log failed', error);
       }
     }
-  }, [debugSeating, editorTables.length, floorplanRenderTransform, floorplanViewportRect]);
+  }, [debugSeating, editorTables.length, floorplanRenderContext, floorplanViewportRect]);
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
@@ -2320,13 +2633,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setDraftRotations(current => ({ ...current, [action.tableId]: action.prev.rot }));
     try {
       if (action.kind === 'move') {
-        await updateTable(unitId, action.tableId, { x: action.prev.x, y: action.prev.y });
+        await updateTable(unitId, action.tableId, {
+          x: action.prev.x,
+          y: action.prev.y,
+          floorplanRef: activeFloorplanRef,
+        });
         setLastSaved(current => ({
           ...current,
           [action.tableId]: { x: action.prev.x, y: action.prev.y },
         }));
       } else {
-        await updateTable(unitId, action.tableId, { rot: action.prev.rot });
+        await updateTable(unitId, action.tableId, {
+          rot: action.prev.rot,
+          floorplanRef: activeFloorplanRef,
+        });
         setLastSavedRot(current => ({ ...current, [action.tableId]: action.prev.rot }));
       }
       lastActionRef.current = null;
@@ -2342,7 +2662,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } finally {
       setSavingById(current => ({ ...current, [action.tableId]: false }));
     }
-  }, [savingById, unitId]);
+  }, [activeFloorplanRef, savingById, unitId]);
 
   const isUndoAvailable = useMemo(() => Boolean(lastActionRef.current), [undoTick]);
 
@@ -2403,7 +2723,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const finalizeDrag = async (tableId: string, x: number, y: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
-      await updateTable(unitId, tableId, { x, y });
+      await updateTable(unitId, tableId, { x, y, floorplanRef: activeFloorplanRef });
       const prevPos = lastSavedByIdRef.current[tableId] ?? { x, y };
       const prevRot =
         lastSavedRotByIdRef.current[tableId] ?? draftRotations[tableId] ?? 0;
@@ -2438,7 +2758,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
     setSavingById(current => ({ ...current, [tableId]: true }));
     try {
-      await updateTable(unitId, tableId, { rot });
+      await updateTable(unitId, tableId, { rot, floorplanRef: activeFloorplanRef });
       const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
       lastActionRef.current = {
         tableId,
@@ -4800,6 +5120,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <dd className="truncate">{activeFloorplan?.id ?? 'n/a'}</dd>
                   </div>
                   <div>
+                    <dt className="text-[10px] uppercase text-amber-700">mode</dt>
+                    <dd>{floorplanMode}</dd>
+                  </div>
+                  <div>
                     <dt className="text-[10px] uppercase text-amber-700">
                       visible floorplans
                     </dt>
@@ -4812,6 +5136,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">editor tables</dt>
                     <dd>{editorTables.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">fit-to-content</dt>
+                    <dd>off</dd>
                   </div>
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">
@@ -4833,9 +5161,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">transform</dt>
                     <dd>
-                      scale {formatDebugNumber(floorplanRenderTransform.scale)} | rect{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectWidth)} ×{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectHeight)}
+                      scale {formatDebugNumber(floorplanRenderContext.sx)} | rect{' '}
+                      {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
+                      {formatDebugNumber(floorplanViewportRect.height)}
                     </dd>
                   </div>
                 </dl>
@@ -4862,7 +5190,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 <div
                   className="absolute inset-0"
                   style={{
-                    transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+                    transform: `translate(${floorplanRenderContext.offsetX}px, ${floorplanRenderContext.offsetY}px) scale(${floorplanRenderContext.sx})`,
                     transformOrigin: 'top left',
                   }}
                 >
@@ -5645,6 +5973,60 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       </div>
       {error && <div className="text-sm text-red-600">{error}</div>}
       {success && <div className="text-sm text-green-600">{success}</div>}
+      {activeFloorplan &&
+        floorplanDimsSource === 'image' &&
+        bgNatural &&
+        isPlaceholderFloorplanDims(activeFloorplan.width, activeFloorplan.height) && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Az alaprajz mérete csak a háttérképből van levezetve. Mentsd el a méretet a
+            későbbi pontos megjelenítéshez.
+            <button
+              type="button"
+              onClick={() => {
+                void runAction({
+                  key: `floorplan-fix-dims-${activeFloorplan.id}`,
+                  errorMessage: 'Nem sikerült menteni az alaprajz méretét.',
+                  errorContext: 'Error fixing floorplan dims:',
+                  successMessage: 'Alaprajz méret mentve.',
+                  action: async () => {
+                    await updateFloorplan(unitId, activeFloorplan.id, {
+                      width: bgNatural.w,
+                      height: bgNatural.h,
+                    });
+                    setFloorplans(current =>
+                      current.map(plan =>
+                        plan.id === activeFloorplan.id
+                          ? { ...plan, width: bgNatural.w, height: bgNatural.h }
+                          : plan
+                      )
+                    );
+                  },
+                });
+              }}
+              className="ml-3 inline-flex items-center rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white"
+            >
+              Fix dims
+            </button>
+          </div>
+        )}
+      {legacyCount > 0 && (
+        <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          Legacy geometria észlelve ({legacyCount} asztal). A táblák migrálása szükséges a
+          kanonikus koordinátarendszerhez.
+          {canEditFloorplan && (
+            <button
+              type="button"
+              onClick={() => {
+                setMigrationError(null);
+                setShowMigrationModal(true);
+              }}
+              className="ml-3 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+            >
+              Legacy migráció
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 
@@ -5694,6 +6076,132 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       header={headerContent}
       footer={footerContent}
     >
+      {showMigrationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-xl bg-white p-4 shadow-lg space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Legacy geometry migráció</h3>
+              <button
+                type="button"
+                onClick={() => setShowMigrationModal(false)}
+                className="text-sm text-gray-500"
+              >
+                Bezárás
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <label className="flex flex-col gap-1">
+                Cél alaprajz
+                <select
+                  value={migrationFloorplanId}
+                  onChange={event => setMigrationFloorplanId(event.target.value)}
+                  className="rounded-md border border-gray-300 px-2 py-1"
+                >
+                  {floorplans.map(plan => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1">
+                  Legacy base width
+                  <input
+                    type="number"
+                    value={legacyBaseDims.width}
+                    onChange={event =>
+                      setLegacyBaseDims(current => ({
+                        ...current,
+                        width: Number(event.target.value),
+                      }))
+                    }
+                    className="rounded-md border border-gray-300 px-2 py-1"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  Legacy base height
+                  <input
+                    type="number"
+                    value={legacyBaseDims.height}
+                    onChange={event =>
+                      setLegacyBaseDims(current => ({
+                        ...current,
+                        height: Number(event.target.value),
+                      }))
+                    }
+                    className="rounded-md border border-gray-300 px-2 py-1"
+                  />
+                </label>
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={includeUnassignedInMigration}
+                  onChange={event => setIncludeUnassignedInMigration(event.target.checked)}
+                />
+                Nem hozzárendelt asztalok migrálása
+              </label>
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs text-gray-600">
+                <div>
+                  Érintett asztalok: {migrationPreview.count ?? 0}
+                </div>
+                {migrationPreview.scaleX !== null && migrationPreview.scaleY !== null && (
+                  <div>
+                    scaleX: {migrationPreview.scaleX.toFixed(3)} • scaleY:{' '}
+                    {migrationPreview.scaleY.toFixed(3)}
+                  </div>
+                )}
+                {migrationPreview.suggestedDims && (
+                  <div className="mt-1 flex items-center gap-2">
+                    Suggested: {migrationPreview.suggestedDims.width} ×{' '}
+                    {migrationPreview.suggestedDims.height}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLegacyBaseDims({
+                          width: migrationPreview.suggestedDims?.width ?? legacyBaseDims.width,
+                          height: migrationPreview.suggestedDims?.height ?? legacyBaseDims.height,
+                        })
+                      }
+                      className="rounded-md border border-gray-300 px-2 py-0.5 text-[11px] text-gray-700"
+                    >
+                      Use suggested
+                    </button>
+                  </div>
+                )}
+                {migrationPreview.samples.length > 0 && (
+                  <ul className="mt-2 list-disc pl-4 space-y-1">
+                    {migrationPreview.samples.map(sample => (
+                      <li key={sample.id}>
+                        {sample.id}: {sample.before} → {sample.after}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {migrationError && <div className="text-sm text-red-600">{migrationError}</div>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowMigrationModal(false)}
+                className="rounded-md border border-gray-200 px-3 py-1 text-sm"
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleMigrateLegacyGeometry()}
+                className="rounded-md bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+                disabled={migrationRunning}
+              >
+                {migrationRunning ? 'Folyamatban...' : 'Migráció indítása'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <PillPanelLayout
         sections={tabs}
         activeId={activeTab}

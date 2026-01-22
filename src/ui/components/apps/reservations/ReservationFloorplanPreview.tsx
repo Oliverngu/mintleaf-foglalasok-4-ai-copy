@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -14,10 +14,8 @@ import {
   listFloorplans,
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
-import {
-  normalizeFloorplanDimensions,
-  normalizeTableGeometry,
-} from '../../../../core/utils/seatingNormalize';
+import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
+import { computeCanonicalFloorplanRenderContext } from '../../../../core/utils/seatingFloorplanRender';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -27,6 +25,23 @@ type ReservationFloorplanPreviewProps = {
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
+
+type DebugStats = {
+  unitId: string;
+  resolvedFloorplanId: string | null;
+  settingsActiveFloorplanId: string | null;
+  storedDims: string;
+  refDims: string;
+  logicalDims: string;
+  logicalDimsSource: string;
+  bg: string;
+  bgMode: string;
+  bgNatural: string;
+  container: string;
+  transform: string;
+  mismatchCount: number;
+  effectiveReady: boolean;
+};
 
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -45,6 +60,63 @@ const toBucketKey = (date: Date, bucketMinutes: number) => {
   return `${hours}:${minutes}`;
 };
 
+const safeNum = (value: unknown, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+
+const measureContainer = (node: HTMLDivElement | null) => {
+  if (!node) return null;
+  const rect = node.getBoundingClientRect();
+  const width = rect.width || node.clientWidth || 0;
+  const height = rect.height || node.clientHeight || 0;
+  if (width <= 0 || height <= 0) return null;
+  return { width, height };
+};
+
+const getFloorplanIdLike = (value: unknown) => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const candidate =
+    record.floorplanId ??
+    record.floorplanRefId ??
+    record.floorplanUid ??
+    record.floorplanUID;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+};
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+const shouldShowDebug = () => {
+  if (!isDev) return false;
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.has('fpdebug')) return true;
+    return localStorage.getItem('ml_fp_debug') === '1';
+  } catch (error) {
+    console.warn('Failed to read debug flags for floorplan preview:', error);
+    return true;
+  }
+};
+
+const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
+  const width = Number(ref?.width);
+  const height = Number(ref?.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width >= 10000 ||
+    height >= 10000
+  ) {
+    return null;
+  }
+  return { width, height };
+};
+
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -55,11 +127,40 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [tables, setTables] = useState<Table[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+  const [settingsActiveFloorplanId, setSettingsActiveFloorplanId] = useState<string | null>(null);
+  const [resolvedFloorplanId, setResolvedFloorplanId] = useState<string | null>(null);
+  const [tablesTotal, setTablesTotal] = useState(0);
+  const [zonesTotal, setZonesTotal] = useState(0);
   const [floorplanLoading, setFloorplanLoading] = useState(true);
   const [floorplanError, setFloorplanError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
+  const [bgNaturalSize, setBgNaturalSize] = useState<{ w: number; h: number } | null>(
+    null
+  );
+  const [bgFailed, setBgFailed] = useState(false);
+  const [renderMetrics, setRenderMetrics] = useState({
+    containerW: 0,
+    containerH: 0,
+  });
+  type RenderContext = {
+    ready: boolean;
+    sx: number;
+    sy: number;
+    offsetX: number;
+    offsetY: number;
+  };
+  const [renderContext, setRenderContext] = useState<RenderContext>({
+    ready: false,
+    sx: 1,
+    sy: 1,
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const showDebug = useMemo(() => shouldShowDebug(), []);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -134,15 +235,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
         if (!isMounted) return;
 
-        const targetFloorplanId = settingsData.activeFloorplanId;
+        const targetFloorplanId = settingsData.activeFloorplanId ?? null;
         const resolvedFloorplan =
           floorplansData.find(plan => plan.id === targetFloorplanId) ??
-          floorplansData.find(plan => plan.isActive) ??
+          floorplansData[0] ??
           null;
+        setSettingsActiveFloorplanId(targetFloorplanId);
+        setResolvedFloorplanId(resolvedFloorplan?.id ?? null);
+        setTablesTotal(tablesData.length);
+        setZonesTotal(zonesData.length);
+
+        const baseZones = zonesData.filter(zone => zone.isActive !== false);
+        const hasZoneFloorplanId = baseZones.some(zone => getFloorplanIdLike(zone));
+        const filteredZones =
+          resolvedFloorplan && hasZoneFloorplanId
+            ? baseZones.filter(zone => getFloorplanIdLike(zone) === resolvedFloorplan.id)
+            : baseZones;
+        const hasTableFloorplanId = tablesData.some(table => getFloorplanIdLike(table));
+        const filteredTables =
+          resolvedFloorplan && hasTableFloorplanId
+            ? tablesData.filter(table => getFloorplanIdLike(table) === resolvedFloorplan.id)
+            : tablesData;
 
         setFloorplan(resolvedFloorplan);
-        setZones(zonesData.filter(zone => zone.isActive !== false));
-        setTables(tablesData);
+        setZones(filteredZones);
+        setTables(filteredTables);
       } catch (err) {
         console.error('Error loading floorplan preview data:', err);
         if (isMounted) {
@@ -174,7 +291,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return;
     }
     if (!zones.some(zone => zone.id === activeZoneId)) {
-      setActiveZoneId(zones[0].id);
+      setActiveZoneId(null);
     }
   }, [activeZoneId, zones]);
 
@@ -187,14 +304,266 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
 
+  useEffect(() => {
+    setBgNaturalSize(null);
+    setBgFailed(false);
+  }, [floorplan?.backgroundImageUrl]);
+
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
-      const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
+      const tableFloorplanId = getFloorplanIdLike(table);
+      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
       const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
   }, [activeZoneId, floorplan, tables]);
+
+  const floorplanTables = useMemo(() => {
+    if (!floorplan) return [] as Table[];
+    return tables.filter(table => {
+      const tableFloorplanId = getFloorplanIdLike(table);
+      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      return matchesFloorplan && table.isActive !== false;
+    });
+  }, [floorplan, tables]);
+
+  const displayZones = useMemo(
+    () =>
+      zones.filter(zone => {
+        const name =
+          typeof zone.name === 'string' ? zone.name.trim().toLocaleLowerCase('hu-HU') : '';
+        return !(zone.id === 'all' || name === 'összes');
+      }),
+    [zones]
+  );
+
+  const visibleTableIdSet = useMemo(
+    () => new Set(visibleTables.map(table => table.id)),
+    [visibleTables]
+  );
+
+  const refDims = useMemo(() => {
+    const counts = new Map<string, { width: number; height: number; count: number }>();
+    floorplanTables.forEach(table => {
+      const dims = coerceDims(table.floorplanRef);
+      if (!dims) return;
+      const key = `${dims.width}x${dims.height}`;
+      const current = counts.get(key);
+      if (current) {
+        current.count += 1;
+      } else {
+        counts.set(key, { width: dims.width, height: dims.height, count: 1 });
+      }
+    });
+    let best: { width: number; height: number; count: number } | null = null;
+    counts.forEach(candidate => {
+      if (!best) {
+        best = candidate;
+        return;
+      }
+      if (candidate.count > best.count) {
+        best = candidate;
+        return;
+      }
+      if (candidate.count === best.count) {
+        const candidateArea = candidate.width * candidate.height;
+        const bestArea = best.width * best.height;
+        if (candidateArea > bestArea) {
+          best = candidate;
+        }
+      }
+    });
+    return best;
+  }, [floorplanTables]);
+
+  const geometryStats = useMemo(() => {
+    let maxValue = 0;
+    visibleTables.forEach(table => {
+      const geometry = normalizeTableGeometry(table);
+      maxValue = Math.max(
+        maxValue,
+        geometry.x + geometry.w,
+        geometry.y + geometry.h
+      );
+    });
+    return { maxValue, count: visibleTables.length };
+  }, [visibleTables]);
+
+  const floorplanDimensions = useMemo(() => {
+    if (!floorplan) {
+      return {
+        logicalWidth: 1,
+        logicalHeight: 1,
+        logicalDimsSource: 'fallback' as const,
+      };
+    }
+    const width = Number(floorplan.width);
+    const height = Number(floorplan.height);
+    const hasStoredDims = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    const hasImageDims = Boolean(bgNaturalSize?.w && bgNaturalSize?.h);
+    if (hasStoredDims && !(width === 1 && height === 1)) {
+      return { logicalWidth: width, logicalHeight: height, logicalDimsSource: 'stored' as const };
+    }
+    if (refDims) {
+      return {
+        logicalWidth: refDims.width,
+        logicalHeight: refDims.height,
+        logicalDimsSource: 'tableRef' as const,
+      };
+    }
+    if (hasImageDims) {
+      return {
+        logicalWidth: bgNaturalSize?.w ?? 1,
+        logicalHeight: bgNaturalSize?.h ?? 1,
+        logicalDimsSource: 'image' as const,
+      };
+    }
+    return { logicalWidth: 1, logicalHeight: 1, logicalDimsSource: 'fallback' as const };
+  }, [bgNaturalSize, floorplan, refDims]);
+
+  const logicalWidth = floorplanDimensions.logicalWidth;
+  const logicalHeight = floorplanDimensions.logicalHeight;
+  const effectiveDims = { width: logicalWidth, height: logicalHeight };
+  const bgUrl = floorplan?.backgroundImageUrl ?? null;
+  const hasBgUrl = Boolean(bgUrl && !bgFailed);
+  const bgUseTransform = hasBgUrl;
+
+  useLayoutEffect(() => {
+    const measureViewportRect = () => {
+      const node = containerRef.current;
+      if (!node) return;
+      const { width, height } = node.getBoundingClientRect();
+      setRenderMetrics(prev =>
+        prev.containerW === width && prev.containerH === height
+          ? prev
+          : { ...prev, containerW: width, containerH: height }
+      );
+      return { width, height };
+    };
+
+    let rafId = 0;
+    let retries = 0;
+    const maxRetries = 6;
+    const retryMeasure = () => {
+      const result = measureViewportRect();
+      if (
+        result &&
+        result.width > 0 &&
+        result.height > 0
+      ) {
+        return;
+      }
+      if (retries < maxRetries) {
+        retries += 1;
+        rafId = window.requestAnimationFrame(retryMeasure);
+      }
+    };
+    rafId = window.requestAnimationFrame(retryMeasure);
+    const handleViewportEvent = () => {
+      window.cancelAnimationFrame(rafId);
+      retries = 0;
+      rafId = window.requestAnimationFrame(retryMeasure);
+    };
+
+    window.addEventListener('resize', handleViewportEvent, { passive: true });
+    window.addEventListener('scroll', handleViewportEvent, { passive: true });
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      observer = new ResizeObserver(() => handleViewportEvent());
+      observer.observe(containerRef.current);
+    }
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined' && containerRef.current) {
+      intersectionObserver = new IntersectionObserver(entries => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          handleViewportEvent();
+        }
+      });
+      intersectionObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleViewportEvent);
+      window.removeEventListener('scroll', handleViewportEvent);
+      observer?.disconnect();
+      intersectionObserver?.disconnect();
+    };
+  }, [floorplan?.id, logicalHeight, logicalWidth]);
+
+  useEffect(() => {
+    if (
+      renderMetrics.containerW <= 0 ||
+      renderMetrics.containerH <= 0 ||
+      logicalWidth <= 0 ||
+      logicalHeight <= 0
+    ) {
+      if (renderMetrics.containerW <= 0 || renderMetrics.containerH <= 0) {
+        const measured = measureContainer(containerRef.current);
+        if (measured) {
+          setRenderMetrics(prev =>
+            prev.containerW === measured.width && prev.containerH === measured.height
+              ? prev
+              : { ...prev, containerW: measured.width, containerH: measured.height }
+          );
+        }
+      }
+      setRenderContext(prev =>
+        !prev.ready &&
+        prev.sx === 1 &&
+        prev.sy === 1 &&
+        prev.offsetX === 0 &&
+        prev.offsetY === 0
+          ? prev
+          : { ready: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
+      );
+      return;
+    }
+    const transform = computeCanonicalFloorplanRenderContext(
+      { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
+      logicalWidth,
+      logicalHeight
+    );
+    const sx = transform.sx;
+    const sy = transform.sy;
+    const offsetX = transform.offsetX;
+    const offsetY = transform.offsetY;
+    setRenderContext(prev =>
+      prev.ready &&
+      prev.sx === sx &&
+      prev.sy === sy &&
+      prev.offsetX === offsetX &&
+      prev.offsetY === offsetY
+        ? prev
+        : { ready: transform.ready, sx, sy, offsetX, offsetY }
+    );
+  }, [logicalHeight, logicalWidth, renderMetrics.containerH, renderMetrics.containerW]);
+
+  const effectiveRenderContext = useMemo(() => {
+    if (renderContext.ready) {
+      return { ...renderContext, effectiveReady: true };
+    }
+    const measured = measureContainer(containerRef.current);
+    if (measured && logicalWidth > 0 && logicalHeight > 0) {
+      const transform = computeCanonicalFloorplanRenderContext(
+        { width: measured.width, height: measured.height, left: 0, top: 0 },
+        logicalWidth,
+        logicalHeight
+      );
+      return {
+        ready: transform.ready,
+        effectiveReady: transform.ready,
+        sx: transform.sx,
+        sy: transform.sy,
+        offsetX: transform.offsetX,
+        offsetY: transform.offsetY,
+      };
+    }
+    return { ready: false, effectiveReady: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 };
+  }, [logicalHeight, logicalWidth, renderContext]);
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
@@ -290,6 +659,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     [bookings, selectedBookingId]
   );
 
+  const selectedWindow = useMemo(() => {
+    if (!selectedBookingId || !selectedBooking) return null;
+    const start = resolveBookingDate(selectedBooking.startTime);
+    const end = resolveBookingDate(selectedBooking.endTime);
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return null;
+    }
+    if (end.getTime() <= start.getTime()) {
+      return null;
+    }
+    return { start, end };
+  }, [selectedBooking, selectedBookingId]);
+
   const selectedAssignedTableIds = useMemo(() => {
     if (!selectedBooking) return new Set<string>();
     return resolveBookingTableIds(selectedBooking);
@@ -382,6 +764,34 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     return conflicts;
   }, [bookings]);
 
+  const blockedForSelectedTableIds = useMemo(() => {
+    if (!selectedWindow || !selectedBookingId) return new Set<string>();
+    const blocked = new Set<string>();
+    bookings.forEach(booking => {
+      if (booking.id === selectedBookingId) return;
+      const start = resolveBookingDate(booking.startTime);
+      const end = resolveBookingDate(booking.endTime);
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return;
+      }
+      if (end.getTime() <= start.getTime()) {
+        return;
+      }
+      const overlapsSelectionWindow =
+        start.getTime() < selectedWindow.end.getTime() &&
+        selectedWindow.start.getTime() < end.getTime();
+      if (!overlapsSelectionWindow) return;
+      const tableIds = resolveBookingTableIds(booking);
+      if (!tableIds.size) return;
+      tableIds.forEach(tableId => {
+        if (visibleTableIdSet.has(tableId)) {
+          blocked.add(tableId);
+        }
+      });
+    });
+    return blocked;
+  }, [bookings, selectedBookingId, selectedWindow, visibleTableIdSet]);
+
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
@@ -426,6 +836,103 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
 
+  const logicalDimsSource = floorplanDimensions.logicalDimsSource;
+  const mismatchCount = useMemo(() => {
+    let count = 0;
+    visibleTables.forEach(table => {
+      const floorplanRef = coerceDims(table.floorplanRef);
+      if (!floorplanRef) return;
+      if (floorplanRef.width !== effectiveDims.width || floorplanRef.height !== effectiveDims.height) {
+        count += 1;
+      }
+    });
+    return count;
+  }, [effectiveDims.height, effectiveDims.width, visibleTables]);
+  const debugStats = useMemo<DebugStats>(() => {
+    const storedWidth = Number(floorplan?.width);
+    const storedHeight = Number(floorplan?.height);
+    return {
+      unitId,
+      resolvedFloorplanId,
+      settingsActiveFloorplanId,
+      storedDims: `${Number.isFinite(storedWidth) ? storedWidth : 0}×${
+        Number.isFinite(storedHeight) ? storedHeight : 0
+      }`,
+      refDims: refDims ? `${refDims.width}×${refDims.height} (${refDims.count})` : 'n/a',
+      logicalDims: `${Math.round(logicalWidth)}×${Math.round(logicalHeight)}`,
+      logicalDimsSource,
+      bg: bgUrl ? (bgFailed ? 'failed' : bgNaturalSize ? 'loaded' : 'loading') : 'missing',
+      bgMode: bgUseTransform ? 'transformed' : 'contain',
+      bgNatural: bgNaturalSize ? `${bgNaturalSize.w}×${bgNaturalSize.h}` : 'n/a',
+      container: `${Math.round(renderMetrics.containerW)}×${Math.round(renderMetrics.containerH)}`,
+      transform: `sx:${effectiveRenderContext.sx.toFixed(4)} sy:${effectiveRenderContext.sy.toFixed(
+        4
+      )} ox:${Math.round(effectiveRenderContext.offsetX)} oy:${Math.round(
+        effectiveRenderContext.offsetY
+      )}`,
+      mismatchCount,
+      effectiveReady: effectiveRenderContext.effectiveReady,
+    };
+  }, [
+    bgFailed,
+    bgNaturalSize,
+    bgUrl,
+    bgUseTransform,
+    effectiveRenderContext.effectiveReady,
+    effectiveRenderContext.offsetX,
+    effectiveRenderContext.offsetY,
+    effectiveRenderContext.sx,
+    effectiveRenderContext.sy,
+    floorplan?.height,
+    floorplan?.width,
+    logicalDimsSource,
+    logicalHeight,
+    logicalWidth,
+    mismatchCount,
+    refDims,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    resolvedFloorplanId,
+    settingsActiveFloorplanId,
+    unitId,
+  ]);
+  const debugWarningReasons = useMemo(() => {
+    if (!showDebug || renderContext.ready) return [] as string[];
+    if (!(tablesTotal > 0 || tables.length > 0)) return [] as string[];
+    const reasons: string[] = [];
+    if (renderMetrics.containerW <= 0 || renderMetrics.containerH <= 0) {
+      reasons.push('viewport rect 0x0');
+    }
+    if (logicalWidth <= 0 || logicalHeight <= 0) {
+      reasons.push('logical dims invalid');
+    }
+    if (
+      renderMetrics.containerW > 0 &&
+      renderMetrics.containerH > 0 &&
+      logicalWidth > 0 &&
+      logicalHeight > 0
+    ) {
+      const transform = computeCanonicalFloorplanRenderContext(
+        { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
+        logicalWidth,
+        logicalHeight
+      );
+      if (!Number.isFinite(transform.sx) || transform.sx <= 0) {
+        reasons.push('transform scale invalid');
+      }
+    }
+    return reasons;
+  }, [
+    logicalHeight,
+    logicalWidth,
+    renderContext.ready,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    showDebug,
+    tables.length,
+    tablesTotal,
+  ]);
+
   if (floorplanLoading) {
     return (
       <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
@@ -449,9 +956,30 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       </div>
     );
   }
+  if (logicalDimsSource === 'fallback' && !bgNaturalSize) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        Nincs beállított alaprajz méret. Nyisd meg az Ültetés beállítások / Asztaltérkép
+        szerkesztőt és rögzítsd a méretet.
+      </div>
+    );
+  }
 
-  const { width: floorplanWidth, height: floorplanHeight } =
-    normalizeFloorplanDimensions(floorplan);
+  const geometryMode = 'absolute';
+  const bgStatus = !bgUrl
+    ? 'missing'
+    : bgFailed
+    ? 'failed'
+    : bgNaturalSize
+    ? 'loaded'
+    : 'missing';
+  const contentWidth = effectiveRenderContext.effectiveReady
+    ? Math.round(logicalWidth * effectiveRenderContext.sx)
+    : 0;
+  const contentHeight = effectiveRenderContext.effectiveReady
+    ? Math.round(logicalHeight * effectiveRenderContext.sy)
+    : 0;
+  const stageMaxWidth = 900;
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -481,23 +1009,50 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               day: 'numeric',
             })}
           </p>
+          {showDebug && (
+            <>
+              <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                floorplan: {settingsActiveFloorplanId ?? 'n/a'} | selected:{' '}
+                {resolvedFloorplanId ?? floorplan?.id ?? 'n/a'} | tables:{' '}
+                {tablesTotal}/{visibleTables.length} | zones: {zonesTotal}/{zones.length} | zone:{' '}
+                {activeZoneId === null ? 'Összes' : activeZoneId}
+              </p>
+              <p className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                dims: {logicalWidth}x{logicalHeight} | source: {logicalDimsSource} | img:{' '}
+                {bgNaturalSize ? `${bgNaturalSize.w}x${bgNaturalSize.h}` : 'n/a'} | bg:{' '}
+                {bgStatus} | mode: {geometryMode} | maxGeom:{' '}
+                {geometryStats.maxValue.toFixed(2)} | tables: {geometryStats.count} | rect:{' '}
+                {Math.round(renderMetrics.containerW)}x{Math.round(renderMetrics.containerH)} | content:{' '}
+                {contentWidth}x{contentHeight} | stageMax:{stageMaxWidth} | ready:{' '}
+                {renderContext.ready ? 'yes' : 'no'} off: {renderContext.offsetX.toFixed(1)}/
+                {renderContext.offsetY.toFixed(1)} | logical: {logicalWidth}x
+                {logicalHeight} | sx/sy: {renderContext.sx.toFixed(3)}/
+                {renderContext.sy.toFixed(3)}
+              </p>
+            </>
+          )}
+          {showDebug && debugWarningReasons.length > 0 && (
+            <p className="text-[10px] font-mono text-amber-600">
+              render warnings: {debugWarningReasons.join(' · ')}
+            </p>
+          )}
         </div>
-        <div className="text-sm font-semibold text-[var(--color-text-main)]">
+        <div className="flex flex-col items-end text-sm font-semibold text-[var(--color-text-main)] leading-tight">
           {capacityLimit !== null ? (
             <>
               {capacityUsed} / {capacityLimit}{' '}
               <span className="text-xs text-[var(--color-text-secondary)]">
                 {capacityMode === 'timeWindow' ? 'aktuális idősáv' : 'napi kapacitás'}
               </span>
-              {recommendedTableIds.size > 0 && (
-                <div className="text-[11px] text-[var(--color-text-secondary)]">
-                  Ajánlott asztalok: szaggatott keret
-                </div>
-              )}
             </>
           ) : (
             <span className="text-xs text-[var(--color-text-secondary)]">
               Kapacitás nincs megadva.
+            </span>
+          )}
+          {recommendedTableIds.size > 0 && (
+            <span className="mt-0.5 text-[11px] text-[var(--color-text-secondary)]">
+              Ajánlott asztalok: szaggatott keret
             </span>
           )}
         </div>
@@ -506,6 +1061,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           <button
+            key="all"
             type="button"
             onClick={() => setActiveZoneId(null)}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
@@ -516,7 +1072,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           >
             Összes
           </button>
-          {zones.map(zone => (
+          {displayZones.map(zone => (
             <button
               key={zone.id}
               type="button"
@@ -538,42 +1094,137 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="overflow-auto">
+      <div className="w-full mx-auto" style={{ maxWidth: stageMaxWidth }}>
+        {mismatchCount > 0 && (
+          <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            ⚠️ Asztalok nincsenek migrálva ehhez az alaprajz mérethez ({mismatchCount}).
+            A preview az editorral egyező módon renderel (skálázás nélkül).
+          </div>
+        )}
         <div
-          className="relative border border-gray-200 rounded-xl bg-white/80"
-          style={{ width: floorplanWidth, height: floorplanHeight }}
+          ref={containerRef}
+          className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
+          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}`, minHeight: 240 }}
         >
-          {floorplan.backgroundImageUrl && (
+          {hasBgUrl && (
             <img
-              src={floorplan.backgroundImageUrl}
+              src={bgUrl ?? ''}
               alt={floorplan.name}
-              className="absolute inset-0 w-full h-full object-contain"
-            />
-          )}
-          {(floorplan.obstacles ?? []).map(obstacle => (
-            <div
-              key={obstacle.id}
-              className="absolute border border-dashed border-gray-300 bg-gray-200/40"
+              ref={imageRef}
+              onLoad={() => {
+                const image = imageRef.current;
+                if (!image) return;
+                setBgFailed(false);
+                setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
+              }}
+              onError={() => {
+                setBgFailed(true);
+                setBgNaturalSize(null);
+              }}
+              className="absolute"
               style={{
-                left: obstacle.x,
-                top: obstacle.y,
-                width: obstacle.w,
-                height: obstacle.h,
-                transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                left: effectiveRenderContext.offsetX,
+                top: effectiveRenderContext.offsetY,
+                width: logicalWidth * effectiveRenderContext.sx,
+                height: logicalHeight * effectiveRenderContext.sy,
+                objectFit: 'contain',
               }}
             />
-          ))}
+          )}
+          {showDebug && !effectiveRenderContext.effectiveReady && (
+            <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
+              Render not ready ({Math.round(renderMetrics.containerW)}x
+              {Math.round(renderMetrics.containerH)})
+            </div>
+          )}
+          {showDebug && (
+            <div className="absolute top-2 left-2 z-50 pointer-events-none">
+              <div className="rounded-lg border border-black/20 bg-black/70 text-white text-[11px] font-mono px-3 py-2 whitespace-pre">
+                {`fp:${debugStats.resolvedFloorplanId ?? 'n/a'} (settings:${
+                  debugStats.settingsActiveFloorplanId ?? 'n/a'
+                })
+stored:${debugStats.storedDims}  logical:${debugStats.logicalDims} (${debugStats.logicalDimsSource})
+refDims:${debugStats.refDims}
+bg:${debugStats.bg} (${debugStats.bgMode})  bgNatural:${debugStats.bgNatural}
+container:${debugStats.container}
+${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
+mismatchCount:${debugStats.mismatchCount}
+minClamp: OFF
+fitToContent: OFF
+mode: preview`}
+              </div>
+            </div>
+          )}
+          {!effectiveRenderContext.effectiveReady && (tablesTotal > 0 || tables.length > 0) && (
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
+              Asztaltérkép pozicionálása…
+            </div>
+          )}
+          {effectiveRenderContext.effectiveReady && visibleTables.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-secondary)]">
+              Nincs megjeleníthető asztal ehhez a floorplanhoz / zónához.
+            </div>
+          )}
+          {(floorplan.obstacles ?? []).map(obstacle => {
+              const ox = safeNum(obstacle.x, 0);
+              const oy = safeNum(obstacle.y, 0);
+              const ow = safeNum(obstacle.w, 0);
+              const oh = safeNum(obstacle.h, 0);
+              const orot = safeNum(obstacle.rot ?? 0, 0);
+              const finalW = Math.max(20, Math.max(0, ow));
+              const finalH = Math.max(20, Math.max(0, oh));
+              const maxX = Math.max(0, logicalWidth - finalW);
+              const maxY = Math.max(0, logicalHeight - finalH);
+              const obstacleX = clamp(ox, 0, maxX);
+              const obstacleY = clamp(oy, 0, maxY);
+              const obstacleW = finalW;
+              const obstacleH = finalH;
+              return (
+                <div
+                  key={obstacle.id}
+                  className="absolute border border-dashed border-gray-300 bg-gray-200/30"
+                  style={{
+                    left: effectiveRenderContext.offsetX + obstacleX * effectiveRenderContext.sx,
+                    top: effectiveRenderContext.offsetY + obstacleY * effectiveRenderContext.sy,
+                    width: obstacleW * effectiveRenderContext.sx,
+                    height: obstacleH * effectiveRenderContext.sy,
+                    transform: `rotate(${orot}deg)`,
+                  }}
+                />
+              );
+            })}
           {visibleTables.map(table => {
             const geometry = normalizeTableGeometry(table);
-            const maxX = Math.max(0, floorplanWidth - geometry.w);
-            const maxY = Math.max(0, floorplanHeight - geometry.h);
-            const left = clamp(geometry.x, 0, maxX);
-            const top = clamp(geometry.y, 0, maxY);
-            const rotation = geometry.rot;
+            const tx = safeNum(geometry.x, 0);
+            const ty = safeNum(geometry.y, 0);
+            const twRaw = safeNum(geometry.w, 0);
+            const thRaw = safeNum(geometry.h, 0);
+            const trot = safeNum(table.rot, 0);
+            const tradius = safeNum(geometry.radius, 0);
+            const tableWidth = Math.max(0, twRaw);
+            const tableHeight = Math.max(0, thRaw);
+            const maxX = Math.max(0, logicalWidth - tableWidth);
+            const maxY = Math.max(0, logicalHeight - tableHeight);
+            const left = effectiveRenderContext.offsetX + clamp(
+              tx,
+              0,
+              maxX
+            ) * effectiveRenderContext.sx;
+            const top = effectiveRenderContext.offsetY + clamp(
+              ty,
+              0,
+              maxY
+            ) * effectiveRenderContext.sy;
+            const rotation = trot;
+            const circleRadius = Math.max(0, tradius) || Math.min(tableWidth, tableHeight) / 2;
             const status = tableStatusById.get(table.id) ?? 'free';
             const isSelected = selectedAssignedTableIds.has(table.id);
             const hasConflict = conflictTableIds.has(table.id);
             const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+            const isBlocked =
+              blockedForSelectedTableIds.has(table.id) &&
+              !isSelected &&
+              status !== 'occupied';
 
             return (
               <div
@@ -584,13 +1235,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 style={{
                   left,
                   top,
-                  width: geometry.w,
-                  height: geometry.h,
-                  borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                  width: tableWidth * effectiveRenderContext.sx,
+                  height: tableHeight * effectiveRenderContext.sy,
+                  borderRadius: table.shape === 'circle' ? circleRadius : 8,
                   border: '2px solid rgba(148, 163, 184, 0.6)',
                   backgroundColor: renderStatusColor(status),
                   transform: `rotate(${rotation}deg)`,
                   boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                  opacity: isBlocked ? 0.55 : undefined,
                   outline: isRecommended
                     ? '2px dashed rgba(251, 191, 36, 0.9)'
                     : undefined,
