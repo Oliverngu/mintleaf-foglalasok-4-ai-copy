@@ -803,6 +803,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       </div>
     );
   }
+  if (logicalDimsSource === 'fallback' && !bgNaturalSize) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        Nincs beállított alaprajz méret. Nyisd meg az Ültetés beállítások / Asztaltérkép
+        szerkesztőt és rögzítsd a méretet.
+      </div>
+    );
+  }
 
   const geometryMode = 'absolute';
   const bgStatus = !bgUrl

@@ -12,6 +12,17 @@ type TableGeometryDefaults = {
 export const isPlaceholderFloorplanDims = (width?: number | null, height?: number | null) =>
   Number(width) === 1 && Number(height) === 1;
 
+export const isSaneDims = (dims: { width: number; height: number }) =>
+  dims.width > 0 && dims.height > 0 && dims.width < 10000 && dims.height < 10000;
+
+export const safeScaleOk = (scaleX: number, scaleY: number) =>
+  Number.isFinite(scaleX) &&
+  Number.isFinite(scaleY) &&
+  scaleX >= 0.2 &&
+  scaleX <= 5 &&
+  scaleY >= 0.2 &&
+  scaleY <= 5;
+
 export const normalizeFloorplanDimensions = (
   floorplan?: Pick<Floorplan, 'width' | 'height'> | null
 ) => {
@@ -86,4 +97,45 @@ export const normalizeTableGeometryToFloorplan = (
     next.radius = table.radius * Math.min(scaleX, scaleY);
   }
   return next;
+};
+
+export const scaleTableGeometry = (
+  geometry: TableGeometry,
+  fromDims: { width: number; height: number },
+  toDims: { width: number; height: number }
+) => {
+  if (!isSaneDims(fromDims) || !isSaneDims(toDims)) {
+    return { geometry, didScale: false, reason: 'invalid-dims' };
+  }
+  const scaleX = toDims.width / fromDims.width;
+  const scaleY = toDims.height / fromDims.height;
+  if (!safeScaleOk(scaleX, scaleY)) {
+    return { geometry, didScale: false, reason: 'unsafe-scale' };
+  }
+  const hasGeometry =
+    isFiniteNumber(geometry.x) ||
+    isFiniteNumber(geometry.y) ||
+    isFiniteNumber(geometry.w) ||
+    isFiniteNumber(geometry.h) ||
+    isFiniteNumber(geometry.radius);
+  if (!hasGeometry) {
+    return { geometry, didScale: false, reason: 'missing-geometry' };
+  }
+  const next: TableGeometry = { ...geometry };
+  if (isFiniteNumber(geometry.x)) {
+    next.x = geometry.x * scaleX;
+  }
+  if (isFiniteNumber(geometry.y)) {
+    next.y = geometry.y * scaleY;
+  }
+  if (isFiniteNumber(geometry.w)) {
+    next.w = geometry.w * scaleX;
+  }
+  if (isFiniteNumber(geometry.h)) {
+    next.h = geometry.h * scaleY;
+  }
+  if (isFiniteNumber(geometry.radius)) {
+    next.radius = geometry.radius * Math.min(scaleX, scaleY);
+  }
+  return { geometry: next, didScale: true };
 };
