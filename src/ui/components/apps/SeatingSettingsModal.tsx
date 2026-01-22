@@ -34,7 +34,6 @@ import {
 } from '../../../core/services/seatingAdminService';
 import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
 import ModalShell from '../common/ModalShell';
-import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 
 const COLLISION_EPS = 0.5;
@@ -3641,14 +3640,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const renderOverviewPanel = () => (
     <div className="space-y-6">
-      <section className="space-y-3 border rounded-lg p-4">
+      <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <h3 className="font-semibold">Foglalás alapok</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex flex-col gap-1">
             Buffer (perc)
             <input
               type="number"
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.bufferMinutes ?? 15}
               onChange={event =>
                 setSettings(prev => ({
@@ -3662,7 +3661,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Alap foglalási idő (perc)
             <input
               type="number"
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.defaultDurationMinutes ?? 120}
               onChange={event =>
                 setSettings(prev => ({
@@ -3676,7 +3675,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Késés kezelése (perc)
             <input
               type="number"
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.holdTableMinutesOnLate ?? 15}
               onChange={event =>
                 setSettings(prev => ({
@@ -3702,7 +3701,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </section>
 
-      <section className="space-y-3 border rounded-lg p-4">
+      <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <h3 className="font-semibold">Automatikus ültetés (allokáció)</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex items-center gap-2 text-sm col-span-2">
@@ -3721,7 +3720,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <label className="flex flex-col gap-1">
             Allokáció mód
             <select
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.allocationMode ?? 'capacity'}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
@@ -3742,7 +3741,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <label className="flex flex-col gap-1">
             Allokációs stratégia
             <select
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.allocationStrategy ?? 'bestFit'}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
@@ -3763,7 +3762,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <label className="flex flex-col gap-1">
             Alapértelmezett zóna
             <select
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               value={settings?.defaultZoneId ?? ''}
               disabled={!settings?.allocationEnabled}
               onChange={event =>
@@ -3784,7 +3783,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </section>
 
-      <div className="space-y-3 border rounded-lg p-4">
+      <div className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <button
           type="button"
           onClick={() => setAdvancedOpen(current => !current)}
@@ -3806,7 +3805,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     return (
                       <div
                         key={zoneId}
-                        className="flex items-center gap-2 border rounded px-2 py-1"
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1"
                       >
                         <span>{zone.name}</span>
                         <div className="flex items-center gap-1">
@@ -3872,7 +3871,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
                 <div className="flex items-center gap-2">
                   <select
-                    className="border rounded p-2 text-sm"
+                    className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500"
                     value={zonePriorityAdd}
                     disabled={!settings?.allocationEnabled}
                   onChange={event => {
@@ -3946,7 +3945,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 Kombinált asztalok engedélyezése zónák között
               </label>
             </div>
-            <section className="space-y-3 border rounded-lg p-4">
+            <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
               <h3 className="font-semibold">Emergency zónák</h3>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -3972,7 +3971,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <label className="block mb-1">Zónák</label>
                   <select
                     multiple
-                    className="border rounded p-2 w-full"
+                    className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 w-full focus:ring-2 focus:ring-blue-500"
                     value={settings?.emergencyZones?.zoneIds ?? []}
                     onChange={event => {
                       const values = Array.from(
@@ -4001,7 +4000,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 <div>
                   <label className="block mb-1">Szabály</label>
                   <select
-                    className="border rounded p-2 w-full"
+                    className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 w-full focus:ring-2 focus:ring-blue-500"
                     value={settings?.emergencyZones?.activeRule ?? 'always'}
                     onChange={event =>
                       setSettings(prev => {
@@ -4057,7 +4056,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         )}
       </div>
 
-      <div className="space-y-3 border rounded-lg p-4">
+      <div className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <button
           type="button"
           onClick={() => setDebugOpen(current => !current)}
@@ -4099,18 +4098,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   const renderZonesPanel = () => (
-    <section className="space-y-3 border rounded-lg p-4">
+    <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h3 className="font-semibold">Zónák</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <input
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           placeholder="Zóna neve"
           value={zoneForm.name}
           onChange={event => setZoneForm(current => ({ ...current, name: event.target.value }))}
         />
         <input
           type="number"
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           placeholder="Prioritás"
           value={zoneForm.priority}
           onChange={event =>
@@ -4148,7 +4147,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         {zones.map(zone => {
           const isDeleting = actionSaving[`zone-delete-${zone.id}`];
           return (
-            <div key={zone.id} className="flex items-center justify-between border rounded p-2">
+            <div
+              key={zone.id}
+              className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+            >
               <div>
                 {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
               </div>
@@ -4193,17 +4195,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   const renderTablesPanel = () => (
-    <section className="space-y-3 border rounded-lg p-4">
+    <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h3 className="font-semibold">Asztalok</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <input
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           placeholder="Asztal neve"
           value={tableForm.name}
           onChange={event => setTableForm(current => ({ ...current, name: event.target.value }))}
         />
         <select
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           value={tableForm.zoneId}
           onChange={event =>
             setTableForm(current => ({ ...current, zoneId: event.target.value }))
@@ -4218,7 +4220,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </select>
         <input
           type="number"
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           placeholder="Min kapacitás"
           value={tableForm.minCapacity}
           onChange={event =>
@@ -4230,7 +4232,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         />
         <input
           type="number"
-          className="border rounded p-2"
+          className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
           placeholder="Max kapacitás"
           value={tableForm.capacityMax}
           onChange={event =>
@@ -4263,7 +4265,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <label className="flex flex-col gap-1">
           Alaprajz
           <select
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             value={tableForm.floorplanId}
             onChange={event =>
               setTableForm(current => ({ ...current, floorplanId: event.target.value }))
@@ -4280,7 +4282,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <label className="flex flex-col gap-1">
           Forma
           <select
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             value={tableForm.shape}
             onChange={event =>
               setTableForm(current => ({
@@ -4297,7 +4299,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <>
             <input
               type="number"
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               placeholder="Szélesség"
               value={tableForm.w}
               onChange={event =>
@@ -4306,7 +4308,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             />
             <input
               type="number"
-              className="border rounded p-2"
+              className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               placeholder="Magasság"
               value={tableForm.h}
               onChange={event =>
@@ -4317,7 +4319,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         ) : (
           <input
             type="number"
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             placeholder="Sugár"
             value={tableForm.radius}
             onChange={event =>
@@ -4358,7 +4360,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         {tables.map(table => {
           const isDeleting = actionSaving[`table-delete-${table.id}`];
           return (
-            <div key={table.id} className="flex items-center justify-between border rounded p-2">
+            <div
+              key={table.id}
+              className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+            >
               <div>
                 {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
               </div>
@@ -4422,7 +4427,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   const renderCombinationsPanel = () => (
-    <section className="space-y-3 border rounded-lg p-4">
+    <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h3 className="font-semibold">Kombinációk</h3>
       <div className="space-y-2 text-sm">
         <div className="grid grid-cols-2 gap-2">
@@ -4456,7 +4461,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             const isToggling = actionSaving[`combo-toggle-${combo.id}`];
             const isDeleting = actionSaving[`combo-delete-${combo.id}`];
             return (
-              <div key={combo.id} className="flex items-center justify-between border rounded p-2">
+              <div
+                key={combo.id}
+                className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+              >
                 <div>
                   {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
                 </div>
@@ -4518,12 +4526,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <div className="text-sm text-[var(--color-text-secondary)]">
         Az aktív asztaltérképet itt tudod kiválasztani.
       </div>
-      <section className="space-y-3 border rounded-lg p-4">
+      <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <h3 className="font-semibold">Aktív alaprajz</h3>
         <label className="flex flex-col gap-1 text-sm">
           Aktív alaprajz
           <select
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
             onChange={event =>
               setSettings(prev => ({
@@ -4541,11 +4549,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </select>
         </label>
       </section>
-      <section className="space-y-3 border rounded-lg p-4">
+      <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <h3 className="font-semibold">Alaprajzok</h3>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <input
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             placeholder="Alaprajz neve"
             value={floorplanForm.name}
             onChange={event =>
@@ -4554,7 +4562,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           />
           <input
             type="number"
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             placeholder="Szélesség"
             value={floorplanForm.width}
             onChange={event =>
@@ -4563,7 +4571,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           />
           <input
             type="number"
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             placeholder="Magasság"
             value={floorplanForm.height}
             onChange={event =>
@@ -4572,7 +4580,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           />
           <input
             type="number"
-            className="border rounded p-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
             placeholder="Grid méret"
             value={floorplanForm.gridSize}
             onChange={event =>
@@ -4580,7 +4588,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             }
           />
           <input
-            className="border rounded p-2 col-span-2"
+            className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 col-span-2 focus:ring-2 focus:ring-blue-500"
             placeholder="Háttérkép URL (opcionális)"
             value={floorplanForm.backgroundImageUrl}
             onChange={event =>
@@ -4608,7 +4616,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             const isActivating = actionSaving[`floorplan-activate-${plan.id}`];
             const isDeleting = actionSaving[`floorplan-delete-${plan.id}`];
             return (
-              <div key={plan.id} className="flex items-center justify-between border rounded p-2">
+              <div
+                key={plan.id}
+                className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
+              >
                 <div>
                   {plan.name} ({safeWidth}×{safeHeight})
                 </div>
@@ -4648,7 +4659,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           })}
         </div>
       </section>
-      <section className="space-y-3 border rounded-lg p-4">
+      <section className="space-y-3 bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
         {!activeFloorplan ? (
           <div className="text-sm text-[var(--color-text-secondary)]">
@@ -4855,7 +4866,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
               <FloorplanSquareViewport
                 ref={floorplanViewportRef}
-                className={`block h-full w-full border border-gray-200 rounded-lg bg-gray-50 ${
+                className={`block h-full w-full rounded-2xl border border-dashed border-gray-200 bg-gray-50 ${
                   floorplanMode === 'edit' ? 'touch-none' : ''
                 }`}
               >
@@ -4867,7 +4878,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   }}
                 >
                   <div
-                    className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
+                    className="relative ring-1 ring-gray-200 rounded-2xl bg-white overflow-hidden"
                     style={{ width: floorplanW, height: floorplanH }}
                   >
                     {debugSeating && (
@@ -5325,7 +5336,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
         )}
         <div className="grid gap-3 lg:grid-cols-2">
-          <div className="border rounded-lg p-3 text-sm space-y-3">
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 text-sm space-y-3 shadow-lg">
             <h4 className="font-semibold">Kiválasztott asztal</h4>
             {!selectedTable || !selectedTableDraft ? (
               <div className="text-xs text-[var(--color-text-secondary)]">
@@ -5349,7 +5360,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <input
                       type="number"
                       min={0}
-                      className="border rounded p-2"
+                      className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
                       value={selectedTableDraft.capacityTotal}
                       onChange={event =>
                         setSelectedTableDraft(current =>
@@ -5369,7 +5380,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       <input
                         type="number"
                         min={0}
-                        className="border rounded p-2"
+                        className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
                         value={selectedTableDraft.sideCapacities.north}
                         onChange={event =>
                           setSelectedTableDraft(current =>
@@ -5391,7 +5402,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       <input
                         type="number"
                         min={0}
-                        className="border rounded p-2"
+                        className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
                         value={selectedTableDraft.sideCapacities.east}
                         onChange={event =>
                           setSelectedTableDraft(current =>
@@ -5413,7 +5424,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       <input
                         type="number"
                         min={0}
-                        className="border rounded p-2"
+                        className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
                         value={selectedTableDraft.sideCapacities.south}
                         onChange={event =>
                           setSelectedTableDraft(current =>
@@ -5435,7 +5446,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       <input
                         type="number"
                         min={0}
-                        className="border rounded p-2"
+                        className="bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
                         value={selectedTableDraft.sideCapacities.west}
                         onChange={event =>
                           setSelectedTableDraft(current =>
@@ -5506,7 +5517,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </div>
             )}
           </div>
-          <div className="border rounded-lg p-3 text-sm space-y-3">
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 text-sm space-y-3 shadow-lg">
             <h4 className="font-semibold">Base kombináció</h4>
             <div className="text-xs text-[var(--color-text-secondary)]">
               Jelölj ki több asztalt, majd hozd létre a base kombót (csak metaadat).
@@ -5604,9 +5615,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <ModalShell
         onClose={handleClose}
         ariaLabelledBy="seating-settings-title"
-        containerClassName="max-w-3xl h-[40vh]"
+        containerClassName="max-w-6xl h-[50vh] rounded-3xl shadow-2xl"
         header={
-          <h2 id="seating-settings-title" className="text-xl font-bold">
+          <h2
+            id="seating-settings-title"
+            className="text-2xl font-bold text-gray-800 tracking-tight"
+          >
             Ültetés beállítások
           </h2>
         }
@@ -5620,10 +5634,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     <>
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h2 id="seating-settings-title" className="text-xl font-bold">
+          <h2
+            id="seating-settings-title"
+            className="text-2xl font-bold text-gray-800 tracking-tight"
+          >
             Ültetés beállítások
           </h2>
-          <div className="text-xs text-gray-500">
+          <div className="text-sm text-gray-500">
             Egység: {unitId.slice(0, 8)}… •{' '}
             {isSaving
               ? 'Mentés folyamatban...'
@@ -5635,7 +5652,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <button
           type="button"
           onClick={handleClose}
-          className="flex items-center gap-2 text-sm text-gray-500"
+          className="flex items-center gap-2 text-sm font-semibold text-gray-500"
         >
           {isDirty && (
             <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-blue-400" />
@@ -5649,8 +5666,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   const footerContent = (
-    <div className="border-t pt-3 pb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
+    <div className="border-t border-gray-100 pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-gray-500" aria-live="polite" aria-atomic="true">
         {isSaving
           ? 'Mentés folyamatban...'
           : isDirty
@@ -5659,7 +5676,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       </div>
       <div className="flex items-center gap-3">
         {saveFeedback && (
-          <span role="status" className="text-xs text-green-600">
+          <span role="status" className="text-sm text-green-600">
             {saveFeedback}
           </span>
         )}
@@ -5667,7 +5684,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <button
             type="button"
             onClick={handleResetChanges}
-            className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm"
+            className="text-sm font-semibold text-gray-500"
           >
             Visszaállítás
           </button>
@@ -5675,7 +5692,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <button
           type="button"
           onClick={event => handleActionButtonClick(event, handleSettingsSave)}
-          className={`px-4 py-2 rounded-lg text-sm disabled:opacity-50 ${
+          className={`px-6 py-3 rounded-xl text-sm font-semibold disabled:opacity-50 ${
             canSave ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
           }`}
           disabled={!canSave}
@@ -5690,19 +5707,51 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     <ModalShell
       onClose={handleClose}
       ariaLabelledBy="seating-settings-title"
-      containerClassName="max-w-5xl h-[85vh]"
+      containerClassName="max-w-6xl h-[90vh] rounded-3xl shadow-2xl"
       header={headerContent}
       footer={footerContent}
     >
-      <PillPanelLayout
-        sections={tabs}
-        activeId={activeTab}
-        onChange={setActiveTab}
-        onKeyDown={handleTabsKeyDown}
-        ariaLabel="Ültetés beállítások szakaszok"
-        idPrefix="seating"
-        renderPanel={renderActivePanel}
-      />
+      <div className="flex h-full flex-col gap-6">
+        <div className="border-b border-gray-200">
+          <div
+            role="tablist"
+            aria-label="Ültetés beállítások szakaszok"
+            className="flex flex-wrap gap-4 overflow-x-auto pb-2"
+          >
+            {tabs.map(tab => {
+              const isActive = tab.id === activeTab;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  id={`seating-tab-${tab.id}`}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls="seating-panel"
+                  tabIndex={isActive ? 0 : -1}
+                  onClick={() => setActiveTab(tab.id)}
+                  onKeyDown={handleTabsKeyDown}
+                  className={`pb-2 text-sm font-semibold transition-colors ${
+                    isActive
+                      ? 'border-b-2 border-blue-600 text-blue-600'
+                      : 'text-gray-400 hover:text-blue-600'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div
+          role="tabpanel"
+          id="seating-panel"
+          aria-labelledby={`seating-tab-${activeTab}`}
+          className="flex-1 min-h-0 overflow-y-auto p-6"
+        >
+          {renderActivePanel(activeTab)}
+        </div>
+      </div>
     </ModalShell>
   );
 };

@@ -81,19 +81,20 @@ const DeleteConfirmationModal: React.FC<{
   const [reason, setReason] = useState('');
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70] p-4"
       onClick={onClose}
     >
       <div
-        className="rounded-2xl shadow-xl w-full max-w-md"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        className="rounded-2xl shadow-xl w-full max-w-md bg-white border border-gray-100"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-5 border-b">
-          <h2 className="text-xl font-bold text-[var(--color-text-main)]">Foglalás törlése</h2>
+        <div className="p-6 border-b border-gray-100">
+          <h2 className="text-2xl font-bold text-gray-800 tracking-tight">
+            Foglalás törlése
+          </h2>
         </div>
         <div className="p-6 space-y-4">
-          <p>
+          <p className="text-sm text-gray-600">
             Biztosan törlöd a(z) <span className="font-bold">{booking.name}</span> nevű
             foglalást erre a napra:{' '}
             <span className="font-bold">
@@ -104,7 +105,7 @@ const DeleteConfirmationModal: React.FC<{
           <div>
             <label
               htmlFor="cancelReason"
-              className="text-sm font-medium text-[var(--color-text-main)]"
+              className="text-sm font-medium text-gray-600"
             >
               Indoklás (opcionális)
             </label>
@@ -113,7 +114,7 @@ const DeleteConfirmationModal: React.FC<{
               value={reason}
               onChange={e => setReason(e.target.value)}
               rows={3}
-              className="w-full mt-1 p-2 border rounded-lg"
+              className="w-full mt-1 bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
               placeholder="Pl. vendég lemondta, dupla foglalás..."
             />
           </div>
@@ -896,15 +897,12 @@ const SectionCard: React.FC<{
   actions?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ title, description, actions, children }) => (
-  <div
-    className="rounded-xl border border-gray-100 p-3 space-y-2"
-    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-  >
+  <div className="rounded-2xl border border-gray-100 bg-white p-5 space-y-2 shadow-sm">
     <div className="flex items-start justify-between gap-3">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
         {description && (
-          <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+          <p className="text-xs text-gray-500">{description}</p>
         )}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -921,22 +919,19 @@ const CollapsibleSection: React.FC<{
 }> = ({ title, description, defaultOpen = false, children }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div
-      className="rounded-xl border border-gray-100 p-3 space-y-2"
-      style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-    >
+    <div className="rounded-2xl border border-gray-100 bg-white p-5 space-y-2 shadow-sm">
       <button
         type="button"
         onClick={() => setOpen(current => !current)}
         className="w-full text-left flex items-center justify-between gap-2"
       >
         <div>
-          <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
           {description && (
-            <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+            <p className="text-xs text-gray-500">{description}</p>
           )}
         </div>
-        <span className="text-xs text-[var(--color-text-secondary)]">
+        <span className="text-xs text-gray-500">
           {open ? 'Bezár' : 'Megnyit'}
         </span>
       </button>
@@ -1390,16 +1385,15 @@ const BookingDetailsModal: React.FC<{
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={handleClose}
     >
       <div
-        className="rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+        className="rounded-3xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col bg-white border border-gray-100"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold text-[var(--color-text-main)]">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-800 tracking-tight">
             {selectedDate.toLocaleDateString('hu-HU', {
               weekday: 'long',
               year: 'numeric',
@@ -1409,8 +1403,7 @@ const BookingDetailsModal: React.FC<{
           </h2>
           <button
             onClick={handleClose}
-            className="p-2 rounded-full hover:bg-gray-200"
-            style={{ color: 'var(--color-text-secondary)' }}
+            className="p-2 rounded-lg text-gray-400 hover:bg-gray-100"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -1428,7 +1421,7 @@ const BookingDetailsModal: React.FC<{
             </svg>
           </button>
         </div>
-        <div className="p-6 overflow-y-auto space-y-4">
+        <div className="p-6 overflow-y-auto space-y-6">
           <SectionCard
             title="Foglalás részletek"
             description="Összefoglaló, allokáció, ültetés, kapacitás és napló."
@@ -1544,8 +1537,7 @@ const BookingDetailsModal: React.FC<{
                 return (
                   <div
                     key={booking.id}
-                    className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
-                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                    className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm relative group"
                     onClick={() => onSelectBooking?.(booking.id)}
                   >
                     <div className="space-y-4">
@@ -1626,12 +1618,7 @@ const BookingDetailsModal: React.FC<{
                         event.stopPropagation();
                         onDelete(booking);
                       }}
-                      className="absolute top-3 right-3 p-2 text-gray-400 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
-                      style={{
-                        backgroundColor: 'var(--color-surface)',
-                        color: 'var(--color-text-secondary)',
-                        opacity: 0.85,
-                      }}
+                        className="absolute top-3 right-3 p-2 text-gray-400 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity bg-white/90"
                       title="Foglalás törlése"
                     >
                       <TrashIcon className="h-5 w-5" />
@@ -1653,10 +1640,7 @@ const BookingDetailsModal: React.FC<{
 const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
   if (!logs.length) {
     return (
-      <div
-        className="mt-6 rounded-2xl shadow border border-gray-100 p-4 text-sm"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-      >
+      <div className="rounded-2xl shadow-lg border border-gray-100 p-6 text-sm bg-white text-gray-600">
         Nincsenek még naplóbejegyzések.
       </div>
     );
@@ -1688,11 +1672,8 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
   };
 
   return (
-    <div
-      className="mt-6 rounded-2xl shadow border border-gray-100 p-4"
-      style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-    >
-      <h2 className="text-lg font-bold text-[var(--color-text-main)] mb-3">Foglalási napló</h2>
+    <div className="rounded-2xl shadow-lg border border-gray-100 p-6 bg-white">
+      <h2 className="text-lg font-semibold text-gray-800 mb-3">Foglalási napló</h2>
       <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
         {logs.map(log => {
           const createdDate =
@@ -1729,16 +1710,16 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
                   <span
                     className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`}
                   />
-                  <span className="font-medium text-[var(--color-text-main)]">
+                  <span className="font-medium text-gray-800">
                     {message}
                   </span>
                 </div>
-                <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
+                <span className="text-[11px] text-gray-500 shrink-0">
                   {created}
                 </span>
               </div>
               {log.createdByName && (
-                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                <span className="text-[11px] text-gray-500">
                   {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
                 </span>
               )}
@@ -2078,10 +2059,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const todayKey = toLocalDateKey(new Date());
 
     return (
-      <div
-        className="p-6 rounded-2xl shadow-lg border border-gray-100"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-      >
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <div className="flex justify-between items-center mb-4">
           <button
             onClick={() =>
@@ -2089,12 +2067,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
               )
             }
-            className="p-2 rounded-full hover:bg-gray-100"
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
             aria-label="Previous month"
           >
             &lt;
           </button>
-          <h2 className="text-xl font-bold text-[var(--color-text-main)] capitalize">
+          <h2 className="text-lg font-semibold text-gray-800 capitalize">
             {currentDate.toLocaleDateString('hu-HU', {
               month: 'long',
               year: 'numeric',
@@ -2106,13 +2084,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
               )
             }
-            className="p-2 rounded-full hover:bg-gray-100"
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
             aria-label="Next month"
           >
             &gt;
           </button>
         </div>
-        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
+        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-gray-500 text-sm mb-2">
           {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => (
             <div key={day}>{day}</div>
           ))}
@@ -2122,36 +2100,43 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             const dateKey = toLocalDateKey(date);
             const dailyBookings = bookingsByDate.get(dateKey) || [];
             const isToday = dateKey === todayKey;
+            const isSelected =
+              selectedDate && dateKey === toLocalDateKey(selectedDate);
 
             return (
-              <div
+              <button
                 key={index}
+                type="button"
                 onClick={() => isCurrentMonth && setSelectedDate(date)}
                 className={`
-                  h-24 p-2 flex flex-col items-start rounded-lg transition-colors
+                  h-24 p-2 flex flex-col items-start rounded-lg border transition-colors
                   ${
-                    isCurrentMonth
-                      ? 'cursor-pointer hover:bg-gray-100'
-                      : 'text-gray-300'
+                    isCurrentMonth ? 'cursor-pointer hover:bg-gray-100' : 'text-gray-300'
                   }
-                  ${isToday ? 'border-2 border-green-500' : 'border border-gray-200'}
+                  ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200'
+                  }
                 `}
               >
                 <span
                   className={`font-bold ${
-                    isToday ? 'text-green-600' : 'text-[var(--color-text-main)]'
+                    isToday && !isSelected
+                      ? 'text-blue-600'
+                      : isSelected
+                      ? 'text-white'
+                      : 'text-gray-800'
                   }`}
                 >
                   {date.getDate()}
                 </span>
                 {isCurrentMonth && dailyBookings.length > 0 && (
                   <div className="mt-auto w-full text-left">
-                    <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
-                      {dailyBookings.length} foglalás
-                    </span>
+                    <span className="inline-flex h-2 w-2 rounded-full bg-blue-200" />
                   </div>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -2159,10 +2144,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
   };
 
+  const selectedBooking =
+    previewBookings.find(booking => booking.id === selectedBookingId) ??
+    previewBookings[0] ??
+    null;
+
   return (
-    <div className="p-4 md:p-8">
+    <div className="min-h-screen bg-gray-50 p-6 md:p-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-bold text-[var(--color-text-main)]">Foglalások</h1>
+        <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Foglalások</h1>
         <div className="flex items-center gap-3">
           <button
             onClick={openGuestPage}
@@ -2183,14 +2173,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             <>
               <button
                 onClick={() => setIsSettingsOpen(true)}
-                className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
                 title="Foglalási beállítások"
               >
                 <SettingsIcon className="h-6 w-6" />
               </button>
               <button
                 onClick={() => setIsSeatingSettingsOpen(true)}
-                className="px-3 py-2 rounded-lg bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 text-sm font-semibold"
+                className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-semibold"
               >
                 Ültetés beállítások
               </button>
@@ -2215,24 +2205,180 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       )}
 
       {!loading && !error && (
-        <>
-          {renderCalendar()}
-          <div className="mt-6">
-            <ReservationFloorplanPreview
-              unitId={activeUnitId}
-              selectedDate={previewDate}
-              bookings={previewBookings}
-              selectedBookingId={selectedBookingId}
-            />
-          </div>
-          {logsLoading ? (
-            <div className="mt-6">
-              <LoadingSpinner />
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr_380px] gap-6 items-start">
+          <div className="space-y-6">{renderCalendar()}</div>
+          <div className="space-y-6">
+            <div className="bg-white p-4 rounded-2xl shadow-lg border border-gray-100">
+              <label className="text-sm font-medium text-gray-600">
+                Keresés foglalások között
+              </label>
+              <input
+                type="text"
+                placeholder="Név, időpont vagy létszám..."
+                className="mt-2 w-full bg-gray-100 border-transparent rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          ) : (
-            <LogsPanel logs={logs} />
-          )}
-        </>
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100">
+              <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-800">Napi foglalások</h2>
+                <p className="text-sm text-gray-500">
+                  {previewDate.toLocaleDateString('hu-HU', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+              </div>
+              <ul className="p-6 space-y-3">
+                {previewBookings.length ? (
+                  previewBookings
+                    .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
+                    .map(booking => {
+                      const isSelected = booking.id === selectedBookingId;
+                      return (
+                        <li key={booking.id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBookingId(booking.id)}
+                            className={`w-full text-left p-4 rounded-xl border transition ${
+                              isSelected
+                                ? 'border-blue-500 ring-2 ring-blue-500'
+                                : 'border-gray-100 hover:border-blue-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-semibold text-gray-800">
+                                  {booking.name}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {formatTimeSlot(booking.startTime)} • {booking.headcount} fő
+                                </div>
+                              </div>
+                              <span
+                                className={`text-xs font-semibold ${
+                                  booking.status === 'cancelled'
+                                    ? 'text-red-500'
+                                    : booking.status === 'confirmed'
+                                    ? 'text-green-600'
+                                    : 'text-amber-500'
+                                }`}
+                              >
+                                {booking.status === 'confirmed'
+                                  ? 'Megerősítve'
+                                  : booking.status === 'pending'
+                                  ? 'Függőben'
+                                  : 'Lemondva'}
+                              </span>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })
+                ) : (
+                  <li className="text-sm text-gray-500">
+                    Erre a napra nincsenek foglalások.
+                  </li>
+                )}
+              </ul>
+            </div>
+            {logsLoading ? (
+              <div className="mt-2">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <LogsPanel logs={logs} />
+            )}
+          </div>
+          <div className="space-y-6">
+            <div className="sticky top-6 space-y-6">
+              <div className="bg-white p-6 rounded-2xl shadow-xl border border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-800">Foglalás részletei</h2>
+                {selectedBooking ? (
+                  <div className="mt-4 space-y-4 text-sm text-gray-600">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        <BookingIcon className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <div className="text-xs uppercase text-gray-400">Név</div>
+                        <div className="text-base font-semibold text-gray-800">
+                          {selectedBooking.name}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        ⏰
+                      </span>
+                      <div>
+                        <div className="text-xs uppercase text-gray-400">Időpont</div>
+                        <div className="text-base font-medium text-gray-800">
+                          {formatTimeSlot(selectedBooking.startTime)} •{' '}
+                          {selectedBooking.startTime.toDate().toLocaleDateString('hu-HU')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        👥
+                      </span>
+                      <div>
+                        <div className="text-xs uppercase text-gray-400">Létszám</div>
+                        <div className="text-base font-medium text-gray-800">
+                          {selectedBooking.headcount} fő
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        📞
+                      </span>
+                      <div>
+                        <div className="text-xs uppercase text-gray-400">Kapcsolat</div>
+                        <div className="text-base font-medium text-gray-800">
+                          {selectedBooking.phone ||
+                            selectedBooking.contact?.phoneE164 ||
+                            'Nincs megadva'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button
+                        type="button"
+                        className="px-4 py-2.5 rounded-lg bg-green-500 text-white font-semibold"
+                      >
+                        Megerősítés
+                      </button>
+                      <button
+                        type="button"
+                        className="px-4 py-2.5 rounded-lg bg-red-500 text-white font-semibold"
+                        onClick={() => setBookingToDelete(selectedBooking)}
+                      >
+                        Lemondás
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-500">
+                    Válassz ki egy foglalást a részletek megtekintéséhez.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                Asztaltérkép előnézet
+              </h2>
+              <ReservationFloorplanPreview
+                unitId={activeUnitId}
+                selectedDate={previewDate}
+                bookings={previewBookings}
+                selectedBookingId={selectedBookingId}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedDate && activeUnitId && (
