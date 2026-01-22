@@ -31,6 +31,7 @@ type DebugStats = {
   resolvedFloorplanId: string | null;
   settingsActiveFloorplanId: string | null;
   storedDims: string;
+  refDims: string;
   logicalDims: string;
   logicalDimsSource: string;
   bg: string;
@@ -335,6 +336,41 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     [visibleTables]
   );
 
+  const refDims = useMemo(() => {
+    const candidates = visibleTables.length > 0 ? visibleTables : tables;
+    const counts = new Map<string, { width: number; height: number; count: number }>();
+    candidates.forEach(table => {
+      const dims = coerceDims(table.floorplanRef);
+      if (!dims) return;
+      const key = `${dims.width}x${dims.height}`;
+      const current = counts.get(key);
+      if (current) {
+        current.count += 1;
+      } else {
+        counts.set(key, { width: dims.width, height: dims.height, count: 1 });
+      }
+    });
+    let best: { width: number; height: number; count: number } | null = null;
+    counts.forEach(candidate => {
+      if (!best) {
+        best = candidate;
+        return;
+      }
+      if (candidate.count > best.count) {
+        best = candidate;
+        return;
+      }
+      if (candidate.count === best.count) {
+        const candidateArea = candidate.width * candidate.height;
+        const bestArea = best.width * best.height;
+        if (candidateArea > bestArea) {
+          best = candidate;
+        }
+      }
+    });
+    return best;
+  }, [tables, visibleTables]);
+
   const geometryStats = useMemo(() => {
     let maxValue = 0;
     visibleTables.forEach(table => {
@@ -363,6 +399,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (hasStoredDims && !(width === 1 && height === 1)) {
       return { logicalWidth: width, logicalHeight: height, logicalDimsSource: 'stored' as const };
     }
+    if (refDims) {
+      return {
+        logicalWidth: refDims.width,
+        logicalHeight: refDims.height,
+        logicalDimsSource: 'tableRef' as const,
+      };
+    }
     if (hasImageDims) {
       return {
         logicalWidth: bgNaturalSize?.w ?? 1,
@@ -371,7 +414,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       };
     }
     return { logicalWidth: 1, logicalHeight: 1, logicalDimsSource: 'fallback' as const };
-  }, [bgNaturalSize, floorplan]);
+  }, [bgNaturalSize, floorplan, refDims]);
 
   const logicalWidth = floorplanDimensions.logicalWidth;
   const logicalHeight = floorplanDimensions.logicalHeight;
@@ -809,6 +852,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       storedDims: `${Number.isFinite(storedWidth) ? storedWidth : 0}×${
         Number.isFinite(storedHeight) ? storedHeight : 0
       }`,
+      refDims: refDims ? `${refDims.width}×${refDims.height} (${refDims.count})` : 'n/a',
       logicalDims: `${Math.round(logicalWidth)}×${Math.round(logicalHeight)}`,
       logicalDimsSource,
       bg: bgUrl ? (bgFailed ? 'failed' : bgNaturalSize ? 'loaded' : 'loading') : 'missing',
@@ -839,6 +883,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     logicalHeight,
     logicalWidth,
     mismatchCount,
+    refDims,
     renderMetrics.containerH,
     renderMetrics.containerW,
     resolvedFloorplanId,
@@ -1111,6 +1156,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   debugStats.settingsActiveFloorplanId ?? 'n/a'
                 })
 stored:${debugStats.storedDims}  logical:${debugStats.logicalDims} (${debugStats.logicalDimsSource})
+refDims:${debugStats.refDims}
 bg:${debugStats.bg} (${debugStats.bgMode})  bgNatural:${debugStats.bgNatural}
 container:${debugStats.container}
 ${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
