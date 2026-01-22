@@ -318,11 +318,33 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     setBgFailed(false);
   }, [floorplan?.backgroundImageUrl]);
 
+  const getMismatchReason = (
+    table: Table,
+    dims: { width: number; height: number }
+  ): 'OK' | 'FLOORPLAN_ID_MISMATCH' | 'DIMS_MISMATCH' => {
+    if (!resolvedFloorplanId) {
+      return 'OK';
+    }
+    const tableFloorplanId = getFloorplanIdLike(table);
+    if (!tableFloorplanId || tableFloorplanId !== resolvedFloorplanId) {
+      return 'FLOORPLAN_ID_MISMATCH';
+    }
+    const floorplanRef = coerceDims(table.floorplanRef);
+    if (!floorplanRef) {
+      return 'OK';
+    }
+    if (floorplanRef.width !== dims.width || floorplanRef.height !== dims.height) {
+      return 'DIMS_MISMATCH';
+    }
+    return 'OK';
+  };
+
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = tableFloorplanId === resolvedFloorplanId;
+      const matchesFloorplan =
+        Boolean(resolvedFloorplanId) && tableFloorplanId === resolvedFloorplanId;
       const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
@@ -332,7 +354,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = tableFloorplanId === resolvedFloorplanId;
+      const matchesFloorplan =
+        Boolean(resolvedFloorplanId) && tableFloorplanId === resolvedFloorplanId;
       return matchesFloorplan && table.isActive !== false;
     });
   }, [floorplan, resolvedFloorplanId, tables]);
@@ -844,14 +867,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const mismatchCount = useMemo(() => {
     let count = 0;
     tables.forEach(table => {
-      const tableFloorplanId = getFloorplanIdLike(table);
-      if (resolvedFloorplanId && tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
-        count += 1;
+      if (table.isActive === false) {
         return;
       }
-      const floorplanRef = coerceDims(table.floorplanRef);
-      if (!floorplanRef) return;
-      if (floorplanRef.width !== effectiveDims.width || floorplanRef.height !== effectiveDims.height) {
+      const reason = getMismatchReason(table, effectiveDims);
+      if (reason !== 'OK') {
         count += 1;
       }
     });
@@ -862,16 +882,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return;
     }
     const sample = tables.find(table => {
-      const tableFloorplanId = getFloorplanIdLike(table);
-      if (resolvedFloorplanId && tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
-        return true;
+      if (table.isActive === false) {
+        return false;
       }
-      const fromDims = coerceDims(table.floorplanRef);
-      return (
-        fromDims &&
-        (fromDims.width !== effectiveDims.width ||
-          fromDims.height !== effectiveDims.height)
-      );
+      return getMismatchReason(table, effectiveDims) !== 'OK';
     });
     if (!sample) {
       return;
@@ -881,12 +895,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     const scaleX = fromDims ? effectiveDims.width / fromDims.width : null;
     const scaleY = fromDims ? effectiveDims.height / fromDims.height : null;
     const tableFloorplanId = getFloorplanIdLike(sample);
-    const mismatchReason =
-      resolvedFloorplanId &&
-      tableFloorplanId &&
-      tableFloorplanId !== resolvedFloorplanId
-        ? 'FLOORPLAN_ID_MISMATCH'
-        : 'DIMS_MISMATCH';
+    const mismatchReason = getMismatchReason(sample, effectiveDims);
     const renderGeometry =
       fromDims &&
       (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
@@ -1153,8 +1162,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       <div className="w-full mx-auto" style={{ maxWidth: stageMaxWidth }}>
         {mismatchCount > 0 && (
           <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            ⚠️ Asztalok nincsenek migrálva ehhez az alaprajz mérethez ({mismatchCount}).
-            A preview az editorral egyező módon renderel (átméretezve).
+            ⚠️ Eltérő floorplan vagy méret ({mismatchCount}). A preview az editorral egyező
+            módon renderel (átméretezve).
           </div>
         )}
         <div
