@@ -15,8 +15,6 @@ import {
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import {
-  isSaneDims,
-  normalizeTableGeometry,
   scaleTableGeometry,
   TableGeometry,
 } from '../../../../core/utils/seatingNormalize';
@@ -76,6 +74,22 @@ const getFloorplanIdLike = (value: unknown) => {
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
 };
 
+const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
+  const width = Number(ref?.width);
+  const height = Number(ref?.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width >= 10000 ||
+    height >= 10000
+  ) {
+    return null;
+  }
+  return { width, height };
+};
+
 const toTableGeometry = (table: Table): TableGeometry => ({
   x: Number.isFinite(table.x) ? table.x : undefined,
   y: Number.isFinite(table.y) ? table.y : undefined,
@@ -83,9 +97,6 @@ const toTableGeometry = (table: Table): TableGeometry => ({
   h: Number.isFinite(table.h) ? table.h : undefined,
   radius: Number.isFinite(table.radius) ? table.radius : undefined,
 });
-
-const isSaneFloorplanRef = (ref?: Table['floorplanRef'] | null) =>
-  Boolean(ref && isSaneDims(ref));
 
 const dimsEqual = (a: { width: number; height: number }, b: { width: number; height: number }) =>
   a.width === b.width && a.height === b.height;
@@ -1029,9 +1040,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             })}
           {visibleTables.map(table => {
             const baseGeometry = toTableGeometry(table);
-            const fromDims = isSaneFloorplanRef(table.floorplanRef)
-              ? table.floorplanRef
-              : effectiveDims;
+            const fromDims = coerceDims(table.floorplanRef) ?? effectiveDims;
             const scaledGeometry =
               !dimsEqual(fromDims, effectiveDims)
                 ? scaleTableGeometry(baseGeometry, fromDims, effectiveDims)
