@@ -321,6 +321,15 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     });
   }, [activeZoneId, floorplan, tables]);
 
+  const floorplanTables = useMemo(() => {
+    if (!floorplan) return [] as Table[];
+    return tables.filter(table => {
+      const tableFloorplanId = getFloorplanIdLike(table);
+      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      return matchesFloorplan && table.isActive !== false;
+    });
+  }, [floorplan, tables]);
+
   const displayZones = useMemo(
     () =>
       zones.filter(zone => {
@@ -337,9 +346,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   );
 
   const refDims = useMemo(() => {
-    const candidates = visibleTables.length > 0 ? visibleTables : tables;
     const counts = new Map<string, { width: number; height: number; count: number }>();
-    candidates.forEach(table => {
+    floorplanTables.forEach(table => {
       const dims = coerceDims(table.floorplanRef);
       if (!dims) return;
       const key = `${dims.width}x${dims.height}`;
@@ -369,7 +377,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       }
     });
     return best;
-  }, [tables, visibleTables]);
+  }, [floorplanTables]);
 
   const geometryStats = useMemo(() => {
     let maxValue = 0;
