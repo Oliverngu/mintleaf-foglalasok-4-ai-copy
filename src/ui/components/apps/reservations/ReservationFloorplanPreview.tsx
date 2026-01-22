@@ -14,7 +14,10 @@ import {
   listFloorplans,
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
-import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
+import {
+  normalizeTableGeometry,
+  normalizeTableGeometryToFloorplan,
+} from '../../../../core/utils/seatingNormalize';
 import { getFloorplanRenderContext } from '../../../../core/utils/seatingFloorplanRender';
 
 type ReservationFloorplanPreviewProps = {
@@ -1083,7 +1086,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         {mismatchCount > 0 && (
           <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             ⚠️ Asztalok nincsenek migrálva ehhez az alaprajz mérethez ({mismatchCount}).
-            A preview az editorral egyező módon renderel (skálázás nélkül).
+            A preview az editorral egyező módon renderel (átméretezve).
           </div>
         )}
         <div
@@ -1181,13 +1184,24 @@ mode: preview`}
               );
             })}
             {visibleTables.map(table => {
-              const geometry = normalizeTableGeometry(table);
-              const tx = safeNum(geometry.x, 0);
-              const ty = safeNum(geometry.y, 0);
-              const twRaw = Math.max(0, safeNum(geometry.w, 0));
-              const thRaw = Math.max(0, safeNum(geometry.h, 0));
+              const baseGeometry = normalizeTableGeometry(table, {
+                rectWidth: 80,
+                rectHeight: 60,
+                circleRadius: 40,
+              });
+              const fromDims = coerceDims(table.floorplanRef);
+              const renderGeometry =
+                fromDims &&
+                (fromDims.width !== effectiveDims.width ||
+                  fromDims.height !== effectiveDims.height)
+                  ? normalizeTableGeometryToFloorplan(baseGeometry, fromDims, effectiveDims)
+                  : baseGeometry;
+              const tx = safeNum(renderGeometry.x, 0);
+              const ty = safeNum(renderGeometry.y, 0);
+              const twRaw = Math.max(0, safeNum(renderGeometry.w, 0));
+              const thRaw = Math.max(0, safeNum(renderGeometry.h, 0));
               const trot = safeNum(table.rot, 0);
-              const tradius = safeNum(geometry.radius, 0);
+              const tradius = safeNum(renderGeometry.radius, 0);
               const rotation = trot;
               const circleRadius = tradius || Math.min(twRaw, thRaw) / 2;
               const status = tableStatusById.get(table.id) ?? 'free';
