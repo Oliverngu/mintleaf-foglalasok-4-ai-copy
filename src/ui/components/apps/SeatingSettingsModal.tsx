@@ -211,6 +211,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     isDev ||
     (typeof window !== 'undefined' &&
       window.localStorage.getItem('mintleaf_debug_seating') === '1');
+  const FP_DEBUG = debugSeating;
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
@@ -222,6 +223,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
+  const loggedEditorSampleRef = useRef(false);
   const lastDragComputedBoundsRef = useRef<{
     minX: number;
     minY: number;
@@ -2552,6 +2554,70 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       ready: context.ready,
     };
   }, [floorplanViewportRect, floorplanH, floorplanW]);
+  useEffect(() => {
+    if (!FP_DEBUG || loggedEditorSampleRef.current) {
+      return;
+    }
+    if (!floorplanRenderContext.ready || editorTables.length === 0) {
+      return;
+    }
+    const sampleId =
+      typeof window !== 'undefined'
+        ? (window as { __fpSampleTableId?: string }).__fpSampleTableId
+        : undefined;
+    const sample =
+      (sampleId && editorTables.find(table => table.id === sampleId)) || editorTables[0];
+    if (!sample) {
+      return;
+    }
+    const geometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
+    const position = getRenderPosition(sample, geometry);
+    const world = {
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    };
+    const scale = floorplanRenderContext.sx;
+    const offsetX = floorplanRenderContext.offsetX;
+    const offsetY = floorplanRenderContext.offsetY;
+    const pixel = {
+      x: world.x * scale + offsetX,
+      y: world.y * scale + offsetY,
+      w: world.w * scale,
+      h: world.h * scale,
+    };
+    try {
+      console.debug('[FP_EDITOR_PIXEL_SAMPLE]', {
+        tableId: sample.id,
+        tableFloorplanIdLike: getStableFloorplanKey(sample.floorplanId) ?? null,
+        world,
+        pixel,
+        scale,
+        offsetX,
+        offsetY,
+        container: {
+          w: floorplanViewportRect.width,
+          h: floorplanViewportRect.height,
+        },
+        transformOrigin: 'top left',
+        aspectRatio: '1 / 1',
+        logicalWidth: floorplanW,
+        logicalHeight: floorplanH,
+      });
+      loggedEditorSampleRef.current = true;
+    } catch (error) {
+      console.warn('[FP_EDITOR_PIXEL_SAMPLE] log failed', error);
+    }
+  }, [
+    FP_DEBUG,
+    editorTables,
+    floorplanRenderContext,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
+    floorplanW,
+    floorplanH,
+  ]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
