@@ -44,7 +44,7 @@ import {
   computeFloorplanTransformFromRect,
   FloorplanTransform,
 } from '../../../core/utils/seatingFloorplanTransform';
-import { computeCanonicalFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
+import { getFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
@@ -2486,14 +2486,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
-      const transform = computeCanonicalFloorplanRenderContext(
-        nextRect,
-        floorplanW,
-        floorplanH
-      );
+      const transform = getFloorplanRenderContext(nextRect, floorplanW, floorplanH);
       console.debug('[seating] viewport measure', {
         rect: nextRect,
-        scale: transform.sx,
+        scale: transform.scale,
       });
       lastViewportLogRef.current = now;
     } catch (error) {
@@ -2549,15 +2545,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [scheduleViewportMeasure]);
 
-  const floorplanRenderContext = useMemo(
-    () =>
-      computeCanonicalFloorplanRenderContext(
-        floorplanViewportRect,
-        floorplanW,
-        floorplanH
-      ),
-    [floorplanViewportRect, floorplanH, floorplanW]
-  );
+  const floorplanRenderContext = useMemo(() => {
+    const context = getFloorplanRenderContext(floorplanViewportRect, floorplanW, floorplanH);
+    return {
+      sx: context.scale,
+      sy: context.scale,
+      offsetX: context.offsetX,
+      offsetY: context.offsetY,
+      ready: context.ready,
+    };
+  }, [floorplanViewportRect, floorplanH, floorplanW]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
