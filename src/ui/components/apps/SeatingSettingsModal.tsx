@@ -44,6 +44,7 @@ import {
   computeFloorplanTransformFromRect,
   FloorplanTransform,
 } from '../../../core/utils/seatingFloorplanTransform';
+import { computeCanonicalFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
@@ -2485,10 +2486,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
-      const transform = computeFloorplanTransformFromRect(nextRect, floorplanW, floorplanH);
+      const transform = computeCanonicalFloorplanRenderContext(
+        nextRect,
+        floorplanW,
+        floorplanH
+      );
       console.debug('[seating] viewport measure', {
         rect: nextRect,
-        scale: transform.scale,
+        scale: transform.sx,
       });
       lastViewportLogRef.current = now;
     } catch (error) {
@@ -2544,9 +2549,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [scheduleViewportMeasure]);
 
-  const floorplanRenderTransform = useMemo(
+  const floorplanRenderContext = useMemo(
     () =>
-      computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
+      computeCanonicalFloorplanRenderContext(
+        floorplanViewportRect,
+        floorplanW,
+        floorplanH
+      ),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
   const zeroRectLogRef = useRef(false);
@@ -2570,11 +2579,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanH <= 0) {
       reasons.push(`floorplanHeight=${floorplanH}`);
     }
-    if (floorplanRenderTransform.rectWidth <= 0) {
-      reasons.push(`rectWidth=${floorplanRenderTransform.rectWidth}`);
+    if (floorplanViewportRect.width <= 0) {
+      reasons.push(`rectWidth=${floorplanViewportRect.width}`);
     }
-    if (floorplanRenderTransform.rectHeight <= 0) {
-      reasons.push(`rectHeight=${floorplanRenderTransform.rectHeight}`);
+    if (floorplanViewportRect.height <= 0) {
+      reasons.push(`rectHeight=${floorplanViewportRect.height}`);
     }
     return reasons;
   }, [
@@ -2582,8 +2591,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     debugSeating,
     editorTables.length,
     floorplanH,
-    floorplanRenderTransform.rectHeight,
-    floorplanRenderTransform.rectWidth,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
     floorplanW,
   ]);
 
@@ -2596,21 +2605,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     if (
       editorTables.length > 0 &&
-      (floorplanRenderTransform.rectWidth <= 0 ||
-        floorplanRenderTransform.rectHeight <= 0)
+      (floorplanViewportRect.width <= 0 ||
+        floorplanViewportRect.height <= 0)
     ) {
       zeroRectLogRef.current = true;
       try {
         console.debug('[seating] viewport zero rect with tables', {
           tablesCount: editorTables.length,
           rect: floorplanViewportRect,
-          transform: floorplanRenderTransform,
+          transform: floorplanRenderContext,
         });
       } catch (error) {
         console.warn('[seating] zero-rect debug log failed', error);
       }
     }
-  }, [debugSeating, editorTables.length, floorplanRenderTransform, floorplanViewportRect]);
+  }, [debugSeating, editorTables.length, floorplanRenderContext, floorplanViewportRect]);
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
@@ -5111,6 +5120,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <dd className="truncate">{activeFloorplan?.id ?? 'n/a'}</dd>
                   </div>
                   <div>
+                    <dt className="text-[10px] uppercase text-amber-700">mode</dt>
+                    <dd>{floorplanMode}</dd>
+                  </div>
+                  <div>
                     <dt className="text-[10px] uppercase text-amber-700">
                       visible floorplans
                     </dt>
@@ -5123,6 +5136,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">editor tables</dt>
                     <dd>{editorTables.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] uppercase text-amber-700">fit-to-content</dt>
+                    <dd>off</dd>
                   </div>
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">
@@ -5144,9 +5161,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">transform</dt>
                     <dd>
-                      scale {formatDebugNumber(floorplanRenderTransform.scale)} | rect{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectWidth)} ×{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectHeight)}
+                      scale {formatDebugNumber(floorplanRenderContext.sx)} | rect{' '}
+                      {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
+                      {formatDebugNumber(floorplanViewportRect.height)}
                     </dd>
                   </div>
                 </dl>
@@ -5173,7 +5190,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 <div
                   className="absolute inset-0"
                   style={{
-                    transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+                    transform: `translate(${floorplanRenderContext.offsetX}px, ${floorplanRenderContext.offsetY}px) scale(${floorplanRenderContext.sx})`,
                     transformOrigin: 'top left',
                   }}
                 >

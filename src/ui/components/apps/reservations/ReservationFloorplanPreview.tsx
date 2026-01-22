@@ -15,7 +15,7 @@ import {
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
-import { computeFloorplanTransformFromRect } from '../../../../core/utils/seatingFloorplanTransform';
+import { computeCanonicalFloorplanRenderContext } from '../../../../core/utils/seatingFloorplanRender';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -522,13 +522,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       );
       return;
     }
-    const transform = computeFloorplanTransformFromRect(
+    const transform = computeCanonicalFloorplanRenderContext(
       { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
       logicalWidth,
       logicalHeight
     );
-    const sx = transform.scale;
-    const sy = transform.scale;
+    const sx = transform.sx;
+    const sy = transform.sy;
     const offsetX = transform.offsetX;
     const offsetY = transform.offsetY;
     setRenderContext(prev =>
@@ -538,7 +538,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       prev.offsetX === offsetX &&
       prev.offsetY === offsetY
         ? prev
-        : { ready: true, sx, sy, offsetX, offsetY }
+        : { ready: transform.ready, sx, sy, offsetX, offsetY }
     );
   }, [logicalHeight, logicalWidth, renderMetrics.containerH, renderMetrics.containerW]);
 
@@ -548,16 +548,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     }
     const measured = measureContainer(containerRef.current);
     if (measured && logicalWidth > 0 && logicalHeight > 0) {
-      const transform = computeFloorplanTransformFromRect(
+      const transform = computeCanonicalFloorplanRenderContext(
         { width: measured.width, height: measured.height, left: 0, top: 0 },
         logicalWidth,
         logicalHeight
       );
       return {
-        ready: true,
-        effectiveReady: true,
-        sx: transform.scale,
-        sy: transform.scale,
+        ready: transform.ready,
+        effectiveReady: transform.ready,
+        sx: transform.sx,
+        sy: transform.sy,
         offsetX: transform.offsetX,
         offsetY: transform.offsetY,
       };
@@ -912,12 +912,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalWidth > 0 &&
       logicalHeight > 0
     ) {
-      const transform = computeFloorplanTransformFromRect(
+      const transform = computeCanonicalFloorplanRenderContext(
         { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
         logicalWidth,
         logicalHeight
       );
-      if (!Number.isFinite(transform.scale) || transform.scale <= 0) {
+      if (!Number.isFinite(transform.sx) || transform.sx <= 0) {
         reasons.push('transform scale invalid');
       }
     }
@@ -1167,7 +1167,9 @@ bg:${debugStats.bg} (${debugStats.bgMode})  bgNatural:${debugStats.bgNatural}
 container:${debugStats.container}
 ${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
 mismatchCount:${debugStats.mismatchCount}
-minClamp: OFF`}
+minClamp: OFF
+fitToContent: OFF
+mode: preview`}
               </div>
             </div>
           )}
