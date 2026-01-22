@@ -16,6 +16,8 @@ import {
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import {
   DEFAULT_TABLE_GEOMETRY,
+  isPlaceholderFloorplanDims,
+  normalizeFloorplanDimensions,
   normalizeTableGeometry,
   normalizeTableGeometryToFloorplan,
 } from '../../../../core/utils/seatingNormalize';
@@ -121,6 +123,14 @@ const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
 };
 
 
+/*
+ * Root cause: preview used ad-hoc logical dims and a fixed-height container, so its
+ * scale diverged from the editor even with a shared wrapper transform. That made
+ * table spacing feel off despite correct rescaling of geometry.
+ * Fix: mirror editor dims selection, drop fixed-height sizing, and let a single
+ * transform wrapper be the only scale. A debug sample logs rescale math if refs
+ * mismatch.
+ */
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -401,12 +411,15 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         logicalDimsSource: 'fallback' as const,
       };
     }
-    const width = Number(floorplan.width);
-    const height = Number(floorplan.height);
-    const hasStoredDims = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    const storedDims = normalizeFloorplanDimensions(floorplan);
+    const hasStoredDims = !isPlaceholderFloorplanDims(storedDims.width, storedDims.height);
     const hasImageDims = Boolean(bgNaturalSize?.w && bgNaturalSize?.h);
-    if (hasStoredDims && !(width === 1 && height === 1)) {
-      return { logicalWidth: width, logicalHeight: height, logicalDimsSource: 'stored' as const };
+    if (hasStoredDims) {
+      return {
+        logicalWidth: storedDims.width,
+        logicalHeight: storedDims.height,
+        logicalDimsSource: 'stored' as const,
+      };
     }
     if (refDims) {
       return {
@@ -860,6 +873,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     }
     const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
     const fromDims = coerceDims(sample.floorplanRef);
+    const scaleX = fromDims ? effectiveDims.width / fromDims.width : null;
+    const scaleY = fromDims ? effectiveDims.height / fromDims.height : null;
     const renderGeometry =
       fromDims &&
       (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
@@ -870,6 +885,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         tableId: sample.id,
         fromDims,
         toDims: effectiveDims,
+        scaleX,
+        scaleY,
         baseGeometry,
         renderGeometry,
       });
@@ -1007,7 +1024,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     ? Math.round(logicalHeight * effectiveRenderContext.scale)
     : 0;
   const stageMaxWidth = 900;
-  const fixedHeightPx = 420;
 
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
@@ -1129,7 +1145,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         <div
           ref={containerRef}
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
-          style={{ width: '100%', height: fixedHeightPx }}
+          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}` }}
         >
           {showDebug && !effectiveRenderContext.effectiveReady && (
             <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
