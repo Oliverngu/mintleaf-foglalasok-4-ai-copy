@@ -15,7 +15,10 @@ import {
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import {
+  isSaneDims,
   normalizeTableGeometry,
+  scaleTableGeometry,
+  TableGeometry,
 } from '../../../../core/utils/seatingNormalize';
 import { computeFloorplanTransformFromRect } from '../../../../core/utils/seatingFloorplanTransform';
 
@@ -72,6 +75,20 @@ const getFloorplanIdLike = (value: unknown) => {
     record.floorplanUID;
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
 };
+
+const toTableGeometry = (table: Table): TableGeometry => ({
+  x: Number.isFinite(table.x) ? table.x : undefined,
+  y: Number.isFinite(table.y) ? table.y : undefined,
+  w: Number.isFinite(table.w) ? table.w : undefined,
+  h: Number.isFinite(table.h) ? table.h : undefined,
+  radius: Number.isFinite(table.radius) ? table.radius : undefined,
+});
+
+const isSaneFloorplanRef = (ref?: Table['floorplanRef'] | null) =>
+  Boolean(ref && isSaneDims(ref));
+
+const dimsEqual = (a: { width: number; height: number }, b: { width: number; height: number }) =>
+  a.width === b.width && a.height === b.height;
 
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
@@ -331,6 +348,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   const logicalWidth = floorplanDimensions.logicalWidth;
   const logicalHeight = floorplanDimensions.logicalHeight;
+  const effectiveDims = { width: logicalWidth, height: logicalHeight };
   const bgUrl = floorplan?.backgroundImageUrl ?? null;
   const hasBgUrl = Boolean(bgUrl && !bgFailed);
 
@@ -1010,13 +1028,23 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               );
             })}
           {visibleTables.map(table => {
-            const geometry = normalizeTableGeometry(table);
-            const tx = safeNum(geometry.x, 0);
-            const ty = safeNum(geometry.y, 0);
-            const twRaw = safeNum(geometry.w, 0);
-            const thRaw = safeNum(geometry.h, 0);
-            const trot = safeNum(geometry.rot, 0);
-            const tradius = safeNum((geometry as { radius?: number }).radius, 0);
+            const baseGeometry = toTableGeometry(table);
+            const fromDims = isSaneFloorplanRef(table.floorplanRef)
+              ? table.floorplanRef
+              : effectiveDims;
+            const scaledGeometry =
+              !dimsEqual(fromDims, effectiveDims)
+                ? scaleTableGeometry(baseGeometry, fromDims, effectiveDims)
+                : null;
+            const renderGeometry = scaledGeometry?.didScale
+              ? scaledGeometry.geometry
+              : baseGeometry;
+            const tx = safeNum(renderGeometry.x, 0);
+            const ty = safeNum(renderGeometry.y, 0);
+            const twRaw = safeNum(renderGeometry.w, 0);
+            const thRaw = safeNum(renderGeometry.h, 0);
+            const trot = safeNum(table.rot, 0);
+            const tradius = safeNum(renderGeometry.radius, 0);
             const tableWidth = Math.max(MIN_TABLE_W, Math.max(0, twRaw));
             const tableHeight = Math.max(MIN_TABLE_H, Math.max(0, thRaw));
             const maxX = Math.max(0, logicalWidth - tableWidth);
@@ -1053,7 +1081,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   top,
                   width: tableWidth * effectiveRenderContext.sx,
                   height: tableHeight * effectiveRenderContext.sy,
-                  borderRadius: geometry.shape === 'circle' ? circleRadius : 8,
+                  borderRadius: table.shape === 'circle' ? circleRadius : 8,
                   border: '2px solid rgba(148, 163, 184, 0.6)',
                   backgroundColor: renderStatusColor(status),
                   transform: `rotate(${rotation}deg)`,
