@@ -65,8 +65,6 @@ const safeNum = (value: unknown, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
-const MIN_TABLE_W = 24;
-const MIN_TABLE_H = 24;
 
 const measureContainer = (node: HTMLDivElement | null) => {
   if (!node) return null;
@@ -1168,7 +1166,8 @@ refDims:${debugStats.refDims}
 bg:${debugStats.bg} (${debugStats.bgMode})  bgNatural:${debugStats.bgNatural}
 container:${debugStats.container}
 ${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
-mismatchCount:${debugStats.mismatchCount}`}
+mismatchCount:${debugStats.mismatchCount}
+minClamp: OFF`}
               </div>
             </div>
           )}
@@ -1218,8 +1217,8 @@ mismatchCount:${debugStats.mismatchCount}`}
             const thRaw = safeNum(geometry.h, 0);
             const trot = safeNum(table.rot, 0);
             const tradius = safeNum(geometry.radius, 0);
-            const tableWidth = Math.max(MIN_TABLE_W, Math.max(0, twRaw));
-            const tableHeight = Math.max(MIN_TABLE_H, Math.max(0, thRaw));
+            const tableWidth = Math.max(0, twRaw);
+            const tableHeight = Math.max(0, thRaw);
             const maxX = Math.max(0, logicalWidth - tableWidth);
             const maxY = Math.max(0, logicalHeight - tableHeight);
             const left = effectiveRenderContext.offsetX + clamp(
