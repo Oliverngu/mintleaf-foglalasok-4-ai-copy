@@ -914,9 +914,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const key = getStableFloorplanKey(migrationFloorplanId) ?? resolvedActiveFloorplanId;
     return getFloorplanDimsForId(key);
   }, [getFloorplanDimsForId, getStableFloorplanKey, migrationFloorplanId, resolvedActiveFloorplanId]);
-  const migrationPreview = useMemo(() => {
+  type MigrationPreview = {
+    count: number;
+    samples: Array<{ id: string; before: string; after: string }>;
+    error: 'missing-target' | 'unsafe-scale' | 'invalid-dims' | null;
+    scaleX: number | null;
+    scaleY: number | null;
+    suggestedDims: { width: number; height: number } | null;
+  };
+
+  const migrationPreview = useMemo<MigrationPreview>(() => {
     if (!migrationTargetDims) {
-      return { count: 0, samples: [] as Array<{ id: string; before: string; after: string }>, error: 'missing-target' };
+      return {
+        count: 0,
+        samples: [],
+        error: 'missing-target',
+        scaleX: null,
+        scaleY: null,
+        suggestedDims: null,
+      };
     }
     const fromDims = { width: legacyBaseDims.width, height: legacyBaseDims.height };
     const toDims = migrationTargetDims;
@@ -929,10 +945,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       return tableFloorplanId === getStableFloorplanKey(migrationFloorplanId);
     });
-    let error: string | null = null;
+    let error: MigrationPreview['error'] = null;
     let suggestedMaxX = 0;
     let suggestedMaxY = 0;
     let suggestedCount = 0;
+    eligibleTables.forEach(table => {
+      const geometryForBounds = normalizeTableGeometry(table);
+      const hasValidGeom =
+        Number.isFinite(geometryForBounds.x) &&
+        Number.isFinite(geometryForBounds.y) &&
+        Number.isFinite(geometryForBounds.w) &&
+        Number.isFinite(geometryForBounds.h) &&
+        geometryForBounds.w > 0 &&
+        geometryForBounds.h > 0;
+      if (!hasValidGeom) return;
+      suggestedMaxX = Math.max(suggestedMaxX, geometryForBounds.x + geometryForBounds.w);
+      suggestedMaxY = Math.max(suggestedMaxY, geometryForBounds.y + geometryForBounds.h);
+      suggestedCount += 1;
+    });
     const samples = eligibleTables.slice(0, 5).flatMap(table => {
       const geometry: TableGeometry = {
         x: Number.isFinite(table.x) ? table.x : undefined,
@@ -941,14 +971,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         h: Number.isFinite(table.h) ? table.h : undefined,
         radius: Number.isFinite(table.radius) ? table.radius : undefined,
       };
-      const geometryForBounds = normalizeTableGeometry(table);
-      if (Number.isFinite(geometryForBounds.x) && Number.isFinite(geometryForBounds.w)) {
-        suggestedMaxX = Math.max(suggestedMaxX, geometryForBounds.x + geometryForBounds.w);
-      }
-      if (Number.isFinite(geometryForBounds.y) && Number.isFinite(geometryForBounds.h)) {
-        suggestedMaxY = Math.max(suggestedMaxY, geometryForBounds.y + geometryForBounds.h);
-      }
-      suggestedCount += 1;
       const scaled = scaleTableGeometry(geometry, fromDims, toDims);
       if (!scaled.didScale && scaled.reason === 'unsafe-scale') {
         error = 'unsafe-scale';
@@ -6107,7 +6129,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 <div>
                   Érintett asztalok: {migrationPreview.count ?? 0}
                 </div>
-                {migrationPreview.scaleX && migrationPreview.scaleY && (
+                {migrationPreview.scaleX !== null && migrationPreview.scaleY !== null && (
                   <div>
                     scaleX: {migrationPreview.scaleX.toFixed(3)} • scaleY:{' '}
                     {migrationPreview.scaleY.toFixed(3)}
