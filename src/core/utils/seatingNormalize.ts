@@ -9,6 +9,12 @@ type TableGeometryDefaults = {
   circleRadius?: number;
 };
 
+export const DEFAULT_TABLE_GEOMETRY: TableGeometryDefaults = {
+  rectWidth: 80,
+  rectHeight: 60,
+  circleRadius: 40,
+};
+
 export const isPlaceholderFloorplanDims = (width?: number | null, height?: number | null) =>
   Number(width) === 1 && Number(height) === 1;
 

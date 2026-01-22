@@ -15,6 +15,7 @@ import {
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import {
+  DEFAULT_TABLE_GEOMETRY,
   normalizeTableGeometry,
   normalizeTableGeometryToFloorplan,
 } from '../../../../core/utils/seatingNormalize';
@@ -162,6 +163,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const showDebug = useMemo(() => shouldShowDebug(), []);
+  const loggedMismatchRef = useRef(false);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -841,6 +843,41 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     });
     return count;
   }, [effectiveDims.height, effectiveDims.width, visibleTables]);
+  useEffect(() => {
+    if (!showDebug || mismatchCount === 0 || loggedMismatchRef.current) {
+      return;
+    }
+    const sample = visibleTables.find(table => {
+      const fromDims = coerceDims(table.floorplanRef);
+      return (
+        fromDims &&
+        (fromDims.width !== effectiveDims.width ||
+          fromDims.height !== effectiveDims.height)
+      );
+    });
+    if (!sample) {
+      return;
+    }
+    const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
+    const fromDims = coerceDims(sample.floorplanRef);
+    const renderGeometry =
+      fromDims &&
+      (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
+        ? normalizeTableGeometryToFloorplan(baseGeometry, fromDims, effectiveDims)
+        : baseGeometry;
+    try {
+      console.debug('[reservations] preview table rescale sample', {
+        tableId: sample.id,
+        fromDims,
+        toDims: effectiveDims,
+        baseGeometry,
+        renderGeometry,
+      });
+      loggedMismatchRef.current = true;
+    } catch (error) {
+      console.warn('[reservations] preview rescale debug failed', error);
+    }
+  }, [effectiveDims, mismatchCount, showDebug, visibleTables]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);
     const storedHeight = Number(floorplan?.height);
@@ -1184,11 +1221,7 @@ mode: preview`}
               );
             })}
             {visibleTables.map(table => {
-              const baseGeometry = normalizeTableGeometry(table, {
-                rectWidth: 80,
-                rectHeight: 60,
-                circleRadius: 40,
-              });
+              const baseGeometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
               const fromDims = coerceDims(table.floorplanRef);
               const renderGeometry =
                 fromDims &&

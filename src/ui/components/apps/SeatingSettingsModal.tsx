@@ -33,6 +33,7 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import {
+  DEFAULT_TABLE_GEOMETRY,
   TableGeometry,
   isPlaceholderFloorplanDims,
   normalizeFloorplanDimensions,
@@ -517,11 +518,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
     const normalizedTables = tables.slice(0, 3).map(table => ({
       id: table.id,
-      ...normalizeTableGeometry(table, {
-        rectWidth: 80,
-        rectHeight: 60,
-        circleRadius: 40,
-      }),
+      ...normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY),
     }));
     console.debug('[seating] normalized geometry snapshot', {
       floorplans: normalizedFloorplans,
@@ -4684,11 +4681,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   type="button"
                   onClick={() =>
                     (() => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
                       setTableForm({
                         id: table.id,
                         name: table.name,
@@ -5369,11 +5362,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       );
                     })}
                     {editorTables.map(table => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
                       const position = getRenderPosition(table, geometry);
                       const renderRot = draftRotations[table.id] ?? geometry.rot;
                       const isSelected = selectedTableId === table.id;
