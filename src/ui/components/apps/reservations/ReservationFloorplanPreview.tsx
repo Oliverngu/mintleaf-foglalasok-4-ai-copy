@@ -393,7 +393,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const geometryStats = useMemo(() => {
     let maxValue = 0;
     visibleTables.forEach(table => {
-      const geometry = normalizeTableGeometry(table);
+      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
       maxValue = Math.max(
         maxValue,
         geometry.x + geometry.w,
@@ -882,6 +882,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         : baseGeometry;
     try {
       console.debug('[reservations] preview table rescale sample', {
+        resolvedFloorplanId,
+        tableFloorplanId: sample.floorplanId ?? null,
         tableId: sample.id,
         fromDims,
         toDims: effectiveDims,
@@ -894,7 +896,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     } catch (error) {
       console.warn('[reservations] preview rescale debug failed', error);
     }
-  }, [effectiveDims, mismatchCount, showDebug, visibleTables]);
+  }, [effectiveDims, mismatchCount, resolvedFloorplanId, showDebug, visibleTables]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);
     const storedHeight = Number(floorplan?.height);
