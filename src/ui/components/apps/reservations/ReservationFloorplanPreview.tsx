@@ -427,7 +427,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const effectiveDims = { width: logicalWidth, height: logicalHeight };
   const bgUrl = floorplan?.backgroundImageUrl ?? null;
   const hasBgUrl = Boolean(bgUrl && !bgFailed);
-  const bgUseTransform = hasBgUrl && effectiveRenderContext.effectiveReady;
+  const bgUseTransform = hasBgUrl;
 
   useLayoutEffect(() => {
     const measureViewportRect = () => {
@@ -1106,7 +1106,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
           style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}`, minHeight: 240 }}
         >
-          {hasBgUrl && bgUseTransform && (
+          {hasBgUrl && (
             <img
               src={bgUrl ?? ''}
               alt={floorplan.name}
@@ -1127,26 +1127,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 top: effectiveRenderContext.offsetY,
                 width: logicalWidth * effectiveRenderContext.sx,
                 height: logicalHeight * effectiveRenderContext.sy,
-                objectFit: 'fill',
+                objectFit: 'contain',
               }}
-            />
-          )}
-          {hasBgUrl && !bgUseTransform && (
-            <img
-              src={bgUrl ?? ''}
-              alt={floorplan.name}
-              ref={imageRef}
-              onLoad={() => {
-                const image = imageRef.current;
-                if (!image) return;
-                setBgFailed(false);
-                setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
-              }}
-              onError={() => {
-                setBgFailed(true);
-                setBgNaturalSize(null);
-              }}
-              className="absolute inset-0 w-full h-full object-contain"
             />
           )}
           {showDebug && !effectiveRenderContext.effectiveReady && (
