@@ -34,6 +34,7 @@ type DebugStats = {
   logicalDims: string;
   logicalDimsSource: string;
   bg: string;
+  bgMode: string;
   bgNatural: string;
   container: string;
   transform: string;
@@ -377,6 +378,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const effectiveDims = { width: logicalWidth, height: logicalHeight };
   const bgUrl = floorplan?.backgroundImageUrl ?? null;
   const hasBgUrl = Boolean(bgUrl && !bgFailed);
+  const bgUseTransform = hasBgUrl && effectiveRenderContext.effectiveReady;
 
   useLayoutEffect(() => {
     const measureViewportRect = () => {
@@ -810,6 +812,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalDims: `${Math.round(logicalWidth)}×${Math.round(logicalHeight)}`,
       logicalDimsSource,
       bg: bgUrl ? (bgFailed ? 'failed' : bgNaturalSize ? 'loaded' : 'loading') : 'missing',
+      bgMode: bgUseTransform ? 'transformed' : 'contain',
       bgNatural: bgNaturalSize ? `${bgNaturalSize.w}×${bgNaturalSize.h}` : 'n/a',
       container: `${Math.round(renderMetrics.containerW)}×${Math.round(renderMetrics.containerH)}`,
       transform: `sx:${effectiveRenderContext.sx.toFixed(4)} sy:${effectiveRenderContext.sy.toFixed(
@@ -824,6 +827,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     bgFailed,
     bgNaturalSize,
     bgUrl,
+    bgUseTransform,
     effectiveRenderContext.effectiveReady,
     effectiveRenderContext.offsetX,
     effectiveRenderContext.offsetY,
@@ -1051,7 +1055,32 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
           style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}`, minHeight: 240 }}
         >
-          {hasBgUrl && (
+          {hasBgUrl && bgUseTransform && (
+            <img
+              src={bgUrl ?? ''}
+              alt={floorplan.name}
+              ref={imageRef}
+              onLoad={() => {
+                const image = imageRef.current;
+                if (!image) return;
+                setBgFailed(false);
+                setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
+              }}
+              onError={() => {
+                setBgFailed(true);
+                setBgNaturalSize(null);
+              }}
+              className="absolute"
+              style={{
+                left: effectiveRenderContext.offsetX,
+                top: effectiveRenderContext.offsetY,
+                width: logicalWidth * effectiveRenderContext.sx,
+                height: logicalHeight * effectiveRenderContext.sy,
+                objectFit: 'fill',
+              }}
+            />
+          )}
+          {hasBgUrl && !bgUseTransform && (
             <img
               src={bgUrl ?? ''}
               alt={floorplan.name}
@@ -1082,7 +1111,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   debugStats.settingsActiveFloorplanId ?? 'n/a'
                 })
 stored:${debugStats.storedDims}  logical:${debugStats.logicalDims} (${debugStats.logicalDimsSource})
-bg:${debugStats.bg}  bgNatural:${debugStats.bgNatural}
+bg:${debugStats.bg} (${debugStats.bgMode})  bgNatural:${debugStats.bgNatural}
 container:${debugStats.container}
 ${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
 mismatchCount:${debugStats.mismatchCount}`}
