@@ -353,14 +353,21 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const geometryStats = useMemo(() => {
     let maxValue = 0;
     visibleTables.forEach(table => {
-      const geometry = normalizeTableGeometry(table);
-      maxValue = Math.max(
-        maxValue,
-        geometry.x,
-        geometry.y,
-        geometry.w,
-        geometry.h
-      );
+      const geometry = toTableGeometry(table);
+      if (
+        Number.isFinite(geometry.x) &&
+        Number.isFinite(geometry.y) &&
+        Number.isFinite(geometry.w) &&
+        Number.isFinite(geometry.h) &&
+        geometry.w > 0 &&
+        geometry.h > 0
+      ) {
+        maxValue = Math.max(
+          maxValue,
+          geometry.x + geometry.w,
+          geometry.y + geometry.h
+        );
+      }
     });
     return { maxValue, count: visibleTables.length };
   }, [visibleTables]);
