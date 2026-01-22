@@ -197,7 +197,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const FP_DEBUG = useMemo(() => shouldShowDebug(), []);
   const showDebug = FP_DEBUG;
   const loggedMismatchRef = useRef(false);
-  const loggedPixelSampleRef = useRef(false);
+  const loggedPixelSampleIdRef = useRef<string | null>(null);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -927,14 +927,56 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   useEffect(() => {
     if (
       !FP_DEBUG ||
-      loggedPixelSampleRef.current ||
       !effectiveRenderContext.effectiveReady ||
       visibleTables.length === 0
     ) {
       return;
     }
-    const sample = visibleTables[0];
+    let note = 'fallback:firstTable';
+    let sample: Table | undefined;
+    let querySampleId: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const candidate = qs.get('fpsample');
+        if (candidate) {
+          querySampleId = candidate.trim() || null;
+        }
+      } catch (error) {
+        console.debug('[FP_PREVIEW_PIXEL_SAMPLE] fpsample query read failed', error);
+      }
+    }
+    if (querySampleId) {
+      sample = visibleTables.find(table => table.id === querySampleId);
+      if (sample) {
+        note = 'sample:query';
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const storedSampleId = window.localStorage.getItem('ml_fp_sample_table_id');
+      if (storedSampleId) {
+        sample = visibleTables.find(table => table.id === storedSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:stored';
+        }
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const windowSampleId = (window as { __fpSampleTableId?: string }).__fpSampleTableId;
+      if (windowSampleId) {
+        sample = visibleTables.find(table => table.id === windowSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:window';
+        }
+      }
+    }
+    if (!sample) {
+      sample = visibleTables[0];
+    }
     if (!sample) return;
+    if (loggedPixelSampleIdRef.current === sample.id) {
+      return;
+    }
     const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
     const fromDims = coerceDims(sample.floorplanRef);
     const renderGeometry =
@@ -957,30 +999,30 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       w: world.w * scale,
       h: world.h * scale,
     };
-    try {
-      if (typeof window !== 'undefined') {
-        (window as { __fpSampleTableId?: string }).__fpSampleTableId = sample.id;
-      }
-      console.debug('[FP_PREVIEW_PIXEL_SAMPLE]', {
-        tableId: sample.id,
-        tableFloorplanIdLike: getFloorplanIdLike(sample),
-        fromDims,
-        effectiveDims,
-        world,
-        pixel,
-        scale,
-        offsetX,
-        offsetY,
-        container: { w: renderMetrics.containerW, h: renderMetrics.containerH },
-        transformOrigin: 'top left',
-        aspectRatio: `${logicalWidth} / ${logicalHeight}`,
-        logicalWidth,
-        logicalHeight,
-      });
-      loggedPixelSampleRef.current = true;
-    } catch (error) {
-      console.warn('[FP_PREVIEW_PIXEL_SAMPLE] log failed', error);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ml_fp_sample_table_id', sample.id);
+      (window as { __fpSampleTableId?: string }).__fpSampleTableId = sample.id;
     }
+    console.debug('[FP_PREVIEW_PIXEL_SAMPLE]', {
+      tag: 'FP_PIXEL_SAMPLE',
+      view: 'preview',
+      tableId: sample.id,
+      floorplanIdLike: getFloorplanIdLike(sample),
+      resolvedFloorplanId,
+      effectiveDims,
+      world,
+      pixel,
+      scale,
+      offsetX,
+      offsetY,
+      container: { w: renderMetrics.containerW, h: renderMetrics.containerH },
+      aspectRatio: `${logicalWidth} / ${logicalHeight}`,
+      logicalWidth,
+      logicalHeight,
+      note,
+      mismatchReason: getMismatchReason(sample, resolvedFloorplanId, effectiveDims),
+    });
+    loggedPixelSampleIdRef.current = sample.id;
   }, [
     FP_DEBUG,
     effectiveDims,
@@ -990,6 +1032,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     renderMetrics.containerH,
     renderMetrics.containerW,
     visibleTables,
+    resolvedFloorplanId,
   ]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);

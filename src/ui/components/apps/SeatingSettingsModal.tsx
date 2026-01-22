@@ -112,6 +112,55 @@ const weekdays = [
   { value: 6, label: 'Szombat' },
 ];
 
+const getFloorplanIdLike = (value: unknown) => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const candidate =
+    record.floorplanId ??
+    record.floorplanRefId ??
+    record.floorplanUid ??
+    record.floorplanUID;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+};
+
+const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
+  const width = Number(ref?.width);
+  const height = Number(ref?.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width >= 10000 ||
+    height >= 10000
+  ) {
+    return null;
+  }
+  return { width, height };
+};
+
+const getMismatchReasonEditor = (
+  table: Table,
+  resolvedFloorplanId: string | null,
+  dims: { width: number; height: number }
+): 'OK' | 'FLOORPLAN_ID_MISMATCH' | 'DIMS_MISMATCH' => {
+  if (!resolvedFloorplanId) {
+    return 'OK';
+  }
+  const tableFloorplanId = getFloorplanIdLike(table);
+  if (tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
+    return 'FLOORPLAN_ID_MISMATCH';
+  }
+  const floorplanRef = coerceDims(table.floorplanRef);
+  if (!floorplanRef) {
+    return 'OK';
+  }
+  if (floorplanRef.width !== dims.width || floorplanRef.height !== dims.height) {
+    return 'DIMS_MISMATCH';
+  }
+  return 'OK';
+};
+
 const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onClose }) => {
   const [settings, setSettings] = useState<SeatingSettings | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -210,7 +259,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const debugSeating =
     isDev ||
     (typeof window !== 'undefined' &&
-      window.localStorage.getItem('mintleaf_debug_seating') === '1');
+      (window.localStorage.getItem('mintleaf_debug_seating') === '1' ||
+        window.localStorage.getItem('ml_fp_debug') === '1'));
   const FP_DEBUG = debugSeating;
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
@@ -223,7 +273,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
-  const loggedEditorSampleRef = useRef(false);
+  const loggedEditorSampleIdRef = useRef<string | null>(null);
   const lastDragComputedBoundsRef = useRef<{
     minX: number;
     minY: number;
@@ -2555,19 +2605,57 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [floorplanViewportRect, floorplanH, floorplanW]);
   useEffect(() => {
-    if (!FP_DEBUG || loggedEditorSampleRef.current) {
+    if (!FP_DEBUG) {
       return;
     }
     if (!floorplanRenderContext.ready || editorTables.length === 0) {
       return;
     }
-    const sampleId =
-      typeof window !== 'undefined'
-        ? (window as { __fpSampleTableId?: string }).__fpSampleTableId
-        : undefined;
-    const sample =
-      (sampleId && editorTables.find(table => table.id === sampleId)) || editorTables[0];
+    let note = 'fallback:firstTable';
+    let sample: Table | undefined;
+    let querySampleId: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const candidate = qs.get('fpsample');
+        if (candidate) {
+          querySampleId = candidate.trim() || null;
+        }
+      } catch (error) {
+        console.debug('[FP_EDITOR_PIXEL_SAMPLE] fpsample query read failed', error);
+      }
+    }
+    if (querySampleId) {
+      sample = editorTables.find(table => table.id === querySampleId);
+      if (sample) {
+        note = 'sample:query';
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const storedSampleId = window.localStorage.getItem('ml_fp_sample_table_id');
+      if (storedSampleId) {
+        sample = editorTables.find(table => table.id === storedSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:stored';
+        }
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const windowSampleId = (window as { __fpSampleTableId?: string }).__fpSampleTableId;
+      if (windowSampleId) {
+        sample = editorTables.find(table => table.id === windowSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:window';
+        }
+      }
+    }
     if (!sample) {
+      sample = editorTables[0];
+    }
+    if (!sample) {
+      return;
+    }
+    if (loggedEditorSampleIdRef.current === sample.id) {
       return;
     }
     const geometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
@@ -2587,28 +2675,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       w: world.w * scale,
       h: world.h * scale,
     };
-    try {
-      console.debug('[FP_EDITOR_PIXEL_SAMPLE]', {
-        tableId: sample.id,
-        tableFloorplanIdLike: getStableFloorplanKey(sample.floorplanId) ?? null,
-        world,
-        pixel,
-        scale,
-        offsetX,
-        offsetY,
-        container: {
-          w: floorplanViewportRect.width,
-          h: floorplanViewportRect.height,
-        },
-        transformOrigin: 'top left',
-        aspectRatio: '1 / 1',
-        logicalWidth: floorplanW,
-        logicalHeight: floorplanH,
-      });
-      loggedEditorSampleRef.current = true;
-    } catch (error) {
-      console.warn('[FP_EDITOR_PIXEL_SAMPLE] log failed', error);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ml_fp_sample_table_id', sample.id);
+      (window as { __fpSampleTableId?: string }).__fpSampleTableId = sample.id;
     }
+    console.debug('[FP_EDITOR_PIXEL_SAMPLE]', {
+      tag: 'FP_PIXEL_SAMPLE',
+      view: 'editor',
+      tableId: sample.id,
+      floorplanIdLike: getFloorplanIdLike(sample),
+      resolvedFloorplanId: resolvedActiveFloorplanId ?? null,
+      effectiveDims: { width: floorplanW, height: floorplanH },
+      world,
+      pixel,
+      scale,
+      offsetX,
+      offsetY,
+      container: {
+        w: floorplanViewportRect.width,
+        h: floorplanViewportRect.height,
+      },
+      aspectRatio: `${floorplanW} / ${floorplanH}`,
+      logicalWidth: floorplanW,
+      logicalHeight: floorplanH,
+      note,
+      mismatchReasonEditor: getMismatchReasonEditor(
+        sample,
+        resolvedActiveFloorplanId ?? null,
+        { width: floorplanW, height: floorplanH }
+      ),
+    });
+    loggedEditorSampleIdRef.current = sample.id;
   }, [
     FP_DEBUG,
     editorTables,
@@ -2617,6 +2714,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanViewportRect.width,
     floorplanW,
     floorplanH,
+    resolvedActiveFloorplanId,
   ]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
