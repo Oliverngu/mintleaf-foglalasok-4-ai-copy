@@ -62,13 +62,21 @@ export const normalizeTableGeometry = (
   return { x, y, rot, w, h, radius, shape };
 };
 
-type TableGeometry = {
+export type TableGeometry = {
   x?: number | null;
   y?: number | null;
   w?: number | null;
   h?: number | null;
   radius?: number | null;
 };
+
+export type ScaleResult =
+  | { didScale: true; geometry: TableGeometry }
+  | {
+      didScale: false;
+      geometry: TableGeometry;
+      reason: 'invalid-dims' | 'unsafe-scale' | 'missing-geometry';
+    };
 
 export const normalizeTableGeometryToFloorplan = (
   table: TableGeometry,
@@ -103,7 +111,7 @@ export const scaleTableGeometry = (
   geometry: TableGeometry,
   fromDims: { width: number; height: number },
   toDims: { width: number; height: number }
-) => {
+): ScaleResult => {
   if (!isSaneDims(fromDims) || !isSaneDims(toDims)) {
     return { geometry, didScale: false, reason: 'invalid-dims' };
   }

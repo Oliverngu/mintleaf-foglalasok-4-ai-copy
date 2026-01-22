@@ -33,6 +33,7 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import {
+  TableGeometry,
   isPlaceholderFloorplanDims,
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
@@ -876,7 +877,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       tables.filter(table => {
         const ref = table.floorplanRef;
         if (!ref) return true;
-        return isPlaceholderFloorplanDims(ref.width, ref.height);
+        const width = Number(ref.width);
+        const height = Number(ref.height);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          return true;
+        }
+        return isPlaceholderFloorplanDims(width, height);
       }),
     [tables]
   );
@@ -924,14 +930,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return tableFloorplanId === getStableFloorplanKey(migrationFloorplanId);
     });
     let error: string | null = null;
+    let suggestedMaxX = 0;
+    let suggestedMaxY = 0;
+    let suggestedCount = 0;
     const samples = eligibleTables.slice(0, 5).flatMap(table => {
-      const geometry = {
+      const geometry: TableGeometry = {
         x: Number.isFinite(table.x) ? table.x : undefined,
         y: Number.isFinite(table.y) ? table.y : undefined,
         w: Number.isFinite(table.w) ? table.w : undefined,
         h: Number.isFinite(table.h) ? table.h : undefined,
         radius: Number.isFinite(table.radius) ? table.radius : undefined,
       };
+      const geometryForBounds = normalizeTableGeometry(table);
+      if (Number.isFinite(geometryForBounds.x) && Number.isFinite(geometryForBounds.w)) {
+        suggestedMaxX = Math.max(suggestedMaxX, geometryForBounds.x + geometryForBounds.w);
+      }
+      if (Number.isFinite(geometryForBounds.y) && Number.isFinite(geometryForBounds.h)) {
+        suggestedMaxY = Math.max(suggestedMaxY, geometryForBounds.y + geometryForBounds.h);
+      }
+      suggestedCount += 1;
       const scaled = scaleTableGeometry(geometry, fromDims, toDims);
       if (!scaled.didScale && scaled.reason === 'unsafe-scale') {
         error = 'unsafe-scale';
@@ -948,7 +965,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         },
       ];
     });
-    return { count: eligibleTables.length, samples, error, scaleX, scaleY };
+    const suggestedWidth = Math.ceil(suggestedMaxX);
+    const suggestedHeight = Math.ceil(suggestedMaxY);
+    const suggestedOk =
+      suggestedCount >= 2 &&
+      suggestedWidth >= 50 &&
+      suggestedHeight >= 50 &&
+      suggestedWidth <= 10000 &&
+      suggestedHeight <= 10000;
+    return {
+      count: eligibleTables.length,
+      samples,
+      error,
+      scaleX,
+      scaleY,
+      suggestedDims: suggestedOk
+        ? { width: suggestedWidth, height: suggestedHeight }
+        : null,
+    };
   }, [
     getStableFloorplanKey,
     includeUnassignedInMigration,
@@ -6077,6 +6111,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     scaleX: {migrationPreview.scaleX.toFixed(3)} • scaleY:{' '}
                     {migrationPreview.scaleY.toFixed(3)}
+                  </div>
+                )}
+                {migrationPreview.suggestedDims && (
+                  <div className="mt-1 flex items-center gap-2">
+                    Suggested: {migrationPreview.suggestedDims.width} ×{' '}
+                    {migrationPreview.suggestedDims.height}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLegacyBaseDims({
+                          width: migrationPreview.suggestedDims?.width ?? legacyBaseDims.width,
+                          height: migrationPreview.suggestedDims?.height ?? legacyBaseDims.height,
+                        })
+                      }
+                      className="rounded-md border border-gray-300 px-2 py-0.5 text-[11px] text-gray-700"
+                    >
+                      Use suggested
+                    </button>
                   </div>
                 )}
                 {migrationPreview.samples.length > 0 && (
