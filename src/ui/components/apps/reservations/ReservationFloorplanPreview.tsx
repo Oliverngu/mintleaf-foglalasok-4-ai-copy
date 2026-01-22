@@ -14,10 +14,7 @@ import {
   listFloorplans,
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
-import {
-  scaleTableGeometry,
-  TableGeometry,
-} from '../../../../core/utils/seatingNormalize';
+import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
 import { computeFloorplanTransformFromRect } from '../../../../core/utils/seatingFloorplanTransform';
 
 type ReservationFloorplanPreviewProps = {
@@ -28,8 +25,6 @@ type ReservationFloorplanPreviewProps = {
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
-
-type DebugScaleSample = { id: string; from: string; to: string };
 
 type DebugStats = {
   unitId: string;
@@ -42,8 +37,7 @@ type DebugStats = {
   bgNatural: string;
   container: string;
   transform: string;
-  scaledTables: number;
-  scaleSamples: DebugScaleSample[];
+  mismatchCount: number;
   effectiveReady: boolean;
 };
 
@@ -122,16 +116,6 @@ const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
   return { width, height };
 };
 
-const toTableGeometry = (table: Table): TableGeometry => ({
-  x: Number.isFinite(table.x) ? table.x : undefined,
-  y: Number.isFinite(table.y) ? table.y : undefined,
-  w: Number.isFinite(table.w) ? table.w : undefined,
-  h: Number.isFinite(table.h) ? table.h : undefined,
-  radius: Number.isFinite(table.radius) ? table.radius : undefined,
-});
-
-const dimsEqual = (a: { width: number; height: number }, b: { width: number; height: number }) =>
-  a.width === b.width && a.height === b.height;
 
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
@@ -353,21 +337,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const geometryStats = useMemo(() => {
     let maxValue = 0;
     visibleTables.forEach(table => {
-      const geometry = toTableGeometry(table);
-      if (
-        Number.isFinite(geometry.x) &&
-        Number.isFinite(geometry.y) &&
-        Number.isFinite(geometry.w) &&
-        Number.isFinite(geometry.h) &&
-        geometry.w > 0 &&
-        geometry.h > 0
-      ) {
-        maxValue = Math.max(
-          maxValue,
-          geometry.x + geometry.w,
-          geometry.y + geometry.h
-        );
-      }
+      const geometry = normalizeTableGeometry(table);
+      maxValue = Math.max(
+        maxValue,
+        geometry.x + geometry.w,
+        geometry.y + geometry.h
+      );
     });
     return { maxValue, count: visibleTables.length };
   }, [visibleTables]);
@@ -811,26 +786,20 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       : null;
 
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
+  const mismatchCount = useMemo(() => {
+    let count = 0;
+    visibleTables.forEach(table => {
+      const floorplanRef = coerceDims(table.floorplanRef);
+      if (!floorplanRef) return;
+      if (floorplanRef.width !== effectiveDims.width || floorplanRef.height !== effectiveDims.height) {
+        count += 1;
+      }
+    });
+    return count;
+  }, [effectiveDims.height, effectiveDims.width, visibleTables]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);
     const storedHeight = Number(floorplan?.height);
-    const scaledSamples: DebugScaleSample[] = [];
-    let scaledTables = 0;
-    visibleTables.forEach(table => {
-      const fromDims = coerceDims(table.floorplanRef) ?? effectiveDims;
-      if (dimsEqual(fromDims, effectiveDims)) return;
-      const scaled = scaleTableGeometry(toTableGeometry(table), fromDims, effectiveDims);
-      if (scaled.didScale) {
-        scaledTables += 1;
-        if (scaledSamples.length < 3) {
-          scaledSamples.push({
-            id: table.id,
-            from: `${fromDims.width}×${fromDims.height}`,
-            to: `${effectiveDims.width}×${effectiveDims.height}`,
-          });
-        }
-      }
-    });
     return {
       unitId,
       resolvedFloorplanId,
@@ -848,15 +817,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       )} ox:${Math.round(effectiveRenderContext.offsetX)} oy:${Math.round(
         effectiveRenderContext.offsetY
       )}`,
-      scaledTables,
-      scaleSamples: scaledSamples,
+      mismatchCount,
       effectiveReady: effectiveRenderContext.effectiveReady,
     };
   }, [
     bgFailed,
     bgNaturalSize,
     bgUrl,
-    effectiveDims,
     effectiveRenderContext.effectiveReady,
     effectiveRenderContext.offsetX,
     effectiveRenderContext.offsetY,
@@ -867,12 +834,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     logicalDimsSource,
     logicalHeight,
     logicalWidth,
+    mismatchCount,
     renderMetrics.containerH,
     renderMetrics.containerW,
     resolvedFloorplanId,
     settingsActiveFloorplanId,
     unitId,
-    visibleTables,
   ]);
   const debugWarningReasons = useMemo(() => {
     if (!showDebug || renderContext.ready) return [] as string[];
@@ -1073,6 +1040,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       </div>
 
       <div className="w-full mx-auto" style={{ maxWidth: stageMaxWidth }}>
+        {mismatchCount > 0 && (
+          <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            ⚠️ Asztalok nincsenek migrálva ehhez az alaprajz mérethez ({mismatchCount}).
+            A preview az editorral egyező módon renderel (skálázás nélkül).
+          </div>
+        )}
         <div
           ref={containerRef}
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
@@ -1112,13 +1085,7 @@ stored:${debugStats.storedDims}  logical:${debugStats.logicalDims} (${debugStats
 bg:${debugStats.bg}  bgNatural:${debugStats.bgNatural}
 container:${debugStats.container}
 ${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
-scaledTables:${debugStats.scaledTables}${
-                  debugStats.scaleSamples.length
-                    ? `\n${debugStats.scaleSamples
-                        .map(sample => `- ${sample.id}: ${sample.from} -> ${sample.to}`)
-                        .join('\n')}`
-                    : ''
-                }`}
+mismatchCount:${debugStats.mismatchCount}`}
               </div>
             </div>
           )}
@@ -1161,21 +1128,13 @@ scaledTables:${debugStats.scaledTables}${
               );
             })}
           {visibleTables.map(table => {
-            const baseGeometry = toTableGeometry(table);
-            const fromDims = coerceDims(table.floorplanRef) ?? effectiveDims;
-            const scaledGeometry =
-              !dimsEqual(fromDims, effectiveDims)
-                ? scaleTableGeometry(baseGeometry, fromDims, effectiveDims)
-                : null;
-            const renderGeometry = scaledGeometry?.didScale
-              ? scaledGeometry.geometry
-              : baseGeometry;
-            const tx = safeNum(renderGeometry.x, 0);
-            const ty = safeNum(renderGeometry.y, 0);
-            const twRaw = safeNum(renderGeometry.w, 0);
-            const thRaw = safeNum(renderGeometry.h, 0);
+            const geometry = normalizeTableGeometry(table);
+            const tx = safeNum(geometry.x, 0);
+            const ty = safeNum(geometry.y, 0);
+            const twRaw = safeNum(geometry.w, 0);
+            const thRaw = safeNum(geometry.h, 0);
             const trot = safeNum(table.rot, 0);
-            const tradius = safeNum(renderGeometry.radius, 0);
+            const tradius = safeNum(geometry.radius, 0);
             const tableWidth = Math.max(MIN_TABLE_W, Math.max(0, twRaw));
             const tableHeight = Math.max(MIN_TABLE_H, Math.max(0, thRaw));
             const maxX = Math.max(0, logicalWidth - tableWidth);
