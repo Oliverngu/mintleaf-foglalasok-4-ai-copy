@@ -264,11 +264,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           resolvedFloorplan && hasZoneFloorplanId
             ? baseZones.filter(zone => getFloorplanIdLike(zone) === resolvedFloorplan.id)
             : baseZones;
-        const hasTableFloorplanId = tablesData.some(table => getFloorplanIdLike(table));
-        const filteredTables =
-          resolvedFloorplan && hasTableFloorplanId
-            ? tablesData.filter(table => getFloorplanIdLike(table) === resolvedFloorplan.id)
-            : tablesData;
+        const filteredTables = tablesData;
 
         setFloorplan(resolvedFloorplan);
         setZones(filteredZones);
@@ -326,20 +322,20 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      const matchesFloorplan = tableFloorplanId === resolvedFloorplanId;
       const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
-  }, [activeZoneId, floorplan, tables]);
+  }, [activeZoneId, floorplan, resolvedFloorplanId, tables]);
 
   const floorplanTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      const matchesFloorplan = tableFloorplanId === resolvedFloorplanId;
       return matchesFloorplan && table.isActive !== false;
     });
-  }, [floorplan, tables]);
+  }, [floorplan, resolvedFloorplanId, tables]);
 
   const displayZones = useMemo(
     () =>
@@ -847,7 +843,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
   const mismatchCount = useMemo(() => {
     let count = 0;
-    visibleTables.forEach(table => {
+    tables.forEach(table => {
+      const tableFloorplanId = getFloorplanIdLike(table);
+      if (resolvedFloorplanId && tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
+        count += 1;
+        return;
+      }
       const floorplanRef = coerceDims(table.floorplanRef);
       if (!floorplanRef) return;
       if (floorplanRef.width !== effectiveDims.width || floorplanRef.height !== effectiveDims.height) {
@@ -855,12 +856,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       }
     });
     return count;
-  }, [effectiveDims.height, effectiveDims.width, visibleTables]);
+  }, [effectiveDims.height, effectiveDims.width, resolvedFloorplanId, tables]);
   useEffect(() => {
     if (!showDebug || mismatchCount === 0 || loggedMismatchRef.current) {
       return;
     }
-    const sample = visibleTables.find(table => {
+    const sample = tables.find(table => {
+      const tableFloorplanId = getFloorplanIdLike(table);
+      if (resolvedFloorplanId && tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
+        return true;
+      }
       const fromDims = coerceDims(table.floorplanRef);
       return (
         fromDims &&
@@ -875,6 +880,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     const fromDims = coerceDims(sample.floorplanRef);
     const scaleX = fromDims ? effectiveDims.width / fromDims.width : null;
     const scaleY = fromDims ? effectiveDims.height / fromDims.height : null;
+    const tableFloorplanId = getFloorplanIdLike(sample);
+    const mismatchReason =
+      resolvedFloorplanId &&
+      tableFloorplanId &&
+      tableFloorplanId !== resolvedFloorplanId
+        ? 'FLOORPLAN_ID_MISMATCH'
+        : 'DIMS_MISMATCH';
     const renderGeometry =
       fromDims &&
       (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
@@ -882,6 +894,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         : baseGeometry;
     try {
       console.debug('[reservations] preview table rescale sample', {
+        mismatchReason,
         resolvedFloorplanId,
         tableFloorplanId: sample.floorplanId ?? null,
         tableId: sample.id,
@@ -896,7 +909,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     } catch (error) {
       console.warn('[reservations] preview rescale debug failed', error);
     }
-  }, [effectiveDims, mismatchCount, resolvedFloorplanId, showDebug, visibleTables]);
+  }, [effectiveDims, mismatchCount, resolvedFloorplanId, showDebug, tables]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);
     const storedHeight = Number(floorplan?.height);
