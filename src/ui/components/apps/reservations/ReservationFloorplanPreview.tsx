@@ -29,6 +29,24 @@ type ReservationFloorplanPreviewProps = {
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
 
+type DebugScaleSample = { id: string; from: string; to: string };
+
+type DebugStats = {
+  unitId: string;
+  resolvedFloorplanId: string | null;
+  settingsActiveFloorplanId: string | null;
+  storedDims: string;
+  logicalDims: string;
+  logicalDimsSource: string;
+  bg: string;
+  bgNatural: string;
+  container: string;
+  transform: string;
+  scaledTables: number;
+  scaleSamples: DebugScaleSample[];
+  effectiveReady: boolean;
+};
+
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -72,6 +90,20 @@ const getFloorplanIdLike = (value: unknown) => {
     record.floorplanUid ??
     record.floorplanUID;
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+};
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+const shouldShowDebug = () => {
+  if (!isDev) return false;
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.has('fpdebug')) return true;
+    return localStorage.getItem('ml_fp_debug') === '1';
+  } catch (error) {
+    console.warn('Failed to read debug flags for floorplan preview:', error);
+    return true;
+  }
 };
 
 const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
@@ -144,6 +176,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const showDebug = useMemo(() => shouldShowDebug(), []);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -771,7 +804,69 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       : null;
 
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
-  const showDebug = process.env.NODE_ENV !== 'production';
+  const debugStats = useMemo<DebugStats>(() => {
+    const storedWidth = Number(floorplan?.width);
+    const storedHeight = Number(floorplan?.height);
+    const scaledSamples: DebugScaleSample[] = [];
+    let scaledTables = 0;
+    visibleTables.forEach(table => {
+      const fromDims = coerceDims(table.floorplanRef) ?? effectiveDims;
+      if (dimsEqual(fromDims, effectiveDims)) return;
+      const scaled = scaleTableGeometry(toTableGeometry(table), fromDims, effectiveDims);
+      if (scaled.didScale) {
+        scaledTables += 1;
+        if (scaledSamples.length < 3) {
+          scaledSamples.push({
+            id: table.id,
+            from: `${fromDims.width}×${fromDims.height}`,
+            to: `${effectiveDims.width}×${effectiveDims.height}`,
+          });
+        }
+      }
+    });
+    return {
+      unitId,
+      resolvedFloorplanId,
+      settingsActiveFloorplanId,
+      storedDims: `${Number.isFinite(storedWidth) ? storedWidth : 0}×${
+        Number.isFinite(storedHeight) ? storedHeight : 0
+      }`,
+      logicalDims: `${Math.round(logicalWidth)}×${Math.round(logicalHeight)}`,
+      logicalDimsSource,
+      bg: bgUrl ? (bgFailed ? 'failed' : bgNaturalSize ? 'loaded' : 'loading') : 'missing',
+      bgNatural: bgNaturalSize ? `${bgNaturalSize.w}×${bgNaturalSize.h}` : 'n/a',
+      container: `${Math.round(renderMetrics.containerW)}×${Math.round(renderMetrics.containerH)}`,
+      transform: `sx:${effectiveRenderContext.sx.toFixed(4)} sy:${effectiveRenderContext.sy.toFixed(
+        4
+      )} ox:${Math.round(effectiveRenderContext.offsetX)} oy:${Math.round(
+        effectiveRenderContext.offsetY
+      )}`,
+      scaledTables,
+      scaleSamples: scaledSamples,
+      effectiveReady: effectiveRenderContext.effectiveReady,
+    };
+  }, [
+    bgFailed,
+    bgNaturalSize,
+    bgUrl,
+    effectiveDims,
+    effectiveRenderContext.effectiveReady,
+    effectiveRenderContext.offsetX,
+    effectiveRenderContext.offsetY,
+    effectiveRenderContext.sx,
+    effectiveRenderContext.sy,
+    floorplan?.height,
+    floorplan?.width,
+    logicalDimsSource,
+    logicalHeight,
+    logicalWidth,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    resolvedFloorplanId,
+    settingsActiveFloorplanId,
+    unitId,
+    visibleTables,
+  ]);
   const debugWarningReasons = useMemo(() => {
     if (!showDebug || renderContext.ready) return [] as string[];
     if (!(tablesTotal > 0 || tables.length > 0)) return [] as string[];
@@ -998,6 +1093,26 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
               Render not ready ({Math.round(renderMetrics.containerW)}x
               {Math.round(renderMetrics.containerH)})
+            </div>
+          )}
+          {showDebug && (
+            <div className="absolute top-2 left-2 z-50 pointer-events-none">
+              <div className="rounded-lg border border-black/20 bg-black/70 text-white text-[11px] font-mono px-3 py-2 whitespace-pre">
+                {`fp:${debugStats.resolvedFloorplanId ?? 'n/a'} (settings:${
+                  debugStats.settingsActiveFloorplanId ?? 'n/a'
+                })
+stored:${debugStats.storedDims}  logical:${debugStats.logicalDims} (${debugStats.logicalDimsSource})
+bg:${debugStats.bg}  bgNatural:${debugStats.bgNatural}
+container:${debugStats.container}
+${debugStats.transform}  ready:${debugStats.effectiveReady ? 'yes' : 'no'}
+scaledTables:${debugStats.scaledTables}${
+                  debugStats.scaleSamples.length
+                    ? `\n${debugStats.scaleSamples
+                        .map(sample => `- ${sample.id}: ${sample.from} -> ${sample.to}`)
+                        .join('\n')}`
+                    : ''
+                }`}
+              </div>
             </div>
           )}
           {!effectiveRenderContext.effectiveReady && (tablesTotal > 0 || tables.length > 0) && (
