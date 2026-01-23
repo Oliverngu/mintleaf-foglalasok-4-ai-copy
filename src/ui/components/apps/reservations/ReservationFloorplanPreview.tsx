@@ -14,8 +14,14 @@ import {
   listFloorplans,
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
-import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
-import { computeCanonicalFloorplanRenderContext } from '../../../../core/utils/seatingFloorplanRender';
+import {
+  DEFAULT_TABLE_GEOMETRY,
+  isPlaceholderFloorplanDims,
+  normalizeFloorplanDimensions,
+  normalizeTableGeometry,
+  normalizeTableGeometryToFloorplan,
+} from '../../../../core/utils/seatingNormalize';
+import { getFloorplanRenderContext } from '../../../../core/utils/seatingFloorplanRender';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -89,15 +95,14 @@ const getFloorplanIdLike = (value: unknown) => {
 const isDev = process.env.NODE_ENV !== 'production';
 
 const shouldShowDebug = () => {
-  if (!isDev) return false;
   try {
     const qs = new URLSearchParams(window.location.search);
     if (qs.has('fpdebug')) return true;
-    return localStorage.getItem('ml_fp_debug') === '1';
+    if (localStorage.getItem('ml_fp_debug') === '1') return true;
   } catch (error) {
     console.warn('Failed to read debug flags for floorplan preview:', error);
-    return true;
   }
+  return isDev;
 };
 
 const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
@@ -116,7 +121,40 @@ const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
   return { width, height };
 };
 
+const getMismatchReason = (
+  table: Table,
+  resolvedFloorplanId: string | null,
+  dims: { width: number; height: number }
+): 'OK' | 'FLOORPLAN_ID_MISMATCH' | 'DIMS_MISMATCH' => {
+  if (!resolvedFloorplanId) {
+    return 'OK';
+  }
+  const tableFloorplanId = getFloorplanIdLike(table);
+  if (tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
+    return 'FLOORPLAN_ID_MISMATCH';
+  }
+  const floorplanRef = coerceDims(table.floorplanRef);
+  if (!floorplanRef) {
+    return 'OK';
+  }
+  if (isPlaceholderFloorplanDims(floorplanRef.width, floorplanRef.height)) {
+    return 'OK';
+  }
+  if (floorplanRef.width !== dims.width || floorplanRef.height !== dims.height) {
+    return 'DIMS_MISMATCH';
+  }
+  return 'OK';
+};
 
+
+/*
+ * Root cause: preview used ad-hoc logical dims and a fixed-height container, so its
+ * scale diverged from the editor even with a shared wrapper transform. That made
+ * table spacing feel off despite correct rescaling of geometry.
+ * Fix: mirror editor dims selection, drop fixed-height sizing, and let a single
+ * transform wrapper be the only scale. A debug sample logs rescale math if refs
+ * mismatch.
+ */
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -146,21 +184,22 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   });
   type RenderContext = {
     ready: boolean;
-    sx: number;
-    sy: number;
+    scale: number;
     offsetX: number;
     offsetY: number;
   };
   const [renderContext, setRenderContext] = useState<RenderContext>({
     ready: false,
-    sx: 1,
-    sy: 1,
+    scale: 1,
     offsetX: 0,
     offsetY: 0,
   });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const showDebug = useMemo(() => shouldShowDebug(), []);
+  const FP_DEBUG = useMemo(() => shouldShowDebug(), []);
+  const showDebug = FP_DEBUG;
+  const loggedMismatchRef = useRef(false);
+  const loggedPixelSampleIdRef = useRef<string | null>(null);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -251,11 +290,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           resolvedFloorplan && hasZoneFloorplanId
             ? baseZones.filter(zone => getFloorplanIdLike(zone) === resolvedFloorplan.id)
             : baseZones;
-        const hasTableFloorplanId = tablesData.some(table => getFloorplanIdLike(table));
-        const filteredTables =
-          resolvedFloorplan && hasTableFloorplanId
-            ? tablesData.filter(table => getFloorplanIdLike(table) === resolvedFloorplan.id)
-            : tablesData;
+        const filteredTables = tablesData;
 
         setFloorplan(resolvedFloorplan);
         setZones(filteredZones);
@@ -313,20 +348,22 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      const matchesFloorplan =
+        Boolean(resolvedFloorplanId) && tableFloorplanId === resolvedFloorplanId;
       const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
-  }, [activeZoneId, floorplan, tables]);
+  }, [activeZoneId, floorplan, resolvedFloorplanId, tables]);
 
   const floorplanTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
       const tableFloorplanId = getFloorplanIdLike(table);
-      const matchesFloorplan = !tableFloorplanId || tableFloorplanId === floorplan.id;
+      const matchesFloorplan =
+        Boolean(resolvedFloorplanId) && tableFloorplanId === resolvedFloorplanId;
       return matchesFloorplan && table.isActive !== false;
     });
-  }, [floorplan, tables]);
+  }, [floorplan, resolvedFloorplanId, tables]);
 
   const displayZones = useMemo(
     () =>
@@ -380,7 +417,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const geometryStats = useMemo(() => {
     let maxValue = 0;
     visibleTables.forEach(table => {
-      const geometry = normalizeTableGeometry(table);
+      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
       maxValue = Math.max(
         maxValue,
         geometry.x + geometry.w,
@@ -398,12 +435,15 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         logicalDimsSource: 'fallback' as const,
       };
     }
-    const width = Number(floorplan.width);
-    const height = Number(floorplan.height);
-    const hasStoredDims = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    const storedDims = normalizeFloorplanDimensions(floorplan);
+    const hasStoredDims = !isPlaceholderFloorplanDims(storedDims.width, storedDims.height);
     const hasImageDims = Boolean(bgNaturalSize?.w && bgNaturalSize?.h);
-    if (hasStoredDims && !(width === 1 && height === 1)) {
-      return { logicalWidth: width, logicalHeight: height, logicalDimsSource: 'stored' as const };
+    if (hasStoredDims) {
+      return {
+        logicalWidth: storedDims.width,
+        logicalHeight: storedDims.height,
+        logicalDimsSource: 'stored' as const,
+      };
     }
     if (refDims) {
       return {
@@ -427,7 +467,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const effectiveDims = { width: logicalWidth, height: logicalHeight };
   const bgUrl = floorplan?.backgroundImageUrl ?? null;
   const hasBgUrl = Boolean(bgUrl && !bgFailed);
-  const bgUseTransform = hasBgUrl;
 
   useLayoutEffect(() => {
     const measureViewportRect = () => {
@@ -512,33 +551,27 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         }
       }
       setRenderContext(prev =>
-        !prev.ready &&
-        prev.sx === 1 &&
-        prev.sy === 1 &&
-        prev.offsetX === 0 &&
-        prev.offsetY === 0
+        !prev.ready && prev.scale === 1 && prev.offsetX === 0 && prev.offsetY === 0
           ? prev
-          : { ready: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 }
+          : { ready: false, scale: 1, offsetX: 0, offsetY: 0 }
       );
       return;
     }
-    const transform = computeCanonicalFloorplanRenderContext(
+    const transform = getFloorplanRenderContext(
       { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
       logicalWidth,
       logicalHeight
     );
-    const sx = transform.sx;
-    const sy = transform.sy;
+    const scale = transform.scale;
     const offsetX = transform.offsetX;
     const offsetY = transform.offsetY;
     setRenderContext(prev =>
       prev.ready &&
-      prev.sx === sx &&
-      prev.sy === sy &&
+      prev.scale === scale &&
       prev.offsetX === offsetX &&
       prev.offsetY === offsetY
         ? prev
-        : { ready: transform.ready, sx, sy, offsetX, offsetY }
+        : { ready: transform.ready, scale, offsetX, offsetY }
     );
   }, [logicalHeight, logicalWidth, renderMetrics.containerH, renderMetrics.containerW]);
 
@@ -548,7 +581,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     }
     const measured = measureContainer(containerRef.current);
     if (measured && logicalWidth > 0 && logicalHeight > 0) {
-      const transform = computeCanonicalFloorplanRenderContext(
+      const transform = getFloorplanRenderContext(
         { width: measured.width, height: measured.height, left: 0, top: 0 },
         logicalWidth,
         logicalHeight
@@ -556,13 +589,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return {
         ready: transform.ready,
         effectiveReady: transform.ready,
-        sx: transform.sx,
-        sy: transform.sy,
+        scale: transform.scale,
         offsetX: transform.offsetX,
         offsetY: transform.offsetY,
       };
     }
-    return { ready: false, effectiveReady: false, sx: 1, sy: 1, offsetX: 0, offsetY: 0 };
+    return { ready: false, effectiveReady: false, scale: 1, offsetX: 0, offsetY: 0 };
   }, [logicalHeight, logicalWidth, renderContext]);
 
   const upcomingWarningMinutes = useMemo(() => {
@@ -839,15 +871,179 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const logicalDimsSource = floorplanDimensions.logicalDimsSource;
   const mismatchCount = useMemo(() => {
     let count = 0;
-    visibleTables.forEach(table => {
-      const floorplanRef = coerceDims(table.floorplanRef);
-      if (!floorplanRef) return;
-      if (floorplanRef.width !== effectiveDims.width || floorplanRef.height !== effectiveDims.height) {
+    tables.forEach(table => {
+      if (table.isActive === false) {
+        return;
+      }
+      const reason = getMismatchReason(table, resolvedFloorplanId, effectiveDims);
+      if (reason !== 'OK') {
         count += 1;
       }
     });
     return count;
-  }, [effectiveDims.height, effectiveDims.width, visibleTables]);
+  }, [effectiveDims.height, effectiveDims.width, resolvedFloorplanId, tables]);
+  useEffect(() => {
+    if (!showDebug || mismatchCount === 0 || loggedMismatchRef.current) {
+      return;
+    }
+    const sample = tables.find(table => {
+      if (table.isActive === false) {
+        return false;
+      }
+      return getMismatchReason(table, resolvedFloorplanId, effectiveDims) !== 'OK';
+    });
+    if (!sample) {
+      return;
+    }
+    const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
+    const fromDimsRaw = coerceDims(sample.floorplanRef);
+    const fromDims =
+      fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+        ? fromDimsRaw
+        : null;
+    const scaleX = fromDims ? effectiveDims.width / fromDims.width : null;
+    const scaleY = fromDims ? effectiveDims.height / fromDims.height : null;
+    const tableFloorplanId = getFloorplanIdLike(sample);
+    const mismatchReason = getMismatchReason(sample, resolvedFloorplanId, effectiveDims);
+    const renderGeometry =
+      fromDims &&
+      (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
+        ? normalizeTableGeometryToFloorplan(baseGeometry, fromDims, effectiveDims)
+        : baseGeometry;
+    try {
+      console.debug('[reservations] preview table rescale sample', {
+        mismatchReason,
+        resolvedFloorplanId,
+        tableFloorplanIdLike: tableFloorplanId ?? null,
+        tableFloorplanId: sample.floorplanId ?? null,
+        tableId: sample.id,
+        fromDims,
+        toDims: effectiveDims,
+        scaleX,
+        scaleY,
+        baseGeometry,
+        renderGeometry,
+      });
+      loggedMismatchRef.current = true;
+    } catch (error) {
+      console.warn('[reservations] preview rescale debug failed', error);
+    }
+  }, [effectiveDims, mismatchCount, resolvedFloorplanId, showDebug, tables]);
+
+  useEffect(() => {
+    if (
+      !FP_DEBUG ||
+      !effectiveRenderContext.effectiveReady ||
+      visibleTables.length === 0
+    ) {
+      return;
+    }
+    let note = 'fallback:firstTable';
+    let sample: Table | undefined;
+    let querySampleId: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const candidate = qs.get('fpsample');
+        if (candidate) {
+          querySampleId = candidate.trim() || null;
+        }
+      } catch (error) {
+        console.debug('[FP_PREVIEW_PIXEL_SAMPLE] fpsample query read failed', error);
+      }
+    }
+    if (querySampleId) {
+      sample = visibleTables.find(table => table.id === querySampleId);
+      if (sample) {
+        note = 'sample:query';
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const storedSampleId = window.localStorage.getItem('ml_fp_sample_table_id');
+      if (storedSampleId) {
+        sample = visibleTables.find(table => table.id === storedSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:stored';
+        }
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const windowSampleId = (window as { __fpSampleTableId?: string }).__fpSampleTableId;
+      if (windowSampleId) {
+        sample = visibleTables.find(table => table.id === windowSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:window';
+        }
+      }
+    }
+    if (!sample) {
+      sample = visibleTables[0];
+    }
+    if (!sample) return;
+    if (loggedPixelSampleIdRef.current === sample.id) {
+      return;
+    }
+    const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
+    const fromDimsRaw = coerceDims(sample.floorplanRef);
+    const fromDims =
+      fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+        ? fromDimsRaw
+        : null;
+    const renderGeometry =
+      fromDims &&
+      (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
+        ? normalizeTableGeometryToFloorplan(baseGeometry, fromDims, effectiveDims)
+        : baseGeometry;
+    const world = {
+      x: Number.isFinite(renderGeometry.x) ? renderGeometry.x : 0,
+      y: Number.isFinite(renderGeometry.y) ? renderGeometry.y : 0,
+      w: Number.isFinite(renderGeometry.w) ? renderGeometry.w : 0,
+      h: Number.isFinite(renderGeometry.h) ? renderGeometry.h : 0,
+    };
+    const scale = effectiveRenderContext.scale;
+    const offsetX = effectiveRenderContext.offsetX;
+    const offsetY = effectiveRenderContext.offsetY;
+    const pixel = {
+      x: world.x * scale + offsetX,
+      y: world.y * scale + offsetY,
+      w: world.w * scale,
+      h: world.h * scale,
+    };
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ml_fp_sample_table_id', sample.id);
+      (window as { __fpSampleTableId?: string }).__fpSampleTableId = sample.id;
+    }
+    console.debug('[FP_PREVIEW_PIXEL_SAMPLE]', {
+      tag: 'FP_PIXEL_SAMPLE',
+      view: 'preview',
+      tableId: sample.id,
+      floorplanIdLike: getFloorplanIdLike(sample),
+      resolvedFloorplanId,
+      effectiveDims,
+      world,
+      pixel,
+      scale,
+      offsetX,
+      offsetY,
+      container: { w: renderMetrics.containerW, h: renderMetrics.containerH },
+      aspectRatio: `${logicalWidth} / ${logicalHeight}`,
+      logicalWidth,
+      logicalHeight,
+      note,
+      mismatchReason: getMismatchReason(sample, resolvedFloorplanId, effectiveDims),
+    });
+    loggedPixelSampleIdRef.current = sample.id;
+  }, [
+    FP_DEBUG,
+    effectiveDims,
+    effectiveRenderContext,
+    logicalHeight,
+    logicalWidth,
+    renderMetrics.containerH,
+    renderMetrics.containerW,
+    visibleTables,
+    resolvedFloorplanId,
+  ]);
   const debugStats = useMemo<DebugStats>(() => {
     const storedWidth = Number(floorplan?.width);
     const storedHeight = Number(floorplan?.height);
@@ -862,14 +1058,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalDims: `${Math.round(logicalWidth)}×${Math.round(logicalHeight)}`,
       logicalDimsSource,
       bg: bgUrl ? (bgFailed ? 'failed' : bgNaturalSize ? 'loaded' : 'loading') : 'missing',
-      bgMode: bgUseTransform ? 'transformed' : 'contain',
+      bgMode: hasBgUrl ? 'scaled' : 'missing',
       bgNatural: bgNaturalSize ? `${bgNaturalSize.w}×${bgNaturalSize.h}` : 'n/a',
       container: `${Math.round(renderMetrics.containerW)}×${Math.round(renderMetrics.containerH)}`,
-      transform: `sx:${effectiveRenderContext.sx.toFixed(4)} sy:${effectiveRenderContext.sy.toFixed(
-        4
-      )} ox:${Math.round(effectiveRenderContext.offsetX)} oy:${Math.round(
-        effectiveRenderContext.offsetY
-      )}`,
+      transform: `scale:${effectiveRenderContext.scale.toFixed(4)} ox:${Math.round(
+        effectiveRenderContext.offsetX
+      )} oy:${Math.round(effectiveRenderContext.offsetY)}`,
       mismatchCount,
       effectiveReady: effectiveRenderContext.effectiveReady,
     };
@@ -877,12 +1071,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     bgFailed,
     bgNaturalSize,
     bgUrl,
-    bgUseTransform,
+    hasBgUrl,
     effectiveRenderContext.effectiveReady,
     effectiveRenderContext.offsetX,
     effectiveRenderContext.offsetY,
-    effectiveRenderContext.sx,
-    effectiveRenderContext.sy,
+    effectiveRenderContext.scale,
     floorplan?.height,
     floorplan?.width,
     logicalDimsSource,
@@ -912,12 +1105,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       logicalWidth > 0 &&
       logicalHeight > 0
     ) {
-      const transform = computeCanonicalFloorplanRenderContext(
+      const transform = getFloorplanRenderContext(
         { width: renderMetrics.containerW, height: renderMetrics.containerH, left: 0, top: 0 },
         logicalWidth,
         logicalHeight
       );
-      if (!Number.isFinite(transform.sx) || transform.sx <= 0) {
+      if (!Number.isFinite(transform.scale) || transform.scale <= 0) {
         reasons.push('transform scale invalid');
       }
     }
@@ -974,14 +1167,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     ? 'loaded'
     : 'missing';
   const contentWidth = effectiveRenderContext.effectiveReady
-    ? Math.round(logicalWidth * effectiveRenderContext.sx)
+    ? Math.round(logicalWidth * effectiveRenderContext.scale)
     : 0;
   const contentHeight = effectiveRenderContext.effectiveReady
-    ? Math.round(logicalHeight * effectiveRenderContext.sy)
+    ? Math.round(logicalHeight * effectiveRenderContext.scale)
     : 0;
   const stageMaxWidth = 900;
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(Math.max(value, min), max);
 
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
@@ -1026,8 +1217,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 {contentWidth}x{contentHeight} | stageMax:{stageMaxWidth} | ready:{' '}
                 {renderContext.ready ? 'yes' : 'no'} off: {renderContext.offsetX.toFixed(1)}/
                 {renderContext.offsetY.toFixed(1)} | logical: {logicalWidth}x
-                {logicalHeight} | sx/sy: {renderContext.sx.toFixed(3)}/
-                {renderContext.sy.toFixed(3)}
+                {logicalHeight} | scale: {renderContext.scale.toFixed(3)}
               </p>
             </>
           )}
@@ -1097,40 +1287,15 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       <div className="w-full mx-auto" style={{ maxWidth: stageMaxWidth }}>
         {mismatchCount > 0 && (
           <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            ⚠️ Asztalok nincsenek migrálva ehhez az alaprajz mérethez ({mismatchCount}).
-            A preview az editorral egyező módon renderel (skálázás nélkül).
+            ⚠️ Eltérő floorplan vagy méret ({mismatchCount}). A preview az editorral egyező
+            módon renderel (átméretezve).
           </div>
         )}
         <div
           ref={containerRef}
           className="relative border border-gray-300 rounded-xl bg-white overflow-hidden shadow-sm"
-          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}`, minHeight: 240 }}
+          style={{ width: '100%', aspectRatio: `${logicalWidth} / ${logicalHeight}` }}
         >
-          {hasBgUrl && (
-            <img
-              src={bgUrl ?? ''}
-              alt={floorplan.name}
-              ref={imageRef}
-              onLoad={() => {
-                const image = imageRef.current;
-                if (!image) return;
-                setBgFailed(false);
-                setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
-              }}
-              onError={() => {
-                setBgFailed(true);
-                setBgNaturalSize(null);
-              }}
-              className="absolute"
-              style={{
-                left: effectiveRenderContext.offsetX,
-                top: effectiveRenderContext.offsetY,
-                width: logicalWidth * effectiveRenderContext.sx,
-                height: logicalHeight * effectiveRenderContext.sy,
-                objectFit: 'contain',
-              }}
-            />
-          )}
           {showDebug && !effectiveRenderContext.effectiveReady && (
             <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-amber-600 bg-white/70">
               Render not ready ({Math.round(renderMetrics.containerW)}x
@@ -1165,104 +1330,129 @@ mode: preview`}
               Nincs megjeleníthető asztal ehhez a floorplanhoz / zónához.
             </div>
           )}
-          {(floorplan.obstacles ?? []).map(obstacle => {
+          <div
+            className="absolute"
+            style={{
+              left: 0,
+              top: 0,
+              transform: `translate(${effectiveRenderContext.offsetX}px, ${effectiveRenderContext.offsetY}px) scale(${effectiveRenderContext.scale})`,
+              transformOrigin: 'top left',
+              width: logicalWidth,
+              height: logicalHeight,
+            }}
+          >
+            {hasBgUrl && (
+              <img
+                src={bgUrl ?? ''}
+                alt={floorplan.name}
+                ref={imageRef}
+                onLoad={() => {
+                  const image = imageRef.current;
+                  if (!image) return;
+                  setBgFailed(false);
+                  setBgNaturalSize({ w: image.naturalWidth, h: image.naturalHeight });
+                }}
+                onError={() => {
+                  setBgFailed(true);
+                  setBgNaturalSize(null);
+                }}
+                className="absolute"
+                style={{
+                  left: 0,
+                  top: 0,
+                  width: logicalWidth,
+                  height: logicalHeight,
+                }}
+              />
+            )}
+            {(floorplan.obstacles ?? []).map(obstacle => {
               const ox = safeNum(obstacle.x, 0);
               const oy = safeNum(obstacle.y, 0);
               const ow = safeNum(obstacle.w, 0);
               const oh = safeNum(obstacle.h, 0);
               const orot = safeNum(obstacle.rot ?? 0, 0);
-              const finalW = Math.max(20, Math.max(0, ow));
-              const finalH = Math.max(20, Math.max(0, oh));
-              const maxX = Math.max(0, logicalWidth - finalW);
-              const maxY = Math.max(0, logicalHeight - finalH);
-              const obstacleX = clamp(ox, 0, maxX);
-              const obstacleY = clamp(oy, 0, maxY);
-              const obstacleW = finalW;
-              const obstacleH = finalH;
               return (
                 <div
                   key={obstacle.id}
                   className="absolute border border-dashed border-gray-300 bg-gray-200/30"
                   style={{
-                    left: effectiveRenderContext.offsetX + obstacleX * effectiveRenderContext.sx,
-                    top: effectiveRenderContext.offsetY + obstacleY * effectiveRenderContext.sy,
-                    width: obstacleW * effectiveRenderContext.sx,
-                    height: obstacleH * effectiveRenderContext.sy,
+                    left: ox,
+                    top: oy,
+                    width: ow,
+                    height: oh,
                     transform: `rotate(${orot}deg)`,
                   }}
                 />
               );
             })}
-          {visibleTables.map(table => {
-            const geometry = normalizeTableGeometry(table);
-            const tx = safeNum(geometry.x, 0);
-            const ty = safeNum(geometry.y, 0);
-            const twRaw = safeNum(geometry.w, 0);
-            const thRaw = safeNum(geometry.h, 0);
-            const trot = safeNum(table.rot, 0);
-            const tradius = safeNum(geometry.radius, 0);
-            const tableWidth = Math.max(0, twRaw);
-            const tableHeight = Math.max(0, thRaw);
-            const maxX = Math.max(0, logicalWidth - tableWidth);
-            const maxY = Math.max(0, logicalHeight - tableHeight);
-            const left = effectiveRenderContext.offsetX + clamp(
-              tx,
-              0,
-              maxX
-            ) * effectiveRenderContext.sx;
-            const top = effectiveRenderContext.offsetY + clamp(
-              ty,
-              0,
-              maxY
-            ) * effectiveRenderContext.sy;
-            const rotation = trot;
-            const circleRadius = Math.max(0, tradius) || Math.min(tableWidth, tableHeight) / 2;
-            const status = tableStatusById.get(table.id) ?? 'free';
-            const isSelected = selectedAssignedTableIds.has(table.id);
-            const hasConflict = conflictTableIds.has(table.id);
-            const isRecommended = !isSelected && recommendedTableIds.has(table.id);
-            const isBlocked =
-              blockedForSelectedTableIds.has(table.id) &&
-              !isSelected &&
-              status !== 'occupied';
+            {visibleTables.map(table => {
+              const baseGeometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
+              const fromDimsRaw = coerceDims(table.floorplanRef);
+              const fromDims =
+                fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+                  ? fromDimsRaw
+                  : null;
+              const renderGeometry =
+                fromDims &&
+                (fromDims.width !== effectiveDims.width ||
+                  fromDims.height !== effectiveDims.height)
+                  ? normalizeTableGeometryToFloorplan(baseGeometry, fromDims, effectiveDims)
+                  : baseGeometry;
+              const tx = safeNum(renderGeometry.x, 0);
+              const ty = safeNum(renderGeometry.y, 0);
+              const twRaw = Math.max(0, safeNum(renderGeometry.w, 0));
+              const thRaw = Math.max(0, safeNum(renderGeometry.h, 0));
+              const trot = safeNum(table.rot, 0);
+              const tradius = safeNum(renderGeometry.radius, 0);
+              const rotation = trot;
+              const circleRadius = tradius || Math.min(twRaw, thRaw) / 2;
+              const status = tableStatusById.get(table.id) ?? 'free';
+              const isSelected = selectedAssignedTableIds.has(table.id);
+              const hasConflict = conflictTableIds.has(table.id);
+              const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+              const isBlocked =
+                blockedForSelectedTableIds.has(table.id) &&
+                !isSelected &&
+                status !== 'occupied';
 
-            return (
-              <div
-                key={table.id}
-                className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
-                  isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-                }`}
-                style={{
-                  left,
-                  top,
-                  width: tableWidth * effectiveRenderContext.sx,
-                  height: tableHeight * effectiveRenderContext.sy,
-                  borderRadius: table.shape === 'circle' ? circleRadius : 8,
-                  border: '2px solid rgba(148, 163, 184, 0.6)',
-                  backgroundColor: renderStatusColor(status),
-                  transform: `rotate(${rotation}deg)`,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                  opacity: isBlocked ? 0.55 : undefined,
-                  outline: isRecommended
-                    ? '2px dashed rgba(251, 191, 36, 0.9)'
-                    : undefined,
-                  outlineOffset: isRecommended ? 2 : undefined,
-                }}
-              >
-                <span>{table.name}</span>
-                {table.capacityMax && (
-                  <span className="text-[9px] text-gray-500">
-                    max {table.capacityMax}
-                  </span>
-                )}
-                {hasConflict && (
-                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
-                    !
-                  </span>
-                )}
-              </div>
-            );
-          })}
+              return (
+                <div
+                  key={table.id}
+                  className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
+                    isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                  }`}
+                  style={{
+                    left: tx,
+                    top: ty,
+                    width: twRaw,
+                    height: thRaw,
+                    borderRadius: table.shape === 'circle' ? circleRadius : 8,
+                    border: '2px solid rgba(148, 163, 184, 0.6)',
+                    backgroundColor: renderStatusColor(status),
+                    transform: `rotate(${rotation}deg)`,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                    opacity: isBlocked ? 0.55 : undefined,
+                    outline: isRecommended
+                      ? '2px dashed rgba(251, 191, 36, 0.9)'
+                      : undefined,
+                    outlineOffset: isRecommended ? 2 : undefined,
+                  }}
+                >
+                  <span>{table.name}</span>
+                  {table.capacityMax && (
+                    <span className="text-[9px] text-gray-500">
+                      max {table.capacityMax}
+                    </span>
+                  )}
+                  {hasConflict && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
+                      !
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

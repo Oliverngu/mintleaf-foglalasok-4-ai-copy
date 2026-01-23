@@ -33,7 +33,9 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import {
+  DEFAULT_TABLE_GEOMETRY,
   TableGeometry,
+  getMissingFloorplanRefUpdates,
   isPlaceholderFloorplanDims,
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
@@ -44,7 +46,7 @@ import {
   computeFloorplanTransformFromRect,
   FloorplanTransform,
 } from '../../../core/utils/seatingFloorplanTransform';
-import { computeCanonicalFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
+import { getFloorplanRenderContext } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
@@ -110,6 +112,55 @@ const weekdays = [
   { value: 5, label: 'Péntek' },
   { value: 6, label: 'Szombat' },
 ];
+
+const getFloorplanIdLike = (value: unknown) => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const candidate =
+    record.floorplanId ??
+    record.floorplanRefId ??
+    record.floorplanUid ??
+    record.floorplanUID;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+};
+
+const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
+  const width = Number(ref?.width);
+  const height = Number(ref?.height);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width >= 10000 ||
+    height >= 10000
+  ) {
+    return null;
+  }
+  return { width, height };
+};
+
+const getMismatchReasonEditor = (
+  table: Table,
+  resolvedFloorplanId: string | null,
+  dims: { width: number; height: number }
+): 'OK' | 'FLOORPLAN_ID_MISMATCH' | 'DIMS_MISMATCH' => {
+  if (!resolvedFloorplanId) {
+    return 'OK';
+  }
+  const tableFloorplanId = getFloorplanIdLike(table);
+  if (tableFloorplanId && tableFloorplanId !== resolvedFloorplanId) {
+    return 'FLOORPLAN_ID_MISMATCH';
+  }
+  const floorplanRef = coerceDims(table.floorplanRef);
+  if (!floorplanRef) {
+    return 'OK';
+  }
+  if (floorplanRef.width !== dims.width || floorplanRef.height !== dims.height) {
+    return 'DIMS_MISMATCH';
+  }
+  return 'OK';
+};
 
 const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onClose }) => {
   const [settings, setSettings] = useState<SeatingSettings | null>(null);
@@ -209,7 +260,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const debugSeating =
     isDev ||
     (typeof window !== 'undefined' &&
-      window.localStorage.getItem('mintleaf_debug_seating') === '1');
+      (window.localStorage.getItem('mintleaf_debug_seating') === '1' ||
+        window.localStorage.getItem('ml_fp_debug') === '1'));
+  const FP_DEBUG = debugSeating;
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
@@ -221,6 +274,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
+  const loggedEditorSampleIdRef = useRef<string | null>(null);
   const lastDragComputedBoundsRef = useRef<{
     minX: number;
     minY: number;
@@ -517,11 +571,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
     const normalizedTables = tables.slice(0, 3).map(table => ({
       id: table.id,
-      ...normalizeTableGeometry(table, {
-        rectWidth: 80,
-        rectHeight: 60,
-        circleRadius: 40,
-      }),
+      ...normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY),
     }));
     console.debug('[seating] normalized geometry snapshot', {
       floorplans: normalizedFloorplans,
@@ -2260,6 +2310,43 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setMigrationRunning(false);
   };
 
+  const handleFixLegacyFloorplanRefs = async () => {
+    if (!activeFloorplan) {
+      setError('Hiányzó aktív alaprajz.');
+      return;
+    }
+    if (isPlaceholderFloorplanDims(floorplanW, floorplanH)) {
+      setError('Az aktív alaprajz mérete nincs beállítva.');
+      return;
+    }
+    const updates = getMissingFloorplanRefUpdates(editorTables, {
+      width: floorplanW,
+      height: floorplanH,
+    });
+    if (updates.length === 0) {
+      setSuccess('Nincs frissítendő asztal.');
+      return;
+    }
+    await runAction({
+      key: `fix-floorplan-ref-${activeFloorplan.id}`,
+      errorMessage: 'Nem sikerült frissíteni a legacy floorplanRef mezőket.',
+      errorContext: 'Error fixing legacy floorplan refs:',
+      successMessage: `Legacy floorplanRef frissítve (${updates.length}).`,
+      action: async () => {
+        const concurrency = 10;
+        for (let i = 0; i < updates.length; i += concurrency) {
+          const slice = updates.slice(i, i + concurrency);
+          await Promise.all(
+            slice.map(item =>
+              updateTable(unitId, item.id, { floorplanRef: item.floorplanRef })
+            )
+          );
+        }
+        setTables(await listTables(unitId));
+      },
+    });
+  };
+
   const sanitizeCapacityValue = (value: number) =>
     Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 
@@ -2486,14 +2573,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (now - lastViewportLogRef.current < 500) {
         return;
       }
-      const transform = computeCanonicalFloorplanRenderContext(
-        nextRect,
-        floorplanW,
-        floorplanH
-      );
+      const transform = getFloorplanRenderContext(nextRect, floorplanW, floorplanH);
       console.debug('[seating] viewport measure', {
         rect: nextRect,
-        scale: transform.sx,
+        scale: transform.scale,
       });
       lastViewportLogRef.current = now;
     } catch (error) {
@@ -2549,15 +2632,128 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
   }, [scheduleViewportMeasure]);
 
-  const floorplanRenderContext = useMemo(
-    () =>
-      computeCanonicalFloorplanRenderContext(
-        floorplanViewportRect,
-        floorplanW,
-        floorplanH
+  const floorplanRenderContext = useMemo(() => {
+    const context = getFloorplanRenderContext(floorplanViewportRect, floorplanW, floorplanH);
+    return {
+      sx: context.scale,
+      sy: context.scale,
+      offsetX: context.offsetX,
+      offsetY: context.offsetY,
+      ready: context.ready,
+    };
+  }, [floorplanViewportRect, floorplanH, floorplanW]);
+  useEffect(() => {
+    if (!FP_DEBUG) {
+      return;
+    }
+    if (!floorplanRenderContext.ready || editorTables.length === 0) {
+      return;
+    }
+    let note = 'fallback:firstTable';
+    let sample: Table | undefined;
+    let querySampleId: string | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const candidate = qs.get('fpsample');
+        if (candidate) {
+          querySampleId = candidate.trim() || null;
+        }
+      } catch (error) {
+        console.debug('[FP_EDITOR_PIXEL_SAMPLE] fpsample query read failed', error);
+      }
+    }
+    if (querySampleId) {
+      sample = editorTables.find(table => table.id === querySampleId);
+      if (sample) {
+        note = 'sample:query';
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const storedSampleId = window.localStorage.getItem('ml_fp_sample_table_id');
+      if (storedSampleId) {
+        sample = editorTables.find(table => table.id === storedSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:stored';
+        }
+      }
+    }
+    if (!sample && typeof window !== 'undefined') {
+      const windowSampleId = (window as { __fpSampleTableId?: string }).__fpSampleTableId;
+      if (windowSampleId) {
+        sample = editorTables.find(table => table.id === windowSampleId) ?? undefined;
+        if (sample) {
+          note = 'sample:window';
+        }
+      }
+    }
+    if (!sample) {
+      sample = editorTables[0];
+    }
+    if (!sample) {
+      return;
+    }
+    if (loggedEditorSampleIdRef.current === sample.id) {
+      return;
+    }
+    const geometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
+    const position = getRenderPosition(sample, geometry);
+    const world = {
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    };
+    const scale = floorplanRenderContext.sx;
+    const offsetX = floorplanRenderContext.offsetX;
+    const offsetY = floorplanRenderContext.offsetY;
+    const pixel = {
+      x: world.x * scale + offsetX,
+      y: world.y * scale + offsetY,
+      w: world.w * scale,
+      h: world.h * scale,
+    };
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ml_fp_sample_table_id', sample.id);
+      (window as { __fpSampleTableId?: string }).__fpSampleTableId = sample.id;
+    }
+    console.debug('[FP_EDITOR_PIXEL_SAMPLE]', {
+      tag: 'FP_PIXEL_SAMPLE',
+      view: 'editor',
+      tableId: sample.id,
+      floorplanIdLike: getFloorplanIdLike(sample),
+      resolvedFloorplanId: resolvedActiveFloorplanId ?? null,
+      effectiveDims: { width: floorplanW, height: floorplanH },
+      world,
+      pixel,
+      scale,
+      offsetX,
+      offsetY,
+      container: {
+        w: floorplanViewportRect.width,
+        h: floorplanViewportRect.height,
+      },
+      aspectRatio: `${floorplanW} / ${floorplanH}`,
+      logicalWidth: floorplanW,
+      logicalHeight: floorplanH,
+      note,
+      mismatchReasonEditor: getMismatchReasonEditor(
+        sample,
+        resolvedActiveFloorplanId ?? null,
+        { width: floorplanW, height: floorplanH }
       ),
-    [floorplanViewportRect, floorplanH, floorplanW]
-  );
+    });
+    loggedEditorSampleIdRef.current = sample.id;
+  }, [
+    FP_DEBUG,
+    editorTables,
+    floorplanRenderContext,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
+    floorplanW,
+    floorplanH,
+    resolvedActiveFloorplanId,
+  ]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -4687,11 +4883,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   type="button"
                   onClick={() =>
                     (() => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
                       setTableForm({
                         id: table.id,
                         name: table.name,
@@ -5372,11 +5564,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       );
                     })}
                     {editorTables.map(table => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
                       const position = getRenderPosition(table, geometry);
                       const renderRot = draftRotations[table.id] ?? geometry.rot;
                       const isSelected = selectedTableId === table.id;
@@ -6014,16 +6202,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           Legacy geometria észlelve ({legacyCount} asztal). A táblák migrálása szükséges a
           kanonikus koordinátarendszerhez.
           {canEditFloorplan && (
-            <button
-              type="button"
-              onClick={() => {
-                setMigrationError(null);
-                setShowMigrationModal(true);
-              }}
-              className="ml-3 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
-            >
-              Legacy migráció
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMigrationError(null);
+                  setShowMigrationModal(true);
+                }}
+                className="ml-3 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+              >
+                Legacy migráció
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFixLegacyFloorplanRefs()}
+                className="ml-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+              >
+                Fix legacy floorplanRef
+              </button>
+            </>
           )}
         </div>
       )}
