@@ -44,6 +44,7 @@ import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 import FloorplanViewportCanvas from './seating/FloorplanViewportCanvas';
+import FloorplanWorldLayer from './seating/FloorplanWorldLayer';
 import { useViewportRect } from '../../hooks/useViewportRect';
 
 const COLLISION_EPS = 0.5;
@@ -223,6 +224,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
+  const [viewZoneId, setViewZoneId] = useState<string | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
@@ -811,6 +813,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return matchesFloorplan && table.isActive !== false;
     });
   }, [activeFloorplan, tables]);
+  const viewZones = useMemo(() => zones.filter(zone => zone.isActive !== false), [zones]);
+  useEffect(() => {
+    if (viewZoneId === null) {
+      return;
+    }
+    if (!viewZones.some(zone => zone.id === viewZoneId)) {
+      setViewZoneId(null);
+    }
+  }, [viewZoneId, viewZones]);
+  const viewTables = useMemo(() => {
+    if (!viewZoneId) return editorTables;
+    return editorTables.filter(table => table.zoneId === viewZoneId);
+  }, [editorTables, viewZoneId]);
 
   const activeObstacles = useMemo(
     () => activeFloorplan?.obstacles ?? [],
@@ -2153,8 +2168,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
+  const debugTableSource = isEditMode ? editorTables : viewTables;
   const debugRawGeometry = useMemo(() => {
-    const table = editorTables[0];
+    const table = debugTableSource[0];
     if (!table) return null;
     const geometry = normalizeTableGeometry(table);
     return {
@@ -2165,13 +2181,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       h: geometry.h,
       rot: geometry.rot,
     };
-  }, [editorTables]);
+  }, [debugTableSource]);
   const normalizedDetected = useMemo(
     () => (debugRawGeometry ? looksNormalized(debugRawGeometry, floorplanDims) : false),
     [debugRawGeometry, floorplanDims]
   );
   const sampleTableGeometry = useMemo(() => {
-    const table = editorTables[0];
+    const table = debugTableSource[0];
     if (!table) return null;
     const geometry = resolveTableGeometryInFloorplanSpace(
       table,
@@ -2186,9 +2202,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       h: geometry.h,
       rot: geometry.rot,
     };
-  }, [editorTables, floorplanDims]);
+  }, [debugTableSource, floorplanDims]);
   const sampleTableRender = useMemo(() => {
-    const table = editorTables[0];
+    const table = debugTableSource[0];
     if (!table) return null;
     const geometry = resolveTableGeometryInFloorplanSpace(
       table,
@@ -2209,10 +2225,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       h: geometry.h,
       rot,
     };
-  }, [draftPositions, draftRotations, editorTables, floorplanDims, isEditMode]);
+  }, [debugTableSource, draftPositions, draftRotations, floorplanDims, isEditMode]);
   const debugTableRows = useMemo(
     () =>
-      editorTables.slice(0, 5).map(table => {
+      debugTableSource.slice(0, 5).map(table => {
         const raw = normalizeTableGeometry(table);
         const floor = resolveTableGeometryInFloorplanSpace(
           table,
@@ -2226,7 +2242,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           floor,
         };
       }),
-    [editorTables, floorplanDims]
+    [debugTableSource, floorplanDims]
+  );
+  const paritySig = useMemo(
+    () =>
+      debugTableSource
+        .slice(0, 5)
+        .map(table => {
+          const geometry = resolveTableGeometryInFloorplanSpace(
+            table,
+            floorplanDims,
+            TABLE_GEOMETRY_DEFAULTS
+          );
+          const position = resolveTableRenderPosition(geometry, floorplanDims);
+          return `${table.id}:${position.x.toFixed(1)},${position.y.toFixed(1)},${geometry.w.toFixed(
+            1
+          )},${geometry.h.toFixed(1)},${geometry.rot.toFixed(1)}`;
+        })
+        .join('|'),
+    [debugTableSource, floorplanDims]
   );
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
@@ -4890,6 +4924,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </div>
                     <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
                     <div>grid mounted: {gridLayerRef.current ? 'yes' : 'no'}</div>
+                    <div>paritySig: {paritySig || 'n/a'}</div>
                     {debugRawGeometry && (
                       <div>
                         raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
@@ -5389,120 +5424,109 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </div>
               </div>
             ) : (
-              <FloorplanViewportCanvas
-                floorplanDims={floorplanDims}
-                debugEnabled={debugEnabled}
-                viewportDeps={[resolvedActiveFloorplanId]}
-                debugOverlay={context => (
-                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-                    <div>
-                      dims: {Math.round(context.floorplanDims.width)}×
-                      {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
-                    </div>
-                    <div>
-                      viewport: {Math.round(context.viewportRect.width)}×
-                      {Math.round(context.viewportRect.height)}
-                    </div>
-                    <div>
-                      scale: {context.transform.scale.toFixed(3)} | offset:{' '}
-                      {context.transform.offsetX.toFixed(1)},{' '}
-                      {context.transform.offsetY.toFixed(1)} | ready:{' '}
-                      {context.transform.ready ? 'yes' : 'no'}
-                    </div>
-                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-                    <div>mode: view</div>
-                    {debugRawGeometry && (
-                      <div>
-                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                        {debugRawGeometry.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {sampleTableGeometry && (
-                      <div>
-                        floor: {sampleTableGeometry.x.toFixed(1)},
-                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
-                        {sampleTableGeometry.h.toFixed(1)} r
-                        {sampleTableGeometry.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {sampleTableRender && (
-                      <div>
-                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                        {sampleTableRender.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {debugTableRows.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {debugTableRows.map(row => (
-                          <div key={`dbg-view-${row.id}`}>
-                            t:{' '}
-                            {row.name ? `${row.name} ` : ''}
-                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
-                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
-                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
-                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
-                            {row.floor.rot.toFixed(1)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                renderWorld={() => (
-                  <>
-                    {activeObstacles.map(obstacle => (
-                      <div
-                        key={obstacle.id}
-                        className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-                        style={{
-                          left: obstacle.x,
-                          top: obstacle.y,
-                          width: obstacle.w,
-                          height: obstacle.h,
-                          transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                          zIndex: 1,
-                        }}
-                      />
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewZoneId(null)}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                        viewZoneId === null
+                          ? 'bg-[var(--color-primary)] text-white border-transparent'
+                          : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
+                      }`}
+                    >
+                      Összes
+                    </button>
+                    {viewZones.map(zone => (
+                      <button
+                        key={zone.id}
+                        type="button"
+                        onClick={() => setViewZoneId(zone.id)}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                          viewZoneId === zone.id
+                            ? 'bg-[var(--color-primary)] text-white border-transparent'
+                            : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
+                        }`}
+                      >
+                        {zone.name}
+                      </button>
                     ))}
-                    {editorTables.map(table => {
-                      const geometry = resolveTableGeometryInFloorplanSpace(
-                        table,
-                        floorplanDims,
-                        TABLE_GEOMETRY_DEFAULTS
-                      );
-                      const position = resolveTableRenderPosition(geometry, floorplanDims);
-                      return (
-                        <div
-                          key={table.id}
-                          className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none"
-                          style={{
-                            left: position.x,
-                            top: position.y,
-                            width: geometry.w,
-                            height: geometry.h,
-                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                            border: '2px solid rgba(148, 163, 184, 0.6)',
-                            backgroundColor:
-                              'color-mix(in srgb, var(--color-success) 18%, transparent)',
-                            transform: `rotate(${geometry.rot}deg)`,
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                            zIndex: 2,
-                          }}
-                        >
-                          <span>{table.name}</span>
-                          {table.capacityMax && (
-                            <span className="text-[9px] text-gray-500">
-                              max {table.capacityMax}
-                            </span>
-                          )}
+                  </div>
+                </div>
+                <FloorplanViewportCanvas
+                  floorplanDims={floorplanDims}
+                  debugEnabled={debugEnabled}
+                  viewportDeps={[resolvedActiveFloorplanId, viewZoneId]}
+                  debugOverlay={context => (
+                    <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+                      <div>
+                        dims: {Math.round(context.floorplanDims.width)}×
+                        {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
+                      </div>
+                      <div>
+                        viewport: {Math.round(context.viewportRect.width)}×
+                        {Math.round(context.viewportRect.height)}
+                      </div>
+                      <div>
+                        scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+                        {context.transform.offsetX.toFixed(1)},{' '}
+                        {context.transform.offsetY.toFixed(1)} | ready:{' '}
+                        {context.transform.ready ? 'yes' : 'no'}
+                      </div>
+                      <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                      <div>paritySig: {paritySig || 'n/a'}</div>
+                      <div>mode: view</div>
+                      {debugRawGeometry && (
+                        <div>
+                          raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                          {debugRawGeometry.rot.toFixed(1)}
                         </div>
-                      );
-                    })}
-                  </>
-                )}
-              />
+                      )}
+                      {sampleTableGeometry && (
+                        <div>
+                          floor: {sampleTableGeometry.x.toFixed(1)},
+                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                          {sampleTableGeometry.h.toFixed(1)} r
+                          {sampleTableGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableRender && (
+                        <div>
+                          render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                          {sampleTableRender.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {debugTableRows.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {debugTableRows.map(row => (
+                            <div key={`dbg-view-${row.id}`}>
+                              t:{' '}
+                              {row.name ? `${row.name} ` : ''}
+                              {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
+                              {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
+                              {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
+                              {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
+                              {row.floor.rot.toFixed(1)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  renderWorld={() => (
+                    <FloorplanWorldLayer
+                      tables={viewTables}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      appearance={{ showCapacity: true }}
+                    />
+                  )}
+                />
+              </div>
             )}
           </div>
         )}
