@@ -69,6 +69,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
   const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportRetryRafRef = useRef<number | null>(null);
+  const viewportRetryCountRef = useRef(0);
   const [floorplanViewportRect, setFloorplanViewportRect] = useState({
     width: 0,
     height: 0,
@@ -313,6 +315,37 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [measureViewport]);
 
   useLayoutEffect(() => {
+    viewportRetryCountRef.current = 0;
+    if (viewportRetryRafRef.current !== null) {
+      cancelAnimationFrame(viewportRetryRafRef.current);
+    }
+    const retryMeasure = () => {
+      const node = floorplanViewportRef.current;
+      const width = node?.clientWidth ?? 0;
+      const height = node?.clientHeight ?? 0;
+      if (width > 0 && height > 0) {
+        updateViewportRect(width, height);
+        viewportRetryRafRef.current = null;
+        return;
+      }
+      viewportRetryCountRef.current += 1;
+      if (viewportRetryCountRef.current >= 10) {
+        updateViewportRect(width, height);
+        viewportRetryRafRef.current = null;
+        return;
+      }
+      viewportRetryRafRef.current = requestAnimationFrame(retryMeasure);
+    };
+    viewportRetryRafRef.current = requestAnimationFrame(retryMeasure);
+    return () => {
+      if (viewportRetryRafRef.current !== null) {
+        cancelAnimationFrame(viewportRetryRafRef.current);
+        viewportRetryRafRef.current = null;
+      }
+    };
+  }, [floorplan?.id, updateViewportRect]);
+
+  useLayoutEffect(() => {
     const node = floorplanViewportRef.current;
     if (!node || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(entries => {
@@ -324,6 +357,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     observer.observe(node);
     return () => observer.disconnect();
   }, [updateViewportRect]);
+
+  useEffect(() => {
+    const handleResize = () => measureViewport();
+    const handleOrientationChange = () => measureViewport();
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleOrientationChange, {
+      passive: true,
+    });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+    };
+  }, [measureViewport]);
 
   useEffect(() => {
     if (!debugEnabled) {
