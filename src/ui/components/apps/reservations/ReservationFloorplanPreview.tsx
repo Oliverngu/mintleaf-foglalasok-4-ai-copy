@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -27,6 +27,13 @@ type ReservationFloorplanPreviewProps = {
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
+type FloorplanTransform = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  rectWidth: number;
+  rectHeight: number;
+};
 
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -45,6 +52,14 @@ const toBucketKey = (date: Date, bucketMinutes: number) => {
   return `${hours}:${minutes}`;
 };
 
+const GRID_SPACING = 24;
+const gridBackgroundStyle: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.45) 1px, transparent 1px)',
+  backgroundSize: `${GRID_SPACING}px ${GRID_SPACING}px`,
+  backgroundPosition: '0 0',
+};
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -60,6 +75,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
+  const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
+  const [floorplanViewportRect, setFloorplanViewportRect] = useState({
+    width: 0,
+    height: 0,
+    left: 0,
+    top: 0,
+  });
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -186,6 +208,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (booking.zoneId === activeZoneId) return;
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
+
+  const measureViewport = useMemo(
+    () => () => {
+      const rect = floorplanViewportRef.current?.getBoundingClientRect();
+      setFloorplanViewportRect({
+        width: rect?.width ?? 0,
+        height: rect?.height ?? 0,
+        left: rect?.left ?? 0,
+        top: rect?.top ?? 0,
+      });
+    },
+    []
+  );
+
+  useLayoutEffect(() => {
+    measureViewport();
+  }, [measureViewport]);
+
+  useLayoutEffect(() => {
+    const node = floorplanViewportRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureViewport());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [measureViewport]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -454,6 +501,39 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     normalizeFloorplanDimensions(floorplan);
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
+  const computeFloorplanTransformFromRect = (
+    rect: { width: number; height: number; left?: number; top?: number },
+    width: number,
+    height: number
+  ): FloorplanTransform => {
+    const rectWidth = rect?.width ?? 0;
+    const rectHeight = rect?.height ?? 0;
+    if (rectWidth <= 0 || rectHeight <= 0) {
+      return {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        rectWidth: 0,
+        rectHeight: 0,
+      };
+    }
+    const rawScale = Math.min(rectWidth / width, rectHeight / height);
+    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+    const offsetX = (rectWidth - width * scale) / 2;
+    const offsetY = (rectHeight - height * scale) / 2;
+    return {
+      scale,
+      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
+      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
+      rectWidth,
+      rectHeight,
+    };
+  };
+  const floorplanRenderTransform = useMemo(
+    () =>
+      computeFloorplanTransformFromRect(floorplanViewportRect, floorplanWidth, floorplanHeight),
+    [floorplanViewportRect, floorplanHeight, floorplanWidth]
+  );
 
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
@@ -538,79 +618,96 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="overflow-auto">
+      <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
         <div
-          className="relative border border-gray-200 rounded-xl bg-white/80"
-          style={{ width: floorplanWidth, height: floorplanHeight }}
+          ref={floorplanViewportRef}
+          className="relative h-full w-full border border-gray-200 rounded-xl bg-white/80"
         >
-          {floorplan.backgroundImageUrl && (
-            <img
-              src={floorplan.backgroundImageUrl}
-              alt={floorplan.name}
-              className="absolute inset-0 w-full h-full object-contain"
-            />
-          )}
-          {(floorplan.obstacles ?? []).map(obstacle => (
+          <div
+            className="absolute inset-0"
+            style={{
+              transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+              transformOrigin: 'top left',
+            }}
+          >
             <div
-              key={obstacle.id}
-              className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-              style={{
-                left: obstacle.x,
-                top: obstacle.y,
-                width: obstacle.w,
-                height: obstacle.h,
-                transform: `rotate(${obstacle.rot ?? 0}deg)`,
-              }}
-            />
-          ))}
-          {visibleTables.map(table => {
-            const geometry = normalizeTableGeometry(table);
-            const maxX = Math.max(0, floorplanWidth - geometry.w);
-            const maxY = Math.max(0, floorplanHeight - geometry.h);
-            const left = clamp(geometry.x, 0, maxX);
-            const top = clamp(geometry.y, 0, maxY);
-            const rotation = geometry.rot;
-            const status = tableStatusById.get(table.id) ?? 'free';
-            const isSelected = selectedAssignedTableIds.has(table.id);
-            const hasConflict = conflictTableIds.has(table.id);
-            const isRecommended = !isSelected && recommendedTableIds.has(table.id);
-
-            return (
+              className="relative"
+              style={{ width: floorplanWidth, height: floorplanHeight }}
+            >
               <div
-                key={table.id}
-                className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
-                  isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-                }`}
+                className="absolute inset-0 pointer-events-none"
                 style={{
-                  left,
-                  top,
-                  width: geometry.w,
-                  height: geometry.h,
-                  borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                  border: '2px solid rgba(148, 163, 184, 0.6)',
-                  backgroundColor: renderStatusColor(status),
-                  transform: `rotate(${rotation}deg)`,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                  outline: isRecommended
-                    ? '2px dashed rgba(251, 191, 36, 0.9)'
-                    : undefined,
-                  outlineOffset: isRecommended ? 2 : undefined,
+                  width: floorplanWidth,
+                  height: floorplanHeight,
+                  zIndex: 0,
+                  ...gridBackgroundStyle,
                 }}
-              >
-                <span>{table.name}</span>
-                {table.capacityMax && (
-                  <span className="text-[9px] text-gray-500">
-                    max {table.capacityMax}
-                  </span>
-                )}
-                {hasConflict && (
-                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
-                    !
-                  </span>
-                )}
-              </div>
-            );
-          })}
+              />
+              {(floorplan.obstacles ?? []).map(obstacle => (
+                <div
+                  key={obstacle.id}
+                  className="absolute border border-dashed border-gray-300 bg-gray-200/40"
+                  style={{
+                    left: obstacle.x,
+                    top: obstacle.y,
+                    width: obstacle.w,
+                    height: obstacle.h,
+                    transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                    zIndex: 1,
+                  }}
+                />
+              ))}
+              {visibleTables.map(table => {
+                const geometry = normalizeTableGeometry(table);
+                const maxX = Math.max(0, floorplanWidth - geometry.w);
+                const maxY = Math.max(0, floorplanHeight - geometry.h);
+                const left = clamp(geometry.x, 0, maxX);
+                const top = clamp(geometry.y, 0, maxY);
+                const rotation = geometry.rot;
+                const status = tableStatusById.get(table.id) ?? 'free';
+                const isSelected = selectedAssignedTableIds.has(table.id);
+                const hasConflict = conflictTableIds.has(table.id);
+                const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+
+                return (
+                  <div
+                    key={table.id}
+                    className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
+                      isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                    }`}
+                    style={{
+                      left,
+                      top,
+                      width: geometry.w,
+                      height: geometry.h,
+                      borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                      border: '2px solid rgba(148, 163, 184, 0.6)',
+                      backgroundColor: renderStatusColor(status),
+                      transform: `rotate(${rotation}deg)`,
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                      outline: isRecommended
+                        ? '2px dashed rgba(251, 191, 36, 0.9)'
+                        : undefined,
+                      outlineOffset: isRecommended ? 2 : undefined,
+                      zIndex: 2,
+                    }}
+                  >
+                    <span>{table.name}</span>
+                    {table.capacityMax && (
+                      <span className="text-[9px] text-gray-500">
+                        max {table.capacityMax}
+                      </span>
+                    )}
+                    {hasConflict && (
+                      <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
+                        !
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -38,6 +38,13 @@ import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 
 const COLLISION_EPS = 0.5;
+const GRID_SPACING = 24;
+const gridBackgroundStyle: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.45) 1px, transparent 1px)',
+  backgroundSize: `${GRID_SPACING}px ${GRID_SPACING}px`,
+  backgroundPosition: '0 0',
+};
 
 function rectIntersectEps(
   a: { x: number; y: number; w: number; h: number },
@@ -342,8 +349,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }) => void
   >(() => {});
   const floorplanModeRef = useRef(floorplanMode);
-  const bgImgRef = useRef<HTMLImageElement | null>(null);
-  const prevBgUrlRef = useRef<string | null>(null);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
@@ -412,7 +417,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
-  const [bgNatural, setBgNatural] = useState<{ w: number; h: number } | null>(null);
   const [floorplanForm, setFloorplanForm] = useState<{
     id?: string;
     name: string;
@@ -772,20 +776,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => floorplans.find(plan => plan.id === resolvedActiveFloorplanId) ?? null,
     [floorplans, resolvedActiveFloorplanId]
   );
-
-  useEffect(() => {
-    const url = activeFloorplan?.backgroundImageUrl ?? null;
-    if (prevBgUrlRef.current !== url) {
-      prevBgUrlRef.current = url;
-      setBgNatural(null);
-    }
-    if (bgImgRef.current?.complete && bgImgRef.current.naturalWidth) {
-      setBgNatural({
-        w: bgImgRef.current.naturalWidth,
-        h: bgImgRef.current.naturalHeight,
-      });
-    }
-  }, [activeFloorplan?.backgroundImageUrl]);
 
   // Keep this after resolvedActiveFloorplanId to avoid TDZ in minified builds.
   useEffect(() => {
@@ -4870,6 +4860,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
                     style={{ width: floorplanW, height: floorplanH }}
                   >
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        width: floorplanW,
+                        height: floorplanH,
+                        zIndex: 0,
+                        ...gridBackgroundStyle,
+                      }}
+                    />
                     {debugSeating && (
                       <>
                         {lastDragBlockReason && (
@@ -4950,23 +4949,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           )}
                         </div>
                       </>
-                    )}
-                    {activeFloorplan.backgroundImageUrl && (
-                      <img
-                        src={activeFloorplan.backgroundImageUrl}
-                        alt={activeFloorplan.name}
-                        ref={bgImgRef}
-                        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                        onLoad={event => {
-                          const target = event.currentTarget;
-                          if (target?.naturalWidth && target.naturalHeight) {
-                            setBgNatural({
-                              w: target.naturalWidth,
-                              h: target.naturalHeight,
-                            });
-                          }
-                        }}
-                      />
                     )}
                     {showObstacleDebug &&
                       activeObstacles.map(obstacle => {
