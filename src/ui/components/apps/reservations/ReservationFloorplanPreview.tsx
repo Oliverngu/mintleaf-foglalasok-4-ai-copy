@@ -20,6 +20,7 @@ import {
 import {
   computeTransformFromViewportRect,
   resolveCanonicalFloorplanDims,
+  resolveTableGeometryInFloorplanSpace,
 } from '../../../../core/utils/seatingFloorplanRender';
 import { useViewportRect } from '../../../hooks/useViewportRect';
 
@@ -50,6 +51,11 @@ const toBucketKey = (date: Date, bucketMinutes: number) => {
 };
 
 const GRID_SPACING = 24;
+const TABLE_GEOMETRY_DEFAULTS = {
+  rectWidth: 80,
+  rectHeight: 60,
+  circleRadius: 40,
+};
 const gridBackgroundStyle: React.CSSProperties = {
   backgroundColor: '#ffffff',
   backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.45) 1px, transparent 1px)',
@@ -255,7 +261,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const sampleTableGeometry = useMemo(() => {
     const table = visibleTables[0];
     if (!table) return null;
-    const geometry = normalizeTableGeometry(table);
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      table,
+      TABLE_GEOMETRY_DEFAULTS
+    );
     return {
       id: table.id,
       x: geometry.x,
@@ -266,33 +275,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     };
   }, [visibleTables]);
 
-  useEffect(() => {
-    if (!debugEnabled) {
-      return;
-    }
-    console.log('[floorplan-preview]', {
-      floorplanDims,
-      viewportDims: {
-        width: floorplanViewportRect.width,
-        height: floorplanViewportRect.height,
-      },
-      scale: floorplanRenderTransform.scale,
-      offsetX: floorplanRenderTransform.offsetX,
-      offsetY: floorplanRenderTransform.offsetY,
-      ready: floorplanRenderTransform.ready,
-      sampleTable: sampleTableGeometry,
-    });
-  }, [
-    debugEnabled,
-    floorplanDims,
-    floorplanRenderTransform.offsetX,
-    floorplanRenderTransform.offsetY,
-    floorplanRenderTransform.ready,
-    floorplanRenderTransform.scale,
-    floorplanViewportRect.height,
-    floorplanViewportRect.width,
-    sampleTableGeometry,
-  ]);
+  const debugRawGeometry = useMemo(() => {
+    const table = visibleTables[0];
+    if (!table) return null;
+    const geometry = normalizeTableGeometry(table);
+    return {
+      id: table.id,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [visibleTables]);
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
@@ -640,6 +635,38 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           ref={floorplanViewportRef}
           className="relative h-full w-full border border-gray-200 rounded-xl bg-white/80"
         >
+          {debugEnabled && (
+            <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+              <div>
+                dims: {Math.round(floorplanDims.width)}×{Math.round(floorplanDims.height)} (
+                {floorplanDims.source})
+              </div>
+              <div>
+                viewport: {Math.round(floorplanViewportRect.width)}×
+                {Math.round(floorplanViewportRect.height)}
+              </div>
+              <div>
+                scale: {floorplanRenderTransform.scale.toFixed(3)} | offset:{' '}
+                {floorplanRenderTransform.offsetX.toFixed(1)},{' '}
+                {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
+                {floorplanRenderTransform.ready ? 'yes' : 'no'}
+              </div>
+              {debugRawGeometry && (
+                <div>
+                  raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                  {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                  {debugRawGeometry.rot.toFixed(1)}
+                </div>
+              )}
+              {sampleTableGeometry && (
+                <div>
+                  floor: {sampleTableGeometry.x.toFixed(1)},{sampleTableGeometry.y.toFixed(1)}{' '}
+                  {sampleTableGeometry.w.toFixed(1)}×{sampleTableGeometry.h.toFixed(1)} r
+                  {sampleTableGeometry.rot.toFixed(1)}
+                </div>
+              )}
+            </div>
+          )}
           <div
             className="absolute inset-0"
             style={{
@@ -675,7 +702,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 />
               ))}
               {visibleTables.map(table => {
-                const geometry = normalizeTableGeometry(table);
+                const geometry = resolveTableGeometryInFloorplanSpace(
+                  table,
+                  TABLE_GEOMETRY_DEFAULTS
+                );
                 const maxX = Math.max(0, floorplanWidth - geometry.w);
                 const maxY = Math.max(0, floorplanHeight - geometry.h);
                 const left = clamp(geometry.x, 0, maxX);

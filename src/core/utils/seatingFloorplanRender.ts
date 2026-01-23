@@ -14,6 +14,12 @@ type ViewportRect = {
   height: number;
 };
 
+type TableGeometryDefaults = {
+  rectWidth?: number;
+  rectHeight?: number;
+  circleRadius?: number;
+};
+
 type FloorplanTransform = {
   scale: number;
   offsetX: number;
@@ -72,6 +78,11 @@ export const resolveCanonicalFloorplanDims = (
 
   return { width: 1, height: 1, source: 'fallback' };
 };
+
+export const resolveTableGeometryInFloorplanSpace = (
+  table: Table,
+  defaults: TableGeometryDefaults = {}
+) => normalizeTableGeometry(table, defaults);
 
 export const computeTransformFromViewportRect = (
   rect: ViewportRect,

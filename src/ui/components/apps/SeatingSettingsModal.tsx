@@ -36,6 +36,7 @@ import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
 import {
   computeTransformFromViewportRect,
   resolveCanonicalFloorplanDims,
+  resolveTableGeometryInFloorplanSpace,
 } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
@@ -44,6 +45,11 @@ import { useViewportRect } from '../../hooks/useViewportRect';
 
 const COLLISION_EPS = 0.5;
 const GRID_SPACING = 24;
+const TABLE_GEOMETRY_DEFAULTS = {
+  rectWidth: 80,
+  rectHeight: 60,
+  circleRadius: 40,
+};
 const gridBackgroundStyle: React.CSSProperties = {
   backgroundColor: '#ffffff',
   backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.45) 1px, transparent 1px)',
@@ -530,11 +536,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
     const normalizedTables = tables.slice(0, 3).map(table => ({
       id: table.id,
-      ...normalizeTableGeometry(table, {
-        rectWidth: 80,
-        rectHeight: 60,
-        circleRadius: 40,
-      }),
+      ...resolveTableGeometryInFloorplanSpace(table, TABLE_GEOMETRY_DEFAULTS),
     }));
     console.debug('[seating] normalized geometry snapshot', {
       floorplans: normalizedFloorplans,
@@ -2160,14 +2162,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
+  const debugRawGeometry = useMemo(() => {
+    const table = editorTables[0];
+    if (!table) return null;
+    const geometry = normalizeTableGeometry(table);
+    return {
+      id: table.id,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [editorTables]);
   const sampleTableGeometry = useMemo(() => {
     const table = editorTables[0];
     if (!table) return null;
-    const geometry = normalizeTableGeometry(table, {
-      rectWidth: 80,
-      rectHeight: 60,
-      circleRadius: 40,
-    });
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      table,
+      TABLE_GEOMETRY_DEFAULTS
+    );
     return {
       id: table.id,
       x: geometry.x,
@@ -2213,42 +2227,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanRenderTransform.rectHeight,
     floorplanRenderTransform.rectWidth,
     floorplanW,
-  ]);
-
-  useEffect(() => {
-    if (!debugEnabled) {
-      return;
-    }
-    console.log('[floorplan-editor]', {
-      floorplanDims,
-      viewportDims: {
-        width: floorplanViewportRect.width,
-        height: floorplanViewportRect.height,
-      },
-      scale: floorplanRenderTransform.scale,
-      offsetX: floorplanRenderTransform.offsetX,
-      offsetY: floorplanRenderTransform.offsetY,
-      ready:
-        floorplanRenderTransform.rectWidth > 0 &&
-        floorplanRenderTransform.rectHeight > 0 &&
-        floorplanW > 0 &&
-        floorplanH > 0,
-      gridLayerMounted: Boolean(gridLayerRef.current),
-      sampleTable: sampleTableGeometry,
-    });
-  }, [
-    debugEnabled,
-    floorplanDims,
-    floorplanH,
-    floorplanRenderTransform.offsetX,
-    floorplanRenderTransform.offsetY,
-    floorplanRenderTransform.rectHeight,
-    floorplanRenderTransform.rectWidth,
-    floorplanRenderTransform.scale,
-    floorplanViewportRect.height,
-    floorplanViewportRect.width,
-    floorplanW,
-    sampleTableGeometry,
   ]);
 
   useEffect(() => {
@@ -4335,11 +4313,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   type="button"
                   onClick={() =>
                     (() => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = resolveTableGeometryInFloorplanSpace(
+                        table,
+                        TABLE_GEOMETRY_DEFAULTS
+                      );
                       setTableForm({
                         id: table.id,
                         name: table.name,
@@ -4827,6 +4804,45 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   floorplanMode === 'edit' ? 'touch-none' : ''
                 }`}
               >
+                {debugEnabled && (
+                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+                    <div>
+                      dims: {Math.round(floorplanDims.width)}×
+                      {Math.round(floorplanDims.height)} ({floorplanDims.source})
+                    </div>
+                    <div>
+                      viewport: {Math.round(floorplanViewportRect.width)}×
+                      {Math.round(floorplanViewportRect.height)}
+                    </div>
+                    <div>
+                      scale: {floorplanRenderTransform.scale.toFixed(3)} | offset:{' '}
+                      {floorplanRenderTransform.offsetX.toFixed(1)},{' '}
+                      {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
+                      {floorplanRenderTransform.rectWidth > 0 &&
+                      floorplanRenderTransform.rectHeight > 0 &&
+                      floorplanW > 0 &&
+                      floorplanH > 0
+                        ? 'yes'
+                        : 'no'}
+                    </div>
+                    <div>grid mounted: {gridLayerRef.current ? 'yes' : 'no'}</div>
+                    {debugRawGeometry && (
+                      <div>
+                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                        {debugRawGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableGeometry && (
+                      <div>
+                        floor: {sampleTableGeometry.x.toFixed(1)},
+                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                        {sampleTableGeometry.h.toFixed(1)} r
+                        {sampleTableGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div
                   className="absolute inset-0"
                   style={{
@@ -5006,11 +5022,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       );
                     })}
                     {editorTables.map(table => {
-                      const geometry = normalizeTableGeometry(table, {
-                        rectWidth: 80,
-                        rectHeight: 60,
-                        circleRadius: 40,
-                      });
+                      const geometry = resolveTableGeometryInFloorplanSpace(
+                        table,
+                        TABLE_GEOMETRY_DEFAULTS
+                      );
                       const position = getRenderPosition(table, geometry);
                       const renderRot = draftRotations[table.id] ?? geometry.rot;
                       const isSelected = selectedTableId === table.id;
