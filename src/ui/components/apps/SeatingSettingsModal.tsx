@@ -242,6 +242,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
   const snapEnabledRef = useRef(snapEnabled);
   const precisionEnabledRef = useRef(precisionEnabled);
+  const viewportZeroLogRef = useRef(false);
   const lastDragComputedBoundsRef = useRef<{
     minX: number;
     minY: number;
@@ -2142,7 +2143,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   const viewportRect = useViewportRect(floorplanViewportRef, {
-    retryFrames: 20,
+    retryFrames: 80,
     deps: [resolvedActiveFloorplanId, floorplanMode],
   });
   const floorplanViewportRect = useMemo(
@@ -2231,6 +2232,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanRenderTransform.rectWidth,
     floorplanW,
   ]);
+
+  useEffect(() => {
+    if (!debugEnabled || viewportZeroLogRef.current) {
+      return;
+    }
+    if (floorplanViewportRect.width > 0 && floorplanViewportRect.height > 0) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      if (viewportZeroLogRef.current) {
+        return;
+      }
+      if (floorplanViewportRect.width > 0 && floorplanViewportRect.height > 0) {
+        return;
+      }
+      viewportZeroLogRef.current = true;
+      console.debug('[floorplan-editor] viewport still zero', {
+        rect: floorplanViewportRect,
+        floorplanDims,
+        mode: floorplanMode,
+      });
+    }, 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [debugEnabled, floorplanDims, floorplanMode, floorplanViewportRect]);
 
   useEffect(() => {
     if (typeof debugSeating === 'undefined' || !debugSeating) {
@@ -4802,12 +4827,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
               )}
             <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
-              <FloorplanSquareViewport
+              <div
                 ref={floorplanViewportRef}
-                className={`block h-full w-full border border-gray-200 rounded-lg bg-gray-50 ${
-                  floorplanMode === 'edit' ? 'touch-none' : ''
-                }`}
+                className="relative h-full w-full min-w-0 min-h-0"
               >
+                <FloorplanSquareViewport
+                  className={`block h-full w-full border border-gray-200 rounded-lg bg-gray-50 ${
+                    floorplanMode === 'edit' ? 'touch-none' : ''
+                  }`}
+                >
                 {debugEnabled && (
                   <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                     <div>
@@ -5304,7 +5332,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     })}
                   </div>
                 </div>
-              </FloorplanSquareViewport>
+                </FloorplanSquareViewport>
+              </div>
             </div>
           </div>
         )}
