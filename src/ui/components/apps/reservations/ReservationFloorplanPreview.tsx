@@ -276,7 +276,26 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       h: geometry.h,
       rot: geometry.rot,
     };
-  }, [visibleTables]);
+  }, [floorplanDims, visibleTables]);
+
+  const sampleTableRender = useMemo(() => {
+    const table = visibleTables[0];
+    if (!table) return null;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      table,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = resolveTableRenderPosition(geometry, floorplanDims);
+    return {
+      id: table.id,
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [floorplanDims, visibleTables]);
 
   const debugRawGeometry = useMemo(() => {
     const table = visibleTables[0];
@@ -669,6 +688,13 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                   floor: {sampleTableGeometry.x.toFixed(1)},{sampleTableGeometry.y.toFixed(1)}{' '}
                   {sampleTableGeometry.w.toFixed(1)}×{sampleTableGeometry.h.toFixed(1)} r
                   {sampleTableGeometry.rot.toFixed(1)}
+                </div>
+              )}
+              {sampleTableRender && (
+                <div>
+                  render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                  {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                  {sampleTableRender.rot.toFixed(1)}
                 </div>
               )}
             </div>

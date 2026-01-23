@@ -88,21 +88,6 @@ function rotatedAabb(x: number, y: number, w: number, h: number, rotDeg: number)
   };
 }
 
-const FloorplanSquareViewport = React.forwardRef<
-  HTMLDivElement,
-  { children: React.ReactNode; className?: string }
->(({ children, className }, ref) => (
-  <div
-    ref={ref}
-    className={`relative w-full aspect-square min-h-[320px] sm:min-h-[420px] overflow-hidden ${
-      className ?? ''
-    }`}
-  >
-    {children}
-  </div>
-));
-FloorplanSquareViewport.displayName = 'FloorplanSquareViewport';
-
 interface SeatingSettingsModalProps {
   unitId: string;
   onClose: () => void;
@@ -820,9 +805,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const editorTables = useMemo(() => {
     if (!activeFloorplan) return [] as Table[];
-    return tables.filter(
-      table => !table.floorplanId || table.floorplanId === activeFloorplan.id
-    );
+    return tables.filter(table => {
+      const matchesFloorplan = !table.floorplanId || table.floorplanId === activeFloorplan.id;
+      return matchesFloorplan && table.isActive !== false;
+    });
   }, [activeFloorplan, tables]);
 
   const activeObstacles = useMemo(
@@ -2059,8 +2045,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const isEditMode = floorplanMode === 'edit';
   const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
-    resolveTableRenderPosition(geometry, floorplanDims, draftPositions[table.id]);
+    resolveTableRenderPosition(
+      geometry,
+      floorplanDims,
+      isEditMode ? draftPositions[table.id] : null
+    );
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
     if (rafPosId.current !== null) {
@@ -2194,7 +2185,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       h: geometry.h,
       rot: geometry.rot,
     };
-  }, [editorTables]);
+  }, [editorTables, floorplanDims]);
+  const sampleTableRender = useMemo(() => {
+    const table = editorTables[0];
+    if (!table) return null;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      table,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = resolveTableRenderPosition(
+      geometry,
+      floorplanDims,
+      isEditMode ? draftPositions[table.id] : null
+    );
+    const rot = (isEditMode ? draftRotations[table.id] : undefined) ?? geometry.rot;
+    return {
+      id: table.id,
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot,
+    };
+  }, [draftPositions, draftRotations, editorTables, floorplanDims, isEditMode]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -4829,13 +4843,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
               <div
                 ref={floorplanViewportRef}
-                className="relative h-full w-full min-w-0 min-h-0"
+                className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
+                  isEditMode ? 'touch-none' : ''
+                }`}
               >
-                <FloorplanSquareViewport
-                  className={`block h-full w-full border border-gray-200 rounded-lg bg-gray-50 ${
-                    floorplanMode === 'edit' ? 'touch-none' : ''
-                  }`}
-                >
                 {debugEnabled && (
                   <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                     <div>
@@ -4872,6 +4883,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
                         {sampleTableGeometry.h.toFixed(1)} r
                         {sampleTableGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableRender && (
+                      <div>
+                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                        {sampleTableRender.rot.toFixed(1)}
                       </div>
                     )}
                   </div>
@@ -5061,7 +5079,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         TABLE_GEOMETRY_DEFAULTS
                       );
                       const position = getRenderPosition(table, geometry);
-                      const renderRot = draftRotations[table.id] ?? geometry.rot;
+                      const renderRot =
+                        (isEditMode ? draftRotations[table.id] : undefined) ?? geometry.rot;
                       const isSelected = selectedTableId === table.id;
                       const isSaving = Boolean(savingById[table.id]);
                       const tableVisualState = getTableVisualState();
@@ -5332,7 +5351,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     })}
                   </div>
                 </div>
-                </FloorplanSquareViewport>
               </div>
             </div>
           </div>
