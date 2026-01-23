@@ -19,8 +19,10 @@ import {
 } from '../../../../core/utils/seatingNormalize';
 import {
   computeTransformFromViewportRect,
+  looksNormalized,
   resolveCanonicalFloorplanDims,
   resolveTableGeometryInFloorplanSpace,
+  resolveTableRenderPosition,
 } from '../../../../core/utils/seatingFloorplanRender';
 import { useViewportRect } from '../../../hooks/useViewportRect';
 
@@ -263,6 +265,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     if (!table) return null;
     const geometry = resolveTableGeometryInFloorplanSpace(
       table,
+      floorplanDims,
       TABLE_GEOMETRY_DEFAULTS
     );
     return {
@@ -288,6 +291,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       rot: geometry.rot,
     };
   }, [visibleTables]);
+  const normalizedDetected = useMemo(
+    () => (debugRawGeometry ? looksNormalized(debugRawGeometry, floorplanDims) : false),
+    [debugRawGeometry, floorplanDims]
+  );
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
@@ -520,8 +527,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       : null;
   const floorplanWidth = floorplanDims.width;
   const floorplanHeight = floorplanDims.height;
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(Math.max(value, min), max);
 
   if (floorplanLoading) {
     return (
@@ -651,6 +656,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
                 {floorplanRenderTransform.ready ? 'yes' : 'no'}
               </div>
+              <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
               {debugRawGeometry && (
                 <div>
                   raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
@@ -704,12 +710,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               {visibleTables.map(table => {
                 const geometry = resolveTableGeometryInFloorplanSpace(
                   table,
+                  floorplanDims,
                   TABLE_GEOMETRY_DEFAULTS
                 );
-                const maxX = Math.max(0, floorplanWidth - geometry.w);
-                const maxY = Math.max(0, floorplanHeight - geometry.h);
-                const left = clamp(geometry.x, 0, maxX);
-                const top = clamp(geometry.y, 0, maxY);
+                const position = resolveTableRenderPosition(geometry, floorplanDims);
+                const left = position.x;
+                const top = position.y;
                 const rotation = geometry.rot;
                 const status = tableStatusById.get(table.id) ?? 'free';
                 const isSelected = selectedAssignedTableIds.has(table.id);

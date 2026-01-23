@@ -20,6 +20,9 @@ type TableGeometryDefaults = {
   circleRadius?: number;
 };
 
+type TableGeometry = ReturnType<typeof normalizeTableGeometry>;
+type GeometryLike = Pick<TableGeometry, 'x' | 'y' | 'w' | 'h'>;
+
 type FloorplanTransform = {
   scale: number;
   offsetX: number;
@@ -27,6 +30,22 @@ type FloorplanTransform = {
   rectWidth: number;
   rectHeight: number;
   ready: boolean;
+};
+
+export const looksNormalized = (
+  geometry: GeometryLike,
+  floorplanDims: { width: number; height: number }
+) => {
+  if (floorplanDims.width <= 10 || floorplanDims.height <= 10) {
+    return false;
+  }
+  const withinNormalizedRange = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1.5;
+  return (
+    withinNormalizedRange(geometry.x) &&
+    withinNormalizedRange(geometry.y) &&
+    withinNormalizedRange(geometry.w) &&
+    withinNormalizedRange(geometry.h)
+  );
 };
 
 export const resolveCanonicalFloorplanDims = (
@@ -81,8 +100,38 @@ export const resolveCanonicalFloorplanDims = (
 
 export const resolveTableGeometryInFloorplanSpace = (
   table: Table,
+  floorplanDims: { width: number; height: number },
   defaults: TableGeometryDefaults = {}
-) => normalizeTableGeometry(table, defaults);
+) => {
+  const geometry = normalizeTableGeometry(table, defaults);
+  if (!looksNormalized(geometry, floorplanDims)) {
+    return geometry;
+  }
+  const scaleRadius = Math.min(floorplanDims.width, floorplanDims.height);
+  return {
+    ...geometry,
+    x: geometry.x * floorplanDims.width,
+    y: geometry.y * floorplanDims.height,
+    w: geometry.w * floorplanDims.width,
+    h: geometry.h * floorplanDims.height,
+    radius: geometry.radius * scaleRadius,
+  };
+};
+
+export const resolveTableRenderPosition = (
+  geometry: TableGeometry,
+  floorplanDims: { width: number; height: number },
+  draft?: { x: number; y: number } | null
+) => {
+  const baseX = draft?.x ?? geometry.x;
+  const baseY = draft?.y ?? geometry.y;
+  const maxX = Math.max(0, floorplanDims.width - geometry.w);
+  const maxY = Math.max(0, floorplanDims.height - geometry.h);
+  return {
+    x: Math.min(Math.max(baseX, 0), maxX),
+    y: Math.min(Math.max(baseY, 0), maxY),
+  };
+};
 
 export const computeTransformFromViewportRect = (
   rect: ViewportRect,

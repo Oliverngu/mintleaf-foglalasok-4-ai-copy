@@ -35,8 +35,10 @@ import {
 import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
 import {
   computeTransformFromViewportRect,
+  looksNormalized,
   resolveCanonicalFloorplanDims,
   resolveTableGeometryInFloorplanSpace,
+  resolveTableRenderPosition,
 } from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
@@ -525,6 +527,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     if (!isDev) return;
     if (floorplans.length === 0 && tables.length === 0) return;
+    const debugFloorplanDims = resolveCanonicalFloorplanDims(floorplans[0], tables);
     const normalizedFloorplans = floorplans.map(plan => {
       const width = Number(plan.width);
       const height = Number(plan.height);
@@ -536,7 +539,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
     const normalizedTables = tables.slice(0, 3).map(table => ({
       id: table.id,
-      ...resolveTableGeometryInFloorplanSpace(table, TABLE_GEOMETRY_DEFAULTS),
+      ...resolveTableGeometryInFloorplanSpace(
+        table,
+        debugFloorplanDims,
+        TABLE_GEOMETRY_DEFAULTS
+      ),
     }));
     console.debug('[seating] normalized geometry snapshot', {
       floorplans: normalizedFloorplans,
@@ -2051,17 +2058,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
-  const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) => {
-    const draft = draftPositions[table.id];
-    const baseX = draft?.x ?? geometry.x;
-    const baseY = draft?.y ?? geometry.y;
-    const maxX = Math.max(0, floorplanW - geometry.w);
-    const maxY = Math.max(0, floorplanH - geometry.h);
-    return {
-      x: clamp(baseX, 0, maxX),
-      y: clamp(baseY, 0, maxY),
-    };
-  };
+  const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
+    resolveTableRenderPosition(geometry, floorplanDims, draftPositions[table.id]);
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
     if (rafPosId.current !== null) {
@@ -2175,11 +2173,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       rot: geometry.rot,
     };
   }, [editorTables]);
+  const normalizedDetected = useMemo(
+    () => (debugRawGeometry ? looksNormalized(debugRawGeometry, floorplanDims) : false),
+    [debugRawGeometry, floorplanDims]
+  );
   const sampleTableGeometry = useMemo(() => {
     const table = editorTables[0];
     if (!table) return null;
     const geometry = resolveTableGeometryInFloorplanSpace(
       table,
+      floorplanDims,
       TABLE_GEOMETRY_DEFAULTS
     );
     return {
@@ -4315,6 +4318,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     (() => {
                       const geometry = resolveTableGeometryInFloorplanSpace(
                         table,
+                        floorplanDims,
                         TABLE_GEOMETRY_DEFAULTS
                       );
                       setTableForm({
@@ -4825,6 +4829,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         ? 'yes'
                         : 'no'}
                     </div>
+                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
                     <div>grid mounted: {gridLayerRef.current ? 'yes' : 'no'}</div>
                     {debugRawGeometry && (
                       <div>
@@ -5024,6 +5029,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     {editorTables.map(table => {
                       const geometry = resolveTableGeometryInFloorplanSpace(
                         table,
+                        floorplanDims,
                         TABLE_GEOMETRY_DEFAULTS
                       );
                       const position = getRenderPosition(table, geometry);
