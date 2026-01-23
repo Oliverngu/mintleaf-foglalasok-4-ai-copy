@@ -24,7 +24,6 @@ import {
   resolveTableRenderPosition,
 } from '../../../../core/utils/seatingFloorplanRender';
 import FloorplanViewportCanvas from '../seating/FloorplanViewportCanvas';
-import FloorplanWorldLayer from '../seating/FloorplanWorldLayer';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -308,24 +307,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           floor,
         };
       }),
-    [floorplanDims, visibleTables]
-  );
-  const paritySig = useMemo(
-    () =>
-      visibleTables
-        .slice(0, 5)
-        .map(table => {
-          const geometry = resolveTableGeometryInFloorplanSpace(
-            table,
-            floorplanDims,
-            TABLE_GEOMETRY_DEFAULTS
-          );
-          const position = resolveTableRenderPosition(geometry, floorplanDims);
-          return `${table.id}:${position.x.toFixed(1)},${position.y.toFixed(1)},${geometry.w.toFixed(
-            1
-          )},${geometry.h.toFixed(1)},${geometry.rot.toFixed(1)}`;
-        })
-        .join('|'),
     [floorplanDims, visibleTables]
   );
 
@@ -686,7 +667,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               {context.transform.ready ? 'yes' : 'no'}
             </div>
             <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-            <div>paritySig: {paritySig || 'n/a'}</div>
             {debugRawGeometry && (
               <div>
                 raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
@@ -726,21 +706,74 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           </div>
         )}
         renderWorld={() => (
-          <FloorplanWorldLayer
-            tables={visibleTables}
-            obstacles={floorplan.obstacles ?? []}
-            floorplanDims={floorplanDims}
-            tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-            appearance={{
-              getStatus: table => tableStatusById.get(table.id) ?? 'free',
-              renderStatusColor,
-              isSelected: table => selectedAssignedTableIds.has(table.id),
-              isRecommended: table =>
-                !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
-              hasConflict: table => conflictTableIds.has(table.id),
-              showCapacity: true,
-            }}
-          />
+          <>
+            {(floorplan.obstacles ?? []).map(obstacle => (
+              <div
+                key={obstacle.id}
+                className="absolute border border-dashed border-gray-300 bg-gray-200/40"
+                style={{
+                  left: obstacle.x,
+                  top: obstacle.y,
+                  width: obstacle.w,
+                  height: obstacle.h,
+                  transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                  zIndex: 1,
+                }}
+              />
+            ))}
+            {visibleTables.map(table => {
+              const geometry = resolveTableGeometryInFloorplanSpace(
+                table,
+                floorplanDims,
+                TABLE_GEOMETRY_DEFAULTS
+              );
+              const position = resolveTableRenderPosition(geometry, floorplanDims);
+              const left = position.x;
+              const top = position.y;
+              const rotation = geometry.rot;
+              const status = tableStatusById.get(table.id) ?? 'free';
+              const isSelected = selectedAssignedTableIds.has(table.id);
+              const hasConflict = conflictTableIds.has(table.id);
+              const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+
+              return (
+                <div
+                  key={table.id}
+                  className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
+                    isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                  }`}
+                  style={{
+                    left,
+                    top,
+                    width: geometry.w,
+                    height: geometry.h,
+                    borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                    border: '2px solid rgba(148, 163, 184, 0.6)',
+                    backgroundColor: renderStatusColor(status),
+                    transform: `rotate(${rotation}deg)`,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                    outline: isRecommended
+                      ? '2px dashed rgba(251, 191, 36, 0.9)'
+                      : undefined,
+                    outlineOffset: isRecommended ? 2 : undefined,
+                    zIndex: 2,
+                  }}
+                >
+                  <span>{table.name}</span>
+                  {table.capacityMax && (
+                    <span className="text-[9px] text-gray-500">
+                      max {table.capacityMax}
+                    </span>
+                  )}
+                  {hasConflict && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
+                      !
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </>
         )}
       />
     </div>
