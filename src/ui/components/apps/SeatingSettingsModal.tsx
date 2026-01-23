@@ -43,6 +43,7 @@ import {
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
+import FloorplanViewportCanvas from './seating/FloorplanViewportCanvas';
 import { useViewportRect } from '../../hooks/useViewportRect';
 
 const COLLISION_EPS = 0.5;
@@ -4840,7 +4841,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </p>
                 </div>
               )}
-            <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
+            {isEditMode ? (
+              <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
               <div
                 ref={floorplanViewportRef}
                 className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
@@ -5352,7 +5354,108 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </div>
                 </div>
               </div>
-            </div>
+              </div>
+            ) : (
+              <FloorplanViewportCanvas
+                floorplanDims={floorplanDims}
+                debugEnabled={debugEnabled}
+                viewportDeps={[resolvedActiveFloorplanId]}
+                debugOverlay={context => (
+                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+                    <div>
+                      dims: {Math.round(context.floorplanDims.width)}×
+                      {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
+                    </div>
+                    <div>
+                      viewport: {Math.round(context.viewportRect.width)}×
+                      {Math.round(context.viewportRect.height)}
+                    </div>
+                    <div>
+                      scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+                      {context.transform.offsetX.toFixed(1)},{' '}
+                      {context.transform.offsetY.toFixed(1)} | ready:{' '}
+                      {context.transform.ready ? 'yes' : 'no'}
+                    </div>
+                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                    <div>mode: view</div>
+                    {debugRawGeometry && (
+                      <div>
+                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                        {debugRawGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableGeometry && (
+                      <div>
+                        floor: {sampleTableGeometry.x.toFixed(1)},
+                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                        {sampleTableGeometry.h.toFixed(1)} r
+                        {sampleTableGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableRender && (
+                      <div>
+                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                        {sampleTableRender.rot.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                )}
+                renderWorld={() => (
+                  <>
+                    {activeObstacles.map(obstacle => (
+                      <div
+                        key={obstacle.id}
+                        className="absolute border border-dashed border-gray-300 bg-gray-200/40"
+                        style={{
+                          left: obstacle.x,
+                          top: obstacle.y,
+                          width: obstacle.w,
+                          height: obstacle.h,
+                          transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                          zIndex: 1,
+                        }}
+                      />
+                    ))}
+                    {editorTables.map(table => {
+                      const geometry = resolveTableGeometryInFloorplanSpace(
+                        table,
+                        floorplanDims,
+                        TABLE_GEOMETRY_DEFAULTS
+                      );
+                      const position = resolveTableRenderPosition(geometry, floorplanDims);
+                      return (
+                        <div
+                          key={table.id}
+                          className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none"
+                          style={{
+                            left: position.x,
+                            top: position.y,
+                            width: geometry.w,
+                            height: geometry.h,
+                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                            border: '2px solid rgba(148, 163, 184, 0.6)',
+                            backgroundColor:
+                              'color-mix(in srgb, var(--color-success) 18%, transparent)',
+                            transform: `rotate(${geometry.rot}deg)`,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                            zIndex: 2,
+                          }}
+                        >
+                          <span>{table.name}</span>
+                          {table.capacityMax && (
+                            <span className="text-[9px] text-gray-500">
+                              max {table.capacityMax}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              />
+            )}
           </div>
         )}
         <div className="grid gap-3 lg:grid-cols-2">

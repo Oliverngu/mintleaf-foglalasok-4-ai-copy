@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -18,13 +18,12 @@ import {
   normalizeTableGeometry,
 } from '../../../../core/utils/seatingNormalize';
 import {
-  computeTransformFromViewportRect,
   looksNormalized,
   resolveCanonicalFloorplanDims,
   resolveTableGeometryInFloorplanSpace,
   resolveTableRenderPosition,
 } from '../../../../core/utils/seatingFloorplanRender';
-import { useViewportRect } from '../../../hooks/useViewportRect';
+import FloorplanViewportCanvas from '../seating/FloorplanViewportCanvas';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -52,17 +51,10 @@ const toBucketKey = (date: Date, bucketMinutes: number) => {
   return `${hours}:${minutes}`;
 };
 
-const GRID_SPACING = 24;
 const TABLE_GEOMETRY_DEFAULTS = {
   rectWidth: 80,
   rectHeight: 60,
   circleRadius: 40,
-};
-const gridBackgroundStyle: React.CSSProperties = {
-  backgroundColor: '#ffffff',
-  backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.45) 1px, transparent 1px)',
-  backgroundSize: `${GRID_SPACING}px ${GRID_SPACING}px`,
-  backgroundPosition: '0 0',
 };
 
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
@@ -80,11 +72,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
-  const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
-  const floorplanViewportRect = useViewportRect(floorplanViewportRef, {
-    retryFrames: 20,
-    deps: [floorplan?.id],
-  });
 
   const debugEnabled = useMemo(() => {
     const isDev =
@@ -239,16 +226,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const floorplanDims = useMemo(
     () => resolveCanonicalFloorplanDims(floorplan, floorplanTables),
     [floorplan, floorplanTables]
-  );
-
-  const floorplanRenderTransform = useMemo(
-    () =>
-      computeTransformFromViewportRect(
-        floorplanViewportRect,
-        floorplanDims.width,
-        floorplanDims.height
-      ),
-    [floorplanDims.height, floorplanDims.width, floorplanViewportRect]
   );
 
   const visibleTables = useMemo(() => {
@@ -544,9 +521,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     Number.isFinite(settings.upcomingWarningMinutes)
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
-  const floorplanWidth = floorplanDims.width;
-  const floorplanHeight = floorplanDims.height;
-
   if (floorplanLoading) {
     return (
       <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
@@ -654,141 +628,121 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
-        <div
-          ref={floorplanViewportRef}
-          className="relative h-full w-full border border-gray-200 rounded-xl bg-white/80"
-        >
-          {debugEnabled && (
-            <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-              <div>
-                dims: {Math.round(floorplanDims.width)}×{Math.round(floorplanDims.height)} (
-                {floorplanDims.source})
-              </div>
-              <div>
-                viewport: {Math.round(floorplanViewportRect.width)}×
-                {Math.round(floorplanViewportRect.height)}
-              </div>
-              <div>
-                scale: {floorplanRenderTransform.scale.toFixed(3)} | offset:{' '}
-                {floorplanRenderTransform.offsetX.toFixed(1)},{' '}
-                {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
-                {floorplanRenderTransform.ready ? 'yes' : 'no'}
-              </div>
-              <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-              {debugRawGeometry && (
-                <div>
-                  raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                  {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                  {debugRawGeometry.rot.toFixed(1)}
-                </div>
-              )}
-              {sampleTableGeometry && (
-                <div>
-                  floor: {sampleTableGeometry.x.toFixed(1)},{sampleTableGeometry.y.toFixed(1)}{' '}
-                  {sampleTableGeometry.w.toFixed(1)}×{sampleTableGeometry.h.toFixed(1)} r
-                  {sampleTableGeometry.rot.toFixed(1)}
-                </div>
-              )}
-              {sampleTableRender && (
-                <div>
-                  render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                  {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                  {sampleTableRender.rot.toFixed(1)}
-                </div>
-              )}
+      <FloorplanViewportCanvas
+        floorplanDims={floorplanDims}
+        debugEnabled={debugEnabled}
+        viewportDeps={[floorplan?.id]}
+        debugOverlay={context => (
+          <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+            <div>
+              dims: {Math.round(context.floorplanDims.width)}×
+              {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
             </div>
-          )}
-          <div
-            className="absolute inset-0"
-            style={{
-              transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
-              transformOrigin: 'top left',
-            }}
-          >
-            <div
-              className="relative"
-              style={{ width: floorplanWidth, height: floorplanHeight }}
-            >
+            <div>
+              viewport: {Math.round(context.viewportRect.width)}×
+              {Math.round(context.viewportRect.height)}
+            </div>
+            <div>
+              scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+              {context.transform.offsetX.toFixed(1)},{' '}
+              {context.transform.offsetY.toFixed(1)} | ready:{' '}
+              {context.transform.ready ? 'yes' : 'no'}
+            </div>
+            <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+            {debugRawGeometry && (
+              <div>
+                raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                {debugRawGeometry.rot.toFixed(1)}
+              </div>
+            )}
+            {sampleTableGeometry && (
+              <div>
+                floor: {sampleTableGeometry.x.toFixed(1)},{sampleTableGeometry.y.toFixed(1)}{' '}
+                {sampleTableGeometry.w.toFixed(1)}×{sampleTableGeometry.h.toFixed(1)} r
+                {sampleTableGeometry.rot.toFixed(1)}
+              </div>
+            )}
+            {sampleTableRender && (
+              <div>
+                render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                {sampleTableRender.rot.toFixed(1)}
+              </div>
+            )}
+          </div>
+        )}
+        renderWorld={() => (
+          <>
+            {(floorplan.obstacles ?? []).map(obstacle => (
               <div
-                className="absolute inset-0 pointer-events-none"
+                key={obstacle.id}
+                className="absolute border border-dashed border-gray-300 bg-gray-200/40"
                 style={{
-                  width: floorplanWidth,
-                  height: floorplanHeight,
-                  zIndex: 0,
-                  ...gridBackgroundStyle,
+                  left: obstacle.x,
+                  top: obstacle.y,
+                  width: obstacle.w,
+                  height: obstacle.h,
+                  transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                  zIndex: 1,
                 }}
               />
-              {(floorplan.obstacles ?? []).map(obstacle => (
-                <div
-                  key={obstacle.id}
-                  className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-                  style={{
-                    left: obstacle.x,
-                    top: obstacle.y,
-                    width: obstacle.w,
-                    height: obstacle.h,
-                    transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                    zIndex: 1,
-                  }}
-                />
-              ))}
-              {visibleTables.map(table => {
-                const geometry = resolveTableGeometryInFloorplanSpace(
-                  table,
-                  floorplanDims,
-                  TABLE_GEOMETRY_DEFAULTS
-                );
-                const position = resolveTableRenderPosition(geometry, floorplanDims);
-                const left = position.x;
-                const top = position.y;
-                const rotation = geometry.rot;
-                const status = tableStatusById.get(table.id) ?? 'free';
-                const isSelected = selectedAssignedTableIds.has(table.id);
-                const hasConflict = conflictTableIds.has(table.id);
-                const isRecommended = !isSelected && recommendedTableIds.has(table.id);
+            ))}
+            {visibleTables.map(table => {
+              const geometry = resolveTableGeometryInFloorplanSpace(
+                table,
+                floorplanDims,
+                TABLE_GEOMETRY_DEFAULTS
+              );
+              const position = resolveTableRenderPosition(geometry, floorplanDims);
+              const left = position.x;
+              const top = position.y;
+              const rotation = geometry.rot;
+              const status = tableStatusById.get(table.id) ?? 'free';
+              const isSelected = selectedAssignedTableIds.has(table.id);
+              const hasConflict = conflictTableIds.has(table.id);
+              const isRecommended = !isSelected && recommendedTableIds.has(table.id);
 
-                return (
-                  <div
-                    key={table.id}
-                    className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
-                      isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-                    }`}
-                    style={{
-                      left,
-                      top,
-                      width: geometry.w,
-                      height: geometry.h,
-                      borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                      border: '2px solid rgba(148, 163, 184, 0.6)',
-                      backgroundColor: renderStatusColor(status),
-                      transform: `rotate(${rotation}deg)`,
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                      outline: isRecommended
-                        ? '2px dashed rgba(251, 191, 36, 0.9)'
-                        : undefined,
-                      outlineOffset: isRecommended ? 2 : undefined,
-                      zIndex: 2,
-                    }}
-                  >
-                    <span>{table.name}</span>
-                    {table.capacityMax && (
-                      <span className="text-[9px] text-gray-500">
-                        max {table.capacityMax}
-                      </span>
-                    )}
-                    {hasConflict && (
-                      <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
-                        !
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
+              return (
+                <div
+                  key={table.id}
+                  className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
+                    isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                  }`}
+                  style={{
+                    left,
+                    top,
+                    width: geometry.w,
+                    height: geometry.h,
+                    borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                    border: '2px solid rgba(148, 163, 184, 0.6)',
+                    backgroundColor: renderStatusColor(status),
+                    transform: `rotate(${rotation}deg)`,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                    outline: isRecommended
+                      ? '2px dashed rgba(251, 191, 36, 0.9)'
+                      : undefined,
+                    outlineOffset: isRecommended ? 2 : undefined,
+                    zIndex: 2,
+                  }}
+                >
+                  <span>{table.name}</span>
+                  {table.capacityMax && (
+                    <span className="text-[9px] text-gray-500">
+                      max {table.capacityMax}
+                    </span>
+                  )}
+                  {hasConflict && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
+                      !
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
+      />
     </div>
   );
 };
