@@ -27,13 +27,6 @@ type ReservationFloorplanPreviewProps = {
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
-type FloorplanTransform = {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-  rectWidth: number;
-  rectHeight: number;
-};
 
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -221,6 +214,43 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     },
     []
   );
+
+  const floorplanDims = useMemo(() => {
+    if (!floorplan) {
+      return { width: 1, height: 1 };
+    }
+    const dims = normalizeFloorplanDimensions(floorplan);
+    return {
+      width: dims.width > 0 ? dims.width : 1,
+      height: dims.height > 0 ? dims.height : 1,
+    };
+  }, [floorplan]);
+
+  const floorplanRenderTransform = useMemo(() => {
+    const w = floorplanDims.width;
+    const h = floorplanDims.height;
+    const rectWidth = floorplanViewportRect.width ?? 0;
+    const rectHeight = floorplanViewportRect.height ?? 0;
+
+    if (rectWidth <= 0 || rectHeight <= 0 || w <= 0 || h <= 0) {
+      return {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        rectWidth: 0,
+        rectHeight: 0,
+      };
+    }
+
+    const scale = Math.min(rectWidth / w, rectHeight / h);
+    return {
+      scale,
+      offsetX: (rectWidth - w * scale) / 2,
+      offsetY: (rectHeight - h * scale) / 2,
+      rectWidth,
+      rectHeight,
+    };
+  }, [floorplanDims.height, floorplanDims.width, floorplanViewportRect]);
 
   useLayoutEffect(() => {
     measureViewport();
@@ -472,6 +502,10 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     Number.isFinite(settings.upcomingWarningMinutes)
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
+  const floorplanWidth = floorplanDims.width;
+  const floorplanHeight = floorplanDims.height;
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), max);
 
   if (floorplanLoading) {
     return (
@@ -496,44 +530,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       </div>
     );
   }
-
-  const { width: floorplanWidth, height: floorplanHeight } =
-    normalizeFloorplanDimensions(floorplan);
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(Math.max(value, min), max);
-  const computeFloorplanTransformFromRect = (
-    rect: { width: number; height: number; left?: number; top?: number },
-    width: number,
-    height: number
-  ): FloorplanTransform => {
-    const rectWidth = rect?.width ?? 0;
-    const rectHeight = rect?.height ?? 0;
-    if (rectWidth <= 0 || rectHeight <= 0) {
-      return {
-        scale: 1,
-        offsetX: 0,
-        offsetY: 0,
-        rectWidth: 0,
-        rectHeight: 0,
-      };
-    }
-    const rawScale = Math.min(rectWidth / width, rectHeight / height);
-    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-    const offsetX = (rectWidth - width * scale) / 2;
-    const offsetY = (rectHeight - height * scale) / 2;
-    return {
-      scale,
-      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
-      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
-      rectWidth,
-      rectHeight,
-    };
-  };
-  const floorplanRenderTransform = useMemo(
-    () =>
-      computeFloorplanTransformFromRect(floorplanViewportRect, floorplanWidth, floorplanHeight),
-    [floorplanViewportRect, floorplanHeight, floorplanWidth]
-  );
 
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
