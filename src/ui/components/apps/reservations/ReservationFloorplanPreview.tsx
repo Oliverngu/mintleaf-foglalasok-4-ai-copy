@@ -95,15 +95,14 @@ const getFloorplanIdLike = (value: unknown) => {
 const isDev = process.env.NODE_ENV !== 'production';
 
 const shouldShowDebug = () => {
-  if (!isDev) return false;
   try {
     const qs = new URLSearchParams(window.location.search);
     if (qs.has('fpdebug')) return true;
-    return localStorage.getItem('ml_fp_debug') === '1';
+    if (localStorage.getItem('ml_fp_debug') === '1') return true;
   } catch (error) {
     console.warn('Failed to read debug flags for floorplan preview:', error);
-    return true;
   }
+  return isDev;
 };
 
 const coerceDims = (ref?: { width?: unknown; height?: unknown } | null) => {
@@ -136,6 +135,9 @@ const getMismatchReason = (
   }
   const floorplanRef = coerceDims(table.floorplanRef);
   if (!floorplanRef) {
+    return 'OK';
+  }
+  if (isPlaceholderFloorplanDims(floorplanRef.width, floorplanRef.height)) {
     return 'OK';
   }
   if (floorplanRef.width !== dims.width || floorplanRef.height !== dims.height) {
@@ -894,7 +896,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return;
     }
     const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
-    const fromDims = coerceDims(sample.floorplanRef);
+    const fromDimsRaw = coerceDims(sample.floorplanRef);
+    const fromDims =
+      fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+        ? fromDimsRaw
+        : null;
     const scaleX = fromDims ? effectiveDims.width / fromDims.width : null;
     const scaleY = fromDims ? effectiveDims.height / fromDims.height : null;
     const tableFloorplanId = getFloorplanIdLike(sample);
@@ -978,7 +984,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return;
     }
     const baseGeometry = normalizeTableGeometry(sample, DEFAULT_TABLE_GEOMETRY);
-    const fromDims = coerceDims(sample.floorplanRef);
+    const fromDimsRaw = coerceDims(sample.floorplanRef);
+    const fromDims =
+      fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+        ? fromDimsRaw
+        : null;
     const renderGeometry =
       fromDims &&
       (fromDims.width !== effectiveDims.width || fromDims.height !== effectiveDims.height)
@@ -1377,7 +1387,11 @@ mode: preview`}
             })}
             {visibleTables.map(table => {
               const baseGeometry = normalizeTableGeometry(table, DEFAULT_TABLE_GEOMETRY);
-              const fromDims = coerceDims(table.floorplanRef);
+              const fromDimsRaw = coerceDims(table.floorplanRef);
+              const fromDims =
+                fromDimsRaw && !isPlaceholderFloorplanDims(fromDimsRaw.width, fromDimsRaw.height)
+                  ? fromDimsRaw
+                  : null;
               const renderGeometry =
                 fromDims &&
                 (fromDims.width !== effectiveDims.width ||

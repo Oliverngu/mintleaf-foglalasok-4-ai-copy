@@ -35,6 +35,7 @@ import {
 import {
   DEFAULT_TABLE_GEOMETRY,
   TableGeometry,
+  getMissingFloorplanRefUpdates,
   isPlaceholderFloorplanDims,
   normalizeFloorplanDimensions,
   normalizeTableGeometry,
@@ -2307,6 +2308,43 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       },
     });
     setMigrationRunning(false);
+  };
+
+  const handleFixLegacyFloorplanRefs = async () => {
+    if (!activeFloorplan) {
+      setError('Hiányzó aktív alaprajz.');
+      return;
+    }
+    if (isPlaceholderFloorplanDims(floorplanW, floorplanH)) {
+      setError('Az aktív alaprajz mérete nincs beállítva.');
+      return;
+    }
+    const updates = getMissingFloorplanRefUpdates(editorTables, {
+      width: floorplanW,
+      height: floorplanH,
+    });
+    if (updates.length === 0) {
+      setSuccess('Nincs frissítendő asztal.');
+      return;
+    }
+    await runAction({
+      key: `fix-floorplan-ref-${activeFloorplan.id}`,
+      errorMessage: 'Nem sikerült frissíteni a legacy floorplanRef mezőket.',
+      errorContext: 'Error fixing legacy floorplan refs:',
+      successMessage: `Legacy floorplanRef frissítve (${updates.length}).`,
+      action: async () => {
+        const concurrency = 10;
+        for (let i = 0; i < updates.length; i += concurrency) {
+          const slice = updates.slice(i, i + concurrency);
+          await Promise.all(
+            slice.map(item =>
+              updateTable(unitId, item.id, { floorplanRef: item.floorplanRef })
+            )
+          );
+        }
+        setTables(await listTables(unitId));
+      },
+    });
   };
 
   const sanitizeCapacityValue = (value: number) =>
@@ -6164,16 +6202,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           Legacy geometria észlelve ({legacyCount} asztal). A táblák migrálása szükséges a
           kanonikus koordinátarendszerhez.
           {canEditFloorplan && (
-            <button
-              type="button"
-              onClick={() => {
-                setMigrationError(null);
-                setShowMigrationModal(true);
-              }}
-              className="ml-3 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
-            >
-              Legacy migráció
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMigrationError(null);
+                  setShowMigrationModal(true);
+                }}
+                className="ml-3 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+              >
+                Legacy migráció
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFixLegacyFloorplanRefs()}
+                className="ml-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white"
+              >
+                Fix legacy floorplanRef
+              </button>
+            </>
           )}
         </div>
       )}

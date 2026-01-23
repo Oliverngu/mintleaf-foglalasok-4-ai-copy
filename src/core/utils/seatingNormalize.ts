@@ -76,6 +76,30 @@ export type TableGeometry = {
   radius?: number | null;
 };
 
+export const getMissingFloorplanRefUpdates = (
+  tables: Table[],
+  dims: { width: number; height: number }
+) => {
+  if (!isSaneDims(dims) || isPlaceholderFloorplanDims(dims.width, dims.height)) {
+    return [];
+  }
+  return tables
+    .filter(table => {
+      const ref = table.floorplanRef;
+      if (!ref) return true;
+      const width = Number(ref.width);
+      const height = Number(ref.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return true;
+      }
+      return isPlaceholderFloorplanDims(width, height);
+    })
+    .map(table => ({
+      id: table.id,
+      floorplanRef: { width: dims.width, height: dims.height },
+    }));
+};
+
 export type ScaleResult =
   | { didScale: true; geometry: TableGeometry }
   | {
