@@ -24,7 +24,6 @@ import {
   getSeatingSettings,
   listFloorplans,
   listCombinations,
-  listTables,
   listZones,
   updateFloorplan,
   updateCombination,
@@ -32,6 +31,7 @@ import {
   updateTable,
   updateZone,
 } from '../../../core/services/seatingAdminService';
+import { listTables } from '../../../core/services/seatingService';
 import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
 import {
   computeTransformFromViewportRect,
@@ -2210,6 +2210,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       rot,
     };
   }, [draftPositions, draftRotations, editorTables, floorplanDims, isEditMode]);
+  const debugTableRows = useMemo(
+    () =>
+      editorTables.slice(0, 5).map(table => {
+        const raw = normalizeTableGeometry(table);
+        const floor = resolveTableGeometryInFloorplanSpace(
+          table,
+          floorplanDims,
+          TABLE_GEOMETRY_DEFAULTS
+        );
+        return {
+          id: table.id,
+          name: table.name,
+          raw,
+          floor,
+        };
+      }),
+    [editorTables, floorplanDims]
+  );
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -4894,6 +4912,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         {sampleTableRender.rot.toFixed(1)}
                       </div>
                     )}
+                    {debugTableRows.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {debugTableRows.map(row => (
+                          <div key={`dbg-${row.id}`}>
+                            t:{' '}
+                            {row.name ? `${row.name} ` : ''}
+                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
+                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
+                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
+                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
+                            {row.floor.rot.toFixed(1)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div
@@ -5398,6 +5431,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
                         {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
                         {sampleTableRender.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {debugTableRows.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {debugTableRows.map(row => (
+                          <div key={`dbg-view-${row.id}`}>
+                            t:{' '}
+                            {row.name ? `${row.name} ` : ''}
+                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
+                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
+                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
+                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
+                            {row.floor.rot.toFixed(1)}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
