@@ -240,6 +240,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     maxX: number;
     maxY: number;
   } | null>(null);
+  const gridLayerRef = useRef<HTMLDivElement | null>(null);
   const dragBoundsChangeLogRef = useRef(0);
   const [userRole, setUserRole] = useState<string | null>(null);
   // Order matters to avoid TDZ issues in minified builds.
@@ -2232,6 +2233,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         floorplanRenderTransform.rectHeight > 0 &&
         floorplanW > 0 &&
         floorplanH > 0,
+      gridLayerMounted: Boolean(gridLayerRef.current),
       sampleTable: sampleTableGeometry,
     });
   }, [
@@ -4837,6 +4839,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     style={{ width: floorplanW, height: floorplanH }}
                   >
                     <div
+                      ref={gridLayerRef}
                       className="absolute inset-0 pointer-events-none"
                       style={{
                         width: floorplanW,
@@ -4960,6 +4963,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             height: rect.h,
                             transform: `rotate(${obstacle.rot ?? 0}deg)`,
                             outline: isSelected ? '2px solid #2563eb' : undefined,
+                            zIndex: 1,
                           }}
                           onClick={event => {
                             event.stopPropagation();
@@ -5050,6 +5054,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
                               : '0 1px 3px rgba(0,0,0,0.1)',
                             touchAction: 'none',
+                            zIndex: 2,
                           }}
                           onClick={() => setSelectedTableId(table.id)}
                           onPointerDown={
