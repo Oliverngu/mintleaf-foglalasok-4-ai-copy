@@ -33,9 +33,14 @@ import {
   updateZone,
 } from '../../../core/services/seatingAdminService';
 import { normalizeTableGeometry } from '../../../core/utils/seatingNormalize';
+import {
+  computeTransformFromViewportRect,
+  resolveCanonicalFloorplanDims,
+} from '../../../core/utils/seatingFloorplanRender';
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
+import { useViewportRect } from '../../hooks/useViewportRect';
 
 const COLLISION_EPS = 0.5;
 const GRID_SPACING = 24;
@@ -204,6 +209,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     isDev ||
     (typeof window !== 'undefined' &&
       window.localStorage.getItem('mintleaf_debug_seating') === '1');
+  const debugEnabled = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return isDev;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fpdebug') === '1') {
+      return true;
+    }
+    try {
+      return window.localStorage.getItem('ml_fp_debug') === '1' || isDev;
+    } catch {
+      return isDev;
+    }
+  }, [isDev]);
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
@@ -787,30 +806,33 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setFloorplanMode('view');
     }
   }, [canEditFloorplan, floorplanMode]);
-  const activeObstacles = useMemo(
-    () => activeFloorplan?.obstacles ?? [],
-    [activeFloorplan]
-  );
-  function getFloorplanDims() {
-    const src = activeFloorplan ?? floorplanForm;
-    const width = Number(src?.width);
-    const height = Number(src?.height);
-    return {
-      w: Number.isFinite(width) && width > 0 ? width : 1,
-      h: Number.isFinite(height) && height > 0 ? height : 1,
-    };
-  }
-  const { w: floorplanW, h: floorplanH } = getFloorplanDims();
-  const editorGridSize =
-    (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
-      ? activeFloorplan.gridSize
-      : floorplanForm.gridSize) || 20;
+
   const editorTables = useMemo(() => {
     if (!activeFloorplan) return [] as Table[];
     return tables.filter(
       table => !table.floorplanId || table.floorplanId === activeFloorplan.id
     );
   }, [activeFloorplan, tables]);
+
+  const activeObstacles = useMemo(
+    () => activeFloorplan?.obstacles ?? [],
+    [activeFloorplan]
+  );
+
+  const floorplanDims = useMemo(
+    () =>
+      resolveCanonicalFloorplanDims(
+        activeFloorplan ?? { width: floorplanForm.width, height: floorplanForm.height },
+        editorTables
+      ),
+    [activeFloorplan, editorTables, floorplanForm.height, floorplanForm.width]
+  );
+  const floorplanW = floorplanDims.width;
+  const floorplanH = floorplanDims.height;
+  const editorGridSize =
+    (activeFloorplan?.gridSize && activeFloorplan.gridSize > 0
+      ? activeFloorplan.gridSize
+      : floorplanForm.gridSize) || 20;
   const selectedTable = useMemo(
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
@@ -2069,33 +2091,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     width: number,
     height: number
   ): FloorplanTransform {
-    const rectWidth = rect?.width ?? 0;
-    const rectHeight = rect?.height ?? 0;
     const rectLeft = rect?.left ?? 0;
     const rectTop = rect?.top ?? 0;
-    if (rectWidth <= 0 || rectHeight <= 0) {
-      return {
-        scale: 1,
-        offsetX: 0,
-        offsetY: 0,
-        rectLeft: 0,
-        rectTop: 0,
-        rectWidth: 0,
-        rectHeight: 0,
-      };
-    }
-    const rawScale = Math.min(rectWidth / width, rectHeight / height);
-    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-    const offsetX = (rectWidth - width * scale) / 2;
-    const offsetY = (rectHeight - height * scale) / 2;
+    const baseTransform = computeTransformFromViewportRect(rect, width, height);
     return {
-      scale,
-      offsetX: Number.isFinite(offsetX) ? offsetX : 0,
-      offsetY: Number.isFinite(offsetY) ? offsetY : 0,
+      scale: baseTransform.scale,
+      offsetX: baseTransform.offsetX,
+      offsetY: baseTransform.offsetY,
       rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
       rectTop: Number.isFinite(rectTop) ? rectTop : 0,
-      rectWidth,
-      rectHeight,
+      rectWidth: baseTransform.rectWidth,
+      rectHeight: baseTransform.rectHeight,
     };
   }
 
@@ -2134,107 +2140,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return Number.isFinite(value) && value > 0.0001 ? value : 1;
   }
 
-  const [floorplanViewportRect, setFloorplanViewportRect] = useState<{
-    width: number;
-    height: number;
-    left: number;
-    top: number;
-  }>({ width: 0, height: 0, left: 0, top: 0 });
-  const lastNonZeroViewportRectRef = useRef<{
-    width: number;
-    height: number;
-    left: number;
-    top: number;
-  } | null>(null);
-  const lastViewportLogRef = useRef(0);
-  const viewportMeasureRafRef = useRef<number | null>(null);
-
-  const measureViewport = useCallback(() => {
-    const nextRect = getViewportRect();
-    if (!nextRect.width && !nextRect.height) {
-      if (!floorplanViewportRef.current) {
-        return;
-      }
-      if (lastNonZeroViewportRectRef.current) {
-        setFloorplanViewportRect(lastNonZeroViewportRectRef.current);
-        return;
-      }
-    } else {
-      lastNonZeroViewportRectRef.current = nextRect;
-    }
-    setFloorplanViewportRect(nextRect);
-    if (typeof debugSeating === 'undefined' || !debugSeating) {
-      return;
-    }
-    try {
-      const now = Date.now();
-      if (now - lastViewportLogRef.current < 500) {
-        return;
-      }
-      const transform = computeFloorplanTransformFromRect(nextRect, floorplanW, floorplanH);
-      console.debug('[seating] viewport measure', {
-        rect: nextRect,
-        scale: transform.scale,
-      });
-      lastViewportLogRef.current = now;
-    } catch (error) {
-      console.warn('[seating] viewport measure log failed', error);
-    }
-  }, [debugSeating, floorplanH, floorplanW]);
-
-  const scheduleViewportMeasure = useCallback(() => {
-    if (viewportMeasureRafRef.current !== null) {
-      return;
-    }
-    viewportMeasureRafRef.current = requestAnimationFrame(() => {
-      viewportMeasureRafRef.current = null;
-      measureViewport();
-    });
-  }, [measureViewport]);
-
-  useEffect(() => {
-    return () => {
-      if (viewportMeasureRafRef.current !== null) {
-        cancelAnimationFrame(viewportMeasureRafRef.current);
-        viewportMeasureRafRef.current = null;
-      }
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    measureViewport();
-  }, [measureViewport, resolvedActiveFloorplanId, floorplanMode]);
-
-  useLayoutEffect(() => {
-    const node = floorplanViewportRef.current;
-    if (!node) return;
-    measureViewport();
-    if (typeof ResizeObserver === 'undefined') {
-      return;
-    }
-    const observer = new ResizeObserver(scheduleViewportMeasure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [measureViewport, scheduleViewportMeasure]);
-
-  useEffect(() => {
-    const handleResize = () => scheduleViewportMeasure();
-    const handleScroll = () => scheduleViewportMeasure();
-    const resizeOptions: AddEventListenerOptions = { passive: true };
-    const scrollOptions: AddEventListenerOptions = { passive: true, capture: true };
-    window.addEventListener('resize', handleResize, resizeOptions);
-    window.addEventListener('scroll', handleScroll, scrollOptions);
-    return () => {
-      window.removeEventListener('resize', handleResize, resizeOptions);
-      window.removeEventListener('scroll', handleScroll, scrollOptions);
-    };
-  }, [scheduleViewportMeasure]);
+  const viewportRect = useViewportRect(floorplanViewportRef, {
+    retryFrames: 20,
+    deps: [resolvedActiveFloorplanId, floorplanMode],
+  });
+  const floorplanViewportRect = useMemo(
+    () => ({
+      width: viewportRect.width,
+      height: viewportRect.height,
+      left: 0,
+      top: 0,
+    }),
+    [viewportRect.height, viewportRect.width]
+  );
 
   const floorplanRenderTransform = useMemo(
     () =>
       computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
+  const sampleTableGeometry = useMemo(() => {
+    const table = editorTables[0];
+    if (!table) return null;
+    const geometry = normalizeTableGeometry(table, {
+      rectWidth: 80,
+      rectHeight: 60,
+      circleRadius: 40,
+    });
+    return {
+      id: table.id,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [editorTables]);
   const zeroRectLogRef = useRef(false);
   const formatDebugNumber = (value?: number) =>
     Number.isFinite(value) ? value.toFixed(2) : 'n/a';
@@ -2271,6 +2212,41 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanRenderTransform.rectHeight,
     floorplanRenderTransform.rectWidth,
     floorplanW,
+  ]);
+
+  useEffect(() => {
+    if (!debugEnabled) {
+      return;
+    }
+    console.log('[floorplan-editor]', {
+      floorplanDims,
+      viewportDims: {
+        width: floorplanViewportRect.width,
+        height: floorplanViewportRect.height,
+      },
+      scale: floorplanRenderTransform.scale,
+      offsetX: floorplanRenderTransform.offsetX,
+      offsetY: floorplanRenderTransform.offsetY,
+      ready:
+        floorplanRenderTransform.rectWidth > 0 &&
+        floorplanRenderTransform.rectHeight > 0 &&
+        floorplanW > 0 &&
+        floorplanH > 0,
+      sampleTable: sampleTableGeometry,
+    });
+  }, [
+    debugEnabled,
+    floorplanDims,
+    floorplanH,
+    floorplanRenderTransform.offsetX,
+    floorplanRenderTransform.offsetY,
+    floorplanRenderTransform.rectHeight,
+    floorplanRenderTransform.rectWidth,
+    floorplanRenderTransform.scale,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
+    floorplanW,
+    sampleTableGeometry,
   ]);
 
   useEffect(() => {

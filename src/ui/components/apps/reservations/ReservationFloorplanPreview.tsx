@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -15,9 +15,13 @@ import {
 } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
 import {
-  normalizeFloorplanDimensions,
   normalizeTableGeometry,
 } from '../../../../core/utils/seatingNormalize';
+import {
+  computeTransformFromViewportRect,
+  resolveCanonicalFloorplanDims,
+} from '../../../../core/utils/seatingFloorplanRender';
+import { useViewportRect } from '../../../hooks/useViewportRect';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -69,13 +73,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
   const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
-  const viewportRetryRafRef = useRef<number | null>(null);
-  const viewportRetryCountRef = useRef(0);
-  const [floorplanViewportRect, setFloorplanViewportRect] = useState({
-    width: 0,
-    height: 0,
-    left: 0,
-    top: 0,
+  const floorplanViewportRect = useViewportRect(floorplanViewportRef, {
+    retryFrames: 20,
+    deps: [floorplan?.id],
   });
 
   const debugEnabled = useMemo(() => {
@@ -223,69 +223,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
 
-  const updateViewportRect = useMemo(
-    () => (width: number, height: number) => {
-      setFloorplanViewportRect(prev => {
-        if (prev.width === width && prev.height === height) {
-          return prev;
-        }
-        return {
-          width,
-          height,
-          left: 0,
-          top: 0,
-        };
-      });
-    },
-    []
+  const floorplanTables = useMemo(() => {
+    if (!floorplan) return [] as Table[];
+    return tables.filter(table => !table.floorplanId || table.floorplanId === floorplan.id);
+  }, [floorplan, tables]);
+
+  const floorplanDims = useMemo(
+    () => resolveCanonicalFloorplanDims(floorplan, floorplanTables),
+    [floorplan, floorplanTables]
   );
 
-  const measureViewport = useMemo(
-    () => () => {
-      const node = floorplanViewportRef.current;
-      const width = node?.clientWidth ?? 0;
-      const height = node?.clientHeight ?? 0;
-      updateViewportRect(width, height);
-    },
-    [updateViewportRect]
+  const floorplanRenderTransform = useMemo(
+    () =>
+      computeTransformFromViewportRect(
+        floorplanViewportRect,
+        floorplanDims.width,
+        floorplanDims.height
+      ),
+    [floorplanDims.height, floorplanDims.width, floorplanViewportRect]
   );
-
-  const floorplanDims = useMemo(() => {
-    if (!floorplan) {
-      return { width: 1, height: 1 };
-    }
-    const dims = normalizeFloorplanDimensions(floorplan);
-    return {
-      width: dims.width > 0 ? dims.width : 1,
-      height: dims.height > 0 ? dims.height : 1,
-    };
-  }, [floorplan]);
-
-  const floorplanRenderTransform = useMemo(() => {
-    const w = floorplanDims.width;
-    const h = floorplanDims.height;
-    const rectWidth = floorplanViewportRect.width ?? 0;
-    const rectHeight = floorplanViewportRect.height ?? 0;
-
-    if (rectWidth <= 0 || rectHeight <= 0 || w <= 0 || h <= 0) {
-      return {
-        scale: 1,
-        offsetX: 0,
-        offsetY: 0,
-        rectWidth: 0,
-        rectHeight: 0,
-      };
-    }
-
-    const scale = Math.min(rectWidth / w, rectHeight / h);
-    return {
-      scale,
-      offsetX: (rectWidth - w * scale) / 2,
-      offsetY: (rectHeight - h * scale) / 2,
-      rectWidth,
-      rectHeight,
-    };
-  }, [floorplanDims.height, floorplanDims.width, floorplanViewportRect]);
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
@@ -310,67 +266,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     };
   }, [visibleTables]);
 
-  useLayoutEffect(() => {
-    measureViewport();
-  }, [measureViewport]);
-
-  useLayoutEffect(() => {
-    viewportRetryCountRef.current = 0;
-    if (viewportRetryRafRef.current !== null) {
-      cancelAnimationFrame(viewportRetryRafRef.current);
-    }
-    const retryMeasure = () => {
-      const node = floorplanViewportRef.current;
-      const width = node?.clientWidth ?? 0;
-      const height = node?.clientHeight ?? 0;
-      if (width > 0 && height > 0) {
-        updateViewportRect(width, height);
-        viewportRetryRafRef.current = null;
-        return;
-      }
-      viewportRetryCountRef.current += 1;
-      if (viewportRetryCountRef.current >= 10) {
-        updateViewportRect(width, height);
-        viewportRetryRafRef.current = null;
-        return;
-      }
-      viewportRetryRafRef.current = requestAnimationFrame(retryMeasure);
-    };
-    viewportRetryRafRef.current = requestAnimationFrame(retryMeasure);
-    return () => {
-      if (viewportRetryRafRef.current !== null) {
-        cancelAnimationFrame(viewportRetryRafRef.current);
-        viewportRetryRafRef.current = null;
-      }
-    };
-  }, [floorplan?.id, updateViewportRect]);
-
-  useLayoutEffect(() => {
-    const node = floorplanViewportRef.current;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(entries => {
-      const entry = entries[0];
-      const width = entry?.contentRect?.width ?? node.clientWidth ?? 0;
-      const height = entry?.contentRect?.height ?? node.clientHeight ?? 0;
-      updateViewportRect(width, height);
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [updateViewportRect]);
-
-  useEffect(() => {
-    const handleResize = () => measureViewport();
-    const handleOrientationChange = () => measureViewport();
-    window.addEventListener('resize', handleResize, { passive: true });
-    window.addEventListener('orientationchange', handleOrientationChange, {
-      passive: true,
-    });
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleOrientationChange);
-    };
-  }, [measureViewport]);
-
   useEffect(() => {
     if (!debugEnabled) {
       return;
@@ -384,6 +279,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       scale: floorplanRenderTransform.scale,
       offsetX: floorplanRenderTransform.offsetX,
       offsetY: floorplanRenderTransform.offsetY,
+      ready: floorplanRenderTransform.ready,
       sampleTable: sampleTableGeometry,
     });
   }, [
@@ -391,6 +287,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     floorplanDims,
     floorplanRenderTransform.offsetX,
     floorplanRenderTransform.offsetY,
+    floorplanRenderTransform.ready,
     floorplanRenderTransform.scale,
     floorplanViewportRect.height,
     floorplanViewportRect.width,
