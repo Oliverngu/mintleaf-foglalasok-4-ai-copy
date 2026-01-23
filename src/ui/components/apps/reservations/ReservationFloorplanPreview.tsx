@@ -76,6 +76,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     top: 0,
   });
 
+  const debugEnabled = useMemo(() => {
+    const isDev =
+      typeof import.meta !== 'undefined' &&
+      typeof import.meta.env !== 'undefined' &&
+      import.meta.env.MODE !== 'production';
+    if (typeof window === 'undefined') {
+      return isDev;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fpdebug') === '1') {
+      return true;
+    }
+    try {
+      return window.localStorage.getItem('ml_fp_debug') === '1' || isDev;
+    } catch {
+      return isDev;
+    }
+  }, []);
+
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
   useEffect(() => {
@@ -202,17 +221,31 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
 
-  const measureViewport = useMemo(
-    () => () => {
-      const rect = floorplanViewportRef.current?.getBoundingClientRect();
-      setFloorplanViewportRect({
-        width: rect?.width ?? 0,
-        height: rect?.height ?? 0,
-        left: rect?.left ?? 0,
-        top: rect?.top ?? 0,
+  const updateViewportRect = useMemo(
+    () => (width: number, height: number) => {
+      setFloorplanViewportRect(prev => {
+        if (prev.width === width && prev.height === height) {
+          return prev;
+        }
+        return {
+          width,
+          height,
+          left: 0,
+          top: 0,
+        };
       });
     },
     []
+  );
+
+  const measureViewport = useMemo(
+    () => () => {
+      const node = floorplanViewportRef.current;
+      const width = node?.clientWidth ?? 0;
+      const height = node?.clientHeight ?? 0;
+      updateViewportRect(width, height);
+    },
+    [updateViewportRect]
   );
 
   const floorplanDims = useMemo(() => {
@@ -252,18 +285,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     };
   }, [floorplanDims.height, floorplanDims.width, floorplanViewportRect]);
 
-  useLayoutEffect(() => {
-    measureViewport();
-  }, [measureViewport]);
-
-  useLayoutEffect(() => {
-    const node = floorplanViewportRef.current;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => measureViewport());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [measureViewport]);
-
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
@@ -272,6 +293,63 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
   }, [activeZoneId, floorplan, tables]);
+
+  const sampleTableGeometry = useMemo(() => {
+    const table = visibleTables[0];
+    if (!table) return null;
+    const geometry = normalizeTableGeometry(table);
+    return {
+      id: table.id,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [visibleTables]);
+
+  useLayoutEffect(() => {
+    measureViewport();
+  }, [measureViewport]);
+
+  useLayoutEffect(() => {
+    const node = floorplanViewportRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      const width = entry?.contentRect?.width ?? node.clientWidth ?? 0;
+      const height = entry?.contentRect?.height ?? node.clientHeight ?? 0;
+      updateViewportRect(width, height);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [updateViewportRect]);
+
+  useEffect(() => {
+    if (!debugEnabled) {
+      return;
+    }
+    console.log('[floorplan-preview]', {
+      floorplanDims,
+      viewportDims: {
+        width: floorplanViewportRect.width,
+        height: floorplanViewportRect.height,
+      },
+      scale: floorplanRenderTransform.scale,
+      offsetX: floorplanRenderTransform.offsetX,
+      offsetY: floorplanRenderTransform.offsetY,
+      sampleTable: sampleTableGeometry,
+    });
+  }, [
+    debugEnabled,
+    floorplanDims,
+    floorplanRenderTransform.offsetX,
+    floorplanRenderTransform.offsetY,
+    floorplanRenderTransform.scale,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
+    sampleTableGeometry,
+  ]);
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
