@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+// src/ui/components/apps/seating/FloorplanWorldLayer.tsx
+import React from 'react';
 import { FloorplanObstacle, Table } from '../../../../core/models/data';
 import {
   resolveTableGeometryInFloorplanSpace,
@@ -77,31 +78,6 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const seatEditable = Boolean(seatUI?.editable);
   const onAddSeat = seatUI?.onAddSeat;
 
-  const seatByTableId = useMemo(() => {
-    const map = new Map<string, Seat[]>();
-    tables.forEach(table => {
-      const geometry = resolveTableGeometryInFloorplanSpace(table, floorplanDims, tableDefaults);
-      const position = resolveTableRenderPosition(geometry, floorplanDims);
-      const absGeometry = { ...geometry, x: position.x, y: position.y };
-      const seats = computeSeatLayout({ table, geometry: absGeometry });
-      map.set(table.id, seats);
-    });
-    return map;
-  }, [tables, floorplanDims, tableDefaults]);
-
-  const addControlsByTableId = useMemo(() => {
-    if (!seatEditable) return new Map<string, SeatAddControl[]>();
-    const map = new Map<string, SeatAddControl[]>();
-    tables.forEach(table => {
-      const geometry = resolveTableGeometryInFloorplanSpace(table, floorplanDims, tableDefaults);
-      const position = resolveTableRenderPosition(geometry, floorplanDims);
-      const absGeometry = { ...geometry, x: position.x, y: position.y };
-      const controls = computeSeatAddControls({ table, geometry: absGeometry });
-      map.set(table.id, controls);
-    });
-    return map;
-  }, [tables, floorplanDims, tableDefaults, seatEditable]);
-
   return (
     <>
       {/* Obstacles */}
@@ -130,12 +106,44 @@ const FloorplanWorldLayer: React.FC<Props> = ({
         const recommended = isRecommended(table);
         const conflict = hasConflict(table);
 
-        const seats = seatByTableId.get(table.id) ?? [];
-        const addControls = addControlsByTableId.get(table.id) ?? [];
+        // IMPORTANT:
+        // computeSeatLayout / computeSeatAddControls return TABLE-LOCAL coordinates (origin = table top-left).
+        // So we render seats/+ inside a wrapper that has the same left/top/size/rotation as the table.
+        const seats: Seat[] = computeSeatLayout({
+          table,
+          geometry: { x: 0, y: 0, w: geometry.w, h: geometry.h, radius: geometry.radius, rot: geometry.rot },
+        });
+
+        const addControls: SeatAddControl[] = seatEditable
+          ? computeSeatAddControls({
+              table,
+              geometry: { x: 0, y: 0, w: geometry.w, h: geometry.h, radius: geometry.radius, rot: geometry.rot },
+            })
+          : [];
+
+        const tableRadius =
+          geometry.shape === 'circle'
+            ? typeof geometry.radius === 'number'
+              ? geometry.radius
+              : Math.min(geometry.w, geometry.h) / 2
+            : 8;
 
         return (
-          <React.Fragment key={table.id}>
-            {/* Seats (faint in preview, normal in edit) */}
+          <div
+            key={table.id}
+            className="absolute"
+            style={{
+              left: position.x,
+              top: position.y,
+              width: geometry.w,
+              height: geometry.h,
+              transform: `rotate(${geometry.rot}deg)`,
+              transformOrigin: 'top left',
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          >
+            {/* Seats (LOCAL coords) */}
             {seats.map(seat => (
               <div
                 key={seat.id}
@@ -151,7 +159,6 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 }}
                 title="szék"
               >
-                {/* simple “person” glyph */}
                 <div className="relative">
                   <div
                     className="mx-auto rounded-full bg-gray-700"
@@ -165,7 +172,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
               </div>
             ))}
 
-            {/* Add-seat controls (only edit mode) */}
+            {/* Add-seat controls (LOCAL coords, clickable) */}
             {seatEditable &&
               addControls.map(ctrl => {
                 const disabled = Boolean(ctrl.disabled);
@@ -191,7 +198,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                       height: 18,
                       zIndex: 4,
                       cursor: clickable ? 'pointer' : 'not-allowed',
-                      pointerEvents: clickable ? 'auto' : 'auto',
+                      pointerEvents: 'auto',
                     }}
                     title={disabled ? ctrl.reason ?? 'limit' : 'szék hozzáadása'}
                   >
@@ -205,24 +212,19 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 );
               })}
 
-            {/* Table */}
+            {/* Table body */}
             <div
-              className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none ${
-                selected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-              }`}
+              className={[
+                'absolute inset-0 flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800',
+                selected ? 'ring-2 ring-[var(--color-primary)]' : '',
+              ].join(' ')}
               style={{
-                left: position.x,
-                top: position.y,
-                width: geometry.w,
-                height: geometry.h,
-                borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                borderRadius: tableRadius,
                 border: '2px solid rgba(148, 163, 184, 0.6)',
                 backgroundColor: renderStatusColor(status),
-                transform: `rotate(${geometry.rot}deg)`,
                 boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
                 outline: recommended ? '2px dashed rgba(251, 191, 36, 0.9)' : undefined,
                 outlineOffset: recommended ? 2 : undefined,
-                zIndex: 2,
               }}
             >
               <span>{table.name}</span>
@@ -235,7 +237,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 </span>
               ) : null}
             </div>
-          </React.Fragment>
+          </div>
         );
       })}
     </>
@@ -243,3 +245,4 @@ const FloorplanWorldLayer: React.FC<Props> = ({
 };
 
 export default FloorplanWorldLayer;
+```0
