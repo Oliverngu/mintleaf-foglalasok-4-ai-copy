@@ -61,14 +61,23 @@ const normalizedViewportRect = useMemo(
   [viewportRect.width, viewportRect.height]
 );
 
-const context = useMemo(
+const transform = useMemo(
   () =>
-    computeCanonicalFloorplanRenderContext(
+    computeTransformFromViewportRect(
       normalizedViewportRect,
       floorplanDims.width,
       floorplanDims.height
     ),
-  [floorplanDims.height, floorplanDims.width, normalizedViewportRect]
+  [floorplanDims.width, floorplanDims.height, normalizedViewportRect]
+);
+
+const context = useMemo(
+  () => ({
+    floorplanDims,
+    viewportRect: normalizedViewportRect,
+    transform,
+  }),
+  [floorplanDims, normalizedViewportRect, transform]
 );
 
   return (
