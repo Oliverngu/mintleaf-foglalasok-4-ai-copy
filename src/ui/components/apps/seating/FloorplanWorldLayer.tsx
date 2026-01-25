@@ -245,4 +245,3 @@ const FloorplanWorldLayer: React.FC<Props> = ({
 };
 
 export default FloorplanWorldLayer;
-```0
