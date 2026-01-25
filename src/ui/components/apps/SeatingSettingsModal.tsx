@@ -5460,7 +5460,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     seatUI={{
                       preview: floorplanMode === 'view',
                       editable: floorplanMode === 'edit',
-                      onAddSeat: handleAddSeat,
                       }}
                       appearance={{
                         showCapacity: true,
