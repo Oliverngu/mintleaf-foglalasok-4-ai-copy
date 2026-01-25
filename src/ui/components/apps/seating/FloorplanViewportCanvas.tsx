@@ -45,19 +45,31 @@ const FloorplanViewportCanvas: React.FC<FloorplanViewportCanvasProps> = ({
   viewportDeps = [],
 }) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const viewportRect = useViewportRect(viewportRef, {
-    retryFrames: 80,
-    deps: viewportDeps,
-  });
-  const transform = useMemo(
-    () =>
-      computeTransformFromViewportRect(
-        viewportRect,
-        floorplanDims.width,
-        floorplanDims.height
-      ),
-    [floorplanDims.height, floorplanDims.width, viewportRect]
-  );
+const viewportRect = useViewportRect(viewportRef, {
+  retryFrames: 80,
+  deps: viewportDeps,
+});
+
+// mindig “lokális” rect-et adjunk tovább (0,0 origóval)
+const normalizedViewportRect = useMemo(
+  () => ({
+    width: viewportRect.width,
+    height: viewportRect.height,
+    left: 0,
+    top: 0,
+  }),
+  [viewportRect.width, viewportRect.height]
+);
+
+const context = useMemo(
+  () =>
+    computeCanonicalFloorplanRenderContext(
+      normalizedViewportRect,
+      floorplanDims.width,
+      floorplanDims.height
+    ),
+  [floorplanDims.height, floorplanDims.width, normalizedViewportRect]
+);
   const context = useMemo(
     () => ({
       floorplanDims,
