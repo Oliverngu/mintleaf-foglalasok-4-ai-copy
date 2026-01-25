@@ -70,14 +70,6 @@ const context = useMemo(
     ),
   [floorplanDims.height, floorplanDims.width, normalizedViewportRect]
 );
-  const context = useMemo(
-    () => ({
-      floorplanDims,
-      viewportRect,
-      transform,
-    }),
-    [floorplanDims, transform, viewportRect]
-  );
 
   return (
     <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
