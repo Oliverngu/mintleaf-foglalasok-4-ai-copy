@@ -20,10 +20,9 @@ import {
 import {
   looksNormalized,
   resolveCanonicalFloorplanDims,
-  resolveTableGeometryInFloorplanSpace,
-  resolveTableRenderPosition,
 } from '../../../../core/utils/seatingFloorplanRender';
 import FloorplanViewportCanvas from '../seating/FloorplanViewportCanvas';
+import FloorplanWorldLayer from '../seating/FloorplanWorldLayer';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -655,36 +654,24 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           debugEnabled={debugEnabled}
           viewportDeps={[floorplan?.id]}
           debugOverlay={context => (
-            <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-              <div>
-                dims: {Math.round(context.floorplanDims.width)}×
-                {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
-              </div>
-              <div>
-                viewport: {Math.round(context.viewportRect.width)}×
-                {Math.round(context.viewportRect.height)}
-              </div>
-              <div>
-                scale: {context.transform.scale.toFixed(3)} | offset:{' '}
-                {context.transform.offsetX.toFixed(1)},{' '}
-                {context.transform.offsetY.toFixed(1)} | ready:{' '}
-                {context.transform.ready ? 'yes' : 'no'}
-              </div>
-              <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-              {debugRawGeometry && (
-                <div>
-                  raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                  {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                  {debugRawGeometry.rot.toFixed(1)}
-                </div>
-              )}
-              {sampleTableGeometry && (
-                <div>
-                  floor: {sampleTableGeometry.x.toFixed(1)},{sampleTableGeometry.y.toFixed(1)}{' '}
-                  {sampleTableGeometry.w.toFixed(1)}×{sampleTableGeometry.h.toFixed(1)} r
-                  {sampleTableGeometry.rot.toFixed(1)}
-                </div>
-              )}
+  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+    <div>
+      dims: {Math.round(context.floorplanDims.width)}×{Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
+    </div>
+    <div>
+      viewport: {Math.round(context.viewportRect.width)}×{Math.round(context.viewportRect.height)}
+    </div>
+    <div>
+      scale: {context.transform.scale.toFixed(3)} | offset: {context.transform.offsetX.toFixed(1)}, {context.transform.offsetY.toFixed(1)} | ready: {context.transform.ready ? 'yes' : 'no'}
+    </div>
+    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+    {debugRawGeometry && (
+      <div>
+        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)} {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r{debugRawGeometry.rot.toFixed(1)}
+      </div>
+    )}
+  </div>
+)}
               {sampleTableRender && (
                 <div>
                   render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
@@ -710,76 +697,23 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             </div>
           )}
           renderWorld={() => (
-            <>
-              {(floorplan.obstacles ?? []).map(obstacle => (
-                <div
-                  key={obstacle.id}
-                  className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-                  style={{
-                    left: obstacle.x,
-                    top: obstacle.y,
-                    width: obstacle.w,
-                    height: obstacle.h,
-                    transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                    zIndex: 1,
-                  }}
-                />
-              ))}
-              {visibleTables.map(table => {
-                const geometry = resolveTableGeometryInFloorplanSpace(
-                  table,
-                  floorplanDims,
-                  TABLE_GEOMETRY_DEFAULTS
-                );
-                const position = resolveTableRenderPosition(geometry, floorplanDims);
-                const left = position.x;
-                const top = position.y;
-                const rotation = geometry.rot;
-                const status = tableStatusById.get(table.id) ?? 'free';
-                const isSelected = selectedAssignedTableIds.has(table.id);
-                const hasConflict = conflictTableIds.has(table.id);
-                const isRecommended = !isSelected && recommendedTableIds.has(table.id);
-
-                return (
-                  <div
-                    key={table.id}
-                    className={`absolute flex flex-col items-center justify-center text-[10px]
-                    font-semibold text-gray-800 pointer-events-none ${
-                    isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-                    }`}
-                    style={{
-                      left,
-                      top,
-                      width: geometry.w,
-                      height: geometry.h,
-                      borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                      border: '2px solid rgba(148, 163, 184, 0.6)',
-                      backgroundColor: renderStatusColor(status),
-                      transform: `rotate(${rotation}deg)`,
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                      outline: isRecommended
-                        ? '2px dashed rgba(251, 191, 36, 0.9)'
-                        : undefined,
-                      outlineOffset: isRecommended ? 2 : undefined,
-                      zIndex: 2,
-                    }}
-                  >
-                    <span>{table.name}</span>
-                    {table.capacityMax && (
-                      <span className="text-[9px] text-gray-500">
-                        max {table.capacityMax}
-                      </span>
-                    )}
-                    {hasConflict && (
-                      <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
-                        !
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </>
-          )}
+  <FloorplanWorldLayer
+    tables={visibleTables}
+    obstacles={floorplan?.obstacles ?? []}
+    floorplanDims={floorplanDims}
+    tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+    appearance={{
+      getStatus: table => tableStatusById.get(table.id) ?? 'free',
+      renderStatusColor,
+      isSelected: table => selectedAssignedTableIds.has(table.id),
+      isRecommended: table =>
+        !selectedAssignedTableIds.has(table.id) &&
+        recommendedTableIds.has(table.id),
+      hasConflict: table => conflictTableIds.has(table.id),
+      showCapacity: true,
+    }}
+  />
+)}
         />
       </div>
     </div>
