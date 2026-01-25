@@ -32,6 +32,10 @@ type FloorplanTransform = {
   ready: boolean;
 };
 
+/**
+ * Detect normalized POSITION (x/y).
+ * IMPORTANT: w/h can be stored in pixels while x/y is normalized.
+ */
 export const looksNormalized = (
   geometry: GeometryLike,
   floorplanDims: { width: number; height: number }
@@ -39,13 +43,18 @@ export const looksNormalized = (
   if (floorplanDims.width <= 10 || floorplanDims.height <= 10) {
     return false;
   }
-  const withinNormalizedRange = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1.5;
-  return (
-    withinNormalizedRange(geometry.x) &&
-    withinNormalizedRange(geometry.y) &&
-    withinNormalizedRange(geometry.w) &&
-    withinNormalizedRange(geometry.h)
-  );
+  const within = (v: number) => Number.isFinite(v) && v >= 0 && v <= 1.5;
+  return within(geometry.x) && within(geometry.y);
+};
+
+const looksSizeNormalized = (geometry: GeometryLike) => {
+  const within = (v: number) => Number.isFinite(v) && v >= 0 && v <= 1.5;
+  return within(geometry.w) && within(geometry.h);
+};
+
+const looksRadiusNormalized = (radius: unknown) => {
+  const r = Number(radius);
+  return Number.isFinite(r) && r >= 0 && r <= 1.5;
 };
 
 export const resolveCanonicalFloorplanDims = (
@@ -104,17 +113,29 @@ export const resolveTableGeometryInFloorplanSpace = (
   defaults: TableGeometryDefaults = {}
 ) => {
   const geometry = normalizeTableGeometry(table, defaults);
-  if (!looksNormalized(geometry, floorplanDims)) {
+
+  const posNorm = looksNormalized(geometry, floorplanDims);
+  if (!posNorm) {
     return geometry;
   }
+
+  const sizeNorm = looksSizeNormalized(geometry);
+  const radiusNorm = looksRadiusNormalized((geometry as any).radius);
+
   const scaleRadius = Math.min(floorplanDims.width, floorplanDims.height);
+
   return {
     ...geometry,
+    // position always scaled when normalized
     x: geometry.x * floorplanDims.width,
     y: geometry.y * floorplanDims.height,
-    w: geometry.w * floorplanDims.width,
-    h: geometry.h * floorplanDims.height,
-    radius: geometry.radius * scaleRadius,
+
+    // size scaled only if it is normalized too
+    w: sizeNorm ? geometry.w * floorplanDims.width : geometry.w,
+    h: sizeNorm ? geometry.h * floorplanDims.height : geometry.h,
+
+    // radius scaled only if it is normalized
+    radius: radiusNorm ? (geometry as any).radius * scaleRadius : (geometry as any).radius,
   };
 };
 
@@ -163,3 +184,4 @@ export const computeTransformFromViewportRect = (
     ready: true,
   };
 };
+```0
