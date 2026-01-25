@@ -5467,7 +5467,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       }}
                     />
                   )}
-                )}
               />
             )}
           </div>
