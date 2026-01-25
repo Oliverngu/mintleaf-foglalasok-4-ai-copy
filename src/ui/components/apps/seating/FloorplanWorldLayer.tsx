@@ -58,21 +58,29 @@ const FloorplanWorldLayer: React.FC<Props> = ({
 
   return (
     <>
-      {obstacles.map(obstacle => (
-        <div
-          key={obstacle.id}
-          className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-          style={{
-            left: obstacle.x,
-            top: obstacle.y,
-            width: obstacle.w,
-            height: obstacle.h,
-            transform: `rotate(${obstacle.rot ?? 0}deg)`,
-            zIndex: 1,
-          }}
-        />
-      ))}
+      {/* NO-GO / OBSTACLES */}
+      {obstacles.map(obstacle => {
+        const rot = obstacle.rot ?? 0;
 
+        return (
+          <div
+            key={obstacle.id}
+            className="absolute border border-dashed border-gray-300 bg-gray-200/40"
+            style={{
+              left: obstacle.x,
+              top: obstacle.y,
+              width: obstacle.w,
+              height: obstacle.h,
+              transform: `translateZ(0) rotate(${rot}deg)`,
+              transformOrigin: 'center center',
+              zIndex: 1,
+              pointerEvents: 'none',
+            }}
+          />
+        );
+      })}
+
+      {/* TABLES */}
       {tables.map(table => {
         const geometry = resolveTableGeometryInFloorplanSpace(table, floorplanDims, tableDefaults);
         const position = resolveTableRenderPosition(geometry, floorplanDims);
@@ -82,35 +90,58 @@ const FloorplanWorldLayer: React.FC<Props> = ({
         const recommended = isRecommended(table);
         const conflict = hasConflict(table);
 
+        // z-index policy (deterministic)
+        const zIndex = selected ? 10 : conflict ? 6 : recommended ? 5 : 2;
+
+        const radius =
+          geometry.shape === 'circle'
+            ? '9999px'
+            : 10; // slightly softer corners than 8 to match the modern editor feel
+
+        const outline = recommended ? '2px dashed rgba(251, 191, 36, 0.95)' : undefined;
+
         return (
           <div
             key={table.id}
-            className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none ${
-              selected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-            }`}
+            className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none`}
             style={{
               left: position.x,
               top: position.y,
               width: geometry.w,
               height: geometry.h,
-              borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-              border: '2px solid rgba(148, 163, 184, 0.6)',
+              borderRadius: radius,
+              border: '2px solid rgba(148, 163, 184, 0.60)',
               backgroundColor: renderStatusColor(status),
-              transform: `rotate(${geometry.rot}deg)`,
+              transform: `translateZ(0) rotate(${geometry.rot}deg)`,
+              transformOrigin: 'center center',
               boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-              outline: recommended ? '2px dashed rgba(251, 191, 36, 0.9)' : undefined,
+              outline,
               outlineOffset: recommended ? 2 : undefined,
-              zIndex: 2,
+              zIndex,
             }}
           >
-            <span>{table.name}</span>
-            {showCapacity && table.capacityMax ? (
-              <span className="text-[9px] text-gray-500">max {table.capacityMax}</span>
+            <span className="leading-none">{table.name}</span>
+
+            {showCapacity && typeof table.capacityMax === 'number' && table.capacityMax > 0 ? (
+              <span className="mt-0.5 text-[9px] font-medium text-gray-500 leading-none">
+                max {table.capacityMax}
+              </span>
             ) : null}
+
             {conflict ? (
               <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
                 !
               </span>
+            ) : null}
+
+            {selected ? (
+              <span
+                className="absolute inset-0 rounded-[inherit]"
+                style={{
+                  boxShadow: '0 0 0 2px var(--color-primary)',
+                  pointerEvents: 'none',
+                }}
+              />
             ) : null}
           </div>
         );
