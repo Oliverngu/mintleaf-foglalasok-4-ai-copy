@@ -649,7 +649,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         )}
       </div>
 
-      <div className="w-full aspect-square max-w-[min(70vh,100%)] mx-auto overflow-hidden relative border border-gray-100 rounded-xl bg-white/50">
+      <div className="w-full mx-auto relative">
         <FloorplanViewportCanvas
           floorplanDims={floorplanDims}
           debugEnabled={debugEnabled}
