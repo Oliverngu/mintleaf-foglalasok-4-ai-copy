@@ -140,7 +140,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
               transform: `rotate(${geometry.rot}deg)`,
               transformOrigin: 'top left',
               zIndex: 2,
-              pointerEvents: 'none',
+              pointerEvents: 'auto',
             }}
           >
             {/* Seats (LOCAL coords) */}
@@ -219,6 +219,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 selected ? 'ring-2 ring-[var(--color-primary)]' : '',
               ].join(' ')}
               style={{
+                pointerEvents: 'none',
                 borderRadius: tableRadius,
                 border: '2px solid rgba(148, 163, 184, 0.6)',
                 backgroundColor: renderStatusColor(status),
