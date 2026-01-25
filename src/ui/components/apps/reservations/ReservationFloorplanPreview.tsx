@@ -743,8 +743,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
                 return (
                   <div
                     key={table.id}
-                    className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
-                      isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
+                    className={`absolute flex flex-col items-center justify-center text-[10px]
+                    font-semibold text-gray-800 pointer-events-none ${
+                    isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
                     }`}
                     style={{
                       left,
