@@ -184,3 +184,134 @@ export function getSeatAddLimits(table: Table) {
     maxPerSide: 3,
   };
 }
+
+// --- Seat add controls (UI "+" buttons) ---
+
+export type SeatAddControl = {
+  id: string;
+  // rect: north/east/south/west; circle: radial
+  side: SeatSide;
+  // for circle it can be 0 (single control)
+  index: number;
+  x: number;
+  y: number;
+  angle?: number; // optional: mainly for circle orientation if you want later
+  disabled?: boolean;
+  reason?: string;
+};
+
+const controlId = (tableId: string, side: SeatSide, index: number) =>
+  `${tableId}:add:${side}:${index}`;
+
+export function computeSeatAddControls(input: SeatLayoutInput): SeatAddControl[] {
+  const { table, geometry } = input;
+
+  if (safeShape(table.shape) === 'circle') {
+    return computeCircleAddControls(table, geometry);
+  }
+
+  return computeRectAddControls(table, geometry);
+}
+
+function computeRectAddControls(
+  table: Table,
+  geometry: SeatLayoutInput['geometry']
+): SeatAddControl[] {
+  const w = Math.max(1, geometry.w);
+  const h = Math.max(1, geometry.h);
+
+  const layout = (table as any)?.seatLayout;
+  const sides =
+  table.seatLayout?.kind === 'rect' ? table.seatLayout.sides ?? {} : {};
+
+  const north = clampInt(sides.north, 0, 3, 0);
+  const east = clampInt(sides.east, 0, 3, 0);
+  const south = clampInt(sides.south, 0, 3, 0);
+  const west = clampInt(sides.west, 0, 3, 0);
+
+  const outside = Math.max(10, Math.min(w, h) * 0.14);
+
+  // Where should the "+" sit? Middle of each side, slightly outside.
+  const controls: SeatAddControl[] = [];
+
+  if (north < 3) {
+    controls.push({
+      id: controlId(table.id, 'north', north),
+      side: 'north',
+      index: north, // next seat index on that side
+      x: w / 2,
+      y: -outside,
+    });
+  }
+
+  if (south < 3) {
+    controls.push({
+      id: controlId(table.id, 'south', south),
+      side: 'south',
+      index: south,
+      x: w / 2,
+      y: h + outside,
+    });
+  }
+
+  if (east < 3) {
+    controls.push({
+      id: controlId(table.id, 'east', east),
+      side: 'east',
+      index: east,
+      x: w + outside,
+      y: h / 2,
+    });
+  }
+
+  if (west < 3) {
+    controls.push({
+      id: controlId(table.id, 'west', west),
+      side: 'west',
+      index: west,
+      x: -outside,
+      y: h / 2,
+    });
+  }
+
+  return controls;
+}
+
+function computeCircleAddControls(
+  table: Table,
+  geometry: SeatLayoutInput['geometry']
+): SeatAddControl[] {
+  const maxSeats = 16;
+  const w = Math.max(1, geometry.w);
+  const h = Math.max(1, geometry.h);
+
+  const r = Math.max(1, geometry.radius ?? Math.min(w, h) / 2);
+
+  const layout = (table as any)?.seatLayout;
+  const count = clampInt(
+  table.seatLayout?.kind === 'circle' ? table.seatLayout.count : 0,
+  0,
+  maxSeats,
+  0
+);
+
+  if (count >= maxSeats) return [];
+
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // Put the "+" at the top (north) outside the circle, stable position.
+  const outside = Math.max(10, r * 0.22);
+  const angle = -Math.PI / 2;
+
+  return [
+    {
+      id: controlId(table.id, 'radial', count), // next index if you want it
+      side: 'radial',
+      index: count,
+      x: cx + Math.cos(angle) * (r + outside),
+      y: cy + Math.sin(angle) * (r + outside),
+      angle,
+    },
+  ];
+}
