@@ -5451,56 +5451,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </div>
                 )}
                 renderWorld={() => (
-                  <>
-                    {activeObstacles.map(obstacle => (
-                      <div
-                        key={obstacle.id}
-                        className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-                        style={{
-                          left: obstacle.x,
-                          top: obstacle.y,
-                          width: obstacle.w,
-                          height: obstacle.h,
-                          transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                          zIndex: 1,
-                        }}
-                      />
-                    ))}
-                    {editorTables.map(table => {
-                      const geometry = resolveTableGeometryInFloorplanSpace(
-                        table,
-                        floorplanDims,
-                        TABLE_GEOMETRY_DEFAULTS
-                      );
-                      const position = resolveTableRenderPosition(geometry, floorplanDims);
-                      return (
-                        <div
-                          key={table.id}
-                          className="absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none"
-                          style={{
-                            left: position.x,
-                            top: position.y,
-                            width: geometry.w,
-                            height: geometry.h,
-                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                            border: '2px solid rgba(148, 163, 184, 0.6)',
-                            backgroundColor:
-                              'color-mix(in srgb, var(--color-success) 18%, transparent)',
-                            transform: `rotate(${geometry.rot}deg)`,
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                            zIndex: 2,
-                          }}
-                        >
-                          <span>{table.name}</span>
-                          {table.capacityMax && (
-                            <span className="text-[9px] text-gray-500">
-                              max {table.capacityMax}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </>
+                  <FloorplanWorldLayer
+                    tables={editorTables}
+                    obstacles={activeObstacles}
+                    floorplanDims={floorplanDims}
+                    tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                    seatUI={{
+                      preview: activeFloorplanMode === 'view',
+                      editable: activeFloorplanMode === 'edit',
+                      onAddSeat: handleAddSeat,
+                      }}
+                      appearance={{
+                        showCapacity: true,
+                        isSelected: t => t.id === selectedTable?.id,
+                      }}
+                    />
+                  )}
                 )}
               />
             )}
