@@ -184,4 +184,3 @@ export const computeTransformFromViewportRect = (
     ready: true,
   };
 };
-```0
