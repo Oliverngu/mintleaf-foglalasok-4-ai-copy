@@ -220,7 +220,6 @@ function computeRectAddControls(
   const w = Math.max(1, geometry.w);
   const h = Math.max(1, geometry.h);
 
-  const layout = (table as any)?.seatLayout;
   const sides =
   table.seatLayout?.kind === 'rect' ? table.seatLayout.sides ?? {} : {};
 
@@ -287,7 +286,6 @@ function computeCircleAddControls(
 
   const r = Math.max(1, geometry.radius ?? Math.min(w, h) / 2);
 
-  const layout = (table as any)?.seatLayout;
   const count = clampInt(
   table.seatLayout?.kind === 'circle' ? table.seatLayout.count : 0,
   0,
