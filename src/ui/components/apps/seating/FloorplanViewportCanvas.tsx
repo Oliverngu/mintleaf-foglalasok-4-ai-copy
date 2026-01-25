@@ -81,11 +81,17 @@ const context = useMemo(
 );
 
   return (
-    <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
-      <div
-        ref={viewportRef}
-        className="relative h-full w-full border border-gray-200 rounded-xl bg-white/80"
-      >
+  <div className="w-full max-w-[min(90vh,100%)] mx-auto overflow-hidden min-w-0 min-h-0">
+    <div
+      ref={viewportRef}
+      className="relative w-full overflow-hidden border border-gray-200 rounded-xl bg-white/80"
+      style={{
+        aspectRatio:
+          floorplanDims.width > 0 && floorplanDims.height > 0
+            ? `${floorplanDims.width} / ${floorplanDims.height}`
+            : '1 / 1',
+      }}
+    >
         {debugEnabled && debugOverlay ? debugOverlay(context) : null}
         <div
           className="absolute inset-0"
