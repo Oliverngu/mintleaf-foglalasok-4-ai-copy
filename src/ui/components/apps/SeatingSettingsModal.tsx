@@ -45,7 +45,7 @@ import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
 import FloorplanViewportCanvas from './seating/FloorplanViewportCanvas';
 import { useViewportRect } from '../../hooks/useViewportRect';
-import { FloorplanWorldLayer } from './seating/FloorplanWorldLayer';
+import FloorplanWorldLayer from './seating/FloorplanWorldLayer';
 
 const COLLISION_EPS = 0.5;
 const GRID_SPACING = 24;
