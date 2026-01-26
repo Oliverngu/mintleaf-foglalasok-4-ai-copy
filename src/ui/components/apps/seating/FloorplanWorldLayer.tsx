@@ -114,12 +114,14 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           geometry: { x: 0, y: 0, w: geometry.w, h: geometry.h, radius: geometry.radius, rot: geometry.rot },
         });
 
-        const addControls: SeatAddControl[] = seatEditable
-          ? computeSeatAddControls({
-              table,
-              geometry: { x: 0, y: 0, w: geometry.w, h: geometry.h, radius: geometry.radius, rot: geometry.rot },
-            })
-          : [];
+        
+        const addControls: SeatAddControl[] =
+          seatEditable && selected
+            ? computeSeatAddControls({
+                table,
+                geometry: { x: 0, y: 0, w: geometry.w, h: geometry.h, radius: geometry.radius, rot: geometry.rot },
+              })
+            : [];
 
         const tableRadius =
           geometry.shape === 'circle'
