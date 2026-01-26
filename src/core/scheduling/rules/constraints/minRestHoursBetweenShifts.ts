@@ -9,7 +9,8 @@ import {
   DEFAULT_CLOSING_TIME,
   addMinutes,
   combineDateAndTime,
-  diffHours
+  diffHours,
+  formatDateKey
 } from '../../engine/timeUtils';
 
 export const MIN_REST_HOURS_BETWEEN_SHIFTS_ID = 'MIN_REST_HOURS_BETWEEN_SHIFTS';
@@ -63,7 +64,17 @@ export const evaluateMinRestHoursBetweenShifts = (
   );
 
   const shiftsByUser = new Map<string, EngineShift[]>();
-  shifts.forEach(shift => {
+  const sortedShifts = [...shifts].sort((a, b) => {
+    const userCompare = a.userId.localeCompare(b.userId);
+    if (userCompare !== 0) return userCompare;
+    const dateCompare = a.dateKey.localeCompare(b.dateKey);
+    if (dateCompare !== 0) return dateCompare;
+    const startCompare = (a.startTime ?? '').localeCompare(b.startTime ?? '');
+    if (startCompare !== 0) return startCompare;
+    return a.id.localeCompare(b.id);
+  });
+
+  sortedShifts.forEach(shift => {
     if (shift.isDayOff) return;
     if (!shiftsByUser.has(shift.userId)) {
       shiftsByUser.set(shift.userId, []);
@@ -98,7 +109,9 @@ export const evaluateMinRestHoursBetweenShifts = (
           message: `A pihenőidő ${rule.minRestHours} óránál kevesebb.`,
           affected: {
             userIds: [userId],
-            shiftIds: [current.shiftId, next.shiftId]
+            shiftIds: [current.shiftId, next.shiftId],
+            slots: [],
+            dateKeys: [formatDateKey(current.start), formatDateKey(next.start)]
           }
         });
       }

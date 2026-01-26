@@ -1,6 +1,11 @@
 export const DEFAULT_CLOSING_TIME = '22:00';
 export const DEFAULT_CLOSING_OFFSET_MINUTES = 0;
 
+export const normalizeBucketMinutes = (value?: number): number => {
+  const minutes = Number.isFinite(value) ? Math.floor(value as number) : 60;
+  return minutes > 0 ? minutes : 60;
+};
+
 export const padTime = (value: number): string =>
   String(value).padStart(2, '0');
 
