@@ -1561,6 +1561,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [localSchedule, setLocalSchedule] = useState<Shift[]>(schedule);
+  const effectiveSchedule = isEnginePanelOpen ? localSchedule : schedule;
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
   const [staffWarning, setStaffWarning] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -2696,7 +2697,7 @@ if (expected === 0) {
   }, [activeUnitIds, weekDays, canManage]);
 
   const activeShifts = useMemo(() => {
-    const filtered = schedule.filter(s => {
+    const filtered = effectiveSchedule.filter(s => {
       const statusMatch = (s.status || 'draft') === viewMode;
       const unitMatch = !s.unitId || activeUnitIds.includes(s.unitId);
       const hasContent =
@@ -2726,7 +2727,7 @@ if (expected === 0) {
     }
 
     return filtered;
-  }, [activeUnitIds, isDevEnv, schedule, viewMode]);
+  }, [activeUnitIds, effectiveSchedule, isDevEnv, viewMode]);
 
   const getUnitDaySetting = useCallback(
     (shift: Shift, dayIndex: number): DailySetting | null => {
@@ -5016,7 +5017,7 @@ if (expected === 0) {
         userId={editingShift?.userId || currentUser.id}
         date={editingShift?.date || new Date()}
         users={filteredUsers}
-        schedule={schedule}
+        schedule={effectiveSchedule}
         viewMode={viewMode}
         currentUser={currentUser}
         canManage={canManage}
@@ -5760,7 +5761,6 @@ if (expected === 0) {
                               className="rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white"
                               onClick={() => {
                                 applySuggestionToLocalSchedule(suggestion);
-                                runEngineAndStore();
                               }}
                             >
                               Accept
