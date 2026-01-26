@@ -148,6 +148,36 @@ const isSameTimestamp = (
   right?: Timestamp | null
 ): boolean => toMillis(left) === toMillis(right);
 
+export const normalizeShiftPayload = (
+  shiftData: Partial<Shift> & { id?: string },
+  unitId?: string | null
+): Omit<Shift, 'id'> => {
+  if (!unitId) {
+    throw new Error('Missing unitId for shift payload.');
+  }
+  const { id, isHighlighted, ...rest } = shiftData;
+  return {
+    ...rest,
+    unitId,
+    isHighlighted: isHighlighted ?? false
+  } as Omit<Shift, 'id'>;
+};
+
+export const persistShift = async ({
+  id,
+  payload
+}: {
+  id?: string;
+  payload: Partial<Shift>;
+}): Promise<{ id: string }> => {
+  if (id) {
+    await updateDoc(doc(db, 'shifts', id), payload);
+    return { id };
+  }
+  const docRef = await addDoc(collection(db, 'shifts'), payload);
+  return { id: docRef.id };
+};
+
 type SelectionRect = {
   top: number;
   left: number;
@@ -4635,25 +4665,8 @@ if (expected === 0) {
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
   ) => {
-    const shiftToSave = {
-      ...shiftData,
-      unitId: activeUnitIds[0]
-    };
-
-    if (shiftToSave.id) {
-      const docId = shiftToSave.id;
-      const { id, isHighlighted, ...dataToUpdate } = shiftToSave;
-      const updatePayload =
-        isHighlighted !== undefined
-          ? { ...dataToUpdate, isHighlighted }
-          : dataToUpdate;
-      await updateDoc(doc(db, 'shifts', docId), updatePayload);
-    } else {
-      const { id, ...dataToAdd } = shiftToSave;
-      const isHighlighted = dataToAdd.isHighlighted ?? false;
-      const payload = { ...dataToAdd, isHighlighted };
-      await addDoc(collection(db, 'shifts'), payload);
-    }
+    const payload = normalizeShiftPayload(shiftData, activeUnitIds[0]);
+    await persistShift({ id: shiftData.id, payload });
     setIsShiftModalOpen(false);
   };
 
