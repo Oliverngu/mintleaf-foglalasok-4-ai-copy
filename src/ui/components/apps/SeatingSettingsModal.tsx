@@ -4521,6 +4521,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
+  const handleAddSeat = (
+    tableId: string,
+    side: 'north'|'east'|'south'|'west'|'radial'
+  ) => {
+    setSelectedTableDraft(curr => {
+      if (!curr || curr.id !== tableId) return curr;
+
+      const shape = curr.shape === 'circle' ? 'circle' : 'rect';
+
+      if (shape === 'circle') {
+        const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
+        const next = Math.min(16, current + 1);
+        return { ...curr, seatLayout: { kind: 'circle', count: next } };
+      }
+
+      const sides = curr.seatLayout?.kind === 'rect'
+        ? { ...(curr.seatLayout.sides ?? {}) }
+        : { north: 0, east: 0, south: 0, west: 0 };
+
+      const current = Number((sides as any)[side] ?? 0);
+      (sides as any)[side] = Math.min(3, current + 1);
+
+      return { ...curr, seatLayout: { kind: 'rect', sides } };
+    });
+  };
+  
   const renderFloorplansPanel = () => (
     <div className="space-y-6">
       <div className="text-sm text-[var(--color-text-secondary)]">
@@ -5460,6 +5486,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     seatUI={{
                       preview: floorplanMode === 'view',
                       editable: floorplanMode === 'edit',
+                      onAddSeat: handleAddSeat,
                       }}
                       appearance={{
                         showCapacity: true,
