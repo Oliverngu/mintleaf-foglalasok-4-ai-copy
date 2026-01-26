@@ -1,5 +1,5 @@
 import { FirebaseError } from 'firebase/app';
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { auth, db, functions } from '../../../core/firebase/config';
@@ -494,6 +494,38 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const south = Math.max(0, capacityTotal - north);
     return { north, east: 0, south, west: 0 };
   };
+  const isSeatLayoutEmpty = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return true;
+    if (seatLayout.kind === 'circle') {
+      return (seatLayout.count ?? 0) <= 0;
+    }
+    if (seatLayout.kind === 'rect') {
+      const sides = seatLayout.sides ?? {};
+      return (
+        (sides.north ?? 0) <= 0 &&
+        (sides.east ?? 0) <= 0 &&
+        (sides.south ?? 0) <= 0 &&
+        (sides.west ?? 0) <= 0
+      );
+    }
+    return true;
+  };
+  const computeSeatCountFromSeatLayout = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return 0;
+    if (seatLayout.kind === 'circle') {
+      return Math.max(0, seatLayout.count ?? 0);
+    }
+    if (seatLayout.kind === 'rect') {
+      const sides = seatLayout.sides ?? {};
+      return (
+        Math.max(0, sides.north ?? 0) +
+        Math.max(0, sides.east ?? 0) +
+        Math.max(0, sides.south ?? 0) +
+        Math.max(0, sides.west ?? 0)
+      );
+    }
+    return 0;
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -907,6 +939,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       selectedTableDraft.sideCapacities.west
     );
   }, [selectedTableDraft]);
+  const seatLayoutCapacityTotal = useMemo(() => {
+    if (!selectedTableDraft) return null;
+    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
+    return computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+  }, [selectedTableDraft?.seatLayout]);
+  useEffect(() => {
+    if (!selectedTableDraft) return;
+    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+    if (nextCapacityTotal === selectedTableDraft.capacityTotal) return;
+    setSelectedTableDraft(current =>
+      current
+        ? {
+            ...current,
+            capacityTotal: nextCapacityTotal,
+          }
+        : current
+    );
+  }, [
+    selectedTableDraft,
+    selectedTableDraft?.capacityTotal,
+    selectedTableDraft?.seatLayout,
+  ]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -1970,7 +2025,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSelectedTableMetadataSave = async () => {
     if (!selectedTableDraft) return;
-    const capacityTotal = sanitizeCapacityValue(selectedTableDraft.capacityTotal);
+    const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+    const capacityTotal = seatLayoutEmpty
+      ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
+      : sanitizeCapacityValue(
+          computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
+        );
     const sideCapacities = {
       north: sanitizeCapacityValue(selectedTableDraft.sideCapacities.north),
       east: sanitizeCapacityValue(selectedTableDraft.sideCapacities.east),
@@ -1985,7 +2045,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       sideCapacities,
       combinableWithIds,
     };
-    if (selectedTableDraft.seatLayout) {
+    if (seatLayoutEmpty) {
+      payload.seatLayout = deleteField();
+    } else if (selectedTableDraft.seatLayout) {
       payload.seatLayout = selectedTableDraft.seatLayout;
     }
     await runAction({
@@ -1995,22 +2057,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       successMessage: 'Asztal kapacitás mentve.',
       action: async () => {
         await updateTable(unitId, selectedTableDraft.id, payload);
+        const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
         setTables(current =>
           current.map(table =>
-            table.id === selectedTableDraft.id ? { ...table, ...payload } : table
+            table.id === selectedTableDraft.id
+              ? {
+                  ...table,
+                  capacityTotal,
+                  sideCapacities,
+                  combinableWithIds,
+                  seatLayout: seatLayoutForState,
+                }
+              : table
           )
         );
-        setSelectedTableDraft(current =>
-          current && current.id === selectedTableDraft.id
-            ? {
-                ...current,
-                capacityTotal,
-                sideCapacities,
-                combinableWithIds,
-                seatLayout: selectedTableDraft.seatLayout,
-              }
-            : current
-        );
+        setSelectedTableDraft(current => {
+          if (!current || current.id !== selectedTableDraft.id) return current;
+          return {
+            ...current,
+            capacityTotal,
+            sideCapacities,
+            combinableWithIds,
+            seatLayout: seatLayoutForState,
+          };
+        });
+        if (debugEnabled) {
+          console.debug('[seating] table meta saved', {
+            tableId: selectedTableDraft.id,
+            payloadKeys: Object.keys(payload),
+            seatLayoutAction: seatLayoutEmpty ? 'deleted' : 'set',
+          });
+        }
       },
     });
   };
@@ -4577,6 +4654,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         };
       }
 
+      if (side === 'radial') return curr;
+
       const sides =
         curr.seatLayout?.kind === 'rect'
           ? { ...(curr.seatLayout.sides ?? {}) }
@@ -4590,15 +4669,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         ...curr.sideCapacities,
         [side]: nextSide,
       } as typeof curr.sideCapacities;
-      const nextCapacityTotal =
-        nextSideCapacities.north +
-        nextSideCapacities.east +
-        nextSideCapacities.south +
-        nextSideCapacities.west;
+      const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
 
       return {
         ...curr,
-        seatLayout: { kind: 'rect', sides },
+        seatLayout: nextSeatLayout,
         sideCapacities: nextSideCapacities,
         capacityTotal: nextCapacityTotal,
       };
@@ -4624,6 +4700,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         };
       }
 
+      if (side === 'radial') return curr;
+
       const sides =
         curr.seatLayout?.kind === 'rect'
           ? { ...(curr.seatLayout.sides ?? {}) }
@@ -4637,15 +4715,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         ...curr.sideCapacities,
         [side]: nextSide,
       } as typeof curr.sideCapacities;
-      const nextCapacityTotal =
-        nextSideCapacities.north +
-        nextSideCapacities.east +
-        nextSideCapacities.south +
-        nextSideCapacities.west;
+      const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
 
       return {
         ...curr,
-        seatLayout: { kind: 'rect', sides },
+        seatLayout: nextSeatLayout,
         sideCapacities: nextSideCapacities,
         capacityTotal: nextCapacityTotal,
       };
@@ -5669,7 +5744,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       type="number"
                       min={0}
                       className="border rounded p-2"
-                      value={selectedTableDraft.capacityTotal}
+                      value={seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
+                      disabled={seatLayoutCapacityTotal !== null}
+                      readOnly={seatLayoutCapacityTotal !== null}
                       onChange={event =>
                         setSelectedTableDraft(current =>
                           current
