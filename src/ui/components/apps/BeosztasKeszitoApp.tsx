@@ -55,9 +55,14 @@ import { runEngine } from '../../../core/scheduling/engine/runEngine';
 import {
   EngineInput,
   EngineResult,
-  Suggestion,
-  SuggestionAction
+  Suggestion
 } from '../../../core/scheduling/engine/types';
+import {
+  applySuggestionToSchedule,
+  computeSuggestionKey,
+  undoPatches,
+  UndoStackItem
+} from './scheduling/engineWhatIf';
 
 const LAYERS = {
   modal: 90,
@@ -786,10 +791,6 @@ const formatTime = (date?: Date | null): string | null => {
   return `${hours}:${minutes}`;
 };
 
-const buildDateFromDateKeyTime = (
-  dateKey: string,
-  time: string
-): Date => new Date(`${dateKey}T${time}:00`);
 
 const createDefaultSettings = (
   unitId: string,
@@ -1615,6 +1616,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [rejectedSuggestionKeys, setRejectedSuggestionKeys] = useState<Set<string>>(
     () => new Set()
   );
+  const [undoStack, setUndoStack] = useState<UndoStackItem[]>([]);
   const effectiveSchedule = useMemo(
     () => (isEnginePanelOpen ? localSchedule : schedule),
     [isEnginePanelOpen, localSchedule, schedule]
@@ -2451,91 +2453,69 @@ if (expected === 0) {
     console.info('[engine] suggestions:', result.suggestions.length);
   }, [runEngineAndStore]);
 
-  const getSuggestionKey = useCallback((suggestion: Suggestion): string => {
-    const action = suggestion.actions[0];
-    if (!action) return '';
-    if (action.type === 'moveShift') {
-      return `move:${action.shiftId}:${action.dateKey}:${action.newStartTime}-${action.newEndTime}`;
-    }
-    return `add:${action.userId}:${action.dateKey}:${action.startTime}-${action.endTime}:${action.positionId ?? ''}`;
-  }, []);
-
-  const resolvePositionName = useCallback(
-    (positionId?: string) => {
-      if (!positionId) return undefined;
-      return positions.find(position => position.id === positionId)?.name || positionId;
-    },
-    [positions]
-  );
-
-  const applyActionToLocalSchedule = useCallback(
-    (action: SuggestionAction) => {
-      if (action.type === 'moveShift') {
-        setLocalSchedule(prev =>
-          prev.map(shift => {
-            if (shift.id !== action.shiftId) return shift;
-            const startDate = buildDateFromDateKeyTime(
-              action.dateKey,
-              action.newStartTime
-            );
-            const endDate = buildDateFromDateKeyTime(
-              action.dateKey,
-              action.newEndTime
-            );
-            if (endDate <= startDate) {
-              endDate.setDate(endDate.getDate() + 1);
-            }
-            return {
-              ...shift,
-              start: Timestamp.fromDate(startDate),
-              end: Timestamp.fromDate(endDate),
-              position:
-                action.positionId
-                  ? resolvePositionName(action.positionId)
-                  : shift.position
-            };
-          })
-        );
-      }
-      if (action.type === 'createShift') {
-        const startDate = buildDateFromDateKeyTime(
-          action.dateKey,
-          action.startTime
-        );
-        const endDate = buildDateFromDateKeyTime(
-          action.dateKey,
-          action.endTime
-        );
-        if (endDate <= startDate) {
-          endDate.setDate(endDate.getDate() + 1);
-        }
-        const unitId = activeUnitIds[0] || 'default';
-        const user = allAppUsers.find(u => u.id === action.userId);
-        setLocalSchedule(prev => [
-          ...prev,
-          {
-            id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            userId: action.userId,
-            userName: user?.fullName || 'Ismeretlen',
-            unitId,
-            position: resolvePositionName(action.positionId) || 'N/A',
-            start: Timestamp.fromDate(startDate),
-            end: Timestamp.fromDate(endDate),
-            status: 'draft',
-            isDayOff: false,
-            dayKey: action.dateKey
-          }
-        ]);
-      }
-    },
-    [activeUnitIds, allAppUsers, resolvePositionName]
+  const getSuggestionKey = useCallback(
+    (suggestion: Suggestion) => computeSuggestionKey(suggestion),
+    []
   );
 
   const applySuggestionToLocalSchedule = useCallback(
     (suggestion: Suggestion) => {
-      suggestion.actions.forEach(action => applyActionToLocalSchedule(action));
+      const unitId = activeUnitIds[0] || 'default';
+      const { nextSchedule, patches } = applySuggestionToSchedule(
+        localSchedule,
+        suggestion,
+        {
+          unitId,
+          users: allAppUsers,
+          positions
+        }
+      );
+      const key = getSuggestionKey(suggestion);
+      setLocalSchedule(nextSchedule);
+      setUndoStack(prev => [
+        ...prev,
+        {
+          patches,
+          key,
+          appliedAt: Date.now()
+        }
+      ]);
+      if (isDevEnv) {
+        console.debug('[engine] applied suggestion', { key, patches });
+      }
     },
-    [applyActionToLocalSchedule]
+    [activeUnitIds, allAppUsers, getSuggestionKey, isDevEnv, localSchedule, positions]
+  );
+
+  const handleUndoLastSuggestion = useCallback(() => {
+    setUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const nextStack = [...prev];
+      const last = nextStack.pop();
+      if (last) {
+        setLocalSchedule(current => undoPatches(current, last.patches));
+        if (isDevEnv) {
+          console.debug('[engine] undo suggestion', last.key);
+        }
+      }
+      return nextStack;
+    });
+  }, [isDevEnv]);
+
+  const buildSuggestionPreview = useCallback(
+    (suggestion: Suggestion): string => {
+      const action = suggestion.actions[0];
+      if (!action) return '';
+      if (action.type === 'moveShift') {
+        const shift = localSchedule.find(item => item.id === action.shiftId);
+        const userName = shift?.userName || userById.get(action.userId)?.fullName || action.userId;
+        return `${userName} · ${action.dateKey} ${action.newStartTime}-${action.newEndTime}`;
+      }
+      const userName =
+        userById.get(action.userId)?.fullName || action.userId;
+      return `${userName} · ${action.dateKey} ${action.startTime}-${action.endTime}`;
+    },
+    [localSchedule, userById]
   );
 
   const handleToggleEnginePanel = useCallback(() => {
@@ -5636,11 +5616,11 @@ if (expected === 0) {
           className="fixed top-0 right-0 h-full w-[400px] border-l border-slate-200 bg-white/95 backdrop-blur-md shadow-xl"
           style={{ zIndex: LAYERS.modal - 1 }}
         >
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">
-                  Engine
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    Engine
                 </h3>
                 <div className="text-xs text-slate-500">
                   {engineLastRunAt
@@ -5650,20 +5630,28 @@ if (expected === 0) {
                       })}`
                     : 'Nincs futtatás'}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-                  onClick={() => runEngineAndStore()}
-                >
-                  Recompute
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-                  onClick={() => setIsEnginePanelOpen(false)}
-                >
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                    onClick={() => runEngineAndStore()}
+                  >
+                    Recompute
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    onClick={handleUndoLastSuggestion}
+                    disabled={undoStack.length === 0}
+                  >
+                    Undo last
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                    onClick={() => setIsEnginePanelOpen(false)}
+                  >
                   Close
                 </button>
               </div>
@@ -5741,6 +5729,9 @@ if (expected === 0) {
                           </div>
                           <div className="mt-1 text-[11px] text-slate-500">
                             {suggestion.explanation}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {buildSuggestionPreview(suggestion)}
                           </div>
                           {action && (
                             <div className="mt-2 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
