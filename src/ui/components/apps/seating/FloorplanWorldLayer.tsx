@@ -51,6 +51,7 @@ type SeatUI = {
   debugSelectedTableId?: string | null;
   debugSelectedTableDraftId?: string | null;
   debugSelectedTableKey?: string | null;
+  uiScale?: number;
 };
 
 type Props = {
@@ -125,6 +126,13 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const onAddSeat = seatUI?.onAddSeat;
   const onRemoveSeat = seatUI?.onRemoveSeat;
   const debugEnabled = Boolean(seatUI?.debug);
+  const uiScaleRaw = typeof seatUI?.uiScale === 'number' ? seatUI.uiScale : 1;
+  const uiScale = Math.min(1.6, Math.max(0.8, uiScaleRaw));
+  const seatSize = 16 * uiScale;
+  const seatRadius = seatSize / 2;
+  const controlSize = 18 * uiScale;
+  const controlRadius = controlSize / 2;
+  const removeOffset = 20 * uiScale;
 
   let selectedSeatCount = 0;
   let selectedControlCount = 0;
@@ -252,10 +260,10 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                   key={seat.id}
                   className="absolute flex items-center justify-center rounded-full border border-gray-300 bg-white/70"
                   style={{
-                    left: seat.x - 8,
-                    top: seat.y - 8,
-                    width: 16,
-                    height: 16,
+                    left: seat.x - seatRadius,
+                    top: seat.y - seatRadius,
+                    width: seatSize,
+                    height: seatSize,
                     zIndex: 3,
                     opacity: seatPreview ? 0.28 : 0.85,
                     pointerEvents: 'none',
@@ -265,11 +273,15 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                   <div className="relative">
                     <div
                       className="mx-auto rounded-full bg-gray-700"
-                      style={{ width: 5, height: 5, opacity: 0.8 }}
+                      style={{ width: 5 * uiScale, height: 5 * uiScale, opacity: 0.8 }}
                     />
                     <div
                       className="mx-auto mt-[1px] rounded-full bg-gray-700"
-                      style={{ width: 7, height: 5, opacity: 0.55 }}
+                      style={{
+                        width: 7 * uiScale,
+                        height: 5 * uiScale,
+                        opacity: 0.55,
+                      }}
                     />
                   </div>
                 </div>
@@ -336,16 +348,16 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                           ? 'border-gray-200 bg-white/40'
                           : 'border-amber-300 bg-amber-50/70',
                       ].join(' ')}
-                      style={{
-                        left: ctrl.x - 9,
-                        top: ctrl.y - 9,
-                        width: 18,
-                        height: 18,
-                        zIndex: 4,
-                        cursor: clickable ? 'pointer' : 'not-allowed',
-                        pointerEvents: 'auto',
-                      }}
-                      title={disabled ? ctrl.reason ?? 'limit' : 'szék hozzáadása'}
+                    style={{
+                      left: ctrl.x - controlRadius,
+                      top: ctrl.y - controlRadius,
+                      width: controlSize,
+                      height: controlSize,
+                      zIndex: 4,
+                      cursor: clickable ? 'pointer' : 'not-allowed',
+                      pointerEvents: 'auto',
+                    }}
+                    title={disabled ? ctrl.reason ?? 'limit' : 'szék hozzáadása'}
                     >
                       <span
                         className="text-[12px] leading-none"
@@ -379,10 +391,10 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                           }}
                           className="absolute flex items-center justify-center rounded-full border border-dashed border-rose-300 bg-rose-50/70"
                           style={{
-                            left: position.x - 20,
-                            top: position.y - 9,
-                            width: 18,
-                            height: 18,
+                            left: position.x - removeOffset,
+                            top: position.y - controlRadius,
+                            width: controlSize,
+                            height: controlSize,
                             zIndex: 4,
                             cursor: canRemove ? 'pointer' : 'not-allowed',
                             pointerEvents: 'auto',

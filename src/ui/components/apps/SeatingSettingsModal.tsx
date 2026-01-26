@@ -43,7 +43,9 @@ import {
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
-import FloorplanViewportCanvas from './seating/FloorplanViewportCanvas';
+import FloorplanViewportCanvas, {
+  FloorplanViewportHandle,
+} from './seating/FloorplanViewportCanvas';
 import { useViewportRect } from '../../hooks/useViewportRect';
 import FloorplanWorldLayer from './seating/FloorplanWorldLayer';
 
@@ -118,6 +120,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const lastSavedSettingsRef = useRef<SeatingSettings | null>(null);
+  const viewportCanvasRef = useRef<FloorplanViewportHandle | null>(null);
   const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
@@ -526,6 +529,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return 0;
   };
+  const formatSeatLayoutSummary = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return 'Seat layout: n/a';
+    if (seatLayout.kind === 'circle') {
+      return `Seat layout: circle (${seatLayout.count ?? 0})`;
+    }
+    if (seatLayout.kind === 'rect') {
+      return `Seat layout: rect N${seatLayout.sides?.north ?? 0} E${
+        seatLayout.sides?.east ?? 0
+      } S${seatLayout.sides?.south ?? 0} W${seatLayout.sides?.west ?? 0}`;
+    }
+    return 'Seat layout: n/a';
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -720,6 +735,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
           return { ...table, combinableWithIds: prunedCombinable };
         });
+        if (debugEnabled) {
+          prunedTables.forEach(table => {
+            console.debug('[seating] loaded table seatLayout', {
+              tableId: table.id,
+              seatLayout: table.seatLayout,
+            });
+          });
+        }
         setSettings(settingsData);
         setZones(zonesData);
         setTables(prunedTables);
@@ -883,6 +906,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [selectedTableId, tables]
   );
   const selectedTableKey = selectedTableId || selectedTableDraft?.id || null;
+  const selectedEditorTable = useMemo(
+    () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
+    [editorTables, selectedTableKey]
+  );
   useEffect(() => {
     if (!selectedTable) {
       setSelectedTableDraft(null);
@@ -944,6 +971,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
     return computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
   }, [selectedTableDraft?.seatLayout]);
+  const seatLayoutSummary = useMemo(
+    () => formatSeatLayoutSummary(selectedTableDraft?.seatLayout),
+    [selectedTableDraft?.seatLayout]
+  );
   useEffect(() => {
     if (!selectedTableDraft) return;
     if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
@@ -966,6 +997,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTableDraft?.seatLayout?.sides?.south,
     selectedTableDraft?.seatLayout?.sides?.west,
   ]);
+  useEffect(() => {
+    if (isEditMode) return;
+    if (!selectedEditorTable) return;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    viewportCanvasRef.current?.centerOnRect({
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    });
+  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -2060,6 +2107,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorContext: 'Error saving table capacity metadata:',
       successMessage: 'Asztal kapacitás mentve.',
       action: async () => {
+        if (debugEnabled) {
+          console.debug('[seating] saving table meta payload', {
+            tableId: selectedTableDraft.id,
+            seatLayout: payload.seatLayout,
+            capacityTotal,
+            sideCapacities,
+          });
+        }
         await updateTable(unitId, selectedTableDraft.id, payload);
         const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
         setTables(current =>
@@ -2168,12 +2223,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const isEditMode = floorplanMode === 'edit';
-  const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
-    resolveTableRenderPosition(
-      geometry,
-      floorplanDims,
-      isEditMode ? draftPositions[table.id] : null
-    );
+  const getRenderPosition = useCallback(
+    (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
+      resolveTableRenderPosition(
+        geometry,
+        floorplanDims,
+        isEditMode ? draftPositions[table.id] : null
+      ),
+    [draftPositions, floorplanDims, isEditMode]
+  );
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
     if (rafPosId.current !== null) {
@@ -2206,6 +2264,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     width: number,
     height: number
   ): FloorplanTransform {
+    const override = floorplanTransformOverrideRef.current;
+    if (
+      override &&
+      rect.width === floorplanViewportRect.width &&
+      rect.height === floorplanViewportRect.height
+    ) {
+      return override;
+    }
     const rectLeft = rect?.left ?? 0;
     const rectTop = rect?.top ?? 0;
     const baseTransform = computeTransformFromViewportRect(rect, width, height);
@@ -2274,6 +2340,72 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
+  const [floorplanTransformOverride, setFloorplanTransformOverride] = useState<{
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    rectLeft: number;
+    rectTop: number;
+    rectWidth: number;
+    rectHeight: number;
+  } | null>(null);
+  const floorplanTransformOverrideRef = useRef<typeof floorplanTransformOverride>(null);
+  useEffect(() => {
+    floorplanTransformOverrideRef.current = floorplanTransformOverride;
+  }, [floorplanTransformOverride]);
+  const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
+  useEffect(() => {
+    if (!isEditMode) {
+      setFloorplanTransformOverride(null);
+      return;
+    }
+    if (!selectedEditorTable) {
+      setFloorplanTransformOverride(null);
+      return;
+    }
+    if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    const rect = {
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    };
+    const padding = 0.25;
+    const paddedW = rect.w * (1 + padding * 2);
+    const paddedH = rect.h * (1 + padding * 2);
+    const scale = Math.min(
+      Math.max(0.4, Math.min(floorplanViewportRect.width / paddedW, floorplanViewportRect.height / paddedH)),
+      2.5
+    );
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const offsetX = floorplanViewportRect.width / 2 - centerX * scale;
+    const offsetY = floorplanViewportRect.height / 2 - centerY * scale;
+    setFloorplanTransformOverride({
+      scale,
+      offsetX,
+      offsetY,
+      rectLeft: floorplanViewportRect.left ?? 0,
+      rectTop: floorplanViewportRect.top ?? 0,
+      rectWidth: floorplanViewportRect.width,
+      rectHeight: floorplanViewportRect.height,
+    });
+  }, [
+    floorplanDims,
+    floorplanViewportRect.height,
+    floorplanViewportRect.left,
+    floorplanViewportRect.top,
+    floorplanViewportRect.width,
+    getRenderPosition,
+    isEditMode,
+    selectedEditorTable,
+  ]);
   const debugRawGeometry = useMemo(() => {
     const table = editorTables[0];
     if (!table) return null;
@@ -2370,11 +2502,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanH <= 0) {
       reasons.push(`floorplanHeight=${floorplanH}`);
     }
-    if (floorplanRenderTransform.rectWidth <= 0) {
-      reasons.push(`rectWidth=${floorplanRenderTransform.rectWidth}`);
+    if (activeFloorplanTransform.rectWidth <= 0) {
+      reasons.push(`rectWidth=${activeFloorplanTransform.rectWidth}`);
     }
-    if (floorplanRenderTransform.rectHeight <= 0) {
-      reasons.push(`rectHeight=${floorplanRenderTransform.rectHeight}`);
+    if (activeFloorplanTransform.rectHeight <= 0) {
+      reasons.push(`rectHeight=${activeFloorplanTransform.rectHeight}`);
     }
     return reasons;
   }, [
@@ -2382,8 +2514,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     debugSeating,
     editorTables.length,
     floorplanH,
-    floorplanRenderTransform.rectHeight,
-    floorplanRenderTransform.rectWidth,
+    activeFloorplanTransform.rectHeight,
+    activeFloorplanTransform.rectWidth,
     floorplanW,
   ]);
 
@@ -2420,21 +2552,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     if (
       editorTables.length > 0 &&
-      (floorplanRenderTransform.rectWidth <= 0 ||
-        floorplanRenderTransform.rectHeight <= 0)
+      (activeFloorplanTransform.rectWidth <= 0 ||
+        activeFloorplanTransform.rectHeight <= 0)
     ) {
       zeroRectLogRef.current = true;
       try {
         console.debug('[seating] viewport zero rect with tables', {
           tablesCount: editorTables.length,
           rect: floorplanViewportRect,
-          transform: floorplanRenderTransform,
+          transform: activeFloorplanTransform,
         });
       } catch (error) {
         console.warn('[seating] zero-rect debug log failed', error);
       }
     }
-  }, [debugSeating, editorTables.length, floorplanRenderTransform, floorplanViewportRect]);
+  }, [debugSeating, editorTables.length, activeFloorplanTransform, floorplanViewportRect]);
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
@@ -4733,6 +4865,52 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
   
+  const renderSelectedTablePopover = (transform: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }) => {
+    if (!selectedEditorTable || !selectedTableDraft) return null;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    const centerX = position.x + geometry.w / 2;
+    const centerY = position.y + geometry.h / 2;
+    const screenX = centerX * transform.scale + transform.offsetX + 12;
+    const screenY = centerY * transform.scale + transform.offsetY - 12;
+    return (
+      <div className="pointer-events-none absolute inset-0 z-[12]">
+        <div
+          className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
+          style={{ position: 'absolute', left: screenX, top: screenY }}
+        >
+          <div className="font-semibold">
+            {selectedEditorTable.name || selectedEditorTable.id}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            {selectedEditorTable.zoneId}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            {seatLayoutSummary}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            Kapacitás: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
+          </div>
+          <button
+            type="button"
+            className="mt-2 rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+            onClick={() => void handleSelectedTableMetadataSave()}
+          >
+            Mentés
+          </button>
+        </div>
+      </div>
+    );
+  };
+  
   const renderFloorplansPanel = () => (
     <div className="space-y-6">
       <div className="text-sm text-[var(--color-text-secondary)]">
@@ -5053,9 +5231,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">transform</dt>
                     <dd>
-                      scale {formatDebugNumber(floorplanRenderTransform.scale)} | rect{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectWidth)} ×{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectHeight)}
+                      scale {formatDebugNumber(activeFloorplanTransform.scale)} | rect{' '}
+                      {formatDebugNumber(activeFloorplanTransform.rectWidth)} ×{' '}
+                      {formatDebugNumber(activeFloorplanTransform.rectHeight)}
                     </dd>
                   </div>
                 </dl>
@@ -5091,11 +5269,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       {Math.round(floorplanViewportRect.height)}
                     </div>
                     <div>
-                      scale: {floorplanRenderTransform.scale.toFixed(3)} | offset:{' '}
-                      {floorplanRenderTransform.offsetX.toFixed(1)},{' '}
-                      {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
-                      {floorplanRenderTransform.rectWidth > 0 &&
-                      floorplanRenderTransform.rectHeight > 0 &&
+                      scale: {activeFloorplanTransform.scale.toFixed(3)} | offset:{' '}
+                      {activeFloorplanTransform.offsetX.toFixed(1)},{' '}
+                      {activeFloorplanTransform.offsetY.toFixed(1)} | ready:{' '}
+                      {activeFloorplanTransform.rectWidth > 0 &&
+                      activeFloorplanTransform.rectHeight > 0 &&
                       floorplanW > 0 &&
                       floorplanH > 0
                         ? 'yes'
@@ -5142,11 +5320,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                   </div>
                 )}
+                {renderSelectedTablePopover(activeFloorplanTransform)}
                 <div
                   className="absolute inset-0"
                   style={{
-                    transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+                    transform: `translate(${activeFloorplanTransform.offsetX}px, ${activeFloorplanTransform.offsetY}px) scale(${activeFloorplanTransform.scale})`,
                     transformOrigin: 'top left',
+                    transition: floorplanTransformOverride ? 'transform 200ms ease' : undefined,
                   }}
                 >
                   <div
@@ -5612,6 +5792,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         debugSelectedTableId: selectedTableId,
                         debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
                         debugSelectedTableKey: selectedTableKey,
+                        uiScale: activeFloorplanTransform.scale,
                       }}
                       appearance={{
                         showCapacity: false,
@@ -5626,6 +5807,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </div>
             ) : (
               <FloorplanViewportCanvas
+                ref={viewportCanvasRef}
                 floorplanDims={floorplanDims}
                 debugEnabled={debugEnabled}
                 viewportDeps={[resolvedActiveFloorplanId]}
@@ -5686,7 +5868,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                   </div>
                 )}
-                renderWorld={() => (
+                renderOverlay={context => renderSelectedTablePopover(context.transform)}
+                renderWorld={context => (
                   <FloorplanWorldLayer
                     tables={editorTables}
                     obstacles={activeObstacles}
@@ -5702,6 +5885,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       debugSelectedTableId: selectedTableId,
                       debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
                       debugSelectedTableKey: selectedTableKey,
+                      uiScale: context.transform.scale,
                     }}
                     appearance={{
                       showCapacity: true,
@@ -5733,15 +5917,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   ) : null}
                 </div>
                 <div className="text-xs text-[var(--color-text-secondary)]">
-                  {selectedTableDraft.seatLayout?.kind === 'circle'
-                    ? `Seat layout: circle (${selectedTableDraft.seatLayout.count ?? 0})`
-                    : selectedTableDraft.seatLayout?.kind === 'rect'
-                    ? `Seat layout: rect N${selectedTableDraft.seatLayout.sides?.north ?? 0} E${
-                        selectedTableDraft.seatLayout.sides?.east ?? 0
-                      } S${selectedTableDraft.seatLayout.sides?.south ?? 0} W${
-                        selectedTableDraft.seatLayout.sides?.west ?? 0
-                      }`
-                    : 'Seat layout: n/a'}
+                  {seatLayoutSummary}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">
