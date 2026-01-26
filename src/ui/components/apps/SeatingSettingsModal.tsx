@@ -2264,14 +2264,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     width: number,
     height: number
   ): FloorplanTransform {
-    const override = floorplanTransformOverrideRef.current;
-    if (
-      override &&
-      rect.width === floorplanViewportRect.width &&
-      rect.height === floorplanViewportRect.height
-    ) {
-      return override;
-    }
     const rectLeft = rect?.left ?? 0;
     const rectTop = rect?.top ?? 0;
     const baseTransform = computeTransformFromViewportRect(rect, width, height);
@@ -2349,10 +2341,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectWidth: number;
     rectHeight: number;
   } | null>(null);
-  const floorplanTransformOverrideRef = useRef<typeof floorplanTransformOverride>(null);
-  useEffect(() => {
-    floorplanTransformOverrideRef.current = floorplanTransformOverride;
-  }, [floorplanTransformOverride]);
   const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
   useEffect(() => {
     if (!isEditMode) {
