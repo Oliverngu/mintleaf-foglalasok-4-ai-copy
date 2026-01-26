@@ -114,6 +114,40 @@ const calculateShiftDuration = (
   return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
 };
 
+const buildDateFromDateKeyTime = (dateKey: string, time: string): Date =>
+  new Date(`${dateKey}T${time}:00`);
+
+const buildShiftDateRange = (
+  dateKey: string,
+  startTime: string,
+  endTime: string
+): { start: Date; end: Date } => {
+  const start = buildDateFromDateKeyTime(dateKey, startTime);
+  const end = buildDateFromDateKeyTime(dateKey, endTime);
+  if (end <= start) {
+    end.setDate(end.getDate() + 1);
+  }
+  return { start, end };
+};
+
+const createAbortError = (message: string): Error => {
+  try {
+    return new DOMException(message, 'AbortError');
+  } catch (err) {
+    const fallback = new Error(message);
+    (fallback as Error & { name: string }).name = 'AbortError';
+    return fallback;
+  }
+};
+
+const toMillis = (value?: Timestamp | null): number | null =>
+  value ? value.toMillis() : null;
+
+const isSameTimestamp = (
+  left?: Timestamp | null,
+  right?: Timestamp | null
+): boolean => toMillis(left) === toMillis(right);
+
 type SelectionRect = {
   top: number;
   left: number;
@@ -1617,6 +1651,9 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     () => new Set()
   );
   const [undoStack, setUndoStack] = useState<UndoStackItem[]>([]);
+  const [savingSuggestionKeys, setSavingSuggestionKeys] = useState<Set<string>>(
+    () => new Set()
+  );
   const effectiveSchedule = useMemo(
     () => (isEnginePanelOpen ? localSchedule : schedule),
     [isEnginePanelOpen, localSchedule, schedule]
@@ -2460,6 +2497,14 @@ if (expected === 0) {
     []
   );
 
+  const resolvePositionName = useCallback(
+    (positionId?: string): string | undefined => {
+      if (!positionId) return undefined;
+      return positions.find(position => position.id === positionId)?.name || positionId;
+    },
+    [positions]
+  );
+
   const applySuggestionToLocalSchedule = useCallback(
     (suggestion: Suggestion) => {
       const unitId = activeUnitIds[0] || 'default';
@@ -2487,6 +2532,153 @@ if (expected === 0) {
       }
     },
     [activeUnitIds, allAppUsers, getSuggestionKey, isDevEnv, localSchedule, positions]
+  );
+
+  const persistSuggestion = useCallback(
+    async (suggestion: Suggestion): Promise<{ createdShift?: Shift }> => {
+      const unitId = activeUnitIds[0];
+      if (!unitId) {
+        throw createAbortError('Missing unit ID for suggestion persistence.');
+      }
+      const action = suggestion.actions[0];
+      if (!action) {
+        throw createAbortError('Missing suggestion action.');
+      }
+
+      if (action.type === 'moveShift') {
+        const shift = localSchedule.find(item => item.id === action.shiftId);
+        if (!shift) {
+          throw createAbortError('Expected shift missing from local schedule.');
+        }
+        const shiftRef = doc(db, 'shifts', action.shiftId);
+        const currentSnap = await getDoc(shiftRef);
+        if (!currentSnap.exists()) {
+          throw createAbortError('Shift no longer exists.');
+        }
+        const currentData = currentSnap.data() as Partial<Shift>;
+        const currentStart = (currentData.start ?? null) as Timestamp | null;
+        const currentEnd = (currentData.end ?? null) as Timestamp | null;
+
+        if (
+          !isSameTimestamp(shift.start ?? null, currentStart) ||
+          !isSameTimestamp(shift.end ?? null, currentEnd)
+        ) {
+          throw createAbortError('Shift changed since suggestion was computed.');
+        }
+
+        const { start, end } = buildShiftDateRange(
+          action.dateKey,
+          action.newStartTime,
+          action.newEndTime
+        );
+        const updatePayload: Partial<Shift> = {
+          start: Timestamp.fromDate(start),
+          end: Timestamp.fromDate(end),
+          status: 'draft',
+          dayKey: action.dateKey,
+          unitId
+        };
+        if (action.positionId) {
+          updatePayload.position =
+            resolvePositionName(action.positionId) || action.positionId;
+        }
+        await updateDoc(shiftRef, updatePayload);
+        return {};
+      }
+
+      if (action.type === 'createShift') {
+        const { start, end } = buildShiftDateRange(
+          action.dateKey,
+          action.startTime,
+          action.endTime
+        );
+        const user = userById.get(action.userId);
+        const positionName =
+          resolvePositionName(action.positionId) ||
+          user?.position ||
+          action.positionId ||
+          'N/A';
+        const payload: Omit<Shift, 'id'> = {
+          userId: action.userId,
+          userName: user?.fullName || action.userId,
+          unitId,
+          position: positionName,
+          start: Timestamp.fromDate(start),
+          end: Timestamp.fromDate(end),
+          status: 'draft',
+          isDayOff: false,
+          note: '',
+          isHighlighted: false,
+          dayKey: action.dateKey
+        };
+        const docRef = await addDoc(collection(db, 'shifts'), payload);
+        const createdShift: Shift = {
+          id: docRef.id,
+          ...payload
+        };
+        return { createdShift };
+      }
+      return {};
+    },
+    [activeUnitIds, localSchedule, resolvePositionName, userById]
+  );
+
+  const handlePersistSuggestion = useCallback(
+    async (suggestion: Suggestion) => {
+      const key = getSuggestionKey(suggestion);
+      setSavingSuggestionKeys(prev => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+
+      try {
+        const result = await persistSuggestion(suggestion);
+        if (result.createdShift) {
+          setLocalSchedule(prev => [...prev, result.createdShift!]);
+          setUndoStack(prev => [
+            ...prev,
+            {
+              patches: [
+                {
+                  type: 'createShift',
+                  shiftId: result.createdShift.id,
+                  createdShift: result.createdShift
+                }
+              ],
+              key,
+              appliedAt: Date.now()
+            }
+          ]);
+        } else {
+          applySuggestionToLocalSchedule(suggestion);
+        }
+        setSuccessToast('Javaslat mentve a beosztáshoz.');
+      } catch (error) {
+        const err = error as Error;
+        if (err?.name === 'AbortError') {
+          console.debug('[engine] suggestion persist aborted', err);
+          setSuccessToast(
+            'A javaslat elavult. Kérlek futtasd újra az engine-t.'
+          );
+          return;
+        }
+        console.error('Failed to persist suggestion:', error);
+        setSuccessToast('Hiba történt a javaslat mentésekor.');
+      } finally {
+        setSavingSuggestionKeys(prev => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [
+      applySuggestionToLocalSchedule,
+      getSuggestionKey,
+      persistSuggestion,
+      setSuccessToast
+    ]
   );
 
   const handleUndoLastSuggestion = useCallback(() => {
@@ -5710,6 +5902,8 @@ if (expected === 0) {
                     )
                     .map((suggestion, index) => {
                       const action = suggestion.actions[0];
+                      const suggestionKey = getSuggestionKey(suggestion);
+                      const isSaving = savingSuggestionKeys.has(suggestionKey);
                       return (
                         <div
                           key={`${suggestion.type}-${index}`}
@@ -5757,11 +5951,19 @@ if (expected === 0) {
                             </button>
                             <button
                               type="button"
+                              className="rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
+                              onClick={() => handlePersistSuggestion(suggestion)}
+                              disabled={isSaving}
+                            >
+                              {isSaving ? 'Saving...' : 'Apply (save)'}
+                            </button>
+                            <button
+                              type="button"
                               className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600"
                               onClick={() =>
                                 setRejectedSuggestionKeys(prev => {
                                   const next = new Set(prev);
-                                  next.add(getSuggestionKey(suggestion));
+                                  next.add(suggestionKey);
                                   return next;
                                 })
                               }
