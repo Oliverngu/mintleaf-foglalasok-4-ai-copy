@@ -968,6 +968,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return matchesFloorplan && table.isActive !== false;
     });
     if (!selectedTableDraft) return filtered;
+    const seatLayoutForDraft = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? undefined
+      : selectedTableDraft.seatLayout;
     return filtered.map(table =>
       table.id === selectedTableDraft.id
         ? {
@@ -975,7 +978,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             capacityTotal: selectedTableDraft.capacityTotal,
             sideCapacities: selectedTableDraft.sideCapacities,
             combinableWithIds: selectedTableDraft.combinableWithIds,
-            seatLayout: selectedTableDraft.seatLayout ?? table.seatLayout,
+            seatLayout: seatLayoutForDraft,
           }
         : table
     );
