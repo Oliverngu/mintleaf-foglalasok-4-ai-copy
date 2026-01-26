@@ -88,7 +88,17 @@ export const evaluateMaxHoursPerDay = (
 
   const hoursByUser = new Map<string, DayHoursMap>();
 
-  shifts.forEach(shift => {
+  const sortedShifts = [...shifts].sort((a, b) => {
+    const userCompare = a.userId.localeCompare(b.userId);
+    if (userCompare !== 0) return userCompare;
+    const dateCompare = a.dateKey.localeCompare(b.dateKey);
+    if (dateCompare !== 0) return dateCompare;
+    const startCompare = (a.startTime ?? '').localeCompare(b.startTime ?? '');
+    if (startCompare !== 0) return startCompare;
+    return a.id.localeCompare(b.id);
+  });
+
+  sortedShifts.forEach(shift => {
     if (shift.isDayOff) return;
     const dayIndex = dayIndexMap.get(shift.dateKey);
     if (dayIndex === undefined) return;
@@ -113,6 +123,8 @@ export const evaluateMaxHoursPerDay = (
           message: `A napi munkaidő túllépte a ${rule.maxHoursPerDay} órát.`,
           affected: {
             userIds: [userId],
+            shiftIds: [],
+            slots: [],
             dateKeys: [dateKey]
           }
         });

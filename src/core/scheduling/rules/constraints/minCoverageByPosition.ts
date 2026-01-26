@@ -1,5 +1,10 @@
 import { CapacityMap, ConstraintViolation, MinCoverageRule } from '../../engine/types';
-import { addMinutes, combineDateAndTime, getSlotKey } from '../../engine/timeUtils';
+import {
+  addMinutes,
+  combineDateAndTime,
+  getSlotKey,
+  normalizeBucketMinutes
+} from '../../engine/timeUtils';
 
 export const MIN_COVERAGE_BY_POSITION_ID = 'MIN_COVERAGE_BY_POSITION';
 
@@ -11,6 +16,7 @@ export const evaluateMinCoverageByPosition = (
   if (!rules || rules.length === 0) return [];
 
   const violations: ConstraintViolation[] = [];
+  const normalizedBucketMinutes = normalizeBucketMinutes(bucketMinutes);
 
   rules.forEach(rule => {
     const missingSlots: string[] = [];
@@ -30,7 +36,7 @@ export const evaluateMinCoverageByPosition = (
         if (assigned < rule.minCount) {
           missingSlots.push(slotKey);
         }
-        cursor = addMinutes(cursor, bucketMinutes);
+        cursor = addMinutes(cursor, normalizedBucketMinutes);
       }
     });
 
@@ -40,6 +46,8 @@ export const evaluateMinCoverageByPosition = (
         severity: rule.severity || 'high',
         message: `Minimális lefedettség hiány a(z) ${rule.positionId} pozícióhoz.`,
         affected: {
+          userIds: [],
+          shiftIds: [],
           slots: missingSlots,
           positionId: rule.positionId,
           dateKeys

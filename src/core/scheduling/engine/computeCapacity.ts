@@ -9,7 +9,8 @@ import {
   combineDateAndTime,
   DEFAULT_CLOSING_OFFSET_MINUTES,
   DEFAULT_CLOSING_TIME,
-  getSlotKey
+  getSlotKey,
+  normalizeBucketMinutes
 } from './timeUtils';
 
 export const UNKNOWN_POSITION_ID = 'unknown';
@@ -63,12 +64,26 @@ export const computeCapacity = (
 } => {
   const capacityMap: CapacityMap = {};
   const shiftTimeRanges = new Map<string, ShiftTimeRange>();
-  const bucketMinutes = input.ruleset.bucketMinutes ?? 60;
+  const bucketMinutes = normalizeBucketMinutes(input.ruleset.bucketMinutes);
   const dayIndexMap = new Map(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 
-  input.shifts.forEach(shift => {
+  const sortedShifts = [...input.shifts].sort((a, b) => {
+    const dateCompare = a.dateKey.localeCompare(b.dateKey);
+    if (dateCompare !== 0) return dateCompare;
+    const startA = a.startTime ?? '';
+    const startB = b.startTime ?? '';
+    const startCompare = startA.localeCompare(startB);
+    if (startCompare !== 0) return startCompare;
+    const endA = a.endTime ?? '';
+    const endB = b.endTime ?? '';
+    const endCompare = endA.localeCompare(endB);
+    if (endCompare !== 0) return endCompare;
+    return a.id.localeCompare(b.id);
+  });
+
+  sortedShifts.forEach(shift => {
     if (shift.isDayOff) return;
     const dayIndex = dayIndexMap.get(shift.dateKey);
     if (dayIndex === undefined) return;
@@ -84,8 +99,12 @@ export const computeCapacity = (
         capacityMap[slotKey] = {};
       }
       const positionKey = shift.positionId || UNKNOWN_POSITION_ID;
-      capacityMap[slotKey][positionKey] =
-        (capacityMap[slotKey][positionKey] || 0) + 1;
+      const current = capacityMap[slotKey][positionKey];
+      const safeCurrent =
+        Number.isFinite(current) && (current as number) > 0
+          ? Math.floor(current as number)
+          : 0;
+      capacityMap[slotKey][positionKey] = safeCurrent + 1;
       cursor = addMinutes(cursor, bucketMinutes);
     }
   });
