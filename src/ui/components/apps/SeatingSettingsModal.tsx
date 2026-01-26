@@ -1007,6 +1007,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
   );
+  const getRenderPosition = useCallback(
+    (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
+      resolveTableRenderPosition(
+        geometry,
+        floorplanDims,
+        isEditMode ? draftPositions[table.id] : null
+      ),
+    [draftPositions, floorplanDims, isEditMode]
+  );
   useEffect(() => {
     if (!selectedTable) {
       setSelectedTableDraft(null);
@@ -2318,16 +2327,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     }
   };
-
-  const getRenderPosition = useCallback(
-    (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
-      resolveTableRenderPosition(
-        geometry,
-        floorplanDims,
-        isEditMode ? draftPositions[table.id] : null
-      ),
-    [draftPositions, floorplanDims, isEditMode]
-  );
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
     if (rafPosId.current !== null) {
