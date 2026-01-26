@@ -9,15 +9,12 @@ import {
 } from '../../../../core/models/data';
 import { db } from '../../../../core/firebase/config';
 import { doc, onSnapshot } from 'firebase/firestore';
-import {
-  getSeatingSettings,
-  listFloorplans,
-} from '../../../../core/services/seatingAdminService';
+import { getSeatingSettings, listFloorplans } from '../../../../core/services/seatingAdminService';
 import { listTables, listZones } from '../../../../core/services/seatingService';
-import {
-  normalizeFloorplanDimensions,
-  normalizeTableGeometry,
-} from '../../../../core/utils/seatingNormalize';
+import { normalizeTableGeometry } from '../../../../core/utils/seatingNormalize';
+import { looksNormalized, resolveCanonicalFloorplanDims } from '../../../../core/utils/seatingFloorplanRender';
+import FloorplanViewportCanvas from '../seating/FloorplanViewportCanvas';
+import FloorplanWorldLayer from '../seating/FloorplanWorldLayer';
 
 type ReservationFloorplanPreviewProps = {
   unitId: string;
@@ -45,6 +42,12 @@ const toBucketKey = (date: Date, bucketMinutes: number) => {
   return `${hours}:${minutes}`;
 };
 
+const TABLE_GEOMETRY_DEFAULTS = {
+  rectWidth: 80,
+  rectHeight: 60,
+  circleRadius: 40,
+};
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -60,6 +63,24 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
+
+  const debugEnabled = useMemo(() => {
+    const isDev =
+      typeof import.meta !== 'undefined' &&
+      typeof import.meta.env !== 'undefined' &&
+      import.meta.env.MODE !== 'production';
+
+    if (typeof window === 'undefined') return isDev;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fpdebug') === '1') return true;
+
+    try {
+      return window.localStorage.getItem('ml_fp_debug') === '1' || isDev;
+    } catch {
+      return isDev;
+    }
+  }, []);
 
   const dateKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
 
@@ -120,17 +141,18 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     }
 
     let isMounted = true;
+
     const loadFloorplan = async () => {
       setFloorplanLoading(true);
       setFloorplanError(null);
+
       try {
-        const [settingsData, floorplansData, zonesData, tablesData] =
-          await Promise.all([
-            getSeatingSettings(unitId, { createIfMissing: false }),
-            listFloorplans(unitId),
-            listZones(unitId),
-            listTables(unitId),
-          ]);
+        const [settingsData, floorplansData, zonesData, tablesData] = await Promise.all([
+          getSeatingSettings(unitId, { createIfMissing: false }),
+          listFloorplans(unitId),
+          listZones(unitId),
+          listTables(unitId),
+        ]);
 
         if (!isMounted) return;
 
@@ -152,9 +174,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           setTables([]);
         }
       } finally {
-        if (isMounted) {
-          setFloorplanLoading(false);
-        }
+        if (isMounted) setFloorplanLoading(false);
       }
     };
 
@@ -170,9 +190,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       setActiveZoneId(null);
       return;
     }
-    if (activeZoneId === null) {
-      return;
-    }
+    if (activeZoneId === null) return;
     if (!zones.some(zone => zone.id === activeZoneId)) {
       setActiveZoneId(zones[0].id);
     }
@@ -187,6 +205,19 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     setActiveZoneId(booking.zoneId);
   }, [activeZoneId, bookings, selectedBookingId, zones]);
 
+  const floorplanTables = useMemo(() => {
+    if (!floorplan) return [] as Table[];
+    return tables.filter(table => {
+      const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
+      return matchesFloorplan && table.isActive !== false;
+    });
+  }, [floorplan, tables]);
+
+  const floorplanDims = useMemo(() => resolveCanonicalFloorplanDims(floorplan, floorplanTables), [
+    floorplan,
+    floorplanTables,
+  ]);
+
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
     return tables.filter(table => {
@@ -195,6 +226,25 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       return matchesFloorplan && matchesZone && table.isActive !== false;
     });
   }, [activeZoneId, floorplan, tables]);
+
+  const debugRawGeometry = useMemo(() => {
+    const table = visibleTables[0];
+    if (!table) return null;
+    const geometry = normalizeTableGeometry(table);
+    return {
+      id: table.id,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      rot: geometry.rot,
+    };
+  }, [visibleTables]);
+
+  const normalizedDetected = useMemo(
+    () => (debugRawGeometry ? looksNormalized(debugRawGeometry, floorplanDims) : false),
+    [debugRawGeometry, floorplanDims]
+  );
 
   const upcomingWarningMinutes = useMemo(() => {
     if (
@@ -214,9 +264,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     bookings.forEach(booking => {
       const start = booking.startTime?.toDate?.() ?? null;
       const end = booking.endTime?.toDate?.() ?? null;
-      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-        return;
-      }
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
 
       const assignedTableIds = new Set<string>([
         ...(booking.assignedTableIds ?? []),
@@ -225,13 +273,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       ]);
       if (!assignedTableIds.size) return;
 
-      // Table status calculation:
-      // - RED when the reservation overlaps "now" (start <= now < end).
-      // - YELLOW when the next reservation starts within upcomingWarningMinutes.
-      // - GREEN when neither applies.
       const isActive = start.getTime() <= now.getTime() && now.getTime() < end.getTime();
-      const isUpcoming =
-        start.getTime() > now.getTime() && start.getTime() <= upcomingCutoff.getTime();
+      const isUpcoming = start.getTime() > now.getTime() && start.getTime() <= upcomingCutoff.getTime();
 
       assignedTableIds.forEach(tableId => {
         const current = statusMap.get(tableId) ?? 'free';
@@ -243,9 +286,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           statusMap.set(tableId, 'upcoming');
           return;
         }
-        if (!statusMap.has(tableId)) {
-          statusMap.set(tableId, 'free');
-        }
+        if (!statusMap.has(tableId)) statusMap.set(tableId, 'free');
       });
     });
 
@@ -253,9 +294,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [bookings, now, upcomingWarningMinutes]);
 
   const resolveBookingDate = (value: unknown) => {
-    if (value instanceof Date) {
-      return value;
-    }
+    if (value instanceof Date) return value;
+
     if (value && typeof value === 'object') {
       const maybeDate = value as { toDate?: () => Date };
       if (typeof maybeDate.toDate === 'function') {
@@ -263,12 +303,12 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
         return resolved instanceof Date ? resolved : null;
       }
     }
+
     if (typeof value === 'string' || typeof value === 'number') {
       const parsed = new Date(value);
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed;
-      }
+      if (!Number.isNaN(parsed.getTime())) return parsed;
     }
+
     return null;
   };
 
@@ -303,60 +343,48 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const recommendedTableIds = useMemo(() => {
     const recommendations = new Set<string>();
     if (!selectedBooking || selectedBookingHasTables) return recommendations;
+
     const headcount = resolveBookingHeadcount(selectedBooking);
     const candidates = visibleTables.filter(
-      table =>
-        tableStatusById.get(table.id) !== 'occupied' &&
-        !selectedAssignedTableIds.has(table.id)
+      table => tableStatusById.get(table.id) !== 'occupied' && !selectedAssignedTableIds.has(table.id)
     );
     if (!candidates.length) return recommendations;
+
     const ranked = candidates.map(table => {
       const capacityMax =
         typeof table.capacityMax === 'number' && Number.isFinite(table.capacityMax)
           ? table.capacityMax
           : null;
+
       let rank = 2;
       if (headcount !== null && capacityMax !== null) {
         rank = capacityMax >= headcount ? 1 : 3;
       }
       return { table, rank };
     });
+
     const rank1 = ranked.filter(item => item.rank === 1);
     const rank2 = ranked.filter(item => item.rank === 2);
     const rank3 = ranked.filter(item => item.rank === 3);
-    const preferred =
-      rank1.length > 0
-        ? [...rank1, ...rank2]
-        : rank2.length > 0
-        ? rank2
-        : rank3;
+
+    const preferred = rank1.length > 0 ? [...rank1, ...rank2] : rank2.length > 0 ? rank2 : rank3;
+
     preferred.slice(0, 3).forEach(item => recommendations.add(item.table.id));
     return recommendations;
-  }, [
-    selectedAssignedTableIds,
-    selectedBooking,
-    selectedBookingHasTables,
-    tableStatusById,
-    visibleTables,
-  ]);
+  }, [selectedAssignedTableIds, selectedBooking, selectedBookingHasTables, tableStatusById, visibleTables]);
 
   const conflictTableIds = useMemo(() => {
-    const tableMap = new Map<
-      string,
-      Array<{ start: Date; end: Date }>
-    >();
+    const tableMap = new Map<string, Array<{ start: Date; end: Date }>>();
 
     bookings.forEach(booking => {
       const start = resolveBookingDate(booking.startTime);
       const end = resolveBookingDate(booking.endTime);
-      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-        return;
-      }
-      if (end.getTime() <= start.getTime()) {
-        return;
-      }
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+      if (end.getTime() <= start.getTime()) return;
+
       const tableIds = resolveBookingTableIds(booking);
       if (!tableIds.size) return;
+
       tableIds.forEach(tableId => {
         const entries = tableMap.get(tableId) ?? [];
         entries.push({ start, end });
@@ -369,6 +397,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       if (entries.length < 2) return;
       const sorted = [...entries].sort((a, b) => a.start.getTime() - b.start.getTime());
       let latestEnd = sorted[0].end.getTime();
+
       for (let i = 1; i < sorted.length; i += 1) {
         const entry = sorted[i];
         if (entry.start.getTime() < latestEnd) {
@@ -387,6 +416,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
       ? settings.timeWindowCapacity
       : null;
+
   const bucketMinutes =
     typeof settings?.bucketMinutes === 'number' && settings.bucketMinutes > 0
       ? Math.round(settings.bucketMinutes)
@@ -398,10 +428,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     return reference;
   }, [now, selectedDate]);
 
-  const currentBucketKey = useMemo(
-    () => toBucketKey(referenceTime, bucketMinutes),
-    [bucketMinutes, referenceTime]
-  );
+  const currentBucketKey = useMemo(() => toBucketKey(referenceTime, bucketMinutes), [bucketMinutes, referenceTime]);
 
   const capacityUsed = useMemo(() => {
     if (!capacity) return 0;
@@ -413,16 +440,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [capacity, capacityMode, currentBucketKey]);
 
   const capacityLimit = useMemo(() => {
-    if (capacityMode === 'timeWindow') {
-      return timeWindowCapacity;
-    }
+    if (capacityMode === 'timeWindow') return timeWindowCapacity;
     return capacity?.limit ?? settings?.dailyCapacity ?? null;
   }, [capacity?.limit, capacityMode, settings?.dailyCapacity, timeWindowCapacity]);
 
   const hasCapacitySettings = Boolean(settings);
+
   const upcomingWarningLabel =
-    typeof settings?.upcomingWarningMinutes === 'number' &&
-    Number.isFinite(settings.upcomingWarningMinutes)
+    typeof settings?.upcomingWarningMinutes === 'number' && Number.isFinite(settings.upcomingWarningMinutes)
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
 
@@ -450,11 +475,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     );
   }
 
-  const { width: floorplanWidth, height: floorplanHeight } =
-    normalizeFloorplanDimensions(floorplan);
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(Math.max(value, min), max);
-
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
       case 'occupied':
@@ -471,9 +491,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     <div className="rounded-2xl border border-gray-200 p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
-            Élő asztaltérkép
-          </h2>
+          <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Élő asztaltérkép</h2>
           <p className="text-xs text-[var(--color-text-secondary)]">
             {selectedDate.toLocaleDateString('hu-HU', {
               year: 'numeric',
@@ -482,6 +500,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             })}
           </p>
         </div>
+
         <div className="text-sm font-semibold text-[var(--color-text-main)]">
           {capacityLimit !== null ? (
             <>
@@ -496,9 +515,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               )}
             </>
           ) : (
-            <span className="text-xs text-[var(--color-text-secondary)]">
-              Kapacitás nincs megadva.
-            </span>
+            <span className="text-xs text-[var(--color-text-secondary)]">Kapacitás nincs megadva.</span>
           )}
         </div>
       </div>
@@ -516,6 +533,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           >
             Összes
           </button>
+
           {zones.map(zone => (
             <button
               key={zone.id}
@@ -531,87 +549,57 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
             </button>
           ))}
         </div>
+
         {upcomingWarningLabel && (
-          <span className="text-[11px] text-[var(--color-text-secondary)]">
-            {upcomingWarningLabel}
-          </span>
+          <span className="text-[11px] text-[var(--color-text-secondary)]">{upcomingWarningLabel}</span>
         )}
       </div>
 
-      <div className="overflow-auto">
-        <div
-          className="relative border border-gray-200 rounded-xl bg-white/80"
-          style={{ width: floorplanWidth, height: floorplanHeight }}
-        >
-          {floorplan.backgroundImageUrl && (
-            <img
-              src={floorplan.backgroundImageUrl}
-              alt={floorplan.name}
-              className="absolute inset-0 w-full h-full object-contain"
-            />
+      <div className="w-full mx-auto relative">
+        <FloorplanViewportCanvas
+          floorplanDims={floorplanDims}
+          debugEnabled={debugEnabled}
+          viewportDeps={[floorplan.id]}
+          debugOverlay={context => (
+            <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[260px]">
+              <div>
+                dims: {Math.round(context.floorplanDims.width)}×{Math.round(context.floorplanDims.height)} (
+                {context.floorplanDims.source})
+              </div>
+              <div>
+                viewport: {Math.round(context.viewportRect.width)}×{Math.round(context.viewportRect.height)}
+              </div>
+              <div>
+                scale: {context.transform.scale.toFixed(3)} | offset: {context.transform.offsetX.toFixed(1)},
+                {context.transform.offsetY.toFixed(1)} | ready: {context.transform.ready ? 'yes' : 'no'}
+              </div>
+              <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+              {debugRawGeometry && (
+                <div>
+                  raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)} {debugRawGeometry.w.toFixed(1)}×
+                  {debugRawGeometry.h.toFixed(1)} r{debugRawGeometry.rot.toFixed(1)}
+                </div>
+              )}
+            </div>
           )}
-          {(floorplan.obstacles ?? []).map(obstacle => (
-            <div
-              key={obstacle.id}
-              className="absolute border border-dashed border-gray-300 bg-gray-200/40"
-              style={{
-                left: obstacle.x,
-                top: obstacle.y,
-                width: obstacle.w,
-                height: obstacle.h,
-                transform: `rotate(${obstacle.rot ?? 0}deg)`,
+          renderWorld={() => (
+            <FloorplanWorldLayer
+              tables={visibleTables}
+              obstacles={floorplan.obstacles ?? []}
+              floorplanDims={floorplanDims}
+              tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+              appearance={{
+                getStatus: table => tableStatusById.get(table.id) ?? 'free',
+                renderStatusColor,
+                isSelected: table => selectedAssignedTableIds.has(table.id),
+                isRecommended: table =>
+                  !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
+                hasConflict: table => conflictTableIds.has(table.id),
+                showCapacity: true,
               }}
             />
-          ))}
-          {visibleTables.map(table => {
-            const geometry = normalizeTableGeometry(table);
-            const maxX = Math.max(0, floorplanWidth - geometry.w);
-            const maxY = Math.max(0, floorplanHeight - geometry.h);
-            const left = clamp(geometry.x, 0, maxX);
-            const top = clamp(geometry.y, 0, maxY);
-            const rotation = geometry.rot;
-            const status = tableStatusById.get(table.id) ?? 'free';
-            const isSelected = selectedAssignedTableIds.has(table.id);
-            const hasConflict = conflictTableIds.has(table.id);
-            const isRecommended = !isSelected && recommendedTableIds.has(table.id);
-
-            return (
-              <div
-                key={table.id}
-                className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 pointer-events-none relative ${
-                  isSelected ? 'z-10 ring-2 ring-[var(--color-primary)]' : ''
-                }`}
-                style={{
-                  left,
-                  top,
-                  width: geometry.w,
-                  height: geometry.h,
-                  borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                  border: '2px solid rgba(148, 163, 184, 0.6)',
-                  backgroundColor: renderStatusColor(status),
-                  transform: `rotate(${rotation}deg)`,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                  outline: isRecommended
-                    ? '2px dashed rgba(251, 191, 36, 0.9)'
-                    : undefined,
-                  outlineOffset: isRecommended ? 2 : undefined,
-                }}
-              >
-                <span>{table.name}</span>
-                {table.capacityMax && (
-                  <span className="text-[9px] text-gray-500">
-                    max {table.capacityMax}
-                  </span>
-                )}
-                {hasConflict && (
-                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 border border-white text-[8px] text-white flex items-center justify-center">
-                    !
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+          )}
+        />
       </div>
     </div>
   );

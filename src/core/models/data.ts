@@ -168,12 +168,33 @@ export interface Zone {
   updatedAt?: Timestamp;
 }
 
+// --- Seating / Seat Layout (chairs) ---
+export type SeatSide = 'north' | 'east' | 'south' | 'west' | 'radial';
+
+export type SeatLayoutRect = {
+  kind: 'rect';
+  sides: {
+    north?: number; // 0..3
+    east?: number;  // 0..3
+    south?: number; // 0..3
+    west?: number;  // 0..3
+  };
+};
+
+export type SeatLayoutCircle = {
+  kind: 'circle';
+  count: number; // 0..16
+};
+
+export type SeatLayout = SeatLayoutRect | SeatLayoutCircle;
+
 export interface Table {
   id: string;
   name: string;
   zoneId: string;
   capacityMax: number;
   minCapacity: number;
+  seatLayout?: SeatLayout;
   capacityTotal?: number;
   sideCapacities?: {
     north: number;
