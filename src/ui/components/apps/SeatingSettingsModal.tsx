@@ -5484,9 +5484,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     floorplanDims={floorplanDims}
                     tableDefaults={TABLE_GEOMETRY_DEFAULTS}
                     seatUI={{
-                      preview: floorplanMode === 'view',
-                      editable: floorplanMode === 'edit',
-                      onAddSeat: handleAddSeat,
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit',
+                        onAddSeat: handleAddSeat,
                       }}
                       appearance={{
                         showCapacity: true,
