@@ -1697,6 +1697,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   useEffect(() => {
     if (!isEnginePanelOpen) {
       setLocalSchedule(schedule);
+      setUndoStack([]);
+      setRejectedSuggestionKeys(new Set());
     }
   }, [isEnginePanelOpen, schedule]);
 
@@ -2519,14 +2521,8 @@ if (expected === 0) {
   );
 
   const handleToggleEnginePanel = useCallback(() => {
-    setIsEnginePanelOpen(prev => {
-      const next = !prev;
-      if (next && (!engineResult || engineLastRunAt === null)) {
-        runEngineAndStore();
-      }
-      return next;
-    });
-  }, [engineLastRunAt, engineResult, runEngineAndStore]);
+    setIsEnginePanelOpen(prev => !prev);
+  }, []);
 
   useEffect(() => {
     if (isEnginePanelOpen) {
