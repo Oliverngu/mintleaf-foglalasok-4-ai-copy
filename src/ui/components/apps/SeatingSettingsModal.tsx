@@ -5495,7 +5495,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     />
                   )}
               />
-            )}
           </div>
         )}
         <div className="grid gap-3 lg:grid-cols-2">
@@ -5686,22 +5685,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               Jelölj ki több asztalt, majd hozd létre a base kombót (csak metaadat).
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              {editorTables.map(table => (
-                <label key={table.id} className="flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={baseComboSelection.includes(table.id)}
-                    onChange={event =>
-                      setBaseComboSelection(current =>
-                        event.target.checked
-                          ? [...current, table.id]
-                          : current.filter(id => id !== table.id)
-                      )
-                    }
-                  />
-                  {table.name || table.id}
-                </label>
-              ))}
+          
             </div>
             <button
               type="button"
