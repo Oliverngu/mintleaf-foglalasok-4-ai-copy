@@ -1561,7 +1561,6 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [localSchedule, setLocalSchedule] = useState<Shift[]>(schedule);
-  const effectiveSchedule = isEnginePanelOpen ? localSchedule : schedule;
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
   const [staffWarning, setStaffWarning] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -1615,6 +1614,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [engineLastRunAt, setEngineLastRunAt] = useState<number | null>(null);
   const [rejectedSuggestionKeys, setRejectedSuggestionKeys] = useState<Set<string>>(
     () => new Set()
+  );
+  const effectiveSchedule = useMemo(
+    () => (isEnginePanelOpen ? localSchedule : schedule),
+    [isEnginePanelOpen, localSchedule, schedule]
   );
 
   const userById = useMemo(() => {
