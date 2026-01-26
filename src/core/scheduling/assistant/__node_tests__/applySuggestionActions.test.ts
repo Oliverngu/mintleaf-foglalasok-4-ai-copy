@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { applySuggestionActions } from '../applySuggestionActions.ts';
-import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness.ts';
-import type { Suggestion } from '../../engine/types.ts';
+import { applySuggestionActions } from '../applySuggestionActions';
+import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness';
+import type { Suggestion } from '../../engine/types';
 
 describe('applySuggestionActions', () => {
   it('moves an existing shift deterministically', () => {

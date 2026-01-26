@@ -1,4 +1,4 @@
-import type { EngineInput, SuggestionAction } from '../engine/types.ts';
+import type { EngineInput, SuggestionAction } from '../engine/types';
 
 export type ActionIssue = {
   actionKey: string;

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { acceptSuggestion } from '../acceptSuggestion.ts';
-import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness.ts';
-import type { Suggestion } from '../../engine/types.ts';
+import { acceptSuggestion } from '../acceptSuggestion';
+import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness';
+import type { Suggestion } from '../../engine/types';
 
 describe('acceptSuggestion', () => {
   it('accepts a suggestion that resolves a min coverage violation', () => {

@@ -1,8 +1,8 @@
-import type { EngineInput, EngineResult, Suggestion } from '../engine/types.ts';
-import type { ActionIssue } from './actionValidation.ts';
-import { runEngine } from '../engine/runEngine.ts';
-import { applySuggestionActions } from './applySuggestionActions.ts';
-import { buildViolationAffectedKey } from '../engine/violationUtils.ts';
+import type { EngineInput, EngineResult, Suggestion } from '../engine/types';
+import type { ActionIssue } from './actionValidation';
+import { runEngine } from '../engine/runEngine';
+import { applySuggestionActions } from './applySuggestionActions';
+import { buildViolationAffectedKey } from '../engine/violationUtils';
 
 type ViolationDelta = {
   resolvedViolations: string[];

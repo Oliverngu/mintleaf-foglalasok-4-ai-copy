@@ -1,11 +1,11 @@
-import type { EngineInput, EngineShift, Suggestion } from '../engine/types.ts';
+import type { EngineInput, EngineShift, Suggestion } from '../engine/types';
 import {
   buildCreateShiftKey,
   buildMoveShiftKey,
   validateCreateShift,
   validateMoveShift,
-} from './actionValidation.ts';
-import type { ActionIssue } from './actionValidation.ts';
+} from './actionValidation';
+import type { ActionIssue } from './actionValidation';
 
 type ApplySuggestionResult = {
   nextShifts: EngineShift[];

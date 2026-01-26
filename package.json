@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:node": "node --import tsx --test \"src/**/__node_tests__/**/*.test.ts\" || node --loader tsx --test \"src/**/__node_tests__/**/*.test.ts\""
+    "test:node": "npm run test:node:build && npm run test:node:run",
+    "test:node:build": "tsc -p tsconfig.node-tests.json && node -e \"require('fs').mkdirSync('dist-node-tests', { recursive: true }); require('fs').writeFileSync('dist-node-tests/package.json', '{\\\"type\\\":\\\"commonjs\\\"}');\"",
+    "test:node:run": "node --test \"dist-node-tests/**/__node_tests__/**/*.test.js\""
   },
   "dependencies": {
     "react": "^19.2.0",

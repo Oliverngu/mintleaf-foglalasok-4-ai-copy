@@ -2,7 +2,7 @@ import type {
   EngineInput,
   EngineScheduleSettings,
   Ruleset,
-} from '../engine/types.ts';
+} from '../engine/types';
 
 type ScheduleSettingsOverrides = {
   dailySettings?: EngineScheduleSettings['dailySettings'];
@@ -70,8 +70,6 @@ export const makeEngineInput = (overrides: Partial<EngineInput> = {}): EngineInp
     scheduleSettings,
     ruleset,
     ...overrides,
-    scheduleSettings,
-    ruleset,
   };
 };
 
