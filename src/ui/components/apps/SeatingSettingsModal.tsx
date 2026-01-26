@@ -324,6 +324,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const isEditMode = floorplanMode === 'edit';
+  const [viewportMode, setViewportMode] = useState<'auto' | 'selected' | 'fit'>('auto');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
@@ -1105,6 +1106,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ]);
   useEffect(() => {
     if (isEditMode) return;
+    if (viewportMode === 'fit') {
+      viewportCanvasRef.current?.resetToFit();
+      return;
+    }
+    if (viewportMode !== 'auto' && viewportMode !== 'selected') return;
     if (!selectedEditorTable) return;
     const geometry = resolveTableGeometryInFloorplanSpace(
       selectedEditorTable,
@@ -1118,7 +1124,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       w: geometry.w,
       h: geometry.h,
     });
-  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable]);
+  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable, viewportMode]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -2442,6 +2448,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setFloorplanTransformOverride(null);
       return;
     }
+    if (viewportMode === 'fit') {
+      setFloorplanTransformOverride(null);
+      return;
+    }
     if (!selectedEditorTable) {
       setFloorplanTransformOverride(null);
       return;
@@ -2488,6 +2498,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     getRenderPosition,
     isEditMode,
     selectedEditorTable,
+    viewportMode,
   ]);
   const debugRawGeometry = useMemo(() => {
     const table = editorTables[0];
@@ -4982,13 +4993,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <div className="text-[10px] text-gray-500">
             Kapacitás: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
           </div>
-          <button
-            type="button"
-            className="mt-2 rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
-            onClick={() => void handleSelectedTableMetadataSave()}
-          >
-            Mentés
-          </button>
+          <div className="mt-2 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[10px] ${
+                viewportMode === 'selected'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-700'
+              }`}
+              onClick={() => setViewportMode('selected')}
+            >
+              Zoom in (asztal)
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[10px] ${
+                viewportMode === 'fit'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-700'
+              }`}
+              onClick={() => setViewportMode('fit')}
+            >
+              Zoom out (teljes)
+            </button>
+            <button
+              type="button"
+              className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+              onClick={() => void handleSelectedTableMetadataSave()}
+            >
+              Mentés
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -5166,6 +5201,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   Szerkesztés
                 </button>
               </div>
+              {selectedEditorTable && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      viewportMode === 'selected'
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setViewportMode('selected')}
+                  >
+                    Zoom in (asztal)
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      viewportMode === 'fit'
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setViewportMode('fit')}
+                  >
+                    Zoom out (teljes)
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"

@@ -34,6 +34,7 @@ export type FloorplanViewportHandle = {
     rect: { x: number; y: number; w: number; h: number },
     options?: { targetScale?: number; padding?: number }
   ) => void;
+  resetToFit: () => void;
   getTransform: () => FloorplanViewportContext['transform'];
 };
 
@@ -129,8 +130,15 @@ const centerOnRect = (
   window.setTimeout(() => setIsAnimating(false), 220);
 };
 
+const resetToFit = () => {
+  setTransformOverride(null);
+  setIsAnimating(true);
+  window.setTimeout(() => setIsAnimating(false), 220);
+};
+
 useImperativeHandle(ref, () => ({
   centerOnRect,
+  resetToFit,
   getTransform: () => activeTransform,
 }));
 
