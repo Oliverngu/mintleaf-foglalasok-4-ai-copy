@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:node": "node --test \"src/**/__node_tests__/**/*.test.ts\""
+    "test:node": "node --import tsx --test \"src/**/__node_tests__/**/*.test.ts\" || node --loader tsx --test \"src/**/__node_tests__/**/*.test.ts\""
   },
   "dependencies": {
     "react": "^19.2.0",
