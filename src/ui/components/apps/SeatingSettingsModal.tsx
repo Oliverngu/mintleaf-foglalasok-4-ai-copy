@@ -325,6 +325,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const isEditMode = floorplanMode === 'edit';
   const [viewportMode, setViewportMode] = useState<'auto' | 'selected' | 'fit'>('auto');
+  const prevSelectedTableIdRef = useRef<string | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
@@ -1008,6 +1009,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
   );
+  const handleSelectTable = useCallback(
+    (tableId: string) => {
+      if (viewportMode === 'fit') {
+        setViewportMode('selected');
+      }
+      setSelectedTableId(tableId);
+    },
+    [viewportMode]
+  );
+  useEffect(() => {
+    if (!selectedEditorTable) return;
+    if (viewportMode !== 'fit') return;
+    setViewportMode('selected');
+  }, [selectedEditorTable?.id, viewportMode]);
   const getRenderPosition = useCallback(
     (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
       resolveTableRenderPosition(
@@ -1106,12 +1121,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ]);
   useEffect(() => {
     if (isEditMode) return;
+    const selectedId = selectedEditorTable?.id ?? null;
+    if (!selectedId) {
+      prevSelectedTableIdRef.current = null;
+      if (viewportMode === 'fit') {
+        viewportCanvasRef.current?.resetToFit();
+      }
+      return;
+    }
     if (viewportMode === 'fit') {
       viewportCanvasRef.current?.resetToFit();
       return;
     }
-    if (viewportMode !== 'auto' && viewportMode !== 'selected') return;
-    if (!selectedEditorTable) return;
+    if (viewportMode === 'auto' && prevSelectedTableIdRef.current === selectedId) {
+      return;
+    }
     const geometry = resolveTableGeometryInFloorplanSpace(
       selectedEditorTable,
       floorplanDims,
@@ -1124,6 +1148,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       w: geometry.w,
       h: geometry.h,
     });
+    prevSelectedTableIdRef.current = selectedId;
   }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable, viewportMode]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -2453,7 +2478,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     if (!selectedEditorTable) {
+      prevSelectedTableIdRef.current = null;
       setFloorplanTransformOverride(null);
+      return;
+    }
+    if (
+      viewportMode === 'auto' &&
+      prevSelectedTableIdRef.current === selectedEditorTable.id
+    ) {
       return;
     }
     if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
@@ -2489,6 +2521,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       rectWidth: floorplanViewportRect.width,
       rectHeight: floorplanViewportRect.height,
     });
+    prevSelectedTableIdRef.current = selectedEditorTable.id;
   }, [
     floorplanDims,
     floorplanViewportRect.height,
@@ -3460,7 +3493,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') return;
     if (table.locked) return;
     event.preventDefault();
-    setSelectedTableId(table.id);
+    handleSelectTable(table.id);
     if (debugSeating) {
       requestDebugFlush(null);
       console.debug('[seating] floorplan dims source', {
@@ -5696,7 +5729,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             touchAction: 'none',
                             zIndex: 2,
                           }}
-                          onClick={() => setSelectedTableId(table.id)}
+                          onClick={() => handleSelectTable(table.id)}
                           onPointerDown={
                             floorplanMode === 'edit'
                               ? event => handleTablePointerDown(event, table, geometry)
@@ -5728,7 +5761,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     if (!activeFloorplan) return;
                                     event.preventDefault();
                                     event.stopPropagation();
-                                    setSelectedTableId(table.id);
+                                    handleSelectTable(table.id);
                                     if (debugSeating) {
                                       requestDebugFlush(null);
                                     }

@@ -108,8 +108,11 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   let selectedSeatCount = 0;
   let selectedControlCount = 0;
   let selectedTableId: string | null = null;
+  let selectedTableShape: Table['shape'] | undefined;
   let selectedSeatLayout: Table['seatLayout'] | undefined;
   let selectedSideCapacities: Table['sideCapacities'] | undefined;
+  let selectedPlusOutsets: Record<SeatSide, number> | undefined;
+  let selectedRemoveOutsets: Record<SeatSide, number> | undefined;
   let anySelected = false;
   const hasSeatLayout = (table: Table) => {
     if (table.seatLayout?.kind === 'circle') {
@@ -177,7 +180,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           : [];
 
         const circleRadius =
-          geometry.shape === 'circle'
+          table.shape === 'circle'
             ? typeof geometry.radius === 'number'
               ? geometry.radius
               : Math.min(geometry.w, geometry.h) / 2
@@ -224,11 +227,11 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           radial: Math.max(defaultOutsetRadial, controlOutsets.radial + seatRadius + controlRadius + gap),
         };
         const removeOutsets: Record<SeatSide, number> = {
-          north: plusOutsets.north + controlRadius + gap,
-          south: plusOutsets.south + controlRadius + gap,
-          east: plusOutsets.east + controlRadius + gap,
-          west: plusOutsets.west + controlRadius + gap,
-          radial: plusOutsets.radial + controlRadius + gap,
+          north: plusOutsets.north + controlSize + gap,
+          south: plusOutsets.south + controlSize + gap,
+          east: plusOutsets.east + controlSize + gap,
+          west: plusOutsets.west + controlSize + gap,
+          radial: plusOutsets.radial + controlSize + gap,
         };
         const resolveControlPosition = (side: SeatSide, outset: number) => {
           switch (side) {
@@ -276,8 +279,11 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           selectedSeatCount = seats.length;
           selectedControlCount = addControls.length;
           selectedTableId = table.id;
+          selectedTableShape = table.shape;
           selectedSeatLayout = table.seatLayout;
           selectedSideCapacities = table.sideCapacities;
+          selectedPlusOutsets = plusOutsets;
+          selectedRemoveOutsets = removeOutsets;
         }
 
         const tableRadius =
@@ -479,6 +485,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           <div>selectedTableKey: {seatUI?.debugSelectedTableKey ?? 'n/a'}</div>
           <div>anySelected: {anySelected ? 'yes' : 'no'}</div>
           <div>selectedTable: {selectedTableId ?? 'n/a'}</div>
+          <div>shape: {selectedTableShape ?? 'n/a'}</div>
           <div>
             seatLayout: {selectedSeatLayout?.kind ?? 'none'}{' '}
             {selectedSeatLayout?.kind === 'circle'
@@ -493,6 +500,18 @@ const FloorplanWorldLayer: React.FC<Props> = ({
             sideCaps:{' '}
             {selectedSideCapacities
               ? `N${selectedSideCapacities.north} E${selectedSideCapacities.east} S${selectedSideCapacities.south} W${selectedSideCapacities.west}`
+              : 'n/a'}
+          </div>
+          <div>
+            plusOutsets:{' '}
+            {selectedPlusOutsets
+              ? `N${Math.round(selectedPlusOutsets.north)} E${Math.round(selectedPlusOutsets.east)} S${Math.round(selectedPlusOutsets.south)} W${Math.round(selectedPlusOutsets.west)} R${Math.round(selectedPlusOutsets.radial)}`
+              : 'n/a'}
+          </div>
+          <div>
+            removeOutsets:{' '}
+            {selectedRemoveOutsets
+              ? `N${Math.round(selectedRemoveOutsets.north)} E${Math.round(selectedRemoveOutsets.east)} S${Math.round(selectedRemoveOutsets.south)} W${Math.round(selectedRemoveOutsets.west)} R${Math.round(selectedRemoveOutsets.radial)}`
               : 'n/a'}
           </div>
           <div>addControls: {selectedControlCount}</div>
