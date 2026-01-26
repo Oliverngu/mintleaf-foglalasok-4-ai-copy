@@ -1,43 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { runEngine } from '../engine/runEngine';
 import { EngineInput } from '../engine/types';
-
-const buildScheduleSettings = () => ({
-  dailySettings: {
-    0: { openingTime: '08:00', closingTime: '22:00' },
-    1: { openingTime: '08:00', closingTime: '22:00' },
-    2: { openingTime: '08:00', closingTime: '22:00' },
-    3: { openingTime: '08:00', closingTime: '22:00' },
-    4: { openingTime: '08:00', closingTime: '22:00' },
-    5: { openingTime: '08:00', closingTime: '22:00' },
-    6: { openingTime: '08:00', closingTime: '22:00' }
-  }
-});
-
-const buildWeekDays = () => [
-  '2025-01-06',
-  '2025-01-07',
-  '2025-01-08',
-  '2025-01-09',
-  '2025-01-10',
-  '2025-01-11',
-  '2025-01-12'
-];
-
-const baseInput: Omit<EngineInput, 'unitId' | 'weekStart' | 'weekDays' | 'shifts'> = {
-  users: [{ id: 'u1', displayName: 'User 1', isActive: true }],
-  positions: [{ id: 'p1', name: 'Pult' }],
-  scheduleSettings: buildScheduleSettings(),
-  ruleset: { bucketMinutes: 60 }
-};
+import { buildWeekDays, makeEngineInput } from './engineTestHarness';
 
 describe('runEngine', () => {
   it('covers overnight shifts across days', () => {
     const weekDays = buildWeekDays();
-    const input: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-a',
-      weekStart: weekDays[0],
+    const input: EngineInput = makeEngineInput({
       weekDays,
       shifts: [
         {
@@ -47,10 +16,10 @@ describe('runEngine', () => {
           dateKey: weekDays[0],
           startTime: '15:00',
           endTime: '03:00',
-          positionId: 'p1'
-        }
-      ]
-    };
+          positionId: 'p1',
+        },
+      ],
+    });
 
     const result = runEngine(input);
     expect(result.capacityMap['2025-01-06T15:00']?.p1).toBe(1);
@@ -59,10 +28,7 @@ describe('runEngine', () => {
 
   it('excludes day-off shifts from capacity and suggestions', () => {
     const weekDays = buildWeekDays();
-    const input: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-a',
-      weekStart: weekDays[0],
+    const input: EngineInput = makeEngineInput({
       weekDays,
       shifts: [
         {
@@ -73,22 +39,21 @@ describe('runEngine', () => {
           startTime: '00:00',
           endTime: null,
           positionId: 'p1',
-          isDayOff: true
-        }
+          isDayOff: true,
+        },
       ],
       ruleset: {
-        bucketMinutes: 60,
         minCoverageByPosition: [
           {
             positionId: 'p1',
             dateKeys: [weekDays[0]],
             startTime: '08:00',
             endTime: '09:00',
-            minCount: 1
-          }
-        ]
-      }
-    };
+            minCount: 1,
+          },
+        ],
+      },
+    });
 
     const result = runEngine(input);
     expect(Object.keys(result.capacityMap)).toHaveLength(0);
@@ -97,10 +62,7 @@ describe('runEngine', () => {
 
   it('keeps capacity isolated per unit input', () => {
     const weekDays = buildWeekDays();
-    const inputA: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-a',
-      weekStart: weekDays[0],
+    const inputA: EngineInput = makeEngineInput({
       weekDays,
       shifts: [
         {
@@ -110,16 +72,14 @@ describe('runEngine', () => {
           dateKey: weekDays[0],
           startTime: '09:00',
           endTime: '10:00',
-          positionId: 'p1'
-        }
-      ]
-    };
+          positionId: 'p1',
+        },
+      ],
+    });
 
-    const inputB: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-b',
-      weekStart: weekDays[0],
+    const inputB: EngineInput = makeEngineInput({
       weekDays,
+      unitId: 'unit-b',
       shifts: [
         {
           id: 's2',
@@ -128,10 +88,10 @@ describe('runEngine', () => {
           dateKey: weekDays[0],
           startTime: '12:00',
           endTime: '13:00',
-          positionId: 'p1'
-        }
-      ]
-    };
+          positionId: 'p1',
+        },
+      ],
+    });
 
     const resultA = runEngine(inputA);
     const resultB = runEngine(inputB);
@@ -143,10 +103,7 @@ describe('runEngine', () => {
 
   it('detects rest violations', () => {
     const weekDays = buildWeekDays();
-    const input: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-a',
-      weekStart: weekDays[0],
+    const input: EngineInput = makeEngineInput({
       weekDays,
       shifts: [
         {
@@ -156,7 +113,7 @@ describe('runEngine', () => {
           dateKey: weekDays[0],
           startTime: '22:00',
           endTime: '02:00',
-          positionId: 'p1'
+          positionId: 'p1',
         },
         {
           id: 's2',
@@ -165,14 +122,13 @@ describe('runEngine', () => {
           dateKey: weekDays[1],
           startTime: '10:00',
           endTime: '18:00',
-          positionId: 'p1'
-        }
+          positionId: 'p1',
+        },
       ],
       ruleset: {
-        bucketMinutes: 60,
-        minRestHoursBetweenShifts: { minRestHours: 11 }
-      }
-    };
+        minRestHoursBetweenShifts: { minRestHours: 11 },
+      },
+    });
 
     const result = runEngine(input);
     expect(
@@ -182,32 +138,27 @@ describe('runEngine', () => {
 
   it('deduplicates suggestions for duplicate coverage rules', () => {
     const weekDays = buildWeekDays();
-    const input: EngineInput = {
-      ...baseInput,
-      unitId: 'unit-a',
-      weekStart: weekDays[0],
+    const input: EngineInput = makeEngineInput({
       weekDays,
-      shifts: [],
       ruleset: {
-        bucketMinutes: 60,
         minCoverageByPosition: [
           {
             positionId: 'p1',
             dateKeys: [weekDays[0]],
             startTime: '08:00',
             endTime: '09:00',
-            minCount: 1
+            minCount: 1,
           },
           {
             positionId: 'p1',
             dateKeys: [weekDays[0]],
             startTime: '08:00',
             endTime: '09:00',
-            minCount: 1
-          }
-        ]
-      }
-    };
+            minCount: 1,
+          },
+        ],
+      },
+    });
 
     const result = runEngine(input);
     expect(result.suggestions).toHaveLength(1);
