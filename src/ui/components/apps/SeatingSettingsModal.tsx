@@ -5495,6 +5495,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     />
                   )}
               />
+            )}
           </div>
         )}
         <div className="grid gap-3 lg:grid-cols-2">
