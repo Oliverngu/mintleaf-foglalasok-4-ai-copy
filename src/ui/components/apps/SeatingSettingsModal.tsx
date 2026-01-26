@@ -850,7 +850,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
   );
-  const selectedTableKey = selectedTableId ?? selectedTableDraft?.id ?? null;
+  const selectedTableKey = selectedTableId || selectedTableDraft?.id || null;
   useEffect(() => {
     if (!selectedTable) {
       setSelectedTableDraft(null);
@@ -5488,6 +5488,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         debugMode: floorplanMode,
                         debugSelectedTableId: selectedTableId,
                         debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
                       }}
                       appearance={{
                         showCapacity: false,
@@ -5577,6 +5578,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       debugMode: floorplanMode,
                       debugSelectedTableId: selectedTableId,
                       debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                      debugSelectedTableKey: selectedTableKey,
                     }}
                     appearance={{
                       showCapacity: true,

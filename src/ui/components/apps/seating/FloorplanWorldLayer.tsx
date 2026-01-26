@@ -50,6 +50,7 @@ type SeatUI = {
   debugMode?: string;
   debugSelectedTableId?: string | null;
   debugSelectedTableDraftId?: string | null;
+  debugSelectedTableKey?: string | null;
 };
 
 type Props = {
@@ -125,18 +126,10 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const onRemoveSeat = seatUI?.onRemoveSeat;
   const debugEnabled = Boolean(seatUI?.debug);
 
-  let debugInfo:
-    | {
-        tableId: string;
-        seats: number;
-        addControls: number;
-        preview: boolean;
-        editable: boolean;
-        mode: string;
-        selectedTableId: string | null;
-        selectedTableDraftId: string | null;
-      }
-    | null = null;
+  let selectedSeatCount = 0;
+  let selectedControlCount = 0;
+  let selectedTableId: string | null = null;
+  let anySelected = false;
 
   return (
     <>
@@ -207,17 +200,11 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           radius: geometry.radius,
         });
 
-        if (debugEnabled && selected) {
-          debugInfo = {
-            tableId: table.id,
-            seats: seats.length,
-            addControls: addControls.length,
-            preview: seatPreview,
-            editable: seatEditable,
-            mode: seatUI?.debugMode ?? 'n/a',
-            selectedTableId: seatUI?.debugSelectedTableId ?? null,
-            selectedTableDraftId: seatUI?.debugSelectedTableDraftId ?? null,
-          };
+        if (selected) {
+          anySelected = true;
+          selectedSeatCount = seats.length;
+          selectedControlCount = addControls.length;
+          selectedTableId = table.id;
         }
 
         const tableRadius =
@@ -396,16 +383,18 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           </div>
         );
       })}
-      {debugEnabled && debugInfo ? (
+      {debugEnabled ? (
         <div className="pointer-events-none absolute left-2 bottom-2 z-[999] rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
-          <div>seatEditable: {debugInfo.editable ? 'yes' : 'no'}</div>
-          <div>seatPreview: {debugInfo.preview ? 'yes' : 'no'}</div>
-          <div>addControls: {debugInfo.addControls}</div>
-          <div>seats: {debugInfo.seats}</div>
-          <div>table: {debugInfo.tableId}</div>
-          <div>mode: {debugInfo.mode}</div>
-          <div>selectedTableId: {debugInfo.selectedTableId ?? 'n/a'}</div>
-          <div>selectedTableDraftId: {debugInfo.selectedTableDraftId ?? 'n/a'}</div>
+          <div>seatEditable: {seatEditable ? 'yes' : 'no'}</div>
+          <div>seatPreview: {seatPreview ? 'yes' : 'no'}</div>
+          <div>mode: {seatUI?.debugMode ?? 'n/a'}</div>
+          <div>selectedTableId: {seatUI?.debugSelectedTableId ?? 'n/a'}</div>
+          <div>selectedTableDraftId: {seatUI?.debugSelectedTableDraftId ?? 'n/a'}</div>
+          <div>selectedTableKey: {seatUI?.debugSelectedTableKey ?? 'n/a'}</div>
+          <div>anySelected: {anySelected ? 'yes' : 'no'}</div>
+          <div>selectedTable: {selectedTableId ?? 'n/a'}</div>
+          <div>addControls: {selectedControlCount}</div>
+          <div>seats: {selectedSeatCount}</div>
         </div>
       ) : null}
     </>
