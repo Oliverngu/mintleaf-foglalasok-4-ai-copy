@@ -958,9 +958,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         : current
     );
   }, [
-    selectedTableDraft,
     selectedTableDraft?.capacityTotal,
-    selectedTableDraft?.seatLayout,
+    selectedTableDraft?.seatLayout?.kind,
+    selectedTableDraft?.seatLayout?.count,
+    selectedTableDraft?.seatLayout?.sides?.north,
+    selectedTableDraft?.seatLayout?.sides?.east,
+    selectedTableDraft?.seatLayout?.sides?.south,
+    selectedTableDraft?.seatLayout?.sides?.west,
   ]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -2040,7 +2044,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
-    const payload: Partial<Table> = {
+    const payload: Record<string, unknown> = {
       capacityTotal,
       sideCapacities,
       combinableWithIds,
@@ -2085,6 +2089,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           console.debug('[seating] table meta saved', {
             tableId: selectedTableDraft.id,
             payloadKeys: Object.keys(payload),
+            seatLayoutEmpty,
+            capacityTotal,
             seatLayoutAction: seatLayoutEmpty ? 'deleted' : 'set',
           });
         }
@@ -5767,6 +5773,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.north}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5789,6 +5797,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.east}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5811,6 +5821,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.south}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5833,6 +5845,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.west}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
