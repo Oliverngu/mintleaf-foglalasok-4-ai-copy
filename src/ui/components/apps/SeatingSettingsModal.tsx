@@ -1980,12 +1980,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
-    const payload = {
+    const payload: Partial<Table> = {
       capacityTotal,
       sideCapacities,
       combinableWithIds,
-      seatLayout: selectedTableDraft.seatLayout,
     };
+    if (selectedTableDraft.seatLayout) {
+      payload.seatLayout = selectedTableDraft.seatLayout;
+    }
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
       errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
@@ -4568,7 +4570,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (shape === 'circle') {
         const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
         const next = Math.min(16, current + 1);
-        return { ...curr, seatLayout: { kind: 'circle', count: next } };
+        return {
+          ...curr,
+          seatLayout: { kind: 'circle', count: next },
+          capacityTotal: next,
+        };
       }
 
       const sides =
@@ -4577,9 +4583,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           : { north: 0, east: 0, south: 0, west: 0 };
 
       const current = Number((sides as any)[side] ?? 0);
-      (sides as any)[side] = Math.min(3, current + 1);
+      const nextSide = Math.min(3, current + 1);
+      (sides as any)[side] = nextSide;
 
-      return { ...curr, seatLayout: { kind: 'rect', sides } };
+      const nextSideCapacities = {
+        ...curr.sideCapacities,
+        [side]: nextSide,
+      } as typeof curr.sideCapacities;
+      const nextCapacityTotal =
+        nextSideCapacities.north +
+        nextSideCapacities.east +
+        nextSideCapacities.south +
+        nextSideCapacities.west;
+
+      return {
+        ...curr,
+        seatLayout: { kind: 'rect', sides },
+        sideCapacities: nextSideCapacities,
+        capacityTotal: nextCapacityTotal,
+      };
     });
   };
 
@@ -4595,7 +4617,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (shape === 'circle') {
         const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
         const next = Math.max(0, current - 1);
-        return { ...curr, seatLayout: { kind: 'circle', count: next } };
+        return {
+          ...curr,
+          seatLayout: { kind: 'circle', count: next },
+          capacityTotal: next,
+        };
       }
 
       const sides =
@@ -4604,9 +4630,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           : { north: 0, east: 0, south: 0, west: 0 };
 
       const current = Number((sides as any)[side] ?? 0);
-      (sides as any)[side] = Math.max(0, current - 1);
+      const nextSide = Math.max(0, current - 1);
+      (sides as any)[side] = nextSide;
 
-      return { ...curr, seatLayout: { kind: 'rect', sides } };
+      const nextSideCapacities = {
+        ...curr.sideCapacities,
+        [side]: nextSide,
+      } as typeof curr.sideCapacities;
+      const nextCapacityTotal =
+        nextSideCapacities.north +
+        nextSideCapacities.east +
+        nextSideCapacities.south +
+        nextSideCapacities.west;
+
+      return {
+        ...curr,
+        seatLayout: { kind: 'rect', sides },
+        sideCapacities: nextSideCapacities,
+        capacityTotal: nextCapacityTotal,
+      };
     });
   };
   
@@ -5608,6 +5650,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       {selectedTable.baseCombo.role})
                     </>
                   ) : null}
+                </div>
+                <div className="text-xs text-[var(--color-text-secondary)]">
+                  {selectedTableDraft.seatLayout?.kind === 'circle'
+                    ? `Seat layout: circle (${selectedTableDraft.seatLayout.count ?? 0})`
+                    : selectedTableDraft.seatLayout?.kind === 'rect'
+                    ? `Seat layout: rect N${selectedTableDraft.seatLayout.sides?.north ?? 0} E${
+                        selectedTableDraft.seatLayout.sides?.east ?? 0
+                      } S${selectedTableDraft.seatLayout.sides?.south ?? 0} W${
+                        selectedTableDraft.seatLayout.sides?.west ?? 0
+                      }`
+                    : 'Seat layout: n/a'}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">

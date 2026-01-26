@@ -130,6 +130,21 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   let selectedControlCount = 0;
   let selectedTableId: string | null = null;
   let anySelected = false;
+  const hasSeatLayout = (table: Table) => {
+    if (table.seatLayout?.kind === 'circle') {
+      return (table.seatLayout.count ?? 0) > 0;
+    }
+    if (table.seatLayout?.kind === 'rect') {
+      const sides = table.seatLayout.sides ?? {};
+      return (
+        (sides.north ?? 0) > 0 ||
+        (sides.east ?? 0) > 0 ||
+        (sides.south ?? 0) > 0 ||
+        (sides.west ?? 0) > 0
+      );
+    }
+    return false;
+  };
 
   return (
     <>
@@ -165,18 +180,20 @@ const FloorplanWorldLayer: React.FC<Props> = ({
         // computeSeatLayout / computeSeatAddControls return TABLE-LOCAL coordinates (origin = table top-left).
         // So we render seats/+ inside a wrapper that has the same left/top/size/rotation as the table.
         const renderMode = seatPreview ? 'preview' : 'edit';
-        const seats: Seat[] = computeSeatLayout({
-          table,
-          geometry: {
-            x: 0,
-            y: 0,
-            w: geometry.w,
-            h: geometry.h,
-            radius: geometry.radius,
-            rot: geometry.rot,
-          },
-          renderMode,
-        });
+        const seats: Seat[] = hasSeatLayout(table)
+          ? computeSeatLayout({
+              table,
+              geometry: {
+                x: 0,
+                y: 0,
+                w: geometry.w,
+                h: geometry.h,
+                radius: geometry.radius,
+                rot: geometry.rot,
+              },
+              renderMode,
+            })
+          : [];
 
         const addControls: SeatAddControl[] =
           seatEditable && selected
