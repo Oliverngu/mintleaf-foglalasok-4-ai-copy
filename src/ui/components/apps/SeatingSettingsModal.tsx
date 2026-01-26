@@ -107,6 +107,95 @@ const weekdays = [
   { value: 6, label: 'Szombat' },
 ];
 
+type RuntimeErrorSnapshot = {
+  message: string;
+  stack?: string;
+  source?: string;
+  time: string;
+};
+
+const useRuntimeErrorOverlay = (enabled: boolean) => {
+  const [snapshot, setSnapshot] = useState<RuntimeErrorSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') {
+      return;
+    }
+
+    const handleError = (event: ErrorEvent) => {
+      const err = event.error as Error | undefined;
+      setSnapshot({
+        message: event.message || err?.message || 'Unknown error',
+        stack: err?.stack,
+        source: event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : undefined,
+        time: new Date().toISOString(),
+      });
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      let message = 'Unhandled rejection';
+      let stack: string | undefined;
+      if (event.reason instanceof Error) {
+        message = event.reason.message || message;
+        stack = event.reason.stack;
+      } else if (typeof event.reason === 'string') {
+        message = event.reason;
+      } else {
+        try {
+          message = JSON.stringify(event.reason);
+        } catch {
+          message = String(event.reason);
+        }
+      }
+      setSnapshot({
+        message,
+        stack,
+        time: new Date().toISOString(),
+      });
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [enabled]);
+
+  return snapshot;
+};
+
+const RuntimeErrorOverlay: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  const snapshot = useRuntimeErrorOverlay(enabled);
+
+  if (!enabled || !snapshot) {
+    return null;
+  }
+
+  const details = [
+    snapshot.message,
+    snapshot.source ? `Source: ${snapshot.source}` : null,
+    snapshot.stack ? `Stack:\n${snapshot.stack}` : null,
+    `Time: ${snapshot.time}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[9999] max-w-[min(90vw,420px)] rounded-lg border border-red-200 bg-red-50/95 p-3 text-xs text-red-900 shadow-lg">
+      <div className="mb-2 font-semibold">Runtime error</div>
+      <textarea
+        readOnly
+        value={details}
+        className="w-full resize-none rounded border border-red-200 bg-white/90 p-2 text-[11px] leading-snug text-red-900"
+        rows={8}
+        onFocus={event => event.currentTarget.select()}
+      />
+    </div>
+  );
+};
+
 const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onClose }) => {
   const [settings, setSettings] = useState<SeatingSettings | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -221,12 +310,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return isDev;
     }
   }, [isDev]);
+  const errorOverlayEnabled = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return isDev;
+    }
+    const params = new URLSearchParams(window.location.search);
+    return isDev || params.get('fpdebug') === '1';
+  }, [isDev]);
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
+  const isEditMode = floorplanMode === 'edit';
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
@@ -2222,7 +2319,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
-  const isEditMode = floorplanMode === 'edit';
   const getRenderPosition = useCallback(
     (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
       resolveTableRenderPosition(
@@ -6253,6 +6349,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       header={headerContent}
       footer={footerContent}
     >
+      <RuntimeErrorOverlay enabled={errorOverlayEnabled} />
       <PillPanelLayout
         sections={tabs}
         activeId={activeTab}
