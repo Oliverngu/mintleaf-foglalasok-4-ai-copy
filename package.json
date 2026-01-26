@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:node": "node --test \"src/**/__node_tests__/**/*.test.ts\""
   },
   "dependencies": {
     "react": "^19.2.0",

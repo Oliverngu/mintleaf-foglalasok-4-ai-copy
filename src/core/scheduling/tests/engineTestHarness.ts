@@ -1,4 +1,8 @@
-import { EngineInput, EngineScheduleSettings, Ruleset } from '../engine/types';
+import type {
+  EngineInput,
+  EngineScheduleSettings,
+  Ruleset,
+} from '../engine/types.ts';
 
 type ScheduleSettingsOverrides = {
   dailySettings?: EngineScheduleSettings['dailySettings'];
