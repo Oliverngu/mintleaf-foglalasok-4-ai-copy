@@ -47,6 +47,36 @@ describe('applySuggestion', () => {
     ]);
   });
 
+  it('allows createShift cross-midnight times', () => {
+    const weekDays = buildWeekDays();
+    const suggestion: Suggestion = {
+      type: 'ADD_SHIFT_SUGGESTION',
+      expectedImpact: 'Add coverage',
+      explanation: 'Add overnight shift.',
+      actions: [
+        {
+          type: 'createShift',
+          userId: 'u1',
+          dateKey: weekDays[0],
+          startTime: '22:00',
+          endTime: '02:00',
+        },
+      ],
+    };
+
+    const result = applySuggestion({
+      suggestionId: 'assistant-suggestion:v2:overnight',
+      suggestion,
+      scheduleState: { unitId: 'unit-a', shifts: [] },
+      appliedSuggestionIds: [],
+    });
+
+    assert.equal(result.status, 'applied');
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.nextScheduleState.shifts[0]?.startTime, '22:00');
+    assert.equal(result.nextScheduleState.shifts[0]?.endTime, '02:00');
+  });
+
   it('applies moveShift actions', () => {
     const weekDays = buildWeekDays();
     const shifts: EngineShift[] = [
@@ -92,6 +122,47 @@ describe('applySuggestion', () => {
     assert.equal(result.effects[0]?.type, 'moveShift');
   });
 
+  it('allows moveShift cross-midnight times', () => {
+    const weekDays = buildWeekDays();
+    const shifts: EngineShift[] = [
+      {
+        id: 's1',
+        userId: 'u1',
+        unitId: 'unit-a',
+        dateKey: weekDays[0],
+        startTime: '20:00',
+        endTime: '23:00',
+      },
+    ];
+    const suggestion: Suggestion = {
+      type: 'SHIFT_MOVE_SUGGESTION',
+      expectedImpact: 'Move shift',
+      explanation: 'Move shift overnight.',
+      actions: [
+        {
+          type: 'moveShift',
+          shiftId: 's1',
+          userId: 'u1',
+          dateKey: weekDays[1],
+          newStartTime: '22:00',
+          newEndTime: '02:00',
+        },
+      ],
+    };
+
+    const result = applySuggestion({
+      suggestionId: 'assistant-suggestion:v2:move-overnight',
+      suggestion,
+      scheduleState: { unitId: 'unit-a', shifts },
+      appliedSuggestionIds: [],
+    });
+
+    assert.equal(result.status, 'applied');
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.nextScheduleState.shifts[0]?.startTime, '22:00');
+    assert.equal(result.nextScheduleState.shifts[0]?.endTime, '02:00');
+  });
+
   it('returns noop for already applied suggestion ids', () => {
     const result = applySuggestion({
       suggestionId: 'assistant-suggestion:v2:no-op',
@@ -116,6 +187,47 @@ describe('applySuggestion', () => {
     assert.equal(result.status, 'noop');
     assert.equal(result.nextScheduleState.shifts.length, 0);
     assert.equal(result.effects.length, 0);
+  });
+
+  it('dedupes createShift when an identical shift exists', () => {
+    const weekDays = buildWeekDays();
+    const shifts: EngineShift[] = [
+      {
+        id: 's1',
+        userId: 'u1',
+        unitId: 'unit-a',
+        dateKey: weekDays[0],
+        startTime: '09:00',
+        endTime: '13:00',
+        positionId: 'p1',
+      },
+    ];
+    const suggestion: Suggestion = {
+      type: 'ADD_SHIFT_SUGGESTION',
+      expectedImpact: 'Add coverage',
+      explanation: 'Add duplicate shift.',
+      actions: [
+        {
+          type: 'createShift',
+          userId: 'u1',
+          dateKey: weekDays[0],
+          startTime: '09:00',
+          endTime: '13:00',
+          positionId: 'p1',
+        },
+      ],
+    };
+
+    const result = applySuggestion({
+      suggestionId: 'assistant-suggestion:v2:dedupe',
+      suggestion,
+      scheduleState: { unitId: 'unit-a', shifts },
+      appliedSuggestionIds: [],
+    });
+
+    assert.equal(result.status, 'noop');
+    assert.equal(result.effects.length, 0);
+    assert.equal(result.nextScheduleState.shifts.length, 1);
   });
 
   it('is transactional when an action fails', () => {
@@ -202,6 +314,85 @@ describe('applySuggestion', () => {
 
       assert.equal(result.status, 'failed');
       assert.equal(result.errors[0]?.code, 'missing_fields');
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('fails in production for invalid time formats', () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      const suggestion: Suggestion = {
+        type: 'ADD_SHIFT_SUGGESTION',
+        expectedImpact: 'Add coverage',
+        explanation: 'Invalid time format.',
+        actions: [
+          {
+            type: 'createShift',
+            userId: 'u1',
+            dateKey: '2025-01-06',
+            startTime: '9:00',
+            endTime: '13:00',
+          },
+        ],
+      };
+
+      const result = applySuggestion({
+        suggestionId: 'assistant-suggestion:v2:bad-time',
+        suggestion,
+        scheduleState: { unitId: 'unit-a', shifts: [] },
+        appliedSuggestionIds: [],
+      });
+
+      assert.equal(result.status, 'failed');
+      assert.equal(result.errors[0]?.code, 'invalid_time_format');
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  it('fails in production when moveShift user mismatches', () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const weekDays = buildWeekDays();
+    const shifts: EngineShift[] = [
+      {
+        id: 's1',
+        userId: 'u2',
+        unitId: 'unit-a',
+        dateKey: weekDays[0],
+        startTime: '08:00',
+        endTime: '12:00',
+      },
+    ];
+    const suggestion: Suggestion = {
+      type: 'SHIFT_MOVE_SUGGESTION',
+      expectedImpact: 'Move shift',
+      explanation: 'User mismatch.',
+      actions: [
+        {
+          type: 'moveShift',
+          shiftId: 's1',
+          userId: 'u1',
+          dateKey: weekDays[1],
+          newStartTime: '09:00',
+          newEndTime: '13:00',
+        },
+      ],
+    };
+
+    try {
+      const result = applySuggestion({
+        suggestionId: 'assistant-suggestion:v2:user-mismatch',
+        suggestion,
+        scheduleState: { unitId: 'unit-a', shifts },
+        appliedSuggestionIds: [],
+      });
+
+      assert.equal(result.status, 'failed');
+      assert.equal(result.errors[0]?.code, 'user_mismatch');
     } finally {
       process.env.NODE_ENV = originalEnv;
     }

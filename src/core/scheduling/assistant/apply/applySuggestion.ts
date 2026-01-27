@@ -26,7 +26,16 @@ export type ApplyEffect =
     };
 
 export type ApplyError = {
-  code: string;
+  code:
+    | 'missing_fields'
+    | 'invalid_fields'
+    | 'invalid_time_format'
+    | 'invalid_time_range'
+    | 'duplicate_shift'
+    | 'shift_not_found'
+    | 'unsupported_action'
+    | 'apply_failed'
+    | 'user_mismatch';
   message: string;
   actionIndex?: number;
   actionType?: string;
@@ -49,9 +58,32 @@ type ApplySuggestionInput = {
 
 const isProduction = () => process.env.NODE_ENV === 'production';
 
+const PREVIEW_LIMIT = 200;
+
+const sanitizePreview = (value: string) =>
+  value.replace(/[|;\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const stableSortKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(item => stableSortKeys(item));
+  }
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = stableSortKeys(record[key]);
+      return acc;
+    }, {});
+};
+
 const buildActionPreview = (action: unknown) => {
   try {
-    return JSON.stringify(action);
+    const serialized = JSON.stringify(stableSortKeys(action));
+    const sanitized = sanitizePreview(serialized);
+    return sanitized.length > PREVIEW_LIMIT
+      ? `${sanitized.slice(0, PREVIEW_LIMIT)}…`
+      : sanitized;
   } catch {
     return '[unserializable-action]';
   }
@@ -118,7 +150,42 @@ const failOrThrow = (
   errors.push(error);
 };
 
-const validateTimeRange = (start: string, end: string) => start < end;
+const parseTimeToMinutes = (time: string): number | null => {
+  if (!/^\d{2}:\d{2}$/.test(time)) return null;
+  const [hours, minutes] = time.split(':').map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  if (hours < 0 || hours > 23) return null;
+  if (minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const validateTimeRange = (start: string, end: string) => {
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+  if (startMinutes === null || endMinutes === null) {
+    return { ok: false, reason: 'invalid_time_format' as const };
+  }
+  if (startMinutes === endMinutes) {
+    return { ok: false, reason: 'invalid_time_range' as const };
+  }
+  return { ok: true };
+};
+
+const shouldDedupeCreateShift = (
+  shifts: EngineShift[],
+  action: Extract<Suggestion['actions'][number], { type: 'createShift' }>,
+  unitId?: string
+) => {
+  return shifts.some(shift => {
+    if (shift.userId !== action.userId) return false;
+    if (shift.dateKey !== action.dateKey) return false;
+    if ((shift.startTime ?? '') !== action.startTime) return false;
+    if ((shift.endTime ?? '') !== action.endTime) return false;
+    if ((shift.positionId ?? '') !== (action.positionId ?? '')) return false;
+    if (unitId && shift.unitId && shift.unitId !== unitId) return false;
+    return true;
+  });
+};
 
 export const applySuggestion = ({
   suggestionId,
@@ -172,18 +239,26 @@ export const applySuggestion = ({
           break;
         }
 
-        if (!validateTimeRange(action.startTime, action.endTime)) {
+        const timeValidation = validateTimeRange(action.startTime, action.endTime);
+        if (!timeValidation.ok) {
           recordFailure(
             {
-              code: 'invalid_time_range',
-              message: 'createShift action has an invalid time range.',
+              code: timeValidation.reason,
+              message:
+                timeValidation.reason === 'invalid_time_format'
+                  ? 'createShift action has an invalid time format.'
+                  : 'createShift action has an invalid time range.',
               actionIndex: index,
               actionType,
               preview,
             },
-            new Error('Invalid createShift time range.')
+            new Error('Invalid createShift time.')
           );
           break;
+        }
+
+        if (shouldDedupeCreateShift(workingShifts, action, scheduleState.unitId)) {
+          continue;
         }
 
         const shiftId = buildGeneratedShiftId(suggestionId, index);
@@ -241,16 +316,23 @@ export const applySuggestion = ({
           break;
         }
 
-        if (!validateTimeRange(action.newStartTime, action.newEndTime)) {
+        const timeValidation = validateTimeRange(
+          action.newStartTime,
+          action.newEndTime
+        );
+        if (!timeValidation.ok) {
           recordFailure(
             {
-              code: 'invalid_time_range',
-              message: 'moveShift action has an invalid time range.',
+              code: timeValidation.reason,
+              message:
+                timeValidation.reason === 'invalid_time_format'
+                  ? 'moveShift action has an invalid time format.'
+                  : 'moveShift action has an invalid time range.',
               actionIndex: index,
               actionType,
               preview,
             },
-            new Error('Invalid moveShift time range.')
+            new Error('Invalid moveShift time.')
           );
           break;
         }
@@ -273,6 +355,19 @@ export const applySuggestion = ({
         }
 
         const target = workingShifts[targetIndex];
+        if (target.userId !== action.userId) {
+          recordFailure(
+            {
+              code: 'user_mismatch',
+              message: `Shift ${action.shiftId} belongs to a different user.`,
+              actionIndex: index,
+              actionType,
+              preview,
+            },
+            new Error(`Shift ${action.shiftId} belongs to a different user.`)
+          );
+          break;
+        }
         workingShifts[targetIndex] = {
           ...target,
           dateKey: action.dateKey,
@@ -324,6 +419,15 @@ export const applySuggestion = ({
       nextScheduleState: originalState,
       effects: [],
       errors,
+    };
+  }
+
+  if (effects.length === 0) {
+    return {
+      status: 'noop',
+      nextScheduleState: scheduleState,
+      effects: [],
+      errors: [],
     };
   }
 
