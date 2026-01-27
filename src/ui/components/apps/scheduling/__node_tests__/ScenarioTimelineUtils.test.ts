@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import type { Scenario } from '../../../../../core/scheduling/scenarios/types.js';
 import {
   buildSuggestionViolationLinks,
+  filterSuggestionViolationLinksByFocus,
   getScenarioFocusTimeOptions,
   rangesOverlap,
   describeScenario,
@@ -245,5 +246,52 @@ describe('buildSuggestionViolationLinks', () => {
     const suggestionKey = Array.from(links.suggestionsByKey.keys())[0];
     assert.deepEqual(links.violationToSuggestions.get(violationKey), []);
     assert.equal(links.suggestionToViolations.get(suggestionKey)?.length ?? 0, 0);
+  });
+});
+
+describe('filterSuggestionViolationLinksByFocus', () => {
+  it('filters links to the focused date and time range', () => {
+    const violations = [
+      {
+        constraintId: 'MIN_COVERAGE_BY_POSITION',
+        severity: 'high' as const,
+        message: 'missing',
+        affected: {
+          dateKeys: ['2024-01-02'],
+          slots: ['2024-01-02 10:00-12:00'],
+          positionId: 'pos-1'
+        }
+      }
+    ];
+    const suggestions = [
+      {
+        type: 'ADD_SHIFT_SUGGESTION' as const,
+        expectedImpact: '',
+        explanation: '',
+        actions: [
+          {
+            type: 'createShift' as const,
+            userId: 'user-1',
+            dateKey: '2024-01-02',
+            startTime: '10:00',
+            endTime: '12:00',
+            positionId: 'pos-1'
+          }
+        ]
+      }
+    ];
+
+    const links = buildSuggestionViolationLinks(violations, suggestions, new Map(), new Map());
+    const filtered = filterSuggestionViolationLinksByFocus(
+      links,
+      { dateKey: '2024-01-02', timeRange: { startTime: '09:00', endTime: '11:00' } },
+      violations,
+      suggestions
+    );
+
+    const violationKey = Array.from(filtered.violationsByKey.keys())[0];
+    assert.deepEqual(filtered.violationToSuggestions.get(violationKey), [
+      Array.from(filtered.suggestionsByKey.keys())[0]
+    ]);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineResult, MinCoverageRule } from '../../../../core/scheduling/engine/types';
 import type { Scenario } from '../../../../core/scheduling/scenarios/types';
 import type { Position, User } from '../../../../core/models/data';
@@ -7,6 +7,7 @@ import {
   buildSuggestionKey,
   buildViolationKey,
   buildSuggestionViolationLinks,
+  filterSuggestionViolationLinksByFocus,
   filterRulesByFocus,
   formatScenarioMeta,
   formatTimeRangeLabel,
@@ -155,11 +156,26 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
       ),
     [engineResult.violations, engineResult.suggestions, positionNameById, userNameById]
   );
+  const focusLinkIndex = useMemo(
+    () =>
+      filterSuggestionViolationLinksByFocus(
+        linkIndex,
+        focusWindow,
+        engineResult.violations,
+        engineResult.suggestions
+      ),
+    [engineResult.suggestions, engineResult.violations, focusWindow, linkIndex]
+  );
 
   const topViolations = engineResult.violations.slice(0, 3);
   const [selectedSuggestionKey, setSelectedSuggestionKey] = useState<string | null>(null);
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
+  const suggestionRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const focusLabel = `${focusWindow.dateKey} · ${formatTimeRangeLabel(focusWindow.timeRange)}`;
-  const suggestionCards = engineResult.suggestions.slice(0, 5).map((suggestion, index) => {
+  const visibleSuggestions = showAllSuggestions
+    ? engineResult.suggestions
+    : engineResult.suggestions.slice(0, 5);
+  const suggestionCards = visibleSuggestions.map((suggestion, index) => {
     const key = buildSuggestionKey(suggestion);
     return {
       suggestion,
@@ -346,14 +362,14 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                     <ul className="space-y-2">
                       {topViolations.map((violation, index) => {
                         const detail = getViolationDetail(violation, positionNameById);
-                        const violationRefKey = linkIndex.violationsByKey.get(
+                        const violationRefKey = focusLinkIndex.violationsByKey.get(
                           buildViolationKey(violation)
                         )?.key;
                         const suggestionKeys = violationRefKey
-                          ? linkIndex.violationToSuggestions.get(violationRefKey) ?? []
+                          ? focusLinkIndex.violationToSuggestions.get(violationRefKey) ?? []
                           : [];
                         const suggestionRefs = suggestionKeys
-                          .map(key => linkIndex.suggestionsByKey.get(key))
+                          .map(key => focusLinkIndex.suggestionsByKey.get(key))
                           .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
                         return (
                           <li
@@ -380,7 +396,13 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     <button
                                       key={ref.key}
                                       type="button"
-                                      onClick={() => setSelectedSuggestionKey(ref.key)}
+                                      onClick={() => {
+                                        setSelectedSuggestionKey(ref.key);
+                                        suggestionRefs.current.get(ref.key)?.scrollIntoView({
+                                          behavior: 'smooth',
+                                          block: 'center'
+                                        });
+                                      }}
                                       className="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600 hover:bg-red-100"
                                     >
                                       {ref.label}
@@ -417,19 +439,29 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                     )}
                     <div className="space-y-2">
                       {suggestionCards.map(card => {
-                        const suggestionRef = linkIndex.suggestionsByKey.get(card.key);
-                        const violationKeys = linkIndex.suggestionToViolations.get(card.key) ?? [];
+                        const suggestionRef = focusLinkIndex.suggestionsByKey.get(card.key);
+                        const violationKeys = focusLinkIndex.suggestionToViolations.get(card.key) ?? [];
                         const violationRefs = violationKeys
-                          .map(key => linkIndex.violationsByKey.get(key))
+                          .map(key => focusLinkIndex.violationsByKey.get(key))
                           .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
                         return (
                           <div
                             key={card.key}
+                            ref={node => {
+                              suggestionRefs.current.set(card.key, node);
+                            }}
                             className={`rounded-xl border px-3 py-2 text-xs ${
                               selectedSuggestionKey === card.key
                                 ? 'border-indigo-300 bg-indigo-50/60'
                                 : 'border-gray-100 bg-white'
                             }`}
+                            onClick={() => {
+                              setSelectedSuggestionKey(card.key);
+                              suggestionRefs.current.get(card.key)?.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'center'
+                              });
+                            }}
                           >
                             <div className="font-semibold text-gray-700">
                               {suggestionRef?.label ?? `Javaslat #${card.index + 1}`}
@@ -461,6 +493,15 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         );
                       })}
                     </div>
+                    {engineResult.suggestions.length > 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllSuggestions(prev => !prev)}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                      >
+                        {showAllSuggestions ? 'Kevesebb javaslat' : 'Összes javaslat megjelenítése'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

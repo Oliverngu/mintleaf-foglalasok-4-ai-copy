@@ -460,6 +460,86 @@ export const buildSuggestionViolationLinks = (
   };
 };
 
+export const filterSuggestionViolationLinksByFocus = (
+  links: {
+    violationsByKey: Map<string, ViolationRef>;
+    suggestionsByKey: Map<string, SuggestionRef>;
+    violationToSuggestions: Map<string, string[]>;
+    suggestionToViolations: Map<string, string[]>;
+  },
+  focus: FocusWindow,
+  violations: ConstraintViolation[],
+  suggestions: Suggestion[]
+) => {
+  const violationByKey = new Map<string, ConstraintViolation>();
+  violations.forEach(violation => {
+    violationByKey.set(buildViolationKey(violation), violation);
+  });
+  const suggestionByKey = new Map<string, Suggestion>();
+  suggestions.forEach(suggestion => {
+    suggestionByKey.set(buildSuggestionKey(suggestion), suggestion);
+  });
+
+  const nextViolationToSuggestions = new Map<string, string[]>();
+  const nextSuggestionToViolations = new Map<string, string[]>();
+
+  const isViolationInFocus = (violation: ConstraintViolation): boolean => {
+    const dateKey =
+      violation.affected.dateKeys?.[0] ?? extractDateFromSlots(violation.affected.slots);
+    if (dateKey !== focus.dateKey) return false;
+    if (!focus.timeRange) return true;
+    const slotRange = extractTimeRangeFromSlot(violation.affected.slots?.[0]);
+    if (!slotRange) return true;
+    return rangesOverlap(
+      slotRange.startTime,
+      slotRange.endTime,
+      focus.timeRange.startTime,
+      focus.timeRange.endTime
+    );
+  };
+
+  const isSuggestionInFocus = (suggestion: Suggestion): boolean => {
+    return suggestion.actions.some(action => {
+      if (action.dateKey !== focus.dateKey) return false;
+      if (!focus.timeRange) return true;
+      const actionRange = getSuggestionActionRange(action);
+      if (!actionRange) return true;
+      return rangesOverlap(
+        actionRange.startTime,
+        actionRange.endTime,
+        focus.timeRange.startTime,
+        focus.timeRange.endTime
+      );
+    });
+  };
+
+  links.violationToSuggestions.forEach((suggestionKeys, violationKey) => {
+    const violation = violationByKey.get(violationKey);
+    if (!violation || !isViolationInFocus(violation)) return;
+    const filteredSuggestions = suggestionKeys.filter(suggestionKey => {
+      const suggestion = suggestionByKey.get(suggestionKey);
+      return suggestion ? isSuggestionInFocus(suggestion) : false;
+    });
+    nextViolationToSuggestions.set(violationKey, filteredSuggestions);
+    filteredSuggestions.forEach(suggestionKey => {
+      const existing = nextSuggestionToViolations.get(suggestionKey) ?? [];
+      nextSuggestionToViolations.set(suggestionKey, [...existing, violationKey]);
+    });
+  });
+
+  nextSuggestionToViolations.forEach((violationKeys, suggestionKey) => {
+    const unique = Array.from(new Set(violationKeys));
+    nextSuggestionToViolations.set(suggestionKey, unique);
+  });
+
+  return {
+    violationsByKey: links.violationsByKey,
+    suggestionsByKey: links.suggestionsByKey,
+    violationToSuggestions: nextViolationToSuggestions,
+    suggestionToViolations: nextSuggestionToViolations
+  };
+};
+
 export const summarizeSuggestions = (
   suggestions: Suggestion[],
   userNameById?: Map<string, string>,
