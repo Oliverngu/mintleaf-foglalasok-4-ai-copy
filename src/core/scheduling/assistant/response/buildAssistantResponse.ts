@@ -5,6 +5,7 @@ import type { AssistantResponse, AssistantSuggestion } from './types.js';
 import type { DecisionRecord } from './decisionTypes.js';
 import type { AssistantSession } from '../session/types.js';
 import { getSessionDecisions } from '../session/helpers.js';
+import { buildDecisionMap, normalizeDecisions } from '../session/decisionUtils.js';
 
 const buildActionKey = (action: Suggestion['actions'][number]) => {
   if (action.type === 'moveShift') {
@@ -62,41 +63,6 @@ const buildSuggestionAffected = (suggestion: Suggestion) => {
     dateKeys: Array.from(new Set(dateKeys)).sort(),
     positionId: positionIds.sort()[0],
   };
-};
-
-const decisionRank: Record<DecisionRecord['decision'], number> = {
-  accepted: 2,
-  rejected: 1,
-};
-
-const normalizeDecisions = (decisions: DecisionRecord[]): DecisionRecord[] => {
-  const sorted = [...decisions].sort((a, b) => {
-    const idCompare = a.suggestionId.localeCompare(b.suggestionId);
-    if (idCompare !== 0) return idCompare;
-    const timeA = a.timestamp ?? -1;
-    const timeB = b.timestamp ?? -1;
-    if (timeA !== timeB) return timeB - timeA;
-    return decisionRank[b.decision] - decisionRank[a.decision];
-  });
-
-  const seen = new Set<string>();
-  const unique: DecisionRecord[] = [];
-  sorted.forEach(decision => {
-    if (seen.has(decision.suggestionId)) return;
-    seen.add(decision.suggestionId);
-    unique.push(decision);
-  });
-
-  return unique;
-};
-
-const buildDecisionMap = (decisions?: DecisionRecord[]) => {
-  const map = new Map<string, DecisionRecord['decision']>();
-  if (!decisions) return map;
-  normalizeDecisions(decisions).forEach(decision => {
-    map.set(decision.suggestionId, decision.decision);
-  });
-  return map;
 };
 
 export const wasSuggestionAccepted = (
