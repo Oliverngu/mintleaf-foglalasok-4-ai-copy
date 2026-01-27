@@ -101,4 +101,14 @@ describe('buildAssistantResponse', () => {
     assert.equal(explanation?.whyNow, 'Current schedule state');
     assert.equal(explanation?.whatIfAccepted, 'Expected benefit');
   });
+
+  it('does not set decisionState when no decisions are provided', () => {
+    const input = makeEngineInput();
+    const result = runEngine(input);
+    const response = buildAssistantResponse(input, result);
+
+    response.suggestions.forEach(suggestion => {
+      assert.equal('decisionState' in suggestion, false);
+    });
+  });
 });
