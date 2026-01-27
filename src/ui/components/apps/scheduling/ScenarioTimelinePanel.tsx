@@ -1,18 +1,20 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { EngineResult, MinCoverageRule } from '../../../../core/scheduling/engine/types';
 import type { Scenario } from '../../../../core/scheduling/scenarios/types';
 import type { Position, User } from '../../../../core/models/data';
 import {
-  buildFocusWindow,
   describeScenario,
   filterRulesByFocus,
+  formatScenarioMeta,
   formatTimeRangeLabel,
   getRuleSummaryLabel,
-  getSuggestionSummary,
+  getScenarioFocusTimeOptions,
   getViolationDetail,
   labelViolation,
   sortScenariosForTimeline,
-  summarizeViolations
+  summarizeSuggestions,
+  summarizeViolations,
+  summarizeViolationsBySeverity
 } from './ScenarioTimelineUtils';
 
 const RULES_PREVIEW_COUNT = 3;
@@ -70,6 +72,8 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
 }) => {
   const [showAllBefore, setShowAllBefore] = useState(false);
   const [showAllAfter, setShowAllAfter] = useState(false);
+  const [activeDateKey, setActiveDateKey] = useState(selectedDateKey ?? weekDays[0] ?? '');
+  const [selectedTimeKey, setSelectedTimeKey] = useState('ALL_DAY');
 
   const positionNameById = useMemo(
     () => new Map(positions.map(position => [position.id, position.name])),
@@ -85,9 +89,35 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
     [scenarios]
   );
 
+  const timeOptions = useMemo(
+    () => getScenarioFocusTimeOptions(activeScenarios, activeDateKey),
+    [activeScenarios, activeDateKey]
+  );
+
+  useEffect(() => {
+    if (!activeDateKey) {
+      const fallbackDate = selectedDateKey ?? weekDays[0] ?? '';
+      if (fallbackDate) setActiveDateKey(fallbackDate);
+    }
+  }, [activeDateKey, selectedDateKey, weekDays]);
+
+  useEffect(() => {
+    if (!timeOptions.some(option => option.key === selectedTimeKey)) {
+      setSelectedTimeKey(timeOptions[0]?.key ?? 'ALL_DAY');
+    }
+  }, [timeOptions, selectedTimeKey]);
+
+  const selectedTimeOption = useMemo(
+    () => timeOptions.find(option => option.key === selectedTimeKey) ?? timeOptions[0],
+    [timeOptions, selectedTimeKey]
+  );
+
   const focusWindow = useMemo(
-    () => buildFocusWindow(weekDays, activeScenarios, selectedDateKey),
-    [weekDays, activeScenarios, selectedDateKey]
+    () => ({
+      dateKey: activeDateKey,
+      timeRange: selectedTimeOption?.timeRange
+    }),
+    [activeDateKey, selectedTimeOption]
   );
 
   const ruleDiff = engineResult.scenarioEffects?.ruleDiff;
@@ -103,6 +133,14 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   const violationSummary = useMemo(
     () => summarizeViolations(engineResult.violations),
     [engineResult.violations]
+  );
+  const violationBreakdown = useMemo(
+    () => summarizeViolationsBySeverity(engineResult.violations),
+    [engineResult.violations]
+  );
+  const suggestionSummary = useMemo(
+    () => summarizeSuggestions(engineResult.suggestions, userNameById, positionNameById),
+    [engineResult.suggestions, userNameById, positionNameById]
   );
 
   const topViolations = engineResult.violations.slice(0, 3);
@@ -123,89 +161,165 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
           Bezár
         </button>
       </div>
-      <div className="overflow-y-auto p-5">
+      <div className="border-b px-5 py-4">
+        <div className="flex flex-col gap-3 text-xs font-semibold text-gray-600">
+          <div>
+            <span className="block text-[10px] uppercase tracking-[0.2em] text-gray-400">Nap</span>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
+              {weekDays.map(dayKey => (
+                <button
+                  key={dayKey}
+                  type="button"
+                  onClick={() => setActiveDateKey(dayKey)}
+                  className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    dayKey === activeDateKey
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {dayKey}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-[0.2em] text-gray-400">Idősáv</span>
+            <select
+              value={selectedTimeOption?.key ?? 'ALL_DAY'}
+              onChange={event => setSelectedTimeKey(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700"
+            >
+              {timeOptions.map(option => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div className="overflow-y-auto px-5 pb-6 pt-5">
         <div className="relative">
-          <div className="absolute left-3 top-3 h-full w-px bg-gray-200" />
-          <div className="space-y-8">
-            <div className="relative pl-10">
-              <div className="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold">
+          <div className="absolute left-4 top-4 h-full w-px bg-gray-200" />
+          <div className="space-y-10">
+            <div className="relative pl-12">
+              <div className="absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-semibold text-gray-500 shadow-sm">
                 1
               </div>
-              <h3 className="text-base font-semibold">Original Context</h3>
-              <p className="mt-1 text-xs text-gray-500">Kiinduló lefedettségi szabályok</p>
-              <div className="mt-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-gray-400">
+                Original Context
+              </span>
+              <h3 className="mt-1 text-base font-semibold text-gray-900">Kiinduló lefedettség</h3>
+              <p className="mt-1 text-xs text-gray-500">A fókuszban lévő eredeti lefedettségi szabályok.</p>
+              <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
                 {renderRuleList(beforeRules, positionNameById, showAllBefore, () =>
                   setShowAllBefore(prev => !prev)
                 )}
               </div>
             </div>
 
-            <div className="relative pl-10">
-              <div className="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
+            <div className="relative pl-12">
+              <div className="absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white shadow">
                 2
               </div>
-              <h3 className="text-base font-semibold">The Change</h3>
-              <p className="mt-1 text-xs text-gray-500">Alkalmazott scenáriók</p>
-              <div className="mt-3 space-y-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-indigo-200">
+                The Change
+              </span>
+              <h3 className="mt-1 text-base font-semibold text-gray-900">Alkalmazott scenáriók</h3>
+              <p className="mt-1 text-xs text-gray-500">Mit és hogyan módosítanak a scenáriók.</p>
+              <div className="mt-4 space-y-4 rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 shadow-sm sm:-rotate-1 sm:origin-top-left">
                 {activeScenarios.length === 0 ? (
-                  <p className="text-sm text-gray-500">Nincs aktív scenárió.</p>
+                  <p className="text-sm text-indigo-800/70">Nincs aktív scenárió.</p>
                 ) : (
-                  activeScenarios.map(scenario => (
-                    <div key={scenario.id} className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-full bg-indigo-600 px-2 py-0.5 font-semibold text-white">
-                          {scenario.type}
-                        </span>
-                        <span className="rounded-full bg-gray-200 px-2 py-0.5 font-semibold text-gray-700">
-                          {scenario.inheritMode ?? 'ADD'}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-gray-700">
-                        {describeScenario(scenario, userNameById, positionNameById)}
-                      </p>
-                      {engineResult.scenarioEffects && (
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
-                          <span className="rounded-full bg-white px-2 py-0.5 text-green-700">
-                            +{engineResult.scenarioEffects.addedRulesCount} szabály
+                  activeScenarios.map(scenario => {
+                    const meta = formatScenarioMeta(scenario, userNameById, positionNameById);
+                    return (
+                      <div key={scenario.id} className="rounded-xl border border-indigo-100 bg-white/80 p-3">
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-600">
+                          <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-white">
+                            {scenario.type}
                           </span>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-amber-700">
-                            {engineResult.scenarioEffects.overriddenRulesCount} felülírás
-                          </span>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-red-700">
-                            {engineResult.scenarioEffects.removedShiftsCount} törölt műszak
+                          <span className="rounded-full bg-white px-2 py-0.5 text-indigo-700">
+                            {scenario.inheritMode ?? 'ADD'}
                           </span>
                         </div>
-                      )}
+                        <div className="mt-2 text-xs text-gray-600">
+                          {meta.dateLabel && (
+                            <span className="font-semibold text-gray-700">{meta.dateLabel}</span>
+                          )}
+                          {meta.timeLabel && (
+                            <span className="ml-2 text-gray-500">· {meta.timeLabel}</span>
+                          )}
+                        </div>
+                        <p className="mt-2 text-sm text-gray-700">
+                          {describeScenario(scenario, userNameById, positionNameById)}
+                        </p>
+                        {meta.overrideLabel && (
+                          <p className="mt-1 text-xs text-indigo-700">
+                            Lefedettség: {meta.overrideLabel}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+                {engineResult.scenarioEffects && (
+                  <div className="rounded-xl border border-indigo-200 bg-white/90 p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-400">
+                      Összesített heti hatás
                     </div>
-                  ))
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+                      <span className="rounded-full bg-white px-2 py-0.5 text-green-700">
+                        +{engineResult.scenarioEffects.addedRulesCount} szabály
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-amber-700">
+                        {engineResult.scenarioEffects.overriddenRulesCount} felülírás
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-red-700">
+                        {engineResult.scenarioEffects.removedShiftsCount} törölt műszak
+                      </span>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
 
-            <div className="relative pl-10">
-              <div className="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-xs font-semibold text-white">
+            <div className="relative pl-12">
+              <div className="absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-xs font-semibold text-white shadow">
                 3
               </div>
-              <h3 className="text-base font-semibold">The Outcome</h3>
-              <p className="mt-1 text-xs text-gray-500">Végső lefedettségi igények és következmények</p>
-              <div className="mt-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-red-200">
+                The Outcome
+              </span>
+              <h3 className="mt-1 text-base font-semibold text-gray-900">Végső állapot</h3>
+              <p className="mt-1 text-xs text-gray-500">A fókusz szerinti végeredmény és következmények.</p>
+              <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
                 {renderRuleList(afterRules, positionNameById, showAllAfter, () =>
                   setShowAllAfter(prev => !prev)
                 )}
               </div>
-              <div className="mt-4 rounded-xl border bg-white p-3">
+              <div className="mt-4 rounded-2xl border border-red-100 bg-red-50/50 p-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">Violations</span>
-                  <span className="text-xs text-gray-500">
-                    {violationSummary.total} összesen
-                  </span>
+                  <span className="text-sm font-semibold text-red-700">Violations</span>
+                  <span className="text-xs text-red-400">{violationSummary.total} összesen</span>
                 </div>
                 {violationSummary.total === 0 ? (
-                  <p className="mt-2 text-sm text-gray-500">Nincs aktív megsértés.</p>
+                  <p className="mt-2 text-sm text-red-300">Nincs aktív megsértés.</p>
                 ) : (
-                  <div className="mt-2 space-y-2">
-                    <div className="text-xs font-semibold text-gray-600">
-                      Legmagasabb súlyosság: {violationSummary.highestSeverity}
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                      <span className="rounded-full bg-white px-2 py-0.5 text-green-700">
+                        Low: {violationBreakdown.low}
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-amber-700">
+                        Medium: {violationBreakdown.medium}
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-red-700">
+                        High: {violationBreakdown.high}
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-gray-600">
+                        Max: {violationBreakdown.highestSeverity ?? '-'}
+                      </span>
                     </div>
                     <ul className="space-y-2">
                       {topViolations.map((violation, index) => {
@@ -213,11 +327,13 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         return (
                           <li
                             key={`${violation.constraintId}-${index}`}
-                            className="rounded bg-gray-50 px-3 py-2 text-xs"
+                            className="rounded-xl border border-red-100 bg-white px-3 py-2 text-xs"
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-semibold">{labelViolation(violation)}</span>
-                              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold">
+                              <span className="font-semibold text-red-700">
+                                {labelViolation(violation)}
+                              </span>
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
                                 {violation.severity}
                               </span>
                             </div>
@@ -230,15 +346,27 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                   </div>
                 )}
               </div>
-              <div className="mt-3">
-                <details className="rounded-xl border bg-white p-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-gray-700">
-                    Suggested Fixes
-                  </summary>
-                  <p className="mt-2 text-xs text-gray-500">
-                    {getSuggestionSummary(engineResult.suggestions)}
-                  </p>
-                </details>
+              <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
+                <div className="text-sm font-semibold text-gray-700">Suggested Fixes</div>
+                {suggestionSummary.total === 0 ? (
+                  <p className="mt-2 text-xs text-gray-500">Nincs javaslat.</p>
+                ) : (
+                  <div className="mt-2 space-y-2 text-xs text-gray-600">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-600">
+                        Átmozgatás: {suggestionSummary.byType.SHIFT_MOVE_SUGGESTION}
+                      </span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-600">
+                        Új műszak: {suggestionSummary.byType.ADD_SHIFT_SUGGESTION}
+                      </span>
+                    </div>
+                    {suggestionSummary.firstActionLabel && (
+                      <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                        {suggestionSummary.firstActionLabel}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
