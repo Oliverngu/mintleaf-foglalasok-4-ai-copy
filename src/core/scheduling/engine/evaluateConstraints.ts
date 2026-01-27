@@ -1,11 +1,11 @@
-import { EngineInput, ConstraintViolation, Severity } from './types';
-import { normalizeBucketMinutes } from './timeUtils';
+import { EngineInput, ConstraintViolation, Severity } from './types.js';
+import { normalizeBucketMinutes } from './timeUtils.js';
 import {
   evaluateMinCoverageByPosition
-} from '../rules/constraints/minCoverageByPosition';
-import { evaluateMaxHoursPerDay } from '../rules/constraints/maxHoursPerDay';
-import { evaluateMinRestHoursBetweenShifts } from '../rules/constraints/minRestHoursBetweenShifts';
-import { buildViolationAffectedKey } from './violationUtils';
+} from '../rules/constraints/minCoverageByPosition.js';
+import { evaluateMaxHoursPerDay } from '../rules/constraints/maxHoursPerDay.js';
+import { evaluateMinRestHoursBetweenShifts } from '../rules/constraints/minRestHoursBetweenShifts.js';
+import { buildViolationAffectedKey } from './violationUtils.js';
 
 export const evaluateConstraints = (
   input: EngineInput,

@@ -3,7 +3,7 @@ import {
   EngineInput,
   EngineShift,
   ShiftTimeRange
-} from './types';
+} from './types.js';
 import {
   addMinutes,
   combineDateAndTime,
@@ -11,7 +11,7 @@ import {
   DEFAULT_CLOSING_TIME,
   getSlotKey,
   normalizeBucketMinutes
-} from './timeUtils';
+} from './timeUtils.js';
 
 export const UNKNOWN_POSITION_ID = 'unknown';
 
@@ -65,7 +65,7 @@ export const computeCapacity = (
   const capacityMap: CapacityMap = {};
   const shiftTimeRanges = new Map<string, ShiftTimeRange>();
   const bucketMinutes = normalizeBucketMinutes(input.ruleset.bucketMinutes);
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 

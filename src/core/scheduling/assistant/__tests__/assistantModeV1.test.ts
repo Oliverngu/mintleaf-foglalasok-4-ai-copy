@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { runEngine } from '../../engine/runEngine';
-import { MIN_COVERAGE_BY_POSITION_ID } from '../../rules/constraints/minCoverageByPosition';
-import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness';
-import { runSuggestionPipeline } from '../suggestionPipeline';
+import { runEngine } from '../../engine/runEngine.js';
+import { MIN_COVERAGE_BY_POSITION_ID } from '../../rules/constraints/minCoverageByPosition.js';
+import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness.js';
+import { runSuggestionPipeline } from '../suggestionPipeline.js';
 
 describe('Assistant Mode v1', () => {
   it('adds info explanations for empty input', () => {
