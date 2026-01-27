@@ -10,7 +10,6 @@ import {
   describeSuggestionActionCompact,
   filterSuggestionViolationLinksByFocus,
   filterRulesByFocus,
-  findSuggestionByKey,
   formatScenarioMeta,
   formatTimeRangeLabel,
   getRuleSummaryLabel,
@@ -231,14 +230,6 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
       index
     };
   });
-  const selectedSuggestion = useMemo(() => {
-    if (!selectedSuggestionKey) return undefined;
-    return findSuggestionByKey(engineResult.suggestions, selectedSuggestionKey);
-  }, [engineResult.suggestions, selectedSuggestionKey]);
-  const selectedActionLabel = useMemo(() => {
-    if (!selectedSuggestion) return '';
-    return describeSuggestionActionCompact(selectedSuggestion, userNameById, positionNameById);
-  }, [positionNameById, selectedSuggestion, userNameById]);
 
   return (
     <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -549,6 +540,9 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                           isSelected && focusSummary && focusSummary.total === 0
                             ? summarizeViolationsForSuggestion(card.key, linkIndex)
                             : focusSummary;
+                        const actionLabel = isSelected
+                          ? describeSuggestionActionCompact(card.suggestion, userNameById, positionNameById)
+                          : '';
                         return (
                           <div
                             key={card.key}
@@ -618,8 +612,8 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     )}
                                   </div>
                                 )}
-                                {selectedActionLabel && (
-                                  <p className="mt-1">Action: {selectedActionLabel}</p>
+                                {actionLabel && (
+                                  <p className="mt-1">Action: {actionLabel}</p>
                                 )}
                               </div>
                             )}
