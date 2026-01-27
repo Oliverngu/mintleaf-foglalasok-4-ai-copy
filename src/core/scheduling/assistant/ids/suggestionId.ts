@@ -1,8 +1,14 @@
 import type { Suggestion } from '../../engine/types.js';
+import { sha256HexSync } from './hashUtils.js';
+import {
+  assertSuggestionSignatureInvariant,
+  buildSuggestionCanonicalStringV2,
+} from './suggestionSignature.js';
 
-const SUGGESTION_ID_PREFIX = 'assistant-suggestion:v1';
+const SUGGESTION_ID_PREFIX_V1 = 'assistant-suggestion:v1';
+const SUGGESTION_ID_PREFIX_V2 = 'assistant-suggestion:v2';
 
-const buildActionKey = (action: Suggestion['actions'][number]) => {
+const buildActionKeyV1 = (action: Suggestion['actions'][number]) => {
   if (action.type === 'moveShift') {
     return [
       action.type,
@@ -27,15 +33,30 @@ const buildActionKey = (action: Suggestion['actions'][number]) => {
 
 export const buildAssistantSuggestionIdV1 = (suggestion: Suggestion): string =>
   [
-    SUGGESTION_ID_PREFIX,
+    SUGGESTION_ID_PREFIX_V1,
     suggestion.type,
-    suggestion.actions.map(buildActionKey).join(';'),
+    suggestion.actions.map(buildActionKeyV1).join(';'),
     suggestion.expectedImpact,
     suggestion.explanation,
   ].join(':');
 
 export const isAssistantSuggestionIdV1 = (id: string): boolean =>
-  id.startsWith(`${SUGGESTION_ID_PREFIX}:`);
+  id.startsWith(`${SUGGESTION_ID_PREFIX_V1}:`);
 
-export const getAssistantSuggestionIdVersion = (id: string): 'v1' | 'unknown' =>
-  isAssistantSuggestionIdV1(id) ? 'v1' : 'unknown';
+export const buildAssistantSuggestionIdV2 = (suggestion: Suggestion): string => {
+  assertSuggestionSignatureInvariant(suggestion);
+  const canonical = buildSuggestionCanonicalStringV2(suggestion);
+  const hash = sha256HexSync(canonical);
+  return `${SUGGESTION_ID_PREFIX_V2}:${hash}`;
+};
+
+export const isAssistantSuggestionIdV2 = (id: string): boolean =>
+  id.startsWith(`${SUGGESTION_ID_PREFIX_V2}:`);
+
+export const getAssistantSuggestionIdVersion = (
+  id: string
+): 'v2' | 'v1' | 'unknown' => {
+  if (isAssistantSuggestionIdV2(id)) return 'v2';
+  if (isAssistantSuggestionIdV1(id)) return 'v1';
+  return 'unknown';
+};

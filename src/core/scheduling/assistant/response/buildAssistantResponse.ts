@@ -8,7 +8,15 @@ import { getSessionDecisions } from '../session/helpers.js';
 import { buildDecisionMap, normalizeDecisions } from '../session/decisionUtils.js';
 import { normalizeOrResetSession } from '../session/validateSession.js';
 import { getSuggestionIdVersion } from './decisionHelpers.js';
-import { buildAssistantSuggestionIdV1 } from '../ids/suggestionId.js';
+import {
+  buildAssistantSuggestionIdV1,
+  buildAssistantSuggestionIdV2,
+} from '../ids/suggestionId.js';
+import {
+  buildSuggestionSignatureMeta,
+  buildSuggestionSignatureV2,
+  stringifySuggestionSignature,
+} from '../ids/suggestionSignature.js';
 import { buildSuggestionExplainability } from '../explainability/buildSuggestionExplainability.js';
 import { buildSuggestionAffected } from '../explainability/suggestionAffected.js';
 
@@ -47,11 +55,19 @@ export const getDecisionState = (
 
 const toAssistantSuggestion = (
   suggestion: Suggestion,
+  v1SuggestionId: string,
+  v2SuggestionId: string,
+  signatureMeta: {
+    signatureVersion: 'sig:v2';
+    signatureHash: string;
+    signatureHashFormat: 'sha256:hex' | 'fnv1a:hex' | 'unknown';
+    signaturePreview: string;
+  },
   decisionState: AssistantSuggestion['decisionState'] | undefined,
   includeDecisionState: boolean,
   explainability: Pick<AssistantSuggestion, 'why' | 'whyNow' | 'whatIfAccepted'>
 ): AssistantSuggestion => ({
-  id: buildAssistantSuggestionIdV1(suggestion),
+  id: v2SuggestionId,
   type: suggestion.type,
   severity: 'low',
   why: explainability.why,
@@ -60,6 +76,7 @@ const toAssistantSuggestion = (
   explanation: suggestion.explanation,
   expectedImpact: suggestion.expectedImpact,
   actions: suggestion.actions,
+  meta: { v1SuggestionId, ...signatureMeta },
   ...(includeDecisionState && decisionState ? { decisionState } : {}),
 });
 
@@ -107,15 +124,39 @@ export const buildAssistantResponse = (
     ? getSessionDecisions(validSession)
     : undefined;
   const includeDecisionState = sessionDecisions !== undefined;
-  const versionedDecisions = sessionDecisions?.filter(
-    decision =>
-      decision.suggestionVersion === 'v1' ||
-      (decision.suggestionVersion === undefined &&
-        getSuggestionIdVersion(decision.suggestionId) === 'v1')
+  const versionedDecisions = sessionDecisions?.filter(decision => {
+    if (decision.suggestionVersion === 'v2' || decision.suggestionVersion === 'v1') {
+      return true;
+    }
+    if (decision.suggestionVersion !== undefined) return false;
+    const version = getSuggestionIdVersion(decision.suggestionId);
+    return version === 'v2' || version === 'v1';
+  });
+  const suggestionIdPairs = pipeline.suggestions.map(suggestion => {
+    const v1SuggestionId = buildAssistantSuggestionIdV1(suggestion);
+    const v2SuggestionId = buildAssistantSuggestionIdV2(suggestion);
+    return { suggestion, v1SuggestionId, v2SuggestionId };
+  });
+  const v1ToV2SuggestionIds = new Map(
+    suggestionIdPairs.map(({ v1SuggestionId, v2SuggestionId }) => [
+      v1SuggestionId,
+      v2SuggestionId,
+    ])
   );
-  const decisionMap = buildDecisionMap(versionedDecisions);
+  const resolvedDecisions = versionedDecisions?.map(decision => {
+    const mapped = v1ToV2SuggestionIds.get(decision.suggestionId);
+    if (!mapped) return decision;
+    return {
+      ...decision,
+      suggestionId: mapped,
+    };
+  });
+  const decisionMap = buildDecisionMap(resolvedDecisions);
   const suggestionsById = new Map(
-    pipeline.suggestions.map(suggestion => [buildAssistantSuggestionIdV1(suggestion), suggestion])
+    suggestionIdPairs.flatMap(({ suggestion, v1SuggestionId, v2SuggestionId }) => [
+      [v1SuggestionId, suggestion],
+      [v2SuggestionId, suggestion],
+    ])
   );
   const violationExplanations = pipeline.explanations.filter(
     explanation => explanation.kind === 'violation'
@@ -133,9 +174,7 @@ export const buildAssistantResponse = (
     return buildSuggestionExplainability(suggestion, violationExplanations);
   };
   const buildDecisionExplanation = (decision: DecisionRecord): Explanation | null => {
-    const suggestion = pipeline.suggestions.find(
-      item => buildAssistantSuggestionIdV1(item) === decision.suggestionId
-    );
+    const suggestion = suggestionsById.get(decision.suggestionId);
     if (!suggestion) return null;
     const affected = buildSuggestionAffected(suggestion);
     const { decisionWhyNow, decisionMeta } = buildDecisionExplainability(decision);
@@ -167,7 +206,7 @@ export const buildAssistantResponse = (
     };
   };
   const decisionExplanations: Explanation[] = versionedDecisions
-    ? normalizeDecisions(versionedDecisions)
+    ? normalizeDecisions(resolvedDecisions ?? [])
         .map(buildDecisionExplanation)
         .filter((item): item is Explanation => item !== null)
         .sort((a, b) => a.id.localeCompare(b.id))
@@ -192,23 +231,47 @@ export const buildAssistantResponse = (
     .filter((item): item is Explanation => item !== null);
 
   const assistantSuggestions = sortAssistantSuggestions(
-    pipeline.suggestions
+    suggestionIdPairs
       .filter(
-        suggestion =>
+        ({ suggestion, v2SuggestionId }) =>
           !(
             includeDecisionState &&
-            wasSuggestionAccepted(buildAssistantSuggestionIdV1(suggestion), decisionMap)
+            wasSuggestionAccepted(v2SuggestionId, decisionMap)
           )
       )
-      .map(suggestion =>
+      .map(({ suggestion, v1SuggestionId, v2SuggestionId }) =>
         toAssistantSuggestion(
           suggestion,
-          getDecisionState(buildAssistantSuggestionIdV1(suggestion), decisionMap, includeDecisionState),
+          v1SuggestionId,
+          v2SuggestionId,
+          buildSuggestionSignatureMeta(suggestion),
+          getDecisionState(v2SuggestionId, decisionMap, includeDecisionState),
           includeDecisionState,
-          resolveSuggestionExplainability(buildAssistantSuggestionIdV1(suggestion))
+          resolveSuggestionExplainability(v2SuggestionId)
         )
       )
   );
+
+  if (process.env.NODE_ENV !== 'production') {
+    const collisionMap = new Map<string, { v1Ids: Set<string>; signatures: Set<string> }>();
+    suggestionIdPairs.forEach(({ suggestion, v1SuggestionId, v2SuggestionId }) => {
+      const signature = stringifySuggestionSignature(buildSuggestionSignatureV2(suggestion));
+      const entry = collisionMap.get(v2SuggestionId) ?? {
+        v1Ids: new Set<string>(),
+        signatures: new Set<string>(),
+      };
+      entry.v1Ids.add(v1SuggestionId);
+      entry.signatures.add(signature);
+      collisionMap.set(v2SuggestionId, entry);
+    });
+    collisionMap.forEach((entry, v2Id) => {
+      if (entry.v1Ids.size > 1 || entry.signatures.size > 1) {
+        throw new Error(
+          `Suggestion ID collision detected for v2Id=${v2Id}; signatures=${[...entry.signatures].join('|')}`
+        );
+      }
+    });
+  }
 
   if (!includeDecisionState) {
     assistantSuggestions.forEach(suggestion => {

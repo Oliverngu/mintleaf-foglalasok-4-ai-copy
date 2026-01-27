@@ -3,7 +3,7 @@ export type DecisionRecord = {
   decision: 'accepted' | 'rejected';
   timestamp?: number;
   sessionId?: string;
-  suggestionVersion?: 'v1' | 'v0';
+  suggestionVersion?: 'v2' | 'v1' | 'v0';
   reason?: string;
   source?: 'user' | 'system';
 };
