@@ -5755,7 +5755,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               : event => {
                                   event.stopPropagation();
                                 }
-                              : undefined
                           }
                           onPointerMove={
                             floorplanMode === 'edit' ? handleTablePointerMove : undefined
