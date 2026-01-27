@@ -1717,6 +1717,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     () => new Set()
   );
   const [employeeProfiles, setEmployeeProfiles] = useState<EmployeeProfileV1[]>([]);
+  const currentUnitId = useMemo(() => activeUnitIds[0] ?? null, [activeUnitIds]);
   const effectiveSchedule = useMemo(
     () => (isEnginePanelOpen ? localSchedule : schedule),
     [isEnginePanelOpen, localSchedule, schedule]
@@ -2458,7 +2459,7 @@ if (expected === 0) {
   }, [coverageScenarioPositionId, positions]);
 
   const buildEngineInputForSchedule = useCallback((scheduleOverride?: Shift[]): EngineInput => {
-    const unitId = activeUnitIds[0] || 'default';
+    const unitId = currentUnitId ?? 'default';
     const activeSettings =
       unitWeekSettings[unitId] || openingSettings;
     const dateKeys = weekDays.map(toDateString);
@@ -2576,6 +2577,7 @@ if (expected === 0) {
     };
   }, [
     activeUnitIds,
+    currentUnitId,
     employeeProfilesByUserId,
     filteredUsers,
     isDevEnv,
@@ -2919,16 +2921,15 @@ if (expected === 0) {
   }, [settingsDocId]);
 
   useEffect(() => {
-    const unitId = activeUnitIds[0];
-    if (!unitId) {
+    if (!currentUnitId) {
       setEmployeeProfiles([]);
       return;
     }
-    const unsubscribe = subscribeEmployeeProfiles(unitId, setEmployeeProfiles);
+    const unsubscribe = subscribeEmployeeProfiles(currentUnitId, setEmployeeProfiles);
     return () => {
       unsubscribe();
     };
-  }, [activeUnitIds]);
+  }, [currentUnitId]);
 
   useEffect(() => {
     setHiddenUserIds(new Set(savedHiddenUserIds));

@@ -20,6 +20,9 @@ const buildProfile = (
   skillsByPositionId: {},
 });
 
+const dayKeyForDateKey = (dateKey: string): string =>
+  String(new Date(dateKey).getDay());
+
 const buildInputWithRule = (dateKey: string) =>
   makeEngineInput({
     weekDays: buildWeekDays(),
@@ -40,10 +43,11 @@ describe('employee availability exclusions', () => {
   it('excludes unavailable user from add-shift suggestion', () => {
     const weekDays = buildWeekDays();
     const dateKey = weekDays[0];
+    const dayKey = dayKeyForDateKey(dateKey);
     const input = buildInputWithRule(dateKey);
     input.employeeProfilesByUserId = {
-      u1: buildProfile('u1', input.unitId, { '1': [] }),
-      u2: buildProfile('u2', input.unitId, { '1': [{ startHHmm: '08:00', endHHmm: '12:00' }] }),
+      u1: buildProfile('u1', input.unitId, { [dayKey]: [] }),
+      u2: buildProfile('u2', input.unitId, { [dayKey]: [{ startHHmm: '08:00', endHHmm: '12:00' }] }),
     };
 
     const result = runEngine(input);
@@ -54,10 +58,11 @@ describe('employee availability exclusions', () => {
   it('uses exception day availability over weekly windows', () => {
     const weekDays = buildWeekDays();
     const dateKey = weekDays[0];
+    const dayKey = dayKeyForDateKey(dateKey);
     const input = buildInputWithRule(dateKey);
     input.employeeProfilesByUserId = {
-      u1: buildProfile('u1', input.unitId, { '1': [{ startHHmm: '08:00', endHHmm: '12:00' }] }),
-      u2: buildProfile('u2', input.unitId, { '1': [{ startHHmm: '08:00', endHHmm: '12:00' }] }, [
+      u1: buildProfile('u1', input.unitId, { [dayKey]: [{ startHHmm: '08:00', endHHmm: '12:00' }] }),
+      u2: buildProfile('u2', input.unitId, { [dayKey]: [{ startHHmm: '08:00', endHHmm: '12:00' }] }, [
         { dateKey, available: false },
       ]),
     };
@@ -70,6 +75,7 @@ describe('employee availability exclusions', () => {
   it('handles cross-midnight availability windows', () => {
     const weekDays = buildWeekDays();
     const dateKey = weekDays[0];
+    const dayKey = dayKeyForDateKey(dateKey);
     const input = makeEngineInput({
       weekDays,
       ruleset: {
@@ -85,8 +91,8 @@ describe('employee availability exclusions', () => {
       },
     });
     input.employeeProfilesByUserId = {
-      u1: buildProfile('u1', input.unitId, { '1': [{ startHHmm: '20:00', endHHmm: '22:00' }] }),
-      u2: buildProfile('u2', input.unitId, { '1': [{ startHHmm: '22:00', endHHmm: '02:00' }] }),
+      u1: buildProfile('u1', input.unitId, { [dayKey]: [{ startHHmm: '20:00', endHHmm: '22:00' }] }),
+      u2: buildProfile('u2', input.unitId, { [dayKey]: [{ startHHmm: '22:00', endHHmm: '02:00' }] }),
     };
 
     const result = runEngine(input);
@@ -97,9 +103,14 @@ describe('employee availability exclusions', () => {
   it('treats missing profile as available', () => {
     const weekDays = buildWeekDays();
     const dateKey = weekDays[0];
+    const dayKey = dayKeyForDateKey(dateKey);
     const input = buildInputWithRule(dateKey);
+    input.users = [
+      { id: 'u1', displayName: 'User 1', isActive: true },
+      { id: 'u2', displayName: 'User 2', isActive: true },
+    ];
     input.employeeProfilesByUserId = {
-      u2: buildProfile('u2', input.unitId, { '1': [] }),
+      u2: buildProfile('u2', input.unitId, { [dayKey]: [] }),
     };
 
     const result = runEngine(input);
