@@ -46,5 +46,9 @@ describe('assistant suggestion ids', () => {
     const responseSuggestionIds = response.suggestions.map(suggestion => suggestion.id).sort();
 
     assert.deepEqual(responseSuggestionIds, pipelineSuggestionIds);
+    response.suggestions.forEach(suggestion => {
+      assert.ok(suggestion.id.startsWith('assistant-suggestion:v2:'));
+      assert.ok(suggestion.meta?.v1SuggestionId?.startsWith('assistant-suggestion:v1:'));
+    });
   });
 });

@@ -8,7 +8,10 @@ import {
 } from '../engine/types.js';
 import { buildViolationAffectedKey } from '../engine/violationUtils.js';
 import { buildSuggestionAffected } from './explainability/suggestionAffected.js';
-import { buildAssistantSuggestionIdV1 } from './ids/suggestionId.js';
+import {
+  buildAssistantSuggestionIdV1,
+  buildAssistantSuggestionIdV2,
+} from './ids/suggestionId.js';
 import { Explanation } from './types.js';
 
 type SuggestionPipelineInput = {
@@ -56,13 +59,16 @@ const createViolationExplanation = (violation: ConstraintViolation): Explanation
 });
 
 const createSuggestionExplanation = (suggestion: Suggestion): Explanation => ({
-  id: buildAssistantSuggestionIdV1(suggestion),
+  id: buildAssistantSuggestionIdV2(suggestion),
   kind: 'suggestion',
   severity: 'low',
   title: suggestion.type,
   details: suggestion.explanation,
   affected: buildSuggestionAffected(suggestion),
-  relatedSuggestionId: buildAssistantSuggestionIdV1(suggestion),
+  relatedSuggestionId: buildAssistantSuggestionIdV2(suggestion),
+  meta: {
+    v1SuggestionId: buildAssistantSuggestionIdV1(suggestion),
+  },
 });
 
 const createInfoExplanations = (input: EngineInput): Explanation[] => {
@@ -104,7 +110,7 @@ const sortSuggestions = (suggestions: Suggestion[]) =>
   [...suggestions].sort((a, b) => {
     const severityDiff = severityRank['low'] - severityRank['low'];
     if (severityDiff !== 0) return severityDiff;
-    return buildAssistantSuggestionIdV1(a).localeCompare(buildAssistantSuggestionIdV1(b));
+    return buildAssistantSuggestionIdV2(a).localeCompare(buildAssistantSuggestionIdV2(b));
   });
 
 export const runSuggestionPipeline = (

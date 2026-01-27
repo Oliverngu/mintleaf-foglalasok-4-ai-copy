@@ -5,6 +5,9 @@ export type AssistantSuggestion = {
   id: string;
   type: Suggestion['type'];
   severity: 'low' | 'medium' | 'high';
+  meta?: {
+    v1SuggestionId?: string;
+  };
   why?: string;
   whyNow?: string;
   whatIfAccepted?: string;
