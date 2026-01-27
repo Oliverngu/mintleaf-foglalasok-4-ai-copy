@@ -1663,6 +1663,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [coverageScenarioMinCount, setCoverageScenarioMinCount] =
     useState('2');
   const [isScenarioTimelineOpen, setIsScenarioTimelineOpen] = useState(false);
+  const [scenarioTimelineError, setScenarioTimelineError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
@@ -2569,16 +2570,38 @@ if (expected === 0) {
     weekDays
   ]);
 
-  const runEngineAndStore = useCallback(() => {
-    const input = buildEngineInput();
-    const result = runEngine(input);
-    setEngineResult(result);
-    setEngineLastRunAt(Date.now());
-    return result;
+  const computeEngineResultForCurrentWeek = useCallback((): EngineResult | null => {
+    try {
+      setScenarioTimelineError(null);
+      const input = buildEngineInput();
+      const result = runEngine(input);
+      setEngineResult(result);
+      setEngineLastRunAt(Date.now());
+      return result;
+    } catch (error) {
+      console.error('[engine] run failed', error);
+      setScenarioTimelineError('Nem sikerült kiszámolni a scenáriók hatását.');
+      return null;
+    }
   }, [buildEngineInput]);
+
+  const runEngineAndStore = useCallback((): EngineResult | null => {
+    return computeEngineResultForCurrentWeek();
+  }, [computeEngineResultForCurrentWeek]);
+
+  const handleOpenScenarioTimeline = useCallback(() => {
+    if (!engineResult) {
+      computeEngineResultForCurrentWeek();
+    }
+    setIsScenarioTimelineOpen(true);
+  }, [computeEngineResultForCurrentWeek, engineResult]);
 
   const handleRunEngineDebug = useCallback(() => {
     const result = runEngineAndStore();
+    if (!result) {
+      console.info('[engine] no result available');
+      return;
+    }
     console.info('[engine] violations:', result.violations.length);
     console.info('[engine] suggestions:', result.suggestions.length);
   }, [runEngineAndStore]);
@@ -5617,6 +5640,16 @@ if (expected === 0) {
               </button>
             )}
             {canManage && (
+              <button
+                type="button"
+                onClick={handleOpenScenarioTimeline}
+                className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                title="Timeline"
+              >
+                Timeline
+              </button>
+            )}
+            {canManage && (
               <div className="flex items-center bg-gray-200 rounded-full p-1">
                 <button
                   onClick={() => setViewMode('draft')}
@@ -5880,9 +5913,8 @@ if (expected === 0) {
                       <h3 className="text-lg font-semibold">Scenáriók</h3>
                       <button
                         type="button"
-                        onClick={() => setIsScenarioTimelineOpen(true)}
-                        disabled={!engineResult}
-                        className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300"
+                        onClick={handleOpenScenarioTimeline}
+                        className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
                       >
                         Explainability / Timeline
                       </button>
@@ -6147,22 +6179,50 @@ if (expected === 0) {
         </div>
       )}
 
-      {isScenarioTimelineOpen && engineResult && (
+      {isScenarioTimelineOpen && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
           style={{ zIndex: LAYERS.modal }}
           onClick={() => setIsScenarioTimelineOpen(false)}
         >
           <div onClick={e => e.stopPropagation()}>
-            <ScenarioTimelinePanel
-              engineResult={engineResult}
-              scenarios={scenarios}
-              positions={positions}
-              users={allAppUsers}
-              weekDays={weekDayKeys}
-              selectedDateKey={weekDayKeys[0]}
-              onClose={() => setIsScenarioTimelineOpen(false)}
-            />
+            {engineResult ? (
+              <ScenarioTimelinePanel
+                engineResult={engineResult}
+                scenarios={scenarios}
+                positions={positions}
+                users={allAppUsers}
+                weekDays={weekDayKeys}
+                selectedDateKey={weekDayKeys[0]}
+                onClose={() => setIsScenarioTimelineOpen(false)}
+              />
+            ) : (
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                <h2 className="text-lg font-semibold text-gray-900">Scenario Timeline</h2>
+                <p className="mt-2 text-sm text-gray-500">
+                  A timeline kiszámításához futtasd a scenárió elemzést.
+                </p>
+                {scenarioTimelineError && (
+                  <p className="mt-3 text-sm text-red-600">{scenarioTimelineError}</p>
+                )}
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={computeEngineResultForCurrentWeek}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                  >
+                    Számítás
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsScenarioTimelineOpen(false)}
+                    className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
+                  >
+                    Mégse
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
