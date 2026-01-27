@@ -2554,6 +2554,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectHeight: number;
   } | null>(null);
   const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
+  const getActivePointerTransform = useCallback(() => {
+    const rect = getViewportRect();
+    return {
+      rect,
+      transform: {
+        ...activeFloorplanTransform,
+        rectLeft: rect.left,
+        rectTop: rect.top,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
+      },
+    };
+  }, [activeFloorplanTransform]);
   const getSelectedTableScale = useCallback(() => {
     if (!selectedEditorTable) return null;
     if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) {
@@ -2728,6 +2741,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       rot,
     };
   }, [draftPositions, draftRotations, editorTables, floorplanDims, isEditMode]);
+  const tablesForWorldLayer = useMemo(
+    () =>
+      editorTables.map(table => {
+        if (!isEditMode) return table;
+        const draftPos = draftPositions[table.id];
+        const draftRot = draftRotations[table.id];
+        if (!draftPos && draftRot === undefined) return table;
+        return {
+          ...table,
+          ...(draftPos ? { x: draftPos.x, y: draftPos.y } : {}),
+          ...(draftRot !== undefined ? { rot: draftRot } : {}),
+        };
+      }),
+    [draftPositions, draftRotations, editorTables, isEditMode]
+  );
   const debugTableRows = useMemo(
     () =>
       editorTables.slice(0, 5).map(table => {
@@ -2993,6 +3021,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     finalizeRotationRef.current = finalizeRotation;
   }, [finalizeRotation]);
 
+  const precisionFactorSelected = 0.35;
+
   const handleTablePointerMoveCore = useCallback(
     ({
       clientX,
@@ -3013,12 +3043,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (debugSeating) {
         const now = Date.now();
         if (now - dragMoveDebugRef.current > 500) {
-          const currentRect = getViewportRect();
-          const currentTransform = computeFloorplanTransformFromRect(
-            currentRect,
-            floorplanW,
-            floorplanH
-          );
+          const { transform: currentTransform } = getActivePointerTransform();
           const scaleDiff = Math.abs(currentTransform.scale - drag.dragStartTransform.scale);
           const offsetDiff =
             Math.abs(currentTransform.offsetX - drag.dragStartTransform.offsetX) +
@@ -3104,8 +3129,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const deltaLocalX = pointer.x - drag.pointerStartFloorX;
-      const deltaLocalY = pointer.y - drag.pointerStartFloorY;
+      const speedFactor = viewportMode === 'selected' ? precisionFactorSelected : 1;
+      const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
+      const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
@@ -3268,11 +3294,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       debugSeating,
       floorplanH,
       floorplanW,
+      getActivePointerTransform,
       isTableOverlappingObstacle,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
+      precisionFactorSelected,
       requestDebugFlush,
       snapRotation,
+      viewportMode,
     ]
   );
 
@@ -3302,12 +3331,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (debugSeating) {
         const now = Date.now();
         if (now - dragMoveDebugRef.current > 500) {
-          const currentRect = getViewportRect();
-          const currentTransform = computeFloorplanTransformFromRect(
-            currentRect,
-            floorplanW,
-            floorplanH
-          );
+          const { transform: currentTransform } = getActivePointerTransform();
           const scaleDiff = Math.abs(currentTransform.scale - drag.dragStartTransform.scale);
           const offsetDiff =
             Math.abs(currentTransform.offsetX - drag.dragStartTransform.offsetX) +
@@ -3401,8 +3425,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const deltaLocalX = pointer.x - drag.pointerStartFloorX;
-      const deltaLocalY = pointer.y - drag.pointerStartFloorY;
+      const speedFactor = viewportMode === 'selected' ? precisionFactorSelected : 1;
+      const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
+      const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
       let nextX = drag.tableStartX + deltaLocalX;
       let nextY = drag.tableStartY + deltaLocalY;
       const unclampedX = nextX;
@@ -3515,11 +3540,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       isTableOverlappingObstacle,
       floorplanH,
       floorplanW,
+      getActivePointerTransform,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
+      precisionFactorSelected,
       requestDebugFlush,
       scheduleRecenterSelectedTable,
       snapRotation,
+      viewportMode,
     ]
   );
 
@@ -3654,8 +3682,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const mode = event.shiftKey ? 'rotate' : 'move';
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const dragRect = getViewportRect();
-    const dragTransform = computeFloorplanTransformFromRect(dragRect, floorplanW, floorplanH);
+    const { rect: dragRect, transform: dragTransform } = getActivePointerTransform();
     const pointer = mapClientToFloorplanUsingTransform(
       event.clientX,
       event.clientY,
@@ -3672,6 +3699,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const boundW = Math.ceil(Math.abs(geometry.w * cos) + Math.abs(geometry.h * sin));
     const boundH = Math.ceil(Math.abs(geometry.w * sin) + Math.abs(geometry.h * cos));
     if (debugSeating) {
+      if (viewportMode === 'selected') {
+        console.debug('[seating] drag transform (selected mode)', {
+          scale: dragTransform.scale,
+          offsetX: dragTransform.offsetX,
+          offsetY: dragTransform.offsetY,
+          rectWidth: dragTransform.rectWidth,
+          rectHeight: dragTransform.rectHeight,
+          viewportMode,
+        });
+      }
       const shouldSnap =
         snapEnabledRef.current &&
         (table.snapToGrid ?? false) &&
@@ -5937,12 +5974,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     event.currentTarget.setPointerCapture?.(event.pointerId);
                                     const centerX = position.x + geometry.w / 2;
                                     const centerY = position.y + geometry.h / 2;
-                                    const dragRect = getViewportRect();
-                                    const dragTransform = computeFloorplanTransformFromRect(
-                                      dragRect,
-                                      floorplanW,
-                                      floorplanH
-                                    );
+                                    const { rect: dragRect, transform: dragTransform } =
+                                      getActivePointerTransform();
                                     const pointer = mapClientToFloorplanUsingTransform(
                                       event.clientX,
                                       event.clientY,
@@ -6130,7 +6163,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       );
                     })}
                     <FloorplanWorldLayer
-                      tables={editorTables}
+                      tables={tablesForWorldLayer}
                       obstacles={activeObstacles}
                       floorplanDims={floorplanDims}
                       tableDefaults={TABLE_GEOMETRY_DEFAULTS}
@@ -6226,7 +6259,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   }
                   renderWorld={context => (
                     <FloorplanWorldLayer
-                      tables={editorTables}
+                      tables={tablesForWorldLayer}
                       obstacles={activeObstacles}
                       floorplanDims={floorplanDims}
                       tableDefaults={TABLE_GEOMETRY_DEFAULTS}
