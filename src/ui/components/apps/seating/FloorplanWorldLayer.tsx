@@ -395,7 +395,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           <div
             key={table.id}
             className="absolute"
-            style={{ left: position.x, top: position.y }}
+            style={{ left: position.x, top: position.y, pointerEvents: 'none' }}
             data-seating-no-deselect="1"
           >
             <div
