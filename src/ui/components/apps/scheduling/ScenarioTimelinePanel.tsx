@@ -33,6 +33,11 @@ type ScenarioTimelinePanelProps = {
   onClose: () => void;
 };
 
+const buildRuleKey = (rule: MinCoverageRule) => {
+  const dateKeys = (rule.dateKeys ?? []).slice().sort().join(',');
+  return `${rule.positionId}|${rule.startTime}-${rule.endTime}|${rule.minCount}|${dateKeys}`;
+};
+
 const renderRuleList = (
   rules: MinCoverageRule[],
   positionNameById: Map<string, string>,
@@ -46,8 +51,8 @@ const renderRuleList = (
   return (
     <div>
       <ul className="space-y-2 text-sm text-gray-700">
-        {visibleRules.map((rule, index) => (
-          <li key={`${rule.positionId}-${rule.startTime}-${index}`} className="rounded bg-gray-50 px-3 py-2">
+        {visibleRules.map(rule => (
+          <li key={buildRuleKey(rule)} className="rounded bg-gray-50 px-3 py-2">
             {getRuleSummaryLabel(rule, positionNameById)}
           </li>
         ))}
@@ -58,7 +63,7 @@ const renderRuleList = (
           onClick={onToggle}
           className="mt-2 text-xs font-semibold text-green-700 hover:text-green-800"
         >
-          {showAll ? 'Kevesebb' : 'További szabályok'}
+          {showAll ? 'Mutass kevesebbet' : 'Mutass többet'}
         </button>
       )}
     </div>
@@ -74,8 +79,8 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   selectedDateKey,
   onClose
 }) => {
-  const [showAllBefore, setShowAllBefore] = useState(false);
-  const [showAllAfter, setShowAllAfter] = useState(false);
+  const [showAllBeforeRules, setShowAllBeforeRules] = useState(false);
+  const [showAllAfterRules, setShowAllAfterRules] = useState(false);
   const [activeDateKey, setActiveDateKey] = useState(selectedDateKey ?? weekDays[0] ?? '');
   const [selectedTimeKey, setSelectedTimeKey] = useState('ALL_DAY');
 
@@ -133,6 +138,29 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
     () => filterRulesByFocus(ruleDiff?.after ?? [], focusWindow),
     [ruleDiff, focusWindow]
   );
+  const ruleDiffCounts = useMemo(() => {
+    if (!ruleDiff) {
+      return { added: 0, removed: 0, unchanged: 0 };
+    }
+    const beforeKeys = new Set(beforeRules.map(buildRuleKey));
+    const afterKeys = new Set(afterRules.map(buildRuleKey));
+    let added = 0;
+    let removed = 0;
+    let unchanged = 0;
+    afterKeys.forEach(key => {
+      if (beforeKeys.has(key)) {
+        unchanged += 1;
+      } else {
+        added += 1;
+      }
+    });
+    beforeKeys.forEach(key => {
+      if (!afterKeys.has(key)) {
+        removed += 1;
+      }
+    });
+    return { added, removed, unchanged };
+  }, [afterRules, beforeRules, ruleDiff]);
 
   const violationSummary = useMemo(
     () => summarizeViolations(engineResult.violations),
@@ -265,12 +293,9 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                 Original Context
               </span>
               <h3 className="mt-1 text-base font-semibold text-gray-900">Kiinduló lefedettség</h3>
-              <p className="mt-1 text-xs text-gray-500">A fókuszban lévő eredeti lefedettségi szabályok.</p>
-              <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
-                {renderRuleList(beforeRules, positionNameById, showAllBefore, () =>
-                  setShowAllBefore(prev => !prev)
-                )}
-              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                A részletes szabálylista és a változások a Rule Diff blokkban találhatók.
+              </p>
             </div>
 
             <div className="relative pl-12">
@@ -349,8 +374,52 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
               <h3 className="mt-1 text-base font-semibold text-gray-900">Végső állapot</h3>
               <p className="mt-1 text-xs text-gray-500">A fókusz szerinti végeredmény és következmények.</p>
               <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
-                {renderRuleList(afterRules, positionNameById, showAllAfter, () =>
-                  setShowAllAfter(prev => !prev)
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                      Rule Diff
+                    </div>
+                    <h4 className="mt-1 text-sm font-semibold text-gray-700">Before / After rules</h4>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[10px] font-semibold">
+                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-green-700">
+                      Added: {ruleDiffCounts.added}
+                    </span>
+                    <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700">
+                      Removed: {ruleDiffCounts.removed}
+                    </span>
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                      Unchanged: {ruleDiffCounts.unchanged}
+                    </span>
+                  </div>
+                </div>
+                {!ruleDiff ? (
+                  <p className="mt-3 text-xs text-gray-500">
+                    Nincs rule diff adat (engineResult.scenarioEffects.ruleDiff hiányzik).
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                        Before rules
+                      </div>
+                      <div className="mt-2">
+                        {renderRuleList(beforeRules, positionNameById, showAllBeforeRules, () =>
+                          setShowAllBeforeRules(prev => !prev)
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-gray-100 bg-white p-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                        After rules
+                      </div>
+                      <div className="mt-2">
+                        {renderRuleList(afterRules, positionNameById, showAllAfterRules, () =>
+                          setShowAllAfterRules(prev => !prev)
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="mt-4 rounded-2xl border border-red-100 bg-red-50/50 p-4">
