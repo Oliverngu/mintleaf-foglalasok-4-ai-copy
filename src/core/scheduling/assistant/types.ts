@@ -1,4 +1,4 @@
-import { Severity } from '../engine/types';
+import { Severity } from '../engine/types.js';
 
 export type ExplanationKind = 'violation' | 'suggestion' | 'info';
 
@@ -16,6 +16,9 @@ export type Explanation = {
   severity: Severity;
   title: string;
   details: string;
+  why?: string;
+  whyNow?: string;
+  whatIfAccepted?: string;
   affected: ExplanationAffected;
   relatedConstraintId?: string;
   relatedSuggestionId?: string;

@@ -1,4 +1,4 @@
-import { ConstraintViolation } from './types';
+import { ConstraintViolation } from './types.js';
 
 export const buildViolationAffectedKey = (violation: ConstraintViolation): string => {
   const affected = violation.affected;

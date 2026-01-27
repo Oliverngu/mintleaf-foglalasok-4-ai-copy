@@ -3,7 +3,7 @@ import {
   EngineInput,
   EngineShift,
   MaxHoursPerDayRule
-} from '../../engine/types';
+} from '../../engine/types.js';
 import {
   DEFAULT_CLOSING_OFFSET_MINUTES,
   DEFAULT_CLOSING_TIME,
@@ -12,7 +12,7 @@ import {
   diffHours,
   formatDateKey,
   startOfNextDay
-} from '../../engine/timeUtils';
+} from '../../engine/timeUtils.js';
 
 export const MAX_HOURS_PER_DAY_ID = 'MAX_HOURS_PER_DAY';
 
@@ -82,7 +82,7 @@ export const evaluateMaxHoursPerDay = (
   if (!rule) return [];
 
   const violations: ConstraintViolation[] = [];
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 

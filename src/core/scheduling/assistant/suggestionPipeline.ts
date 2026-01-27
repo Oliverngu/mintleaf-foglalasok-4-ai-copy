@@ -1,4 +1,4 @@
-import { normalizeBucketMinutes } from '../engine/timeUtils';
+import { normalizeBucketMinutes } from '../engine/timeUtils.js';
 import {
   ConstraintViolation,
   EngineInput,
@@ -6,9 +6,9 @@ import {
   Severity,
   Suggestion,
   SuggestionAction,
-} from '../engine/types';
-import { buildViolationAffectedKey } from '../engine/violationUtils';
-import { Explanation } from './types';
+} from '../engine/types.js';
+import { buildViolationAffectedKey } from '../engine/violationUtils.js';
+import { Explanation } from './types.js';
 
 type SuggestionPipelineInput = {
   input: EngineInput;
@@ -63,7 +63,7 @@ const buildActionKey = (action: SuggestionAction) => {
 
 const buildSuggestionId = (suggestion: Suggestion) =>
   [
-    'suggestion',
+    'assistant-suggestion:v1',
     suggestion.type,
     suggestion.actions.map(buildActionKey).join(';'),
     suggestion.expectedImpact,

@@ -1,7 +1,7 @@
-import { computeCapacity } from './computeCapacity';
-import { evaluateConstraints } from './evaluateConstraints';
-import { generateSuggestions } from './generateSuggestions';
-import { EngineInput, EngineResult } from './types';
+import { computeCapacity } from './computeCapacity.js';
+import { evaluateConstraints } from './evaluateConstraints.js';
+import { generateSuggestions } from './generateSuggestions.js';
+import { EngineInput, EngineResult } from './types.js';
 
 /**
  * runEngine

@@ -1,8 +1,8 @@
-import type { EngineInput, EngineResult, Suggestion } from '../engine/types';
-import type { ActionIssue } from './actionValidation';
-import { runEngine } from '../engine/runEngine';
-import { applySuggestionActions } from './applySuggestionActions';
-import { buildViolationAffectedKey } from '../engine/violationUtils';
+import type { EngineInput, EngineResult, Suggestion } from '../engine/types.js';
+import type { ActionIssue } from './actionValidation.js';
+import { runEngine } from '../engine/runEngine.js';
+import { applySuggestionActions } from './applySuggestionActions.js';
+import { buildViolationAffectedKey } from '../engine/violationUtils.js';
 
 type ViolationDelta = {
   resolvedViolations: string[];
@@ -24,12 +24,14 @@ const diffViolations = (
   beforeViolations: EngineResult['violations'],
   afterViolations: EngineResult['violations']
 ): ViolationDelta => {
-  const beforeKeys = new Set(beforeViolations.map(buildViolationAffectedKey));
-  const afterKeys = new Set(afterViolations.map(buildViolationAffectedKey));
+  const violationKey = (violation: EngineResult['violations'][number]) =>
+    `${violation.constraintId}:${buildViolationAffectedKey(violation)}`;
+  const beforeKeys = new Set<string>(beforeViolations.map(violationKey));
+  const afterKeys = new Set<string>(afterViolations.map(violationKey));
 
-  const resolvedViolations = [...beforeKeys].filter(key => !afterKeys.has(key));
-  const newViolations = [...afterKeys].filter(key => !beforeKeys.has(key));
-  const remainingViolations = [...beforeKeys].filter(key => afterKeys.has(key));
+  const resolvedViolations = Array.from(beforeKeys).filter(key => !afterKeys.has(key));
+  const newViolations = Array.from(afterKeys).filter(key => !beforeKeys.has(key));
+  const remainingViolations = Array.from(beforeKeys).filter(key => afterKeys.has(key));
 
   return {
     resolvedViolations: resolvedViolations.sort(),

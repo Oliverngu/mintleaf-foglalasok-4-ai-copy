@@ -4,7 +4,7 @@ import {
   EngineInput,
   EngineShift,
   Suggestion
-} from './types';
+} from './types.js';
 import {
   addMinutes,
   combineDateAndTime,
@@ -12,11 +12,11 @@ import {
   formatDateKey,
   startOfNextDay,
   toTimeString
-} from './timeUtils';
-import { MIN_COVERAGE_BY_POSITION_ID } from '../rules/constraints/minCoverageByPosition';
-import { MAX_HOURS_PER_DAY_ID } from '../rules/constraints/maxHoursPerDay';
-import { MIN_REST_HOURS_BETWEEN_SHIFTS_ID } from '../rules/constraints/minRestHoursBetweenShifts';
-import { getShiftTimeRange } from './computeCapacity';
+} from './timeUtils.js';
+import { MIN_COVERAGE_BY_POSITION_ID } from '../rules/constraints/minCoverageByPosition.js';
+import { MAX_HOURS_PER_DAY_ID } from '../rules/constraints/maxHoursPerDay.js';
+import { MIN_REST_HOURS_BETWEEN_SHIFTS_ID } from '../rules/constraints/minRestHoursBetweenShifts.js';
+import { getShiftTimeRange } from './computeCapacity.js';
 
 const parseSlotKey = (slotKey: string): { dateKey: string; time: string } => {
   const [dateKey, time] = slotKey.split('T');
@@ -45,7 +45,7 @@ const calculateUserHoursForDate = (
   shifts: EngineShift[],
   input: EngineInput
 ): number => {
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 
@@ -71,7 +71,7 @@ const wouldExceedMaxHours = (
   if (!rule) return false;
 
   const existingHours = calculateUserHoursForDate(userId, dateKey, shifts, input);
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
   const dayIndex = dayIndexMap.get(proposedShift.dateKey);
@@ -94,7 +94,7 @@ const wouldBreakMinRest = (
   const rule = input.ruleset.minRestHoursBetweenShifts;
   if (!rule) return false;
 
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 
@@ -139,7 +139,7 @@ const isUserAvailableForSlot = (
   input: EngineInput,
   ignoreShiftId?: string
 ): boolean => {
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 
@@ -162,7 +162,7 @@ const isUserAvailableForRange = (
   input: EngineInput,
   ignoreShiftId?: string
 ): boolean => {
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 
@@ -212,7 +212,7 @@ const buildMoveSuggestion = (
   const slotStart = combineDateAndTime(dateKey, time);
   const slotEnd = addMinutes(slotStart, bucketMinutes);
 
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
   const candidateShift = shifts.find(shift => {
