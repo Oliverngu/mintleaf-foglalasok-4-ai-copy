@@ -340,6 +340,52 @@ export const summarizeSuggestionLabel = (
   return suggestion.type === 'SHIFT_MOVE_SUGGESTION' ? 'Átmozgatás' : 'Új műszak';
 };
 
+export const findSuggestionByKey = (
+  suggestions: Suggestion[],
+  key: string
+): Suggestion | undefined =>
+  suggestions.find(suggestion => buildSuggestionKey(suggestion) === key);
+
+export const describeSuggestionActionCompact = (
+  suggestion: Suggestion,
+  userNameById?: Map<string, string>,
+  positionNameById?: Map<string, string>
+): string => summarizeSuggestionLabel(suggestion, userNameById, positionNameById);
+
+export const summarizeViolationsForSuggestion = (
+  suggestionKey: string,
+  links: {
+    violationsByKey: Map<string, ViolationRef>;
+    suggestionToViolations: Map<string, string[]>;
+  }
+) => {
+  const violationKeys = links.suggestionToViolations.get(suggestionKey) ?? [];
+  const refs = violationKeys
+    .map(key => links.violationsByKey.get(key))
+    .filter((ref): ref is ViolationRef => Boolean(ref));
+  const counts = refs.reduce(
+    (acc, ref) => {
+      acc[ref.severity] += 1;
+      return acc;
+    },
+    { low: 0, medium: 0, high: 0 }
+  );
+  const severityRank: Record<ViolationRef['severity'], number> = { low: 1, medium: 2, high: 3 };
+  const topLabels = [...refs]
+    .sort((a, b) => {
+      const severityDiff = severityRank[b.severity] - severityRank[a.severity];
+      if (severityDiff !== 0) return severityDiff;
+      return a.rawIndex - b.rawIndex;
+    })
+    .slice(0, 2)
+    .map(ref => ref.label);
+  return {
+    total: refs.length,
+    ...counts,
+    topLabels
+  };
+};
+
 export const labelViolationCompact = (
   violation: ConstraintViolation,
   positionNameById?: Map<string, string>

@@ -7,8 +7,10 @@ import {
   buildSuggestionKey,
   buildViolationKey,
   buildSuggestionViolationLinks,
+  describeSuggestionActionCompact,
   filterSuggestionViolationLinksByFocus,
   filterRulesByFocus,
+  findSuggestionByKey,
   formatScenarioMeta,
   formatTimeRangeLabel,
   getRuleSummaryLabel,
@@ -16,6 +18,7 @@ import {
   getViolationDetail,
   labelViolation,
   sortScenariosForTimeline,
+  summarizeViolationsForSuggestion,
   summarizeSuggestions,
   summarizeViolations,
   summarizeViolationsBySeverity
@@ -228,6 +231,14 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
       index
     };
   });
+  const selectedSuggestion = useMemo(() => {
+    if (!selectedSuggestionKey) return undefined;
+    return findSuggestionByKey(engineResult.suggestions, selectedSuggestionKey);
+  }, [engineResult.suggestions, selectedSuggestionKey]);
+  const selectedActionLabel = useMemo(() => {
+    if (!selectedSuggestion) return '';
+    return describeSuggestionActionCompact(selectedSuggestion, userNameById, positionNameById);
+  }, [positionNameById, selectedSuggestion, userNameById]);
 
   return (
     <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -530,6 +541,14 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         const violationRefs = violationKeys
                           .map(key => focusLinkIndex.violationsByKey.get(key))
                           .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
+                        const isSelected = selectedSuggestionKey === card.key;
+                        const focusSummary = isSelected
+                          ? summarizeViolationsForSuggestion(card.key, focusLinkIndex)
+                          : null;
+                        const summary =
+                          isSelected && focusSummary && focusSummary.total === 0
+                            ? summarizeViolationsForSuggestion(card.key, linkIndex)
+                            : focusSummary;
                         return (
                           <div
                             key={card.key}
@@ -573,6 +592,35 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     </span>
                                   ))}
                                 </div>
+                              </div>
+                            )}
+                            {isSelected && summary && (
+                              <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700">
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-400">
+                                  Expected impact
+                                </div>
+                                {summary.total === 0 ? (
+                                  <p className="mt-1 text-xs text-indigo-700">
+                                    No linked violations detected.
+                                  </p>
+                                ) : (
+                                  <div className="mt-1 space-y-1">
+                                    <p>
+                                      Addresses: {summary.total} (High {summary.high} · Med{' '}
+                                      {summary.medium} · Low {summary.low})
+                                    </p>
+                                    {summary.topLabels.length > 0 && (
+                                      <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-indigo-600">
+                                        {summary.topLabels.map((label, index) => (
+                                          <li key={`${label}-${index}`}>{label}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                )}
+                                {selectedActionLabel && (
+                                  <p className="mt-1">Action: {selectedActionLabel}</p>
+                                )}
                               </div>
                             )}
                           </div>

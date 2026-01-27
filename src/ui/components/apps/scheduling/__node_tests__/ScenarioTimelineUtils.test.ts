@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import type { Scenario } from '../../../../../core/scheduling/scenarios/types.js';
 import {
   buildSuggestionViolationLinks,
+  summarizeViolationsForSuggestion,
   filterSuggestionViolationLinksByFocus,
   getScenarioFocusTimeOptions,
   rangesOverlap,
@@ -101,6 +102,64 @@ describe('summarizeViolationsBySeverity', () => {
       total: 4,
       highestSeverity: 'high'
     });
+  });
+});
+
+describe('summarizeViolationsForSuggestion', () => {
+  it('counts severities and orders top labels by severity', () => {
+    const summary = summarizeViolationsForSuggestion('suggestion-1', {
+      violationsByKey: new Map([
+        [
+          'v1',
+          { key: 'v1', label: 'Low issue', severity: 'low', rawIndex: 0 }
+        ],
+        [
+          'v2',
+          { key: 'v2', label: 'High issue', severity: 'high', rawIndex: 2 }
+        ],
+        [
+          'v3',
+          { key: 'v3', label: 'Medium issue', severity: 'medium', rawIndex: 1 }
+        ]
+      ]),
+      suggestionToViolations: new Map([['suggestion-1', ['v1', 'v2', 'v3']]])
+    });
+
+    assert.equal(summary.total, 3);
+    assert.equal(summary.high, 1);
+    assert.equal(summary.medium, 1);
+    assert.equal(summary.low, 1);
+    assert.deepEqual(summary.topLabels, ['High issue', 'Medium issue']);
+  });
+
+  it('returns zero when no violations are linked', () => {
+    const summary = summarizeViolationsForSuggestion('suggestion-2', {
+      violationsByKey: new Map([['v1', { key: 'v1', label: 'High', severity: 'high', rawIndex: 0 }]]),
+      suggestionToViolations: new Map()
+    });
+
+    assert.equal(summary.total, 0);
+    assert.equal(summary.high, 0);
+    assert.equal(summary.medium, 0);
+    assert.equal(summary.low, 0);
+    assert.deepEqual(summary.topLabels, []);
+  });
+
+  it('can distinguish empty focus summary from global summary', () => {
+    const focusSummary = summarizeViolationsForSuggestion('suggestion-3', {
+      violationsByKey: new Map(),
+      suggestionToViolations: new Map()
+    });
+    const globalSummary = summarizeViolationsForSuggestion('suggestion-3', {
+      violationsByKey: new Map([
+        ['v1', { key: 'v1', label: 'High', severity: 'high', rawIndex: 0 }]
+      ]),
+      suggestionToViolations: new Map([['suggestion-3', ['v1']]])
+    });
+
+    assert.equal(focusSummary.total, 0);
+    assert.equal(globalSummary.total, 1);
+    assert.deepEqual(globalSummary.topLabels, ['High']);
   });
 });
 
