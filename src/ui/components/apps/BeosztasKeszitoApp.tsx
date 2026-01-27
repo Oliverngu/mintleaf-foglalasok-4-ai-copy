@@ -61,6 +61,8 @@ import {
   applySuggestionToDraft,
   DraftSchedule
 } from '../../../core/scheduling/assistant/applySuggestionToDraft';
+import type { EmployeeProfileV1 } from '../../../core/scheduling/employeeProfiles/types';
+import { subscribeEmployeeProfiles } from '../../../core/scheduling/employeeProfiles/employeeProfileService';
 import { normalizeScheduleSettings } from '../../../core/scheduling/normalizeScheduleSettings';
 import type { Scenario, ScenarioType } from '../../../core/scheduling/scenarios/types';
 import { listScenarios, upsertScenario, deleteScenario } from '../../../core/scheduling/scenarios/scenarioService';
@@ -1714,10 +1716,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [savingSuggestionKeys, setSavingSuggestionKeys] = useState<Set<string>>(
     () => new Set()
   );
+  const [employeeProfiles, setEmployeeProfiles] = useState<EmployeeProfileV1[]>([]);
   const effectiveSchedule = useMemo(
     () => (isEnginePanelOpen ? localSchedule : schedule),
     [isEnginePanelOpen, localSchedule, schedule]
   );
+  const employeeProfilesByUserId = useMemo(() => {
+    return employeeProfiles.reduce<Record<string, EmployeeProfileV1>>((acc, profile) => {
+      acc[profile.userId] = profile;
+      return acc;
+    }, {});
+  }, [employeeProfiles]);
 
   const userById = useMemo(() => {
     const map = new Map<string, User>();
@@ -2551,6 +2560,7 @@ if (expected === 0) {
           (shift): shift is EngineInput['shifts'][number] =>
             shift !== null
         ),
+      employeeProfilesByUserId,
       scheduleSettings: {
         dailySettings: activeSettings.dailySettings,
         defaultClosingTime: DEFAULT_CLOSING_TIME,
@@ -2566,6 +2576,7 @@ if (expected === 0) {
     };
   }, [
     activeUnitIds,
+    employeeProfilesByUserId,
     filteredUsers,
     isDevEnv,
     localSchedule,
@@ -2906,6 +2917,18 @@ if (expected === 0) {
     });
     return () => unsubscribe();
   }, [settingsDocId]);
+
+  useEffect(() => {
+    const unitId = activeUnitIds[0];
+    if (!unitId) {
+      setEmployeeProfiles([]);
+      return;
+    }
+    const unsubscribe = subscribeEmployeeProfiles(unitId, setEmployeeProfiles);
+    return () => {
+      unsubscribe();
+    };
+  }, [activeUnitIds]);
 
   useEffect(() => {
     setHiddenUserIds(new Set(savedHiddenUserIds));

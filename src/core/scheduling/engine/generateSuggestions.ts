@@ -17,6 +17,7 @@ import { MIN_COVERAGE_BY_POSITION_ID } from '../rules/constraints/minCoverageByP
 import { MAX_HOURS_PER_DAY_ID } from '../rules/constraints/maxHoursPerDay.js';
 import { MIN_REST_HOURS_BETWEEN_SHIFTS_ID } from '../rules/constraints/minRestHoursBetweenShifts.js';
 import { getShiftTimeRange } from './computeCapacity.js';
+import { isUserAvailableForRange as isProfileAvailableForRange } from '../availability/isUserAvailableForRange.js';
 
 const parseSlotKey = (slotKey: string): { dateKey: string; time: string } => {
   const [dateKey, time] = slotKey.split('T');
@@ -139,6 +140,8 @@ const isUserAvailableForSlot = (
   input: EngineInput,
   ignoreShiftId?: string
 ): boolean => {
+  const profile = input.employeeProfilesByUserId?.[userId];
+  if (profile && !isProfileAvailableForRange(profile, slotStart, slotEnd)) return false;
   const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
@@ -162,6 +165,8 @@ const isUserAvailableForRange = (
   input: EngineInput,
   ignoreShiftId?: string
 ): boolean => {
+  const profile = input.employeeProfilesByUserId?.[userId];
+  if (profile && !isProfileAvailableForRange(profile, rangeStart, rangeEnd)) return false;
   const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
@@ -306,9 +311,16 @@ const buildAddShiftSuggestion = (
   const slotStart = combineDateAndTime(dateKey, time);
   const slotEnd = addMinutes(slotStart, bucketMinutes);
 
+  const excludedUnavailable: string[] = [];
   const candidateUser = input.users.find(user => {
     if (user.isActive === false) return false;
     if (user.unitIds && !user.unitIds.includes(input.unitId)) return false;
+
+    const profile = input.employeeProfilesByUserId?.[user.id];
+    if (profile && !isProfileAvailableForRange(profile, slotStart, slotEnd)) {
+      excludedUnavailable.push(user.id);
+      return false;
+    }
 
     const proposedShift: EngineShift = {
       id: `suggested-${user.id}-${slotKey}`,
@@ -344,6 +356,12 @@ const buildAddShiftSuggestion = (
         positionId
       }
     ],
+    candidateEvaluation: {
+      chosenUserId: candidateUser.id,
+      excludedUserIdsByReason: {
+        unavailable: excludedUnavailable
+      }
+    },
     expectedImpact: 'Új műszak létrehozása a hiányos lefedettséghez.',
     explanation: 'A kiválasztott munkatárs szabad és nem sért pihenő vagy óraszabályt.'
   };

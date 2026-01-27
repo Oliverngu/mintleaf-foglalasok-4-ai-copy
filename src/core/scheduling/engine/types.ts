@@ -75,6 +75,10 @@ export type EngineInput = {
   scheduleSettings: EngineScheduleSettings;
   ruleset: Ruleset;
   scenarios?: import('../scenarios/types.js').Scenario[];
+  employeeProfilesByUserId?: Record<
+    string,
+    import('../employeeProfiles/types.js').EmployeeProfileV1
+  >;
 };
 
 export type CapacityMap = Record<string, Record<string, number>>;
@@ -114,6 +118,12 @@ export type SuggestionAction =
 export type Suggestion = {
   type: 'SHIFT_MOVE_SUGGESTION' | 'ADD_SHIFT_SUGGESTION';
   actions: SuggestionAction[];
+  candidateEvaluation?: {
+    chosenUserId: string;
+    excludedUserIdsByReason: {
+      unavailable: string[];
+    };
+  };
   expectedImpact: string;
   explanation: string;
 };
