@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { runEngine } from '../../engine/runEngine.js';
 import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness.js';
 import { buildAssistantResponse } from '../response/buildAssistantResponse.js';
+import { createDecisionRecord } from '../response/decisionHelpers.js';
 import { applyDecisionToSession, createAssistantSession } from '../session/helpers.js';
 
 const buildInputWithSuggestion = () => {
@@ -34,8 +35,8 @@ describe('assistant decision feedback', () => {
     assert.ok(suggestionId);
 
     const session = applyDecisionToSession(
-      createAssistantSession('session-accepted', 0),
-      { suggestionId, decision: 'accepted' },
+      createAssistantSession('session-accepted', 0, input),
+      createDecisionRecord(suggestionId, 'accepted', 1, 'session-accepted'),
       1
     );
     const response = buildAssistantResponse(input, result, session);
@@ -59,8 +60,8 @@ describe('assistant decision feedback', () => {
     assert.ok(suggestionId);
 
     const session = applyDecisionToSession(
-      createAssistantSession('session-rejected', 0),
-      { suggestionId, decision: 'rejected' },
+      createAssistantSession('session-rejected', 0, input),
+      createDecisionRecord(suggestionId, 'rejected', 1, 'session-rejected'),
       1
     );
     const response = buildAssistantResponse(input, result, session);
@@ -80,8 +81,8 @@ describe('assistant decision feedback', () => {
     const input = buildInputWithSuggestion();
     const result = runEngine(input);
     const session = applyDecisionToSession(
-      createAssistantSession('session-pending', 0),
-      { suggestionId: 'other-suggestion', decision: 'rejected' },
+      createAssistantSession('session-pending', 0, input),
+      createDecisionRecord('other-suggestion', 'rejected', 1, 'session-pending'),
       1
     );
     const response = buildAssistantResponse(input, result, session);
@@ -99,8 +100,8 @@ describe('assistant decision feedback', () => {
     assert.ok(suggestionId);
 
     const session = applyDecisionToSession(
-      createAssistantSession('session-deterministic', 0),
-      { suggestionId, decision: 'rejected' },
+      createAssistantSession('session-deterministic', 0, input),
+      createDecisionRecord(suggestionId, 'rejected', 1, 'session-deterministic'),
       1
     );
     const first = buildAssistantResponse(input, result, session);
@@ -117,5 +118,20 @@ describe('assistant decision feedback', () => {
     const responseUndefined = buildAssistantResponse(input, result, undefined);
 
     assert.deepEqual(response, responseUndefined);
+  });
+
+  it('does not match legacy suggestion ids against v1 suggestions', () => {
+    const input = buildInputWithSuggestion();
+    const result = runEngine(input);
+    const session = applyDecisionToSession(
+      createAssistantSession('session-legacy', 0, input),
+      createDecisionRecord('assistant-suggestion:legacy', 'accepted', 1, 'session-legacy'),
+      1
+    );
+
+    const response = buildAssistantResponse(input, result, session);
+
+    assert.equal(response.suggestions.length, 1);
+    assert.ok(response.suggestions[0].id.startsWith('assistant-suggestion:v1:'));
   });
 });

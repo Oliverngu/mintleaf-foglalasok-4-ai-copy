@@ -6,6 +6,8 @@ import type { DecisionRecord } from './decisionTypes.js';
 import type { AssistantSession } from '../session/types.js';
 import { getSessionDecisions } from '../session/helpers.js';
 import { buildDecisionMap, normalizeDecisions } from '../session/decisionUtils.js';
+import { normalizeOrResetSession } from '../session/validateSession.js';
+import { getSuggestionIdVersion } from './decisionHelpers.js';
 
 const assertInvariant = (condition: boolean, message: string) => {
   if (process.env.NODE_ENV === 'production') return;
@@ -48,7 +50,7 @@ const buildActionKey = (action: Suggestion['actions'][number]) => {
 
 const buildSuggestionId = (suggestion: Suggestion) =>
   [
-    'assistant-suggestion',
+    'assistant-suggestion:v1',
     suggestion.type,
     suggestion.actions.map(buildActionKey).join(';'),
     suggestion.expectedImpact,
@@ -135,11 +137,19 @@ export const buildAssistantResponse = (
     },
   });
 
-  const sessionDecisions = session?.decisions?.length
-    ? getSessionDecisions(session)
+  const sessionNow = session?.updatedAt ?? 0;
+  const validSession = normalizeOrResetSession(session, input, sessionNow);
+  const sessionDecisions = validSession?.decisions?.length
+    ? getSessionDecisions(validSession)
     : undefined;
   const includeDecisionState = sessionDecisions !== undefined;
-  const decisionMap = buildDecisionMap(sessionDecisions);
+  const versionedDecisions = sessionDecisions?.filter(
+    decision =>
+      decision.suggestionVersion === 'v1' ||
+      (decision.suggestionVersion === undefined &&
+        getSuggestionIdVersion(decision.suggestionId) === 'v1')
+  );
+  const decisionMap = buildDecisionMap(versionedDecisions);
   const buildDecisionExplanation = (decision: DecisionRecord): Explanation | null => {
     const suggestion = pipeline.suggestions.find(
       item => buildSuggestionId(item) === decision.suggestionId
@@ -169,8 +179,8 @@ export const buildAssistantResponse = (
       relatedSuggestionId: decision.suggestionId,
     };
   };
-  const decisionExplanations: Explanation[] = sessionDecisions
-    ? normalizeDecisions(sessionDecisions)
+  const decisionExplanations: Explanation[] = versionedDecisions
+    ? normalizeDecisions(versionedDecisions)
         .map(buildDecisionExplanation)
         .filter((item): item is Explanation => item !== null)
         .sort((a, b) => a.id.localeCompare(b.id))
