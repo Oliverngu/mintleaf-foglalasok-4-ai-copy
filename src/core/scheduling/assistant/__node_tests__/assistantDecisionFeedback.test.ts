@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { runEngine } from '../../engine/runEngine.js';
 import { buildWeekDays, makeEngineInput } from '../../tests/engineTestHarness.js';
 import { buildAssistantResponse } from '../response/buildAssistantResponse.js';
+import { applyDecisionToSession, createAssistantSession } from '../session/helpers.js';
 
 const buildInputWithSuggestion = () => {
   const weekDays = buildWeekDays();
@@ -32,9 +33,12 @@ describe('assistant decision feedback', () => {
 
     assert.ok(suggestionId);
 
-    const response = buildAssistantResponse(input, result, [
+    const session = applyDecisionToSession(
+      createAssistantSession('session-accepted', 0),
       { suggestionId, decision: 'accepted' },
-    ]);
+      1
+    );
+    const response = buildAssistantResponse(input, result, session);
 
     assert.equal(response.suggestions.length, 0);
     assert.ok(
@@ -54,9 +58,12 @@ describe('assistant decision feedback', () => {
 
     assert.ok(suggestionId);
 
-    const response = buildAssistantResponse(input, result, [
+    const session = applyDecisionToSession(
+      createAssistantSession('session-rejected', 0),
       { suggestionId, decision: 'rejected' },
-    ]);
+      1
+    );
+    const response = buildAssistantResponse(input, result, session);
 
     assert.equal(response.suggestions.length, 1);
     assert.equal(response.suggestions[0].decisionState, 'rejected');
@@ -69,16 +76,21 @@ describe('assistant decision feedback', () => {
     );
   });
 
-  it('sets decisionState=pending when decisions are provided without a record', () => {
+  it('sets decisionState=pending when session has decisions for other suggestions', () => {
     const input = buildInputWithSuggestion();
     const result = runEngine(input);
-    const response = buildAssistantResponse(input, result, []);
+    const session = applyDecisionToSession(
+      createAssistantSession('session-pending', 0),
+      { suggestionId: 'other-suggestion', decision: 'rejected' },
+      1
+    );
+    const response = buildAssistantResponse(input, result, session);
 
     assert.equal(response.suggestions.length, 1);
     assert.equal(response.suggestions[0].decisionState, 'pending');
   });
 
-  it('returns deterministic output for the same decisions', () => {
+  it('returns deterministic output for the same session snapshot', () => {
     const input = buildInputWithSuggestion();
     const result = runEngine(input);
     const baseResponse = buildAssistantResponse(input, result);
@@ -86,14 +98,18 @@ describe('assistant decision feedback', () => {
 
     assert.ok(suggestionId);
 
-    const decisions = [{ suggestionId, decision: 'rejected' as const }];
-    const first = buildAssistantResponse(input, result, decisions);
-    const second = buildAssistantResponse(input, result, decisions);
+    const session = applyDecisionToSession(
+      createAssistantSession('session-deterministic', 0),
+      { suggestionId, decision: 'rejected' },
+      1
+    );
+    const first = buildAssistantResponse(input, result, session);
+    const second = buildAssistantResponse(input, result, session);
 
     assert.deepEqual(first, second);
   });
 
-  it('keeps behavior unchanged when no decisions are passed', () => {
+  it('keeps behavior unchanged when no session is passed', () => {
     const input = buildInputWithSuggestion();
     const result = runEngine(input);
 

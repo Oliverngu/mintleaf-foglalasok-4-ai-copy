@@ -3,6 +3,8 @@ import { runSuggestionPipeline } from '../suggestionPipeline.js';
 import type { Explanation } from '../types.js';
 import type { AssistantResponse, AssistantSuggestion } from './types.js';
 import type { DecisionRecord } from './decisionTypes.js';
+import type { AssistantSession } from '../session/types.js';
+import { getSessionDecisions } from '../session/helpers.js';
 
 const buildActionKey = (action: Suggestion['actions'][number]) => {
   if (action.type === 'moveShift') {
@@ -62,24 +64,55 @@ const buildSuggestionAffected = (suggestion: Suggestion) => {
   };
 };
 
+const decisionRank: Record<DecisionRecord['decision'], number> = {
+  accepted: 2,
+  rejected: 1,
+};
+
+const normalizeDecisions = (decisions: DecisionRecord[]): DecisionRecord[] => {
+  const sorted = [...decisions].sort((a, b) => {
+    const idCompare = a.suggestionId.localeCompare(b.suggestionId);
+    if (idCompare !== 0) return idCompare;
+    const timeA = a.timestamp ?? -1;
+    const timeB = b.timestamp ?? -1;
+    if (timeA !== timeB) return timeB - timeA;
+    return decisionRank[b.decision] - decisionRank[a.decision];
+  });
+
+  const seen = new Set<string>();
+  const unique: DecisionRecord[] = [];
+  sorted.forEach(decision => {
+    if (seen.has(decision.suggestionId)) return;
+    seen.add(decision.suggestionId);
+    unique.push(decision);
+  });
+
+  return unique;
+};
+
+const buildDecisionMap = (decisions?: DecisionRecord[]) => {
+  const map = new Map<string, DecisionRecord['decision']>();
+  if (!decisions) return map;
+  normalizeDecisions(decisions).forEach(decision => {
+    map.set(decision.suggestionId, decision.decision);
+  });
+  return map;
+};
+
 export const wasSuggestionAccepted = (
   suggestionId: string,
-  decisions?: DecisionRecord[]
-): boolean => {
-  if (!decisions) return false;
-  return decisions.some(
-    decision => decision.suggestionId === suggestionId && decision.decision === 'accepted'
-  );
-};
+  decisionMap: Map<string, DecisionRecord['decision']>
+): boolean => decisionMap.get(suggestionId) === 'accepted';
 
 export const getDecisionState = (
   suggestionId: string,
-  decisions?: DecisionRecord[]
+  decisionMap: Map<string, DecisionRecord['decision']>,
+  includeDecisionState: boolean
 ): AssistantSuggestion['decisionState'] | undefined => {
-  if (!decisions) return undefined;
-  const decision = decisions.find(item => item.suggestionId === suggestionId);
-  if (decision?.decision === 'accepted') return 'accepted';
-  if (decision?.decision === 'rejected') return 'rejected';
+  if (!includeDecisionState) return undefined;
+  const decision = decisionMap.get(suggestionId);
+  if (decision === 'accepted') return 'accepted';
+  if (decision === 'rejected') return 'rejected';
   return 'pending';
 };
 
@@ -103,7 +136,7 @@ const sortAssistantSuggestions = (suggestions: AssistantSuggestion[]) =>
 export const buildAssistantResponse = (
   input: EngineInput,
   result: EngineResult,
-  decisions?: DecisionRecord[]
+  session?: AssistantSession
 ): AssistantResponse => {
   const pipeline = runSuggestionPipeline({
     input,
@@ -114,7 +147,11 @@ export const buildAssistantResponse = (
     },
   });
 
-  const includeDecisionState = decisions !== undefined;
+  const sessionDecisions = session?.decisions?.length
+    ? getSessionDecisions(session)
+    : undefined;
+  const includeDecisionState = sessionDecisions !== undefined;
+  const decisionMap = buildDecisionMap(sessionDecisions);
   const buildDecisionExplanation = (decision: DecisionRecord): Explanation | null => {
     const suggestion = pipeline.suggestions.find(
       item => buildSuggestionId(item) === decision.suggestionId
@@ -144,8 +181,8 @@ export const buildAssistantResponse = (
       relatedSuggestionId: decision.suggestionId,
     };
   };
-  const decisionExplanations: Explanation[] = decisions
-    ? decisions
+  const decisionExplanations: Explanation[] = sessionDecisions
+    ? normalizeDecisions(sessionDecisions)
         .map(buildDecisionExplanation)
         .filter((item): item is Explanation => item !== null)
         .sort((a, b) => a.id.localeCompare(b.id))
@@ -155,12 +192,15 @@ export const buildAssistantResponse = (
     pipeline.suggestions
       .filter(
         suggestion =>
-          !(includeDecisionState && wasSuggestionAccepted(buildSuggestionId(suggestion), decisions))
+          !(
+            includeDecisionState &&
+            wasSuggestionAccepted(buildSuggestionId(suggestion), decisionMap)
+          )
       )
       .map(suggestion =>
         toAssistantSuggestion(
           suggestion,
-          getDecisionState(buildSuggestionId(suggestion), decisions),
+          getDecisionState(buildSuggestionId(suggestion), decisionMap, includeDecisionState),
           includeDecisionState
         )
       )
