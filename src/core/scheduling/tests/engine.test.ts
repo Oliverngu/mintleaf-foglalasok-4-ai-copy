@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { runEngine } from '../engine/runEngine';
-import { EngineInput } from '../engine/types';
-import { buildWeekDays, makeEngineInput } from './engineTestHarness';
+import { runEngine } from '../engine/runEngine.js';
+import { EngineInput } from '../engine/types.js';
+import { buildWeekDays, makeEngineInput } from './engineTestHarness.js';
 
 describe('runEngine', () => {
   it('covers overnight shifts across days', () => {

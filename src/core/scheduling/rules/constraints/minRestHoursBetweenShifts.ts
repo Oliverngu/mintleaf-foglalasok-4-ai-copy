@@ -3,7 +3,7 @@ import {
   EngineInput,
   EngineShift,
   MinRestHoursBetweenShiftsRule
-} from '../../engine/types';
+} from '../../engine/types.js';
 import {
   DEFAULT_CLOSING_OFFSET_MINUTES,
   DEFAULT_CLOSING_TIME,
@@ -11,7 +11,7 @@ import {
   combineDateAndTime,
   diffHours,
   formatDateKey
-} from '../../engine/timeUtils';
+} from '../../engine/timeUtils.js';
 
 export const MIN_REST_HOURS_BETWEEN_SHIFTS_ID = 'MIN_REST_HOURS_BETWEEN_SHIFTS';
 
@@ -59,7 +59,7 @@ export const evaluateMinRestHoursBetweenShifts = (
   if (!rule) return [];
 
   const violations: ConstraintViolation[] = [];
-  const dayIndexMap = new Map(
+  const dayIndexMap = new Map<string, number>(
     input.weekDays.map((dayKey, index) => [dayKey, index])
   );
 

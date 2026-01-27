@@ -1,10 +1,10 @@
-import { CapacityMap, ConstraintViolation, MinCoverageRule } from '../../engine/types';
+import { CapacityMap, ConstraintViolation, MinCoverageRule } from '../../engine/types.js';
 import {
   addMinutes,
   combineDateAndTime,
   getSlotKey,
   normalizeBucketMinutes
-} from '../../engine/timeUtils';
+} from '../../engine/timeUtils.js';
 
 export const MIN_COVERAGE_BY_POSITION_ID = 'MIN_COVERAGE_BY_POSITION';
 

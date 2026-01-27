@@ -1,0 +1,17 @@
+import type { Suggestion, SuggestionAction } from '../../engine/types.js';
+import type { Explanation } from '../types.js';
+
+export type AssistantSuggestion = {
+  id: string;
+  type: Suggestion['type'];
+  severity: 'low' | 'medium' | 'high';
+  explanation: string;
+  expectedImpact: string;
+  actions: SuggestionAction[];
+  decisionState?: 'accepted' | 'rejected' | 'pending';
+};
+
+export type AssistantResponse = {
+  explanations: Explanation[];
+  suggestions: AssistantSuggestion[];
+};
