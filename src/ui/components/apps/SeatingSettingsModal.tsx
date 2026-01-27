@@ -370,6 +370,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectWidth: number;
     rectHeight: number;
   };
+  type PointerTransform = {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  };
   type DragViewportRect = {
     left: number;
     top: number;
@@ -384,7 +389,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     pointerStartClientY: number;
     pointerStartFloorX: number;
     pointerStartFloorY: number;
-    dragStartTransform: FloorplanTransform;
+    dragStartTransform: PointerTransform;
     dragStartRect: DragViewportRect;
     dragStartScale: number;
     tableStartX: number;
@@ -2504,7 +2509,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   function mapClientToFloorplanUsingTransform(
     clientX: number,
     clientY: number,
-    transform: FloorplanTransform,
+    transform: PointerTransform,
     rect: DragViewportRect
   ) {
     if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
@@ -2559,11 +2564,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return {
       rect,
       transform: {
-        ...activeFloorplanTransform,
-        rectLeft: rect.left,
-        rectTop: rect.top,
-        rectWidth: rect.width,
-        rectHeight: rect.height,
+        scale: activeFloorplanTransform.scale,
+        offsetX: activeFloorplanTransform.offsetX,
+        offsetY: activeFloorplanTransform.offsetY,
       },
     };
   }, [activeFloorplanTransform]);
@@ -3021,7 +3024,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     finalizeRotationRef.current = finalizeRotation;
   }, [finalizeRotation]);
 
-  const precisionFactorSelected = 0.35;
+  const getSelectedDragSpeedFactor = useCallback(() => {
+    if (viewportMode !== 'selected') return 1;
+    return clamp(0.25, 1 / safeScale(activeFloorplanTransform.scale), 0.6);
+  }, [activeFloorplanTransform.scale, viewportMode]);
 
   const handleTablePointerMoveCore = useCallback(
     ({
@@ -3129,7 +3135,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const speedFactor = viewportMode === 'selected' ? precisionFactorSelected : 1;
+      const speedFactor = getSelectedDragSpeedFactor();
       const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
       const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
       let nextX = drag.tableStartX + deltaLocalX;
@@ -3295,13 +3301,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanH,
       floorplanW,
       getActivePointerTransform,
+      getSelectedDragSpeedFactor,
       isTableOverlappingObstacle,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
-      precisionFactorSelected,
       requestDebugFlush,
       snapRotation,
-      viewportMode,
     ]
   );
 
@@ -3425,7 +3430,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const speedFactor = viewportMode === 'selected' ? precisionFactorSelected : 1;
+      const speedFactor = getSelectedDragSpeedFactor();
       const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
       const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
       let nextX = drag.tableStartX + deltaLocalX;
@@ -3541,13 +3546,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanH,
       floorplanW,
       getActivePointerTransform,
+      getSelectedDragSpeedFactor,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
-      precisionFactorSelected,
       requestDebugFlush,
       scheduleRecenterSelectedTable,
       snapRotation,
-      viewportMode,
     ]
   );
 
@@ -3704,8 +3708,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           scale: dragTransform.scale,
           offsetX: dragTransform.offsetX,
           offsetY: dragTransform.offsetY,
-          rectWidth: dragTransform.rectWidth,
-          rectHeight: dragTransform.rectHeight,
+          rectWidth: dragRect.width,
+          rectHeight: dragRect.height,
           viewportMode,
         });
       }
@@ -3748,8 +3752,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         scale: dragTransform.scale,
         offsetX: dragTransform.offsetX,
         offsetY: dragTransform.offsetY,
-        rectWidth: dragTransform.rectWidth,
-        rectHeight: dragTransform.rectHeight,
+        rectWidth: dragRect.width,
+        rectHeight: dragRect.height,
         floorplanWidth: floorplanW,
         floorplanHeight: floorplanH,
         pointerId: event.pointerId,
