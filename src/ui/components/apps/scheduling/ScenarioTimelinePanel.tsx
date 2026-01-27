@@ -48,6 +48,12 @@ type ResolvedViolationItem = {
   severity: 'low' | 'medium' | 'high';
 };
 
+type PendingAccept = {
+  suggestionKey: string;
+  beforeViolationKeys: string[];
+  beforeViolationByKey: Map<string, ConstraintViolation>;
+};
+
 const buildRuleKey = (rule: MinCoverageRule) => {
   const dateKeys = (rule.dateKeys ?? []).slice().sort().join(',');
   return `${rule.positionId}|${rule.startTime}-${rule.endTime}|${rule.minCount}|${dateKeys}`;
@@ -258,12 +264,20 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   );
   const [resolvedViolationStack, setResolvedViolationStack] = useState<string[][]>([]);
   const [resolvedItemsStack, setResolvedItemsStack] = useState<ResolvedViolationItem[][]>([]);
-  const [pendingAccept, setPendingAccept] = useState<{
-    suggestionKey: string;
-    previousViolations: ConstraintViolation[];
-  } | null>(null);
+  const [pendingAccept, setPendingAccept] = useState<PendingAccept | null>(null);
   const buildResolvedLabel = useCallback(
-    (violation: ConstraintViolation): ResolvedViolationItem => {
+    (
+      violation?: ConstraintViolation,
+      fallbackKey?: string
+    ): ResolvedViolationItem | null => {
+      if (!violation) {
+        if (!fallbackKey) return null;
+        return {
+          key: fallbackKey,
+          label: `Resolved violation: ${fallbackKey}`,
+          severity: 'low'
+        };
+      }
       const detail = getViolationDetail(violation, positionNameById);
       const dateLabel = violation.affected.dateKeys?.[0];
       const slotLabel = violation.affected.slots?.[0];
@@ -281,14 +295,12 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
 
   useEffect(() => {
     if (!pendingAccept) return;
-    const beforeKeys = new Set(
-      pendingAccept.previousViolations.map(violation => buildViolationKey(violation))
-    );
+    const beforeKeys = new Set(pendingAccept.beforeViolationKeys);
     const afterKeys = new Set(engineResult.violations.map(violation => buildViolationKey(violation)));
     const resolvedKeys = Array.from(beforeKeys).filter(key => !afterKeys.has(key));
-    const resolvedItems = pendingAccept.previousViolations
-      .filter(violation => resolvedKeys.includes(buildViolationKey(violation)))
-      .map(buildResolvedLabel);
+    const resolvedItems = resolvedKeys
+      .map(key => buildResolvedLabel(pendingAccept.beforeViolationByKey.get(key), key))
+      .filter((item): item is ResolvedViolationItem => Boolean(item));
 
     setAppliedSuggestionKeys(prev => {
       const next = new Set(prev);
@@ -731,7 +743,15 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     event.stopPropagation();
                                     setPendingAccept({
                                       suggestionKey: card.key,
-                                      previousViolations: engineResult.violations
+                                      beforeViolationKeys: engineResult.violations.map(violation =>
+                                        buildViolationKey(violation)
+                                      ),
+                                      beforeViolationByKey: new Map(
+                                        engineResult.violations.map(violation => [
+                                          buildViolationKey(violation),
+                                          violation
+                                        ])
+                                      )
                                     });
                                     onAcceptSuggestion(card.key);
                                   }}
@@ -744,7 +764,11 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     type="button"
                                     onClick={event => {
                                       event.stopPropagation();
-                                      setPendingAccept(null);
+                                      if (pendingAccept) {
+                                        setPendingAccept(null);
+                                        onUndoSuggestion();
+                                        return;
+                                      }
                                       setAppliedSuggestionOrder(prev => {
                                         if (prev.length === 0) return prev;
                                         const next = [...prev];
