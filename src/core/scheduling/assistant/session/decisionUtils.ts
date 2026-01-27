@@ -5,6 +5,13 @@ const decisionRank: Record<DecisionRecord['decision'], number> = {
   rejected: 1,
 };
 
+const assertInvariant = (condition: boolean, message: string) => {
+  if (process.env.NODE_ENV === 'production') return;
+  if (!condition) {
+    throw new Error(message);
+  }
+};
+
 export const normalizeDecisions = (decisions: DecisionRecord[]): DecisionRecord[] => {
   const sorted = [...decisions].sort((a, b) => {
     const idCompare = a.suggestionId.localeCompare(b.suggestionId);
@@ -26,10 +33,27 @@ export const normalizeDecisions = (decisions: DecisionRecord[]): DecisionRecord[
   return unique;
 };
 
+const areDecisionsNormalized = (
+  decisions: DecisionRecord[],
+  normalized: DecisionRecord[]
+) =>
+  decisions.length === normalized.length &&
+  decisions.every(
+    (decision, index) =>
+      decision.suggestionId === normalized[index]?.suggestionId &&
+      decision.decision === normalized[index]?.decision &&
+      decision.timestamp === normalized[index]?.timestamp
+  );
+
 export const buildDecisionMap = (decisions?: DecisionRecord[]) => {
   const map = new Map<string, DecisionRecord['decision']>();
   if (!decisions) return map;
-  normalizeDecisions(decisions).forEach(decision => {
+  const normalized = normalizeDecisions(decisions);
+  assertInvariant(
+    areDecisionsNormalized(decisions, normalized),
+    'Decision map input must be normalized before building.'
+  );
+  normalized.forEach(decision => {
     map.set(decision.suggestionId, decision.decision);
   });
   return map;

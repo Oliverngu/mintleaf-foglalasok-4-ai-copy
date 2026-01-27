@@ -7,6 +7,22 @@ import type { AssistantSession } from '../session/types.js';
 import { getSessionDecisions } from '../session/helpers.js';
 import { buildDecisionMap, normalizeDecisions } from '../session/decisionUtils.js';
 
+const assertInvariant = (condition: boolean, message: string) => {
+  if (process.env.NODE_ENV === 'production') return;
+  if (!condition) {
+    throw new Error(message);
+  }
+};
+
+const deepFreeze = (value: unknown, seen = new Set<unknown>()) => {
+  if (value === null || typeof value !== 'object') return;
+  if (seen.has(value)) return;
+  seen.add(value);
+  Object.freeze(value);
+  const entries = Array.isArray(value) ? value : Object.values(value as object);
+  entries.forEach(entry => deepFreeze(entry, seen));
+};
+
 const buildActionKey = (action: Suggestion['actions'][number]) => {
   if (action.type === 'moveShift') {
     return [
@@ -104,6 +120,12 @@ export const buildAssistantResponse = (
   result: EngineResult,
   session?: AssistantSession
 ): AssistantResponse => {
+  if (process.env.NODE_ENV !== 'production') {
+    deepFreeze(input);
+    deepFreeze(result);
+    if (session) deepFreeze(session);
+  }
+
   const pipeline = runSuggestionPipeline({
     input,
     result: {
@@ -171,6 +193,50 @@ export const buildAssistantResponse = (
         )
       )
   );
+
+  if (!includeDecisionState) {
+    assistantSuggestions.forEach(suggestion => {
+      assertInvariant(
+        !('decisionState' in suggestion),
+        'decisionState must not be set when session is undefined.'
+      );
+    });
+  }
+
+  const suggestionIds = new Set(assistantSuggestions.map(suggestion => suggestion.id));
+  const pipelineSuggestionIds = new Set(
+    pipeline.explanations
+      .filter(explanation => explanation.kind === 'suggestion')
+      .map(explanation => explanation.relatedSuggestionId)
+      .filter((id): id is string => Boolean(id))
+  );
+  assistantSuggestions.forEach(suggestion => {
+    assertInvariant(
+      !wasSuggestionAccepted(suggestion.id, decisionMap),
+      `Accepted suggestion must not appear in response: ${suggestion.id}`
+    );
+  });
+
+  const duplicateIds = assistantSuggestions
+    .map(suggestion => suggestion.id)
+    .filter((id, index, list) => list.indexOf(id) !== index);
+  assertInvariant(
+    duplicateIds.length === 0,
+    `Duplicate suggestion id detected: ${duplicateIds[0]}`
+  );
+
+  const allowedRelatedIds = new Set([
+    ...suggestionIds,
+    ...pipelineSuggestionIds,
+    ...decisionMap.keys(),
+  ]);
+  [...pipeline.explanations, ...decisionExplanations].forEach(explanation => {
+    if (!explanation.relatedSuggestionId) return;
+    assertInvariant(
+      allowedRelatedIds.has(explanation.relatedSuggestionId),
+      `Explanation references missing suggestion id: ${explanation.relatedSuggestionId}`
+    );
+  });
 
   return {
     explanations: [...pipeline.explanations, ...decisionExplanations],
