@@ -34,6 +34,7 @@ describe('assistant suggestion meta signature', () => {
 
     assert.equal(meta?.signatureVersion, 'sig:v2');
     assert.ok(meta?.signatureHash);
+    assert.ok(meta?.signatureHashFormat);
     assert.ok(meta?.signaturePreview);
   });
 });

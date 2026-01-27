@@ -60,6 +60,7 @@ const toAssistantSuggestion = (
   signatureMeta: {
     signatureVersion: 'sig:v2';
     signatureHash: string;
+    signatureHashFormat: 'sha256:hex' | 'fnv1a:hex' | 'unknown';
     signaturePreview: string;
   },
   decisionState: AssistantSuggestion['decisionState'] | undefined,

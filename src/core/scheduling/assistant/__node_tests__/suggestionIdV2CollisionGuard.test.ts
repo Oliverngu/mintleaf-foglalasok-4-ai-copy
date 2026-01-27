@@ -42,6 +42,9 @@ describe('assistant suggestion id v2 collision guard', () => {
       suggestions: [baseSuggestion, collidingSuggestion],
     };
 
-    assert.throws(() => buildAssistantResponse(input, responseInput));
+    assert.throws(
+      () => buildAssistantResponse(input, responseInput),
+      /collision/i
+    );
   });
 });

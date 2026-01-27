@@ -145,3 +145,11 @@ export const sha256HexSync = (input: string): string => {
   }
   return `fnv1a:${fnv1aHex(input)}`;
 };
+
+export const getHashFormat = (
+  hash: string
+): 'sha256:hex' | 'fnv1a:hex' | 'unknown' => {
+  if (/^[0-9a-f]{64}$/.test(hash)) return 'sha256:hex';
+  if (/^fnv1a:[0-9a-f]{8}$/.test(hash)) return 'fnv1a:hex';
+  return 'unknown';
+};

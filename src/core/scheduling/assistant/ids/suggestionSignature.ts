@@ -1,28 +1,10 @@
 import type { Suggestion } from '../../engine/types.js';
-import { sha256HexSync } from './hashUtils.js';
+import { getHashFormat, sha256HexSync } from './hashUtils.js';
 
 export type SuggestionSignatureV2 = {
   version: 'sig:v2';
   type: Suggestion['type'];
-  actions: Array<
-    | {
-        type: 'moveShift';
-        shiftId: string;
-        userId: string;
-        dateKey: string;
-        newStartTime: string;
-        newEndTime: string;
-        positionId: string;
-      }
-    | {
-        type: 'createShift';
-        userId: string;
-        dateKey: string;
-        startTime: string;
-        endTime: string;
-        positionId: string;
-      }
-  >;
+  actionKeys: string[];
 };
 
 const buildActionKeyV2 = (action: Suggestion['actions'][number]) => {
@@ -52,48 +34,10 @@ export const buildSuggestionCanonicalKeysV2 = (suggestion: Suggestion): string[]
   suggestion.actions.map(buildActionKeyV2).sort();
 
 export const buildSuggestionSignatureV2 = (suggestion: Suggestion): SuggestionSignatureV2 => {
-  const actionKeys = buildSuggestionCanonicalKeysV2(suggestion);
-  const actions = actionKeys.map(key => {
-    const [type, ...parts] = key.split('|');
-    if (type === 'moveShift') {
-      const [
-        shiftId,
-        userId,
-        dateKey,
-        newStartTime,
-        newEndTime,
-        positionId = '',
-      ] = parts;
-      return {
-        type: 'moveShift',
-        shiftId,
-        userId,
-        dateKey,
-        newStartTime,
-        newEndTime,
-        positionId,
-      } as const;
-    }
-    const [
-      userId,
-      dateKey,
-      startTime,
-      endTime,
-      positionId = '',
-    ] = parts;
-    return {
-      type: 'createShift',
-      userId,
-      dateKey,
-      startTime,
-      endTime,
-      positionId,
-    } as const;
-  });
   return {
     version: 'sig:v2',
     type: suggestion.type,
-    actions,
+    actionKeys: buildSuggestionCanonicalKeysV2(suggestion),
   };
 };
 
@@ -125,10 +69,12 @@ export const buildSuggestionSignatureMeta = (suggestion: Suggestion) => {
     signature.length > SIGNATURE_PREVIEW_LIMIT
       ? `${signature.slice(0, SIGNATURE_PREVIEW_LIMIT)}…`
       : signature;
+  const signatureHash = sha256HexSync(signature);
   return {
     signatureVersion: 'sig:v2' as const,
     signaturePreview,
-    signatureHash: sha256HexSync(signature),
+    signatureHash,
+    signatureHashFormat: getHashFormat(signatureHash),
   };
 };
 
