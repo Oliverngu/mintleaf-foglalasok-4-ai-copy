@@ -11,6 +11,9 @@ export type AssistantSuggestion = {
     signatureHash?: string;
     signatureHashFormat?: 'sha256:hex' | 'fnv1a:hex' | 'unknown';
     signaturePreview?: string;
+    signatureDegraded?: boolean;
+    signatureDegradeReason?: 'missing_fields' | 'invalid_fields' | 'unknown_action';
+    signatureDegradeActionType?: string;
   };
   why?: string;
   whyNow?: string;

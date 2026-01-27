@@ -38,7 +38,8 @@ const buildUnknownActionKey = (action: unknown, actionType: string) => {
   const stableJson = JSON.stringify(stableSortKeys(action));
   const preview = buildActionPreview(action);
   const actionHash = sha256HexSync(stableJson);
-  return `unknown|${actionType}|sha256:${actionHash}|preview:${preview}`;
+  const hashFormat = getHashFormat(actionHash);
+  return `unknown|${actionType}|hash:${hashFormat}|${actionHash}|preview:${preview}`;
 };
 
 const ensureStringField = (
@@ -61,7 +62,7 @@ const ensureOptionalStringField = (
   }
 };
 
-const buildKnownActionKey = (
+const validateKnownActionFields = (
   action: Record<string, unknown>,
   fields: {
     required: string[];
@@ -76,71 +77,129 @@ const buildKnownActionKey = (
   fields.optional.forEach(field =>
     ensureOptionalStringField(action[field], field, invalid)
   );
-  if (missing.length > 0 || invalid.length > 0) {
-    const preview = buildActionPreview(action);
-    const missingText = missing.length > 0 ? ` missing=${missing.join(',')}` : '';
-    const invalidText = invalid.length > 0 ? ` invalid=${invalid.join(',')}` : '';
-    throw new Error(
-      `Invalid suggestion action (${action.type}):${missingText}${invalidText}; preview=${preview}`
-    );
-  }
+  return { missing, invalid };
 };
 
-const buildActionKeyV2 = (action: Suggestion['actions'][number]) => {
+const throwInvalidKnownAction = (
+  action: Record<string, unknown>,
+  missing: string[],
+  invalid: string[]
+) => {
+  const preview = buildActionPreview(action);
+  const missingText = missing.length > 0 ? ` missing=${missing.join(',')}` : '';
+  const invalidText = invalid.length > 0 ? ` invalid=${invalid.join(',')}` : '';
+  throw new Error(
+    `Invalid suggestion action (${action.type}):${missingText}${invalidText}; preview=${preview}`
+  );
+};
+
+type DegradeReason = 'missing_fields' | 'invalid_fields' | 'unknown_action';
+
+const buildActionKeyWithMeta = (action: Suggestion['actions'][number]) => {
   switch (action.type) {
     case 'moveShift': {
       try {
-        buildKnownActionKey(action as Record<string, unknown>, {
-          required: [
-            'shiftId',
-            'userId',
-            'dateKey',
-            'newStartTime',
-            'newEndTime',
-          ],
-          optional: ['positionId'],
-        });
-        return [
-          action.type,
-          action.shiftId,
-          action.userId,
-          action.dateKey,
-          action.newStartTime,
-          action.newEndTime,
-          action.positionId ?? '',
-        ].join('|');
+        const { missing, invalid } = validateKnownActionFields(
+          action as Record<string, unknown>,
+          {
+            required: [
+              'shiftId',
+              'userId',
+              'dateKey',
+              'newStartTime',
+              'newEndTime',
+            ],
+            optional: ['positionId'],
+          }
+        );
+        if (missing.length > 0 || invalid.length > 0) {
+          if (process.env.NODE_ENV === 'production') {
+            const actionType =
+              typeof action.type === 'string' && action.type.length > 0
+                ? action.type
+                : 'unknown';
+            return {
+              key: buildUnknownActionKey(action, actionType),
+              degraded: true,
+              reason: missing.length > 0 ? 'missing_fields' : 'invalid_fields',
+              actionType,
+            };
+          }
+          throwInvalidKnownAction(action as Record<string, unknown>, missing, invalid);
+        }
+        return {
+          key: [
+            action.type,
+            action.shiftId,
+            action.userId,
+            action.dateKey,
+            action.newStartTime,
+            action.newEndTime,
+            action.positionId ?? '',
+          ].join('|'),
+        };
       } catch (error) {
         if (process.env.NODE_ENV === 'production') {
           const actionType =
             typeof action.type === 'string' && action.type.length > 0
               ? action.type
               : 'unknown';
-          return buildUnknownActionKey(action, actionType);
+          return {
+            key: buildUnknownActionKey(action, actionType),
+            degraded: true,
+            reason: 'invalid_fields',
+            actionType,
+          };
         }
         throw error;
       }
     }
     case 'createShift': {
       try {
-        buildKnownActionKey(action as Record<string, unknown>, {
-          required: ['userId', 'dateKey', 'startTime', 'endTime'],
-          optional: ['positionId'],
-        });
-        return [
-          action.type,
-          action.userId,
-          action.dateKey,
-          action.startTime,
-          action.endTime,
-          action.positionId ?? '',
-        ].join('|');
+        const { missing, invalid } = validateKnownActionFields(
+          action as Record<string, unknown>,
+          {
+            required: ['userId', 'dateKey', 'startTime', 'endTime'],
+            optional: ['positionId'],
+          }
+        );
+        if (missing.length > 0 || invalid.length > 0) {
+          if (process.env.NODE_ENV === 'production') {
+            const actionType =
+              typeof action.type === 'string' && action.type.length > 0
+                ? action.type
+                : 'unknown';
+            return {
+              key: buildUnknownActionKey(action, actionType),
+              degraded: true,
+              reason: missing.length > 0 ? 'missing_fields' : 'invalid_fields',
+              actionType,
+            };
+          }
+          throwInvalidKnownAction(action as Record<string, unknown>, missing, invalid);
+        }
+        return {
+          key: [
+            action.type,
+            action.userId,
+            action.dateKey,
+            action.startTime,
+            action.endTime,
+            action.positionId ?? '',
+          ].join('|'),
+        };
       } catch (error) {
         if (process.env.NODE_ENV === 'production') {
           const actionType =
             typeof action.type === 'string' && action.type.length > 0
               ? action.type
               : 'unknown';
-          return buildUnknownActionKey(action, actionType);
+          return {
+            key: buildUnknownActionKey(action, actionType),
+            degraded: true,
+            reason: 'invalid_fields',
+            actionType,
+          };
         }
         throw error;
       }
@@ -151,9 +210,30 @@ const buildActionKeyV2 = (action: Suggestion['actions'][number]) => {
         typeof actionAny.type === 'string' && actionAny.type.length > 0
           ? actionAny.type
           : 'unknown';
-      return buildUnknownActionKey(action, actionType);
+      return {
+        key: buildUnknownActionKey(action, actionType),
+        degraded: true,
+        reason: 'unknown_action',
+        actionType,
+      };
     }
   }
+};
+
+const buildActionKeyV2 = (action: Suggestion['actions'][number]) =>
+  buildActionKeyWithMeta(action).key;
+
+const extractDegradeMeta = (suggestion: Suggestion) => {
+  const degradedActions = suggestion.actions
+    .map(buildActionKeyWithMeta)
+    .filter(entry => entry.degraded);
+  if (degradedActions.length === 0) return {};
+  const first = degradedActions[0];
+  return {
+    signatureDegraded: true,
+    signatureDegradeReason: first.reason as DegradeReason,
+    signatureDegradeActionType: first.actionType ?? 'unknown',
+  };
 };
 
 const assertNoUndefinedInCanonicalKeys = (keys: string[]) => {
@@ -196,6 +276,7 @@ export const buildSuggestionSignatureMeta = (suggestion: Suggestion) => {
     signaturePreview,
     signatureHash,
     signatureHashFormat: getHashFormat(signatureHash),
+    ...extractDegradeMeta(suggestion),
   };
 };
 

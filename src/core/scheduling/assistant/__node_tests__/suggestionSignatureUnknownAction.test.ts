@@ -4,6 +4,7 @@ import type { Suggestion } from '../../engine/types.js';
 import {
   buildSuggestionCanonicalKeysV2,
   buildSuggestionCanonicalStringV2,
+  buildSuggestionSignatureMeta,
 } from '../ids/suggestionSignature.js';
 
 describe('suggestion signature unknown action handling', () => {
@@ -29,7 +30,7 @@ describe('suggestion signature unknown action handling', () => {
 
     assert.deepEqual(firstKeys, secondKeys);
     assert.equal(firstCanonical, secondCanonical);
-    assert.ok(firstKeys[0]?.startsWith('unknown|deleteShift|sha256:'));
+    assert.ok(firstKeys[0]?.startsWith('unknown|deleteShift|hash:'));
   });
 
   it('does not include undefined in unknown action keys', () => {
@@ -70,8 +71,12 @@ describe('suggestion signature unknown action handling', () => {
       } as unknown as Suggestion;
 
       const keys = buildSuggestionCanonicalKeysV2(suggestion);
-      assert.ok(keys[0]?.startsWith('unknown|createShift|sha256:'));
+      assert.ok(keys[0]?.startsWith('unknown|createShift|hash:'));
       assert.equal(keys.some(key => key.includes('undefined')), false);
+      const meta = buildSuggestionSignatureMeta(suggestion);
+      assert.equal(meta.signatureDegraded, true);
+      assert.equal(meta.signatureDegradeReason, 'missing_fields');
+      assert.equal(meta.signatureDegradeActionType, 'createShift');
     } finally {
       process.env.NODE_ENV = originalEnv;
     }
