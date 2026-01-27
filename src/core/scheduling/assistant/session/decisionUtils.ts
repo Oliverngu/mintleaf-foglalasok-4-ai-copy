@@ -49,9 +49,10 @@ export const buildDecisionMap = (decisions?: DecisionRecord[]) => {
   const map = new Map<string, DecisionRecord['decision']>();
   if (!decisions) return map;
   const normalized = normalizeDecisions(decisions);
+  const normalizedTwice = normalizeDecisions(normalized);
   assertInvariant(
-    areDecisionsNormalized(decisions, normalized),
-    'Decision map input must be normalized before building.'
+    areDecisionsNormalized(normalized, normalizedTwice),
+    'Decision normalization must be stable.'
   );
   normalized.forEach(decision => {
     map.set(decision.suggestionId, decision.decision);

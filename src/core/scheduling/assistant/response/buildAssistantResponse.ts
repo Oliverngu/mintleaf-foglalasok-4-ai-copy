@@ -206,7 +206,6 @@ export const buildAssistantResponse = (
   const suggestionIds = new Set(assistantSuggestions.map(suggestion => suggestion.id));
   const pipelineSuggestionIds = new Set(
     pipeline.explanations
-      .filter(explanation => explanation.kind === 'suggestion')
       .map(explanation => explanation.relatedSuggestionId)
       .filter((id): id is string => Boolean(id))
   );
