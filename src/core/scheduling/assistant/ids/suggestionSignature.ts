@@ -34,6 +34,13 @@ const buildActionPreview = (action: unknown) => {
     : sanitized;
 };
 
+const buildUnknownActionKey = (action: unknown, actionType: string) => {
+  const stableJson = JSON.stringify(stableSortKeys(action));
+  const preview = buildActionPreview(action);
+  const actionHash = sha256HexSync(stableJson);
+  return `unknown|${actionType}|sha256:${actionHash}|preview:${preview}`;
+};
+
 const ensureStringField = (
   value: unknown,
   field: string,
@@ -82,39 +89,61 @@ const buildKnownActionKey = (
 const buildActionKeyV2 = (action: Suggestion['actions'][number]) => {
   switch (action.type) {
     case 'moveShift': {
-      buildKnownActionKey(action as Record<string, unknown>, {
-        required: [
-          'shiftId',
-          'userId',
-          'dateKey',
-          'newStartTime',
-          'newEndTime',
-        ],
-        optional: ['positionId'],
-      });
-      return [
-        action.type,
-        action.shiftId,
-        action.userId,
-        action.dateKey,
-        action.newStartTime,
-        action.newEndTime,
-        action.positionId ?? '',
-      ].join('|');
+      try {
+        buildKnownActionKey(action as Record<string, unknown>, {
+          required: [
+            'shiftId',
+            'userId',
+            'dateKey',
+            'newStartTime',
+            'newEndTime',
+          ],
+          optional: ['positionId'],
+        });
+        return [
+          action.type,
+          action.shiftId,
+          action.userId,
+          action.dateKey,
+          action.newStartTime,
+          action.newEndTime,
+          action.positionId ?? '',
+        ].join('|');
+      } catch (error) {
+        if (process.env.NODE_ENV === 'production') {
+          const actionType =
+            typeof action.type === 'string' && action.type.length > 0
+              ? action.type
+              : 'unknown';
+          return buildUnknownActionKey(action, actionType);
+        }
+        throw error;
+      }
     }
     case 'createShift': {
-      buildKnownActionKey(action as Record<string, unknown>, {
-        required: ['userId', 'dateKey', 'startTime', 'endTime'],
-        optional: ['positionId'],
-      });
-      return [
-        action.type,
-        action.userId,
-        action.dateKey,
-        action.startTime,
-        action.endTime,
-        action.positionId ?? '',
-      ].join('|');
+      try {
+        buildKnownActionKey(action as Record<string, unknown>, {
+          required: ['userId', 'dateKey', 'startTime', 'endTime'],
+          optional: ['positionId'],
+        });
+        return [
+          action.type,
+          action.userId,
+          action.dateKey,
+          action.startTime,
+          action.endTime,
+          action.positionId ?? '',
+        ].join('|');
+      } catch (error) {
+        if (process.env.NODE_ENV === 'production') {
+          const actionType =
+            typeof action.type === 'string' && action.type.length > 0
+              ? action.type
+              : 'unknown';
+          return buildUnknownActionKey(action, actionType);
+        }
+        throw error;
+      }
     }
     default: {
       const actionAny = action as { type?: string };
@@ -122,10 +151,7 @@ const buildActionKeyV2 = (action: Suggestion['actions'][number]) => {
         typeof actionAny.type === 'string' && actionAny.type.length > 0
           ? actionAny.type
           : 'unknown';
-      const stableJson = JSON.stringify(stableSortKeys(action));
-      const preview = buildActionPreview(action);
-      const actionHash = sha256HexSync(stableJson);
-      return `unknown|${actionType}|sha256:${actionHash}|preview:${preview}`;
+      return buildUnknownActionKey(action, actionType);
     }
   }
 };

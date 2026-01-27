@@ -51,7 +51,7 @@ describe('suggestion signature unknown action handling', () => {
     assert.equal(keys.some(key => key.includes('undefined')), false);
   });
 
-  it('throws for malformed createShift actions in production', () => {
+  it('degrades malformed createShift actions in production', () => {
     const originalEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
@@ -69,10 +69,9 @@ describe('suggestion signature unknown action handling', () => {
         ],
       } as unknown as Suggestion;
 
-      assert.throws(
-        () => buildSuggestionCanonicalKeysV2(suggestion),
-        /createShift.*missing/i
-      );
+      const keys = buildSuggestionCanonicalKeysV2(suggestion);
+      assert.ok(keys[0]?.startsWith('unknown|createShift|sha256:'));
+      assert.equal(keys.some(key => key.includes('undefined')), false);
     } finally {
       process.env.NODE_ENV = originalEnv;
     }
