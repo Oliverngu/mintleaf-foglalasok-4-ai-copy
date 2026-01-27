@@ -2,7 +2,7 @@ import type {
   EngineInput,
   EngineScheduleSettings,
   Ruleset,
-} from '../engine/types';
+} from '../engine/types.js';
 
 type ScheduleSettingsOverrides = {
   dailySettings?: EngineScheduleSettings['dailySettings'];

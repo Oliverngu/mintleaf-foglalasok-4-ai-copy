@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { runEngine } from '../runEngine';
-import { EngineInput } from '../types';
+import { runEngine } from '../runEngine.js';
+import { EngineInput } from '../types.js';
 import {
   buildScheduleSettings,
   buildWeekDays,
   makeEngineInput,
-} from '../../tests/engineTestHarness';
+} from '../../tests/engineTestHarness.js';
 
 describe('Engine v1', () => {
   it('handles empty input', () => {
