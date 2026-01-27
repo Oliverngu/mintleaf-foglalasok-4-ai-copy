@@ -31,6 +31,30 @@ describe('assistant suggestion id v2 back-compat', () => {
     assert.equal(computedCanonical, manualCanonical);
   });
 
+  it('keeps createShift canonical string unchanged', () => {
+    const createSuggestion: Suggestion = {
+      type: 'ADD_SHIFT_SUGGESTION',
+      explanation: 'Add coverage.',
+      expectedImpact: 'Coverage improved.',
+      actions: [
+        {
+          type: 'createShift',
+          userId: 'user-1',
+          dateKey: '2024-01-01',
+          startTime: '08:00',
+          endTime: '12:00',
+          positionId: 'pos-1',
+        },
+      ],
+    };
+    const manualCanonical =
+      'v2|ADD_SHIFT_SUGGESTION|createShift|user-1|2024-01-01|08:00|12:00|pos-1';
+
+    const computedCanonical = buildSuggestionCanonicalStringV2(createSuggestion);
+
+    assert.equal(computedCanonical, manualCanonical);
+  });
+
   it('hashes the canonical string deterministically', () => {
     const canonical = buildSuggestionCanonicalStringV2(suggestion);
     const expectedId = `assistant-suggestion:v2:${sha256HexSync(canonical)}`;
