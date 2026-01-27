@@ -63,27 +63,12 @@ export const filterRulesByFocus = (
     return rangesOverlap(rule.startTime, rule.endTime, focus.timeRange.startTime, focus.timeRange.endTime);
   });
 
-export const buildFocusWindow = (
-  weekDays: string[],
-  scenarios: Scenario[],
-  selectedDateKey?: string
-): FocusWindow => {
-  const dateKey = selectedDateKey || weekDays[0] || '';
-  const eventScenario = scenarios.find(scenario =>
-    scenario.type === 'EVENT' || scenario.type === 'PEAK'
-  );
-  const timeRange =
-    eventScenario && 'timeRange' in eventScenario.payload
-      ? eventScenario.payload.timeRange
-      : undefined;
-  return { dateKey, timeRange };
-};
-
 const getScenarioDateKeys = (scenario: Scenario): string[] => {
+  const baseKeys = scenario.dateKeys ?? [];
   if ('dateKeys' in scenario.payload) {
-    return scenario.payload.dateKeys ?? [];
+    return Array.from(new Set([...baseKeys, ...(scenario.payload.dateKeys ?? [])]));
   }
-  return scenario.dateKeys ?? [];
+  return baseKeys;
 };
 
 const getScenarioTimeRange = (scenario: Scenario) => {
@@ -140,7 +125,9 @@ export const formatScenarioMeta = (
     const name = userNameById.get(scenario.payload.userId) || scenario.payload.userId;
     descriptionLine = `${name} · ${dateLabel}`;
   } else if (scenario.type === 'EVENT' || scenario.type === 'PEAK') {
-    descriptionLine = 'Fokozott igény az időszakban';
+    const typeLabel = scenario.type === 'EVENT' ? 'Esemény' : 'Csúcsidőszak';
+    const metaBits = [dateLabel, timeLabel, overrideLabel].filter(Boolean);
+    descriptionLine = [typeLabel, ...metaBits].join(' · ');
   }
 
   return {
@@ -228,12 +215,6 @@ export const getViolationDetail = (
   return '';
 };
 
-export const getSuggestionSummary = (suggestions: Suggestion[]): string => {
-  if (suggestions.length === 0) return 'Nincs javaslat.';
-  if (suggestions.length === 1) return '1 javaslat';
-  return `${suggestions.length} javaslat`;
-};
-
 export const getScenarioFocusTimeOptions = (
   scenarios: Scenario[],
   dateKey: string
@@ -242,7 +223,7 @@ export const getScenarioFocusTimeOptions = (
   options.set('ALL_DAY', { key: 'ALL_DAY', label: 'Egész nap' });
   scenarios.forEach(scenario => {
     if (scenario.type !== 'EVENT' && scenario.type !== 'PEAK') return;
-    const dateKeys = scenario.payload.dateKeys ?? [];
+    const dateKeys = getScenarioDateKeys(scenario);
     if (!dateKeys.includes(dateKey)) return;
     const range = scenario.payload.timeRange;
     const key = `${range.startTime}-${range.endTime}`;

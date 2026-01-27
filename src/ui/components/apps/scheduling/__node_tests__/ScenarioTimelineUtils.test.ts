@@ -4,6 +4,7 @@ import type { Scenario } from '../../../../../core/scheduling/scenarios/types.js
 import {
   getScenarioFocusTimeOptions,
   rangesOverlap,
+  describeScenario,
   summarizeSuggestions,
   summarizeViolationsBySeverity
 } from '../ScenarioTimelineUtils.js';
@@ -60,6 +61,26 @@ describe('getScenarioFocusTimeOptions', () => {
     assert.equal(options[0].key, 'ALL_DAY');
     assert.equal(options.length, 2);
     assert.equal(options[1].label, '10:00–12:00');
+  });
+
+  it('uses scenario.dateKeys when payload dateKeys are missing', () => {
+    const scenarios: Scenario[] = [
+      {
+        id: '4',
+        unitId: 'unit',
+        weekStartDate: '2024-01-01',
+        type: 'EVENT',
+        dateKeys: ['2024-01-04'],
+        payload: {
+          dateKeys: [],
+          timeRange: { startTime: '14:00', endTime: '16:00' }
+        }
+      }
+    ];
+
+    const options = getScenarioFocusTimeOptions(scenarios, '2024-01-04');
+    assert.equal(options.length, 2);
+    assert.equal(options[1].label, '14:00–16:00');
   });
 });
 
@@ -126,5 +147,25 @@ describe('summarizeSuggestions', () => {
       ADD_SHIFT_SUGGESTION: 1
     });
     assert.equal(summary.firstActionLabel, 'Mozgatás: Maya · 2024-01-02 · 09:00–12:00 · Barista');
+  });
+});
+
+describe('describeScenario', () => {
+  it('returns metadata-aware string for event scenarios', () => {
+    const scenario: Scenario = {
+      id: 'event-1',
+      unitId: 'unit',
+      weekStartDate: '2024-01-01',
+      type: 'EVENT',
+      payload: {
+        dateKeys: ['2024-01-02'],
+        timeRange: { startTime: '10:00', endTime: '12:00' }
+      }
+    };
+
+    const label = describeScenario(scenario, new Map(), new Map([['pos-1', 'Barista']]));
+    assert.ok(label.includes('Esemény'));
+    assert.ok(label.includes('2024-01-02'));
+    assert.ok(label.includes('10:00–12:00'));
   });
 });

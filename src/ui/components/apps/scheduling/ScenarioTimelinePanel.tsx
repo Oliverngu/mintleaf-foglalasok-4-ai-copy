@@ -222,7 +222,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
               <div className="absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white shadow">
                 2
               </div>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-indigo-200">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-indigo-600">
                 The Change
               </span>
               <h3 className="mt-1 text-base font-semibold text-gray-900">Alkalmazott scenáriók</h3>
