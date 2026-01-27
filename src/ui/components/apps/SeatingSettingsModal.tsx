@@ -469,6 +469,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const floorplanModeRef = useRef(floorplanMode);
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
+  const recenterRafIdRef = useRef<number | null>(null);
   const [undoTick, setUndoTick] = useState(0);
   const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
   const lastActionRef = useRef<null | {
@@ -591,11 +592,35 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   }, [debugSeating, unitId]);
 
-  const defaultSideCapacities = (capacityTotal: number) => {
+  const defaultSideCapacities = useCallback((capacityTotal: number) => {
     const north = Math.ceil(capacityTotal / 2);
     const south = Math.max(0, capacityTotal - north);
     return { north, east: 0, south, west: 0 };
-  };
+  }, []);
+  const deriveSideCapacitiesFromSeatLayout = useCallback(
+    (
+      seatLayout: Table['seatLayout'] | undefined,
+      fallback: { north: number; east: number; south: number; west: number }
+    ) => {
+      if (!seatLayout) return fallback;
+      if (seatLayout.kind === 'rect') {
+        const sides = seatLayout.sides ?? {};
+        return {
+          north: Math.max(0, sides.north ?? 0),
+          east: Math.max(0, sides.east ?? 0),
+          south: Math.max(0, sides.south ?? 0),
+          west: Math.max(0, sides.west ?? 0),
+        };
+      }
+      if (seatLayout.kind === 'circle') {
+        const count = Math.max(0, seatLayout.count ?? 0);
+        // Keep circle side caps aligned to the total count to avoid mismatched UI warnings.
+        return defaultSideCapacities(count);
+      }
+      return fallback;
+    },
+    [defaultSideCapacities]
+  );
   const isSeatLayoutEmpty = (seatLayout?: Table['seatLayout']) => {
     if (!seatLayout) return true;
     if (seatLayout.kind === 'circle') {
@@ -1025,10 +1050,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     (event: React.PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
-      if (
-        target.closest('[data-seating-table-root="1"]') ||
-        target.closest('[data-seating-seat-control="1"]')
-      ) {
+      if (target.closest('[data-seating-no-deselect="1"]')) {
         return;
       }
       setSelectedTableId(null);
@@ -1084,6 +1106,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.seatLayout?.sides?.south,
     selectedTable?.seatLayout?.sides?.west,
     selectedTable?.shape,
+    defaultSideCapacities,
   ]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
@@ -1130,6 +1153,43 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTableDraft?.seatLayout?.sides?.east,
     selectedTableDraft?.seatLayout?.sides?.south,
     selectedTableDraft?.seatLayout?.sides?.west,
+  ]);
+  useEffect(() => {
+    if (!selectedTableDraft) return;
+    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
+    const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+      selectedTableDraft.seatLayout,
+      selectedTableDraft.sideCapacities
+    );
+    const current = selectedTableDraft.sideCapacities;
+    if (
+      current.north === nextSideCapacities.north &&
+      current.east === nextSideCapacities.east &&
+      current.south === nextSideCapacities.south &&
+      current.west === nextSideCapacities.west
+    ) {
+      return;
+    }
+    setSelectedTableDraft(prev =>
+      prev
+        ? {
+            ...prev,
+            sideCapacities: nextSideCapacities,
+          }
+        : prev
+    );
+  }, [
+    deriveSideCapacitiesFromSeatLayout,
+    selectedTableDraft?.seatLayout?.kind,
+    selectedTableDraft?.seatLayout?.count,
+    selectedTableDraft?.seatLayout?.sides?.north,
+    selectedTableDraft?.seatLayout?.sides?.east,
+    selectedTableDraft?.seatLayout?.sides?.south,
+    selectedTableDraft?.seatLayout?.sides?.west,
+    selectedTableDraft?.sideCapacities?.north,
+    selectedTableDraft?.sideCapacities?.east,
+    selectedTableDraft?.sideCapacities?.south,
+    selectedTableDraft?.sideCapacities?.west,
   ]);
   useEffect(() => {
     if (isEditMode) return;
@@ -1757,6 +1817,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (rafRotId.current !== null) {
         cancelAnimationFrame(rafRotId.current);
       }
+      if (recenterRafIdRef.current !== null) {
+        cancelAnimationFrame(recenterRafIdRef.current);
+      }
       if (debugRafIdRef.current !== null) {
         cancelAnimationFrame(debugRafIdRef.current);
         debugRafIdRef.current = null;
@@ -2231,11 +2294,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       : sanitizeCapacityValue(
           computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
         );
+    if (seatLayoutEmpty && capacityTotal < 1) {
+      setError('A kapacitás megadása kötelező, ha nincs seat layout.');
+      setSuccess(null);
+      return;
+    }
+    const sideCapSource = seatLayoutEmpty
+      ? selectedTableDraft.sideCapacities
+      : deriveSideCapacitiesFromSeatLayout(
+          selectedTableDraft.seatLayout,
+          selectedTableDraft.sideCapacities
+        );
     const sideCapacities = {
-      north: sanitizeCapacityValue(selectedTableDraft.sideCapacities.north),
-      east: sanitizeCapacityValue(selectedTableDraft.sideCapacities.east),
-      south: sanitizeCapacityValue(selectedTableDraft.sideCapacities.south),
-      west: sanitizeCapacityValue(selectedTableDraft.sideCapacities.west),
+      north: sanitizeCapacityValue(sideCapSource.north),
+      east: sanitizeCapacityValue(sideCapSource.east),
+      south: sanitizeCapacityValue(sideCapSource.south),
+      west: sanitizeCapacityValue(sideCapSource.west),
     };
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
@@ -2480,6 +2554,82 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectHeight: number;
   } | null>(null);
   const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
+  const getSelectedTableScale = useCallback(() => {
+    if (!selectedEditorTable) return null;
+    if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) {
+      return null;
+    }
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const padding = 0.25;
+    const paddedW = geometry.w * (1 + padding * 2);
+    const paddedH = geometry.h * (1 + padding * 2);
+    return Math.min(
+      Math.max(
+        0.4,
+        Math.min(floorplanViewportRect.width / paddedW, floorplanViewportRect.height / paddedH)
+      ),
+      2.5
+    );
+  }, [
+    floorplanDims,
+    floorplanViewportRect.height,
+    floorplanViewportRect.width,
+    selectedEditorTable,
+  ]);
+  const recenterSelectedTable = useCallback(
+    (scaleOverride?: number) => {
+      if (!selectedEditorTable) return;
+      if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
+      const geometry = resolveTableGeometryInFloorplanSpace(
+        selectedEditorTable,
+        floorplanDims,
+        TABLE_GEOMETRY_DEFAULTS
+      );
+      const position = getRenderPosition(selectedEditorTable, geometry);
+      const centerX = position.x + geometry.w / 2;
+      const centerY = position.y + geometry.h / 2;
+      const scale = safeScale(
+        scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
+      );
+      setFloorplanTransformOverride({
+        scale,
+        offsetX: floorplanViewportRect.width / 2 - centerX * scale,
+        offsetY: floorplanViewportRect.height / 2 - centerY * scale,
+        rectLeft: floorplanViewportRect.left ?? 0,
+        rectTop: floorplanViewportRect.top ?? 0,
+        rectWidth: floorplanViewportRect.width,
+        rectHeight: floorplanViewportRect.height,
+      });
+    },
+    [
+      activeFloorplanTransform.scale,
+      floorplanDims,
+      floorplanTransformOverride?.scale,
+      floorplanViewportRect.height,
+      floorplanViewportRect.left,
+      floorplanViewportRect.top,
+      floorplanViewportRect.width,
+      getRenderPosition,
+      selectedEditorTable,
+    ]
+  );
+  const scheduleRecenterSelectedTable = useCallback(
+    (scaleOverride?: number) => {
+      if (viewportMode !== 'selected') return;
+      if (recenterRafIdRef.current !== null) {
+        return;
+      }
+      recenterRafIdRef.current = requestAnimationFrame(() => {
+        recenterRafIdRef.current = null;
+        recenterSelectedTable(scaleOverride);
+      });
+    },
+    [recenterSelectedTable, viewportMode]
+  );
   useEffect(() => {
     if (!isEditMode) {
       setFloorplanTransformOverride(null);
@@ -2500,48 +2650,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ) {
       return;
     }
-    if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
-    const geometry = resolveTableGeometryInFloorplanSpace(
-      selectedEditorTable,
-      floorplanDims,
-      TABLE_GEOMETRY_DEFAULTS
-    );
-    const position = getRenderPosition(selectedEditorTable, geometry);
-    const rect = {
-      x: position.x,
-      y: position.y,
-      w: geometry.w,
-      h: geometry.h,
-    };
-    const padding = 0.25;
-    const paddedW = rect.w * (1 + padding * 2);
-    const paddedH = rect.h * (1 + padding * 2);
-    const scale = Math.min(
-      Math.max(0.4, Math.min(floorplanViewportRect.width / paddedW, floorplanViewportRect.height / paddedH)),
-      2.5
-    );
-    const centerX = rect.x + rect.w / 2;
-    const centerY = rect.y + rect.h / 2;
-    const offsetX = floorplanViewportRect.width / 2 - centerX * scale;
-    const offsetY = floorplanViewportRect.height / 2 - centerY * scale;
-    setFloorplanTransformOverride({
-      scale,
-      offsetX,
-      offsetY,
-      rectLeft: floorplanViewportRect.left ?? 0,
-      rectTop: floorplanViewportRect.top ?? 0,
-      rectWidth: floorplanViewportRect.width,
-      rectHeight: floorplanViewportRect.height,
-    });
+    const scale =
+      viewportMode === 'selected' && floorplanTransformOverride
+        ? floorplanTransformOverride.scale
+        : getSelectedTableScale();
+    if (!scale) return;
+    recenterSelectedTable(scale);
     prevSelectedTableIdRef.current = selectedEditorTable.id;
   }, [
     floorplanDims,
+    floorplanTransformOverride,
     floorplanViewportRect.height,
     floorplanViewportRect.left,
     floorplanViewportRect.top,
     floorplanViewportRect.width,
+    getSelectedTableScale,
     getRenderPosition,
     isEditMode,
+    recenterSelectedTable,
     selectedEditorTable,
     viewportMode,
   ]);
@@ -3229,6 +3355,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         const step = altKey ? 1 : shiftKey ? 15 : 5;
         const snappedRot = snapRotation(nextRot, step);
         updateDraftRotation(tableId, snappedRot);
+        scheduleRecenterSelectedTable();
         const prevRot = drag.tableStartRot;
         releaseDragPointerCaptureRef.current(drag);
         unregisterWindowTableDragListenersRef.current();
@@ -3373,6 +3500,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = lastValid.y;
       }
       updateDraftPosition(tableId, nextX, nextY);
+      scheduleRecenterSelectedTable();
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
       setDragState(null);
@@ -3390,6 +3518,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
       requestDebugFlush,
+      scheduleRecenterSelectedTable,
       snapRotation,
     ]
   );
@@ -4924,9 +5053,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (shape === 'circle') {
         const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
         const next = Math.min(16, current + 1);
+        const nextSeatLayout = { kind: 'circle', count: next } as const;
+        const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+          nextSeatLayout,
+          curr.sideCapacities
+        );
         return {
           ...curr,
-          seatLayout: { kind: 'circle', count: next },
+          seatLayout: nextSeatLayout,
+          sideCapacities: nextSideCapacities,
           capacityTotal: next,
         };
       }
@@ -4942,11 +5077,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const nextSide = Math.min(3, current + 1);
       (sides as any)[side] = nextSide;
 
-      const nextSideCapacities = {
-        ...curr.sideCapacities,
-        [side]: nextSide,
-      } as typeof curr.sideCapacities;
       const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+        nextSeatLayout,
+        curr.sideCapacities
+      );
       const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
 
       return {
@@ -4970,9 +5105,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (shape === 'circle') {
         const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
         const next = Math.max(0, current - 1);
+        const nextSeatLayout = { kind: 'circle', count: next } as const;
+        const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+          nextSeatLayout,
+          curr.sideCapacities
+        );
         return {
           ...curr,
-          seatLayout: { kind: 'circle', count: next },
+          seatLayout: nextSeatLayout,
+          sideCapacities: nextSideCapacities,
           capacityTotal: next,
         };
       }
@@ -4988,11 +5129,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const nextSide = Math.max(0, current - 1);
       (sides as any)[side] = nextSide;
 
-      const nextSideCapacities = {
-        ...curr.sideCapacities,
-        [side]: nextSide,
-      } as typeof curr.sideCapacities;
       const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+        nextSeatLayout,
+        curr.sideCapacities
+      );
       const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
 
       return {
@@ -5024,6 +5165,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <div className="pointer-events-none absolute inset-0 z-[12]">
         <div
           className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
+          data-seating-no-deselect="1"
           style={{ position: 'absolute', left: screenX, top: screenY }}
         >
           <div className="font-semibold">
@@ -5217,7 +5359,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+            <div
+              className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]"
+              data-seating-no-deselect="1"
+            >
               <span>
                 Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
               </span>
@@ -5641,6 +5786,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         <div
                           key={obstacle.id}
                           className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
+                          data-seating-no-deselect="1"
                           style={{
                             left: rect.x,
                             top: rect.y,
@@ -5727,6 +5873,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
                           }`}
                           data-seating-table-root="1"
+                          data-seating-no-deselect="1"
                           style={{
                             left: position.x,
                             top: position.y,
@@ -5776,6 +5923,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 />
                                 <button
                                   type="button"
+                                  data-seating-no-deselect="1"
                                   className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
                                   style={{ touchAction: 'none' }}
                                   onPointerDown={event => {
@@ -5903,6 +6051,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               <div className="flex gap-1 mt-1">
                                 <button
                                   type="button"
+                                  data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
                                   onPointerDown={event => {
                                     event.preventDefault();
@@ -5912,6 +6061,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     event.stopPropagation();
                                     const nextRot = normalizeRotation(renderRot - 5);
                                     updateDraftRotation(table.id, nextRot);
+                                    scheduleRecenterSelectedTable();
                                     setLastSavedRot(current => ({
                                       ...current,
                                       [table.id]:
@@ -5926,6 +6076,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 </button>
                                 <button
                                   type="button"
+                                  data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
                                   onPointerDown={event => {
                                     event.preventDefault();
@@ -5935,6 +6086,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     event.stopPropagation();
                                     const nextRot = normalizeRotation(renderRot + 5);
                                     updateDraftRotation(table.id, nextRot);
+                                    scheduleRecenterSelectedTable();
                                     setLastSavedRot(current => ({
                                       ...current,
                                       [table.id]:
@@ -5949,6 +6101,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 </button>
                                 <button
                                   type="button"
+                                  data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
                                   onPointerDown={event => {
                                     event.preventDefault();
@@ -5957,6 +6110,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   onClick={event => {
                                     event.stopPropagation();
                                     updateDraftRotation(table.id, 0);
+                                    scheduleRecenterSelectedTable();
                                     setLastSavedRot(current => ({
                                       ...current,
                                       [table.id]:

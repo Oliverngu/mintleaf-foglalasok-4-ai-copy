@@ -101,9 +101,10 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const uiScale = Math.min(1.2, Math.max(0.65, uiScaleRaw));
   const seatSize = 12 * uiScale;
   const seatRadius = seatSize / 2;
-  const controlSize = 14 * uiScale;
-  const controlRadius = controlSize / 2;
+  const controlSize = seatSize;
+  const controlRadius = seatRadius;
   const gap = 4 * uiScale;
+  const controlFontSize = 10 * uiScale;
 
   let selectedSeatCount = 0;
   let selectedControlCount = 0;
@@ -258,6 +259,35 @@ const FloorplanWorldLayer: React.FC<Props> = ({
               return { x: geometry.w / 2, y: -outset };
           }
         };
+        const seatSideCounts = seats.reduce(
+          (acc, seat) => {
+            acc[seat.side] += 1;
+            return acc;
+          },
+          { north: 0, south: 0, east: 0, west: 0, radial: 0 } as Record<SeatSide, number>
+        );
+        const resolveFirstSeatPosition = (side: SeatSide) => {
+          if (side === 'radial') {
+            return resolveControlPosition(side, plusOutsets[side] ?? defaultOutsetRadial);
+          }
+          const w = Math.max(1, geometry.w);
+          const h = Math.max(1, geometry.h);
+          const inset = Math.max(10, Math.min(w, h) * 0.12);
+          const outside = renderMode === 'preview' ? 0 : Math.max(10, Math.min(w, h) * 0.14);
+          const t = 0.5;
+          switch (side) {
+            case 'north':
+              return { x: inset + t * (w - 2 * inset), y: -outside };
+            case 'south':
+              return { x: inset + t * (w - 2 * inset), y: h + outside };
+            case 'east':
+              return { x: w + outside, y: inset + t * (h - 2 * inset) };
+            case 'west':
+              return { x: -outside, y: inset + t * (h - 2 * inset) };
+            default:
+              return resolveControlPosition(side, plusOutsets[side] ?? defaultOutsetRect);
+          }
+        };
         const seatOffsets: Record<SeatSide, { x: number; y: number } | null> = {
           north: null,
           south: null,
@@ -291,6 +321,9 @@ const FloorplanWorldLayer: React.FC<Props> = ({
         const resolvePlusPosition = (side: SeatSide) => {
           if (side === 'radial') {
             return resolveControlPosition(side, plusOutsets[side] ?? defaultOutsetRect);
+          }
+          if (seatSideCounts[side] === 0) {
+            return resolveFirstSeatPosition(side);
           }
           return (
             seatOffsets[side] ??
@@ -359,7 +392,12 @@ const FloorplanWorldLayer: React.FC<Props> = ({
             : 8;
 
         return (
-          <div key={table.id} className="absolute" style={{ left: position.x, top: position.y }}>
+          <div
+            key={table.id}
+            className="absolute"
+            style={{ left: position.x, top: position.y }}
+            data-seating-no-deselect="1"
+          >
             <div
               className="absolute"
               style={{
@@ -413,7 +451,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                     selected ? 'ring-2 ring-[var(--color-primary)]' : '',
                   ].join(' ')}
                   style={{
-                    pointerEvents: 'none',
+                    pointerEvents: seatEditable ? 'none' : 'auto',
                     borderRadius: tableRadius,
                     border: '2px solid rgba(148, 163, 184, 0.6)',
                     backgroundColor: renderStatusColor(status),
@@ -421,6 +459,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                     outline: recommended ? '2px dashed rgba(251, 191, 36, 0.9)' : undefined,
                     outlineOffset: recommended ? 2 : undefined,
                   }}
+                  data-seating-no-deselect="1"
                 >
                   <span>{table.name}</span>
                   {showCapacity && table.capacityMax ? (
@@ -458,6 +497,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                       key={ctrl.id}
                       type="button"
                       data-seating-seat-control="1"
+                      data-seating-no-deselect="1"
                       onPointerDown={event => {
                         event.stopPropagation();
                       }}
@@ -471,7 +511,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                         'border border-dashed',
                         disabled
                           ? 'border-gray-200 bg-white/40'
-                          : 'border-amber-300 bg-amber-50/70',
+                          : 'border-amber-300 bg-amber-50',
                       ].join(' ')}
                     style={{
                       left: plusPosition.x - controlRadius,
@@ -481,12 +521,13 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                       zIndex: 10,
                       cursor: clickable ? 'pointer' : 'not-allowed',
                       pointerEvents: 'auto',
+                      opacity: disabled ? 0.45 : 0.65,
                     }}
                     title={disabled ? ctrl.reason ?? 'limit' : 'szék hozzáadása'}
                     >
                       <span
-                        className="text-[12px] leading-none"
-                        style={{ opacity: disabled ? 0.25 : 0.9 }}
+                        className="leading-none"
+                        style={{ fontSize: controlFontSize, opacity: disabled ? 0.35 : 0.9 }}
                       >
                         +
                       </span>
@@ -514,6 +555,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                           key={`${table.id}-remove-${side}`}
                           type="button"
                           data-seating-seat-control="1"
+                          data-seating-no-deselect="1"
                           onPointerDown={event => {
                             event.stopPropagation();
                           }}
@@ -522,7 +564,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                             if (!onRemoveSeat) return;
                             onRemoveSeat(table.id, side);
                           }}
-                          className="absolute flex items-center justify-center rounded-full border border-dashed border-rose-300 bg-rose-50/70"
+                          className="absolute flex items-center justify-center rounded-full border border-dashed border-rose-300 bg-rose-50"
                           style={{
                             left: removePosition.x - controlRadius,
                             top: removePosition.y - controlRadius,
@@ -531,11 +573,13 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                             zIndex: 11,
                             cursor: canRemove ? 'pointer' : 'not-allowed',
                             pointerEvents: 'auto',
-                            opacity: canRemove ? 1 : 0.4,
+                            opacity: canRemove ? 0.65 : 0.4,
                           }}
                           title="szék eltávolítása"
                         >
-                          <span className="text-[12px] leading-none">-</span>
+                          <span className="leading-none" style={{ fontSize: controlFontSize }}>
+                            -
+                          </span>
                         </button>
                       );
                     }
