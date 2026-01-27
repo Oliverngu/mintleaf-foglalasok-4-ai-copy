@@ -4,6 +4,9 @@ import type { Scenario } from '../../../../core/scheduling/scenarios/types';
 import type { Position, User } from '../../../../core/models/data';
 import {
   describeScenario,
+  buildSuggestionKey,
+  buildViolationKey,
+  buildSuggestionViolationLinks,
   filterRulesByFocus,
   formatScenarioMeta,
   formatTimeRangeLabel,
@@ -142,9 +145,28 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
     () => summarizeSuggestions(engineResult.suggestions, userNameById, positionNameById),
     [engineResult.suggestions, userNameById, positionNameById]
   );
+  const linkIndex = useMemo(
+    () =>
+      buildSuggestionViolationLinks(
+        engineResult.violations,
+        engineResult.suggestions,
+        userNameById,
+        positionNameById
+      ),
+    [engineResult.violations, engineResult.suggestions, positionNameById, userNameById]
+  );
 
   const topViolations = engineResult.violations.slice(0, 3);
+  const [selectedSuggestionKey, setSelectedSuggestionKey] = useState<string | null>(null);
   const focusLabel = `${focusWindow.dateKey} · ${formatTimeRangeLabel(focusWindow.timeRange)}`;
+  const suggestionCards = engineResult.suggestions.slice(0, 5).map((suggestion, index) => {
+    const key = buildSuggestionKey(suggestion);
+    return {
+      suggestion,
+      key,
+      index
+    };
+  });
 
   return (
     <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -324,6 +346,15 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                     <ul className="space-y-2">
                       {topViolations.map((violation, index) => {
                         const detail = getViolationDetail(violation, positionNameById);
+                        const violationRefKey = linkIndex.violationsByKey.get(
+                          buildViolationKey(violation)
+                        )?.key;
+                        const suggestionKeys = violationRefKey
+                          ? linkIndex.violationToSuggestions.get(violationRefKey) ?? []
+                          : [];
+                        const suggestionRefs = suggestionKeys
+                          .map(key => linkIndex.suggestionsByKey.get(key))
+                          .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
                         return (
                           <li
                             key={`${violation.constraintId}-${index}`}
@@ -339,6 +370,25 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                             </div>
                             <p className="text-gray-600">{violation.message}</p>
                             {detail && <p className="text-gray-400">{detail}</p>}
+                            {suggestionRefs.length > 0 && (
+                              <div className="mt-2">
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-red-300">
+                                  Fix candidates
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  {suggestionRefs.slice(0, 3).map(ref => (
+                                    <button
+                                      key={ref.key}
+                                      type="button"
+                                      onClick={() => setSelectedSuggestionKey(ref.key)}
+                                      className="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600 hover:bg-red-100"
+                                    >
+                                      {ref.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </li>
                         );
                       })}
@@ -365,6 +415,52 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         {suggestionSummary.firstActionLabel}
                       </p>
                     )}
+                    <div className="space-y-2">
+                      {suggestionCards.map(card => {
+                        const suggestionRef = linkIndex.suggestionsByKey.get(card.key);
+                        const violationKeys = linkIndex.suggestionToViolations.get(card.key) ?? [];
+                        const violationRefs = violationKeys
+                          .map(key => linkIndex.violationsByKey.get(key))
+                          .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
+                        return (
+                          <div
+                            key={card.key}
+                            className={`rounded-xl border px-3 py-2 text-xs ${
+                              selectedSuggestionKey === card.key
+                                ? 'border-indigo-300 bg-indigo-50/60'
+                                : 'border-gray-100 bg-white'
+                            }`}
+                          >
+                            <div className="font-semibold text-gray-700">
+                              {suggestionRef?.label ?? `Javaslat #${card.index + 1}`}
+                            </div>
+                            {violationRefs.length > 0 && (
+                              <div className="mt-1">
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+                                  Addresses
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  {violationRefs.slice(0, 2).map(ref => (
+                                    <span
+                                      key={ref.key}
+                                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                        ref.severity === 'high'
+                                          ? 'bg-red-100 text-red-600'
+                                          : ref.severity === 'medium'
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-green-100 text-green-700'
+                                      }`}
+                                    >
+                                      {ref.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

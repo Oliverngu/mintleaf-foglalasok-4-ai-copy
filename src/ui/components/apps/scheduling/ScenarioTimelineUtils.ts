@@ -17,6 +17,20 @@ export type FocusTimeOption = {
   timeRange?: { startTime: string; endTime: string };
 };
 
+export type ViolationRef = {
+  key: string;
+  label: string;
+  severity: 'low' | 'medium' | 'high';
+  rawIndex: number;
+};
+
+export type SuggestionRef = {
+  key: string;
+  label: string;
+  type: Suggestion['type'];
+  rawIndex: number;
+};
+
 export const SCENARIO_TYPE_PRIORITY: Record<Scenario['type'], number> = {
   SICKNESS: 1,
   EVENT: 2,
@@ -25,6 +39,7 @@ export const SCENARIO_TYPE_PRIORITY: Record<Scenario['type'], number> = {
 };
 
 const TIME_REGEX = /^\d{2}:\d{2}$/;
+const DATE_REGEX = /\d{4}-\d{2}-\d{2}/;
 
 const toMinutes = (time: string): number => {
   const [hours, minutes] = time.split(':').map(Number);
@@ -41,6 +56,34 @@ const normalizeRange = (start: string, end: string): Array<[number, number]> => 
     ];
   }
   return [[startMinutes, endMinutes]];
+};
+
+const extractDateFromSlots = (slots?: string[]): string | undefined => {
+  if (!slots) return undefined;
+  const hit = slots.find(slot => DATE_REGEX.test(slot));
+  return hit ? hit.match(DATE_REGEX)?.[0] : undefined;
+};
+
+const extractTimeRangeFromSlot = (
+  slot?: string
+): { startTime: string; endTime: string } | undefined => {
+  if (!slot) return undefined;
+  const matches = slot.match(/\d{2}:\d{2}/g);
+  if (!matches || matches.length < 2) return undefined;
+  const [startTime, endTime] = matches;
+  return { startTime, endTime };
+};
+
+const getSuggestionActionRange = (
+  action: SuggestionAction
+): { startTime: string; endTime: string } | undefined => {
+  if (action.type === 'moveShift') {
+    return { startTime: action.newStartTime, endTime: action.newEndTime };
+  }
+  if (action.type === 'createShift') {
+    return { startTime: action.startTime, endTime: action.endTime };
+  }
+  return undefined;
 };
 
 export const rangesOverlap = (aStart: string, aEnd: string, bStart: string, bEnd: string): boolean => {
@@ -243,6 +286,32 @@ export const getScenarioFocusTimeOptions = (
   return [options.get('ALL_DAY')!, ...timedOptions];
 };
 
+export const buildViolationKey = (violation: ConstraintViolation): string => {
+  const parts = [
+    violation.constraintId,
+    violation.severity,
+    violation.affected.positionId ?? '',
+    violation.affected.dateKeys?.[0] ?? extractDateFromSlots(violation.affected.slots) ?? '',
+    violation.affected.slots?.[0] ?? ''
+  ];
+  return parts.filter(Boolean).join('|');
+};
+
+export const buildSuggestionKey = (suggestion: Suggestion): string => {
+  const action = suggestion.actions[0];
+  if (!action) return suggestion.type;
+  const timeRange = getSuggestionActionRange(action);
+  const parts = [
+    suggestion.type,
+    action.type,
+    action.userId,
+    action.dateKey,
+    action.positionId ?? '',
+    timeRange ? `${timeRange.startTime}-${timeRange.endTime}` : ''
+  ];
+  return parts.filter(Boolean).join('|');
+};
+
 const formatSuggestionActionLabel = (
   action: SuggestionAction,
   userNameById?: Map<string, string>,
@@ -257,6 +326,138 @@ const formatSuggestionActionLabel = (
     return `Mozgatás: ${userLabel} · ${action.dateKey} · ${action.newStartTime}–${action.newEndTime}${positionSuffix}`;
   }
   return `Új műszak: ${userLabel} · ${action.dateKey} · ${action.startTime}–${action.endTime}${positionSuffix}`;
+};
+
+export const summarizeSuggestionLabel = (
+  suggestion: Suggestion,
+  userNameById?: Map<string, string>,
+  positionNameById?: Map<string, string>
+): string => {
+  const action = suggestion.actions[0];
+  if (action) {
+    return formatSuggestionActionLabel(action, userNameById, positionNameById);
+  }
+  return suggestion.type === 'SHIFT_MOVE_SUGGESTION' ? 'Átmozgatás' : 'Új műszak';
+};
+
+export const labelViolationCompact = (
+  violation: ConstraintViolation,
+  positionNameById?: Map<string, string>
+): string => {
+  const label = labelViolation(violation);
+  const detail = getViolationDetail(violation, positionNameById);
+  const dateLabel = violation.affected.dateKeys?.[0] ?? extractDateFromSlots(violation.affected.slots);
+  const slotLabel = violation.affected.slots?.[0];
+  return [label, detail, dateLabel, slotLabel].filter(Boolean).join(' · ');
+};
+
+export const buildSuggestionViolationLinks = (
+  violations: ConstraintViolation[],
+  suggestions: Suggestion[],
+  userNameById?: Map<string, string>,
+  positionNameById?: Map<string, string>
+) => {
+  const violationsByKey = new Map<string, ViolationRef>();
+  const suggestionsByKey = new Map<string, SuggestionRef>();
+  const violationToSuggestions = new Map<string, string[]>();
+  const suggestionToViolations = new Map<string, string[]>();
+
+  const suggestionRefs = suggestions.map((suggestion, index) => {
+    const key = buildSuggestionKey(suggestion);
+    const label = summarizeSuggestionLabel(suggestion, userNameById, positionNameById);
+    const ref: SuggestionRef = {
+      key,
+      label,
+      type: suggestion.type,
+      rawIndex: index
+    };
+    suggestionsByKey.set(key, ref);
+    return { suggestion, ref };
+  });
+
+  const violationRefs = violations.map((violation, index) => {
+    const key = buildViolationKey(violation);
+    const label = labelViolationCompact(violation, positionNameById);
+    const ref: ViolationRef = {
+      key,
+      label,
+      severity: violation.severity,
+      rawIndex: index
+    };
+    violationsByKey.set(key, ref);
+    return { violation, ref };
+  });
+
+  violationRefs.forEach(({ violation, ref }) => {
+    const scored = suggestionRefs
+      .map(({ suggestion, ref: suggestionRef }) => {
+        const violationDate =
+          violation.affected.dateKeys?.[0] ?? extractDateFromSlots(violation.affected.slots);
+        const violationPosition = violation.affected.positionId;
+        const violationSlotRange = extractTimeRangeFromSlot(violation.affected.slots?.[0]);
+
+        let dateMatch = false;
+        let positionMatch = false;
+        let timeMatch = false;
+
+        suggestion.actions.forEach(action => {
+          if (violationDate && action.dateKey === violationDate) {
+            dateMatch = true;
+          }
+          if (violationPosition && action.positionId === violationPosition) {
+            positionMatch = true;
+          }
+          if (violationSlotRange) {
+            const actionRange = getSuggestionActionRange(action);
+            if (actionRange) {
+              timeMatch =
+                timeMatch ||
+                rangesOverlap(
+                  actionRange.startTime,
+                  actionRange.endTime,
+                  violationSlotRange.startTime,
+                  violationSlotRange.endTime
+                );
+            }
+          }
+        });
+
+        let score = 0;
+        if (dateMatch) score += 3;
+        if (positionMatch) score += 2;
+        if (timeMatch) score += 1;
+
+        const meetsThreshold =
+          score >= 3 || (dateMatch && suggestion.type === 'ADD_SHIFT_SUGGESTION');
+
+        return meetsThreshold ? { key: suggestionRef.key, score } : null;
+      })
+      .filter((entry): entry is { key: string; score: number } => entry !== null)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.key.localeCompare(b.key);
+      })
+      .slice(0, 3);
+
+    const suggestionKeys = scored.map(entry => entry.key);
+    violationToSuggestions.set(ref.key, suggestionKeys);
+    suggestionKeys.forEach(key => {
+      const existing = suggestionToViolations.get(key) ?? [];
+      suggestionToViolations.set(key, [...existing, ref.key]);
+    });
+  });
+
+  suggestionToViolations.forEach((keys, suggestionKey) => {
+    const unique = Array.from(new Set(keys));
+    suggestionToViolations.set(suggestionKey, unique);
+  });
+
+  return {
+    violationsByKey,
+    suggestionsByKey,
+    violationToSuggestions,
+    suggestionToViolations
+  };
 };
 
 export const summarizeSuggestions = (

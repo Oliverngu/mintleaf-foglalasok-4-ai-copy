@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Scenario } from '../../../../../core/scheduling/scenarios/types.js';
 import {
+  buildSuggestionViolationLinks,
   getScenarioFocusTimeOptions,
   rangesOverlap,
   describeScenario,
@@ -167,5 +168,82 @@ describe('describeScenario', () => {
     assert.ok(label.includes('Esemény'));
     assert.ok(label.includes('2024-01-02'));
     assert.ok(label.includes('10:00–12:00'));
+  });
+});
+
+describe('buildSuggestionViolationLinks', () => {
+  it('links suggestions to violations by date and position', () => {
+    const violations = [
+      {
+        constraintId: 'MIN_COVERAGE_BY_POSITION',
+        severity: 'high' as const,
+        message: 'missing',
+        affected: {
+          dateKeys: ['2024-01-02'],
+          positionId: 'pos-1'
+        }
+      }
+    ];
+    const suggestions = [
+      {
+        type: 'ADD_SHIFT_SUGGESTION' as const,
+        expectedImpact: '',
+        explanation: '',
+        actions: [
+          {
+            type: 'createShift' as const,
+            userId: 'user-1',
+            dateKey: '2024-01-02',
+            startTime: '10:00',
+            endTime: '12:00',
+            positionId: 'pos-1'
+          }
+        ]
+      }
+    ];
+
+    const links = buildSuggestionViolationLinks(violations, suggestions, new Map(), new Map());
+    const violationKey = Array.from(links.violationsByKey.keys())[0];
+    const suggestionKey = Array.from(links.suggestionsByKey.keys())[0];
+    assert.deepEqual(links.violationToSuggestions.get(violationKey), [suggestionKey]);
+    assert.deepEqual(links.suggestionToViolations.get(suggestionKey), [violationKey]);
+  });
+
+  it('does not link suggestions when dates do not match', () => {
+    const violations = [
+      {
+        constraintId: 'MIN_COVERAGE_BY_POSITION',
+        severity: 'medium' as const,
+        message: 'missing',
+        affected: {
+          dateKeys: ['2024-01-03'],
+          positionId: 'pos-1'
+        }
+      }
+    ];
+    const suggestions = [
+      {
+        type: 'SHIFT_MOVE_SUGGESTION' as const,
+        expectedImpact: '',
+        explanation: '',
+        actions: [
+          {
+            type: 'moveShift' as const,
+            shiftId: 'shift-1',
+            userId: 'user-2',
+            dateKey: '2024-01-02',
+            newStartTime: '09:00',
+            newEndTime: '11:00',
+            positionId: 'pos-1'
+          }
+        ]
+      }
+    ];
+
+    const links = buildSuggestionViolationLinks(violations, suggestions, new Map(), new Map());
+    const violationKey = Array.from(links.violationsByKey.keys())[0];
+    const suggestionKey = Array.from(links.suggestionsByKey.keys())[0];
+    assert.deepEqual(links.violationToSuggestions.get(violationKey), []);
+    assert.equal(links.suggestionToViolations.get(suggestionKey)?.length ?? 0, 0);
   });
 });
