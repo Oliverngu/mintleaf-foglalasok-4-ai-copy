@@ -60,6 +60,7 @@ import {
 import { normalizeScheduleSettings } from '../../../core/scheduling/normalizeScheduleSettings';
 import type { Scenario, ScenarioType } from '../../../core/scheduling/scenarios/types';
 import { listScenarios, upsertScenario, deleteScenario } from '../../../core/scheduling/scenarios/scenarioService';
+import { ScenarioTimelinePanel } from './scheduling/ScenarioTimelinePanel';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -1661,6 +1662,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     useState('');
   const [coverageScenarioMinCount, setCoverageScenarioMinCount] =
     useState('2');
+  const [isScenarioTimelineOpen, setIsScenarioTimelineOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
@@ -2316,6 +2318,7 @@ if (expected === 0) {
   );
 
   const weekDayKeySet = useMemo(() => new Set(weekDays.map(toDateString)), [weekDays]);
+  const weekDayKeys = useMemo(() => weekDays.map(toDateString), [weekDays]);
 
   const weekStartDateStr = useMemo(
     () => toDateString(weekDays[0]),
@@ -5873,7 +5876,17 @@ if (expected === 0) {
                     </div>
                   ))}
                   <div className="mt-6 border-t pt-4">
-                    <h3 className="text-lg font-semibold mb-3">Scenáriók</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <h3 className="text-lg font-semibold">Scenáriók</h3>
+                      <button
+                        type="button"
+                        onClick={() => setIsScenarioTimelineOpen(true)}
+                        disabled={!engineResult}
+                        className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300"
+                      >
+                        Explainability / Timeline
+                      </button>
+                    </div>
                     {activeUnitIds.length !== 1 && (
                       <p className="text-sm text-gray-500">
                         Scenáriók szerkesztéséhez válassz pontosan egy egységet.
@@ -6130,6 +6143,26 @@ if (expected === 0) {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isScenarioTimelineOpen && engineResult && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: LAYERS.modal }}
+          onClick={() => setIsScenarioTimelineOpen(false)}
+        >
+          <div onClick={e => e.stopPropagation()}>
+            <ScenarioTimelinePanel
+              engineResult={engineResult}
+              scenarios={scenarios}
+              positions={positions}
+              users={allAppUsers}
+              weekDays={weekDayKeys}
+              selectedDateKey={weekDayKeys[0]}
+              onClose={() => setIsScenarioTimelineOpen(false)}
+            />
           </div>
         </div>
       )}
