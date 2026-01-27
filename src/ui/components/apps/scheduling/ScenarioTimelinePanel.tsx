@@ -172,9 +172,26 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const suggestionRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const focusLabel = `${focusWindow.dateKey} · ${formatTimeRangeLabel(focusWindow.timeRange)}`;
+  const focusSuggestionKeys = useMemo(() => {
+    const keys = new Set<string>();
+    focusLinkIndex.suggestionToViolations.forEach((violationKeys, suggestionKey) => {
+      if (violationKeys.length > 0) {
+        keys.add(suggestionKey);
+      }
+    });
+    return keys;
+  }, [focusLinkIndex]);
+  const baseSuggestions = useMemo(() => {
+    if (focusSuggestionKeys.size === 0) {
+      return engineResult.suggestions;
+    }
+    return engineResult.suggestions.filter(suggestion =>
+      focusSuggestionKeys.has(buildSuggestionKey(suggestion))
+    );
+  }, [engineResult.suggestions, focusSuggestionKeys]);
   const visibleSuggestions = showAllSuggestions
-    ? engineResult.suggestions
-    : engineResult.suggestions.slice(0, 5);
+    ? baseSuggestions
+    : baseSuggestions.slice(0, 5);
   const suggestionCards = visibleSuggestions.map((suggestion, index) => {
     const key = buildSuggestionKey(suggestion);
     return {
@@ -368,7 +385,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         const suggestionKeys = violationRefKey
                           ? focusLinkIndex.violationToSuggestions.get(violationRefKey) ?? []
                           : [];
-                        const suggestionRefs = suggestionKeys
+                        const suggestionCandidates = suggestionKeys
                           .map(key => focusLinkIndex.suggestionsByKey.get(key))
                           .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
                         return (
@@ -386,13 +403,13 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                             </div>
                             <p className="text-gray-600">{violation.message}</p>
                             {detail && <p className="text-gray-400">{detail}</p>}
-                            {suggestionRefs.length > 0 && (
+                            {suggestionCandidates.length > 0 && (
                               <div className="mt-2">
                                 <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-red-300">
                                   Fix candidates
                                 </div>
                                 <div className="mt-1 flex flex-wrap gap-2">
-                                  {suggestionRefs.slice(0, 3).map(ref => (
+                                  {suggestionCandidates.slice(0, 3).map(ref => (
                                     <button
                                       key={ref.key}
                                       type="button"
@@ -493,7 +510,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         );
                       })}
                     </div>
-                    {engineResult.suggestions.length > 5 && (
+                    {baseSuggestions.length > 5 && (
                       <button
                         type="button"
                         onClick={() => setShowAllSuggestions(prev => !prev)}
