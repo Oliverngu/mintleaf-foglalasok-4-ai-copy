@@ -12,6 +12,7 @@ import {
   buildAssistantSuggestionIdV1,
   buildAssistantSuggestionIdV2,
 } from './ids/suggestionId.js';
+import { buildSuggestionSignatureMeta } from './ids/suggestionSignature.js';
 import { Explanation } from './types.js';
 
 type SuggestionPipelineInput = {
@@ -68,6 +69,7 @@ const createSuggestionExplanation = (suggestion: Suggestion): Explanation => ({
   relatedSuggestionId: buildAssistantSuggestionIdV2(suggestion),
   meta: {
     v1SuggestionId: buildAssistantSuggestionIdV1(suggestion),
+    ...buildSuggestionSignatureMeta(suggestion),
   },
 });
 

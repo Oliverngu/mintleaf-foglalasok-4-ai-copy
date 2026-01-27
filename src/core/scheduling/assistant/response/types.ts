@@ -7,6 +7,9 @@ export type AssistantSuggestion = {
   severity: 'low' | 'medium' | 'high';
   meta?: {
     v1SuggestionId?: string;
+    signatureVersion?: 'sig:v2';
+    signatureHash?: string;
+    signaturePreview?: string;
   };
   why?: string;
   whyNow?: string;

@@ -12,6 +12,11 @@ import {
   buildAssistantSuggestionIdV1,
   buildAssistantSuggestionIdV2,
 } from '../ids/suggestionId.js';
+import {
+  buildSuggestionSignatureMeta,
+  buildSuggestionSignatureV2,
+  stringifySuggestionSignature,
+} from '../ids/suggestionSignature.js';
 import { buildSuggestionExplainability } from '../explainability/buildSuggestionExplainability.js';
 import { buildSuggestionAffected } from '../explainability/suggestionAffected.js';
 
@@ -52,6 +57,11 @@ const toAssistantSuggestion = (
   suggestion: Suggestion,
   v1SuggestionId: string,
   v2SuggestionId: string,
+  signatureMeta: {
+    signatureVersion: 'sig:v2';
+    signatureHash: string;
+    signaturePreview: string;
+  },
   decisionState: AssistantSuggestion['decisionState'] | undefined,
   includeDecisionState: boolean,
   explainability: Pick<AssistantSuggestion, 'why' | 'whyNow' | 'whatIfAccepted'>
@@ -65,7 +75,7 @@ const toAssistantSuggestion = (
   explanation: suggestion.explanation,
   expectedImpact: suggestion.expectedImpact,
   actions: suggestion.actions,
-  meta: { v1SuggestionId },
+  meta: { v1SuggestionId, ...signatureMeta },
   ...(includeDecisionState && decisionState ? { decisionState } : {}),
 });
 
@@ -233,12 +243,34 @@ export const buildAssistantResponse = (
           suggestion,
           v1SuggestionId,
           v2SuggestionId,
+          buildSuggestionSignatureMeta(suggestion),
           getDecisionState(v2SuggestionId, decisionMap, includeDecisionState),
           includeDecisionState,
           resolveSuggestionExplainability(v2SuggestionId)
         )
       )
   );
+
+  if (process.env.NODE_ENV !== 'production') {
+    const collisionMap = new Map<string, { v1Ids: Set<string>; signatures: Set<string> }>();
+    suggestionIdPairs.forEach(({ suggestion, v1SuggestionId, v2SuggestionId }) => {
+      const signature = stringifySuggestionSignature(buildSuggestionSignatureV2(suggestion));
+      const entry = collisionMap.get(v2SuggestionId) ?? {
+        v1Ids: new Set<string>(),
+        signatures: new Set<string>(),
+      };
+      entry.v1Ids.add(v1SuggestionId);
+      entry.signatures.add(signature);
+      collisionMap.set(v2SuggestionId, entry);
+    });
+    collisionMap.forEach((entry, v2Id) => {
+      if (entry.v1Ids.size > 1 || entry.signatures.size > 1) {
+        throw new Error(
+          `Suggestion ID collision detected for v2Id=${v2Id}; signatures=${[...entry.signatures].join('|')}`
+        );
+      }
+    });
+  }
 
   if (!includeDecisionState) {
     assistantSuggestions.forEach(suggestion => {
