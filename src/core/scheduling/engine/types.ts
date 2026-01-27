@@ -126,6 +126,15 @@ export type EngineResult = {
     removedShiftsCount: number;
     addedRulesCount: number;
     overriddenRulesCount: number;
+    ruleDiff?: {
+      before: MinCoverageRule[];
+      after: MinCoverageRule[];
+    };
+    uiSummary?: {
+      hasRuleOverrides: boolean;
+      hasRuleAdds: boolean;
+      hasShiftRemovals: boolean;
+    };
   };
   explanation: {
     trace: string[];

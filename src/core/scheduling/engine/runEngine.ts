@@ -19,7 +19,13 @@ import {
  */
 export const runEngine = (input: EngineInput): EngineResult => {
   const trace: string[] = [];
+  const rulesBefore = input.ruleset.minCoverageByPosition
+    ? [...input.ruleset.minCoverageByPosition]
+    : [];
   const { adjustedInput, effects } = applyScenariosToEngineInputWithEffects(input);
+  const rulesAfter = adjustedInput.ruleset.minCoverageByPosition
+    ? [...adjustedInput.ruleset.minCoverageByPosition]
+    : [];
   const scenarioEffects = computeScenarioEffects(input, adjustedInput, effects);
   trace.push('computeCapacity');
   const { capacityMap } = computeCapacity(adjustedInput);
@@ -34,7 +40,18 @@ export const runEngine = (input: EngineInput): EngineResult => {
     capacityMap,
     violations,
     suggestions,
-    scenarioEffects,
+    scenarioEffects: {
+      ...scenarioEffects,
+      ruleDiff: {
+        before: rulesBefore,
+        after: rulesAfter
+      },
+      uiSummary: {
+        hasRuleOverrides: scenarioEffects.overriddenRulesCount > 0,
+        hasRuleAdds: scenarioEffects.addedRulesCount > 0,
+        hasShiftRemovals: scenarioEffects.removedShiftsCount > 0
+      }
+    },
     explanation: {
       trace
     }
