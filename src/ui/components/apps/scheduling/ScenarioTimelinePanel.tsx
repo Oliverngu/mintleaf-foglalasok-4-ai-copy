@@ -265,6 +265,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   const [resolvedViolationStack, setResolvedViolationStack] = useState<string[][]>([]);
   const [resolvedItemsStack, setResolvedItemsStack] = useState<ResolvedViolationItem[][]>([]);
   const [pendingAccept, setPendingAccept] = useState<PendingAccept | null>(null);
+  const pendingAcceptRef = useRef<PendingAccept | null>(null);
   const buildResolvedLabel = useCallback(
     (
       violation?: ConstraintViolation,
@@ -312,6 +313,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
     setResolvedViolationItems(prev => [...prev, ...resolvedItems]);
     setResolvedViolationStack(prev => [...prev, resolvedKeys]);
     setResolvedItemsStack(prev => [...prev, resolvedItems]);
+    pendingAcceptRef.current = null;
     setPendingAccept(null);
   }, [buildResolvedLabel, engineResult.violations, pendingAccept]);
 
@@ -741,7 +743,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                   type="button"
                                   onClick={event => {
                                     event.stopPropagation();
-                                    setPendingAccept({
+                                    const nextPending: PendingAccept = {
                                       suggestionKey: card.key,
                                       beforeViolationKeys: engineResult.violations.map(violation =>
                                         buildViolationKey(violation)
@@ -752,7 +754,9 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                           violation
                                         ])
                                       )
-                                    });
+                                    };
+                                    pendingAcceptRef.current = nextPending;
+                                    setPendingAccept(nextPending);
                                     onAcceptSuggestion(card.key);
                                   }}
                                   className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700"
@@ -764,7 +768,8 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     type="button"
                                     onClick={event => {
                                       event.stopPropagation();
-                                      if (pendingAccept) {
+                                      if (pendingAcceptRef.current) {
+                                        pendingAcceptRef.current = null;
                                         setPendingAccept(null);
                                         onUndoSuggestion();
                                         return;
