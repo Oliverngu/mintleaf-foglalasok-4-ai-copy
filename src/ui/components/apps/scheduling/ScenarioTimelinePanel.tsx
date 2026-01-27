@@ -1,5 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { EngineResult, MinCoverageRule } from '../../../../core/scheduling/engine/types';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  ConstraintViolation,
+  EngineResult,
+  MinCoverageRule
+} from '../../../../core/scheduling/engine/types';
 import type { Scenario } from '../../../../core/scheduling/scenarios/types';
 import type { Position, User } from '../../../../core/models/data';
 import {
@@ -36,6 +40,12 @@ type ScenarioTimelinePanelProps = {
   onUndoSuggestion: () => void;
   canUndoSuggestion: boolean;
   onClose: () => void;
+};
+
+type ResolvedViolationItem = {
+  key: string;
+  label: string;
+  severity: 'low' | 'medium' | 'high';
 };
 
 const buildRuleKey = (rule: MinCoverageRule) => {
@@ -236,6 +246,62 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
       index
     };
   });
+  const [appliedSuggestionKeys, setAppliedSuggestionKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [appliedSuggestionOrder, setAppliedSuggestionOrder] = useState<string[]>([]);
+  const [resolvedViolationKeys, setResolvedViolationKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [resolvedViolationItems, setResolvedViolationItems] = useState<ResolvedViolationItem[]>(
+    []
+  );
+  const [resolvedViolationStack, setResolvedViolationStack] = useState<string[][]>([]);
+  const [resolvedItemsStack, setResolvedItemsStack] = useState<ResolvedViolationItem[][]>([]);
+  const [pendingAccept, setPendingAccept] = useState<{
+    suggestionKey: string;
+    previousViolations: ConstraintViolation[];
+  } | null>(null);
+  const buildResolvedLabel = useCallback(
+    (violation: ConstraintViolation): ResolvedViolationItem => {
+      const detail = getViolationDetail(violation, positionNameById);
+      const dateLabel = violation.affected.dateKeys?.[0];
+      const slotLabel = violation.affected.slots?.[0];
+      const label = [labelViolation(violation), detail, dateLabel, slotLabel]
+        .filter(Boolean)
+        .join(' · ');
+      return {
+        key: buildViolationKey(violation),
+        label,
+        severity: violation.severity
+      };
+    },
+    [positionNameById]
+  );
+
+  useEffect(() => {
+    if (!pendingAccept) return;
+    const beforeKeys = new Set(
+      pendingAccept.previousViolations.map(violation => buildViolationKey(violation))
+    );
+    const afterKeys = new Set(engineResult.violations.map(violation => buildViolationKey(violation)));
+    const resolvedKeys = Array.from(beforeKeys).filter(key => !afterKeys.has(key));
+    const resolvedItems = pendingAccept.previousViolations
+      .filter(violation => resolvedKeys.includes(buildViolationKey(violation)))
+      .map(buildResolvedLabel);
+
+    setAppliedSuggestionKeys(prev => {
+      const next = new Set(prev);
+      next.add(pendingAccept.suggestionKey);
+      return next;
+    });
+    setAppliedSuggestionOrder(prev => [...prev, pendingAccept.suggestionKey]);
+    setResolvedViolationKeys(prev => new Set([...prev, ...resolvedKeys]));
+    setResolvedViolationItems(prev => [...prev, ...resolvedItems]);
+    setResolvedViolationStack(prev => [...prev, resolvedKeys]);
+    setResolvedItemsStack(prev => [...prev, resolvedItems]);
+    setPendingAccept(null);
+  }, [buildResolvedLabel, engineResult.violations, pendingAccept]);
 
   return (
     <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -511,6 +577,29 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                     </ul>
                   </div>
                 )}
+                {resolvedViolationItems.length > 0 && (
+                  <div className="mt-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-green-500">
+                      Resolved ({resolvedViolationKeys.size})
+                    </div>
+                    <ul className="mt-2 space-y-2">
+                      {resolvedViolationItems.map(item => (
+                        <li
+                          key={item.key}
+                          className="flex items-center justify-between rounded-xl border border-green-100 bg-green-50/60 px-3 py-2 text-xs text-green-700"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="text-green-600">✔</span>
+                            {item.label}
+                          </span>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                            Resolved
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
                 <div className="text-sm font-semibold text-gray-700">Suggested Fixes</div>
@@ -549,6 +638,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         const actionLabel = isSelected
                           ? describeSuggestionActionCompact(card.suggestion, userNameById, positionNameById)
                           : '';
+                        const isApplied = appliedSuggestionKeys.has(card.key);
                         return (
                           <div
                             key={card.key}
@@ -556,9 +646,11 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                               suggestionRefs.current.set(card.key, node);
                             }}
                             className={`rounded-xl border px-3 py-2 text-xs ${
-                              selectedSuggestionKey === card.key
-                                ? 'border-indigo-300 bg-indigo-50/60'
-                                : 'border-gray-100 bg-white'
+                              isApplied
+                                ? 'border-emerald-200 bg-emerald-50/60 opacity-80'
+                                : selectedSuggestionKey === card.key
+                                  ? 'border-indigo-300 bg-indigo-50/60'
+                                  : 'border-gray-100 bg-white'
                             }`}
                             onClick={() => {
                               setSelectedSuggestionKey(card.key);
@@ -568,8 +660,16 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                               });
                             }}
                           >
-                            <div className="font-semibold text-gray-700">
-                              {suggestionRef?.label ?? `Javaslat #${card.index + 1}`}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-semibold text-gray-700">
+                                {suggestionRef?.label ?? `Javaslat #${card.index + 1}`}
+                              </div>
+                              {isApplied && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                  <span>✔</span>
+                                  Applied
+                                </span>
+                              )}
                             </div>
                             {violationRefs.length > 0 && (
                               <div className="mt-1">
@@ -629,6 +729,10 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                   type="button"
                                   onClick={event => {
                                     event.stopPropagation();
+                                    setPendingAccept({
+                                      suggestionKey: card.key,
+                                      previousViolations: engineResult.violations
+                                    });
                                     onAcceptSuggestion(card.key);
                                   }}
                                   className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700"
@@ -640,6 +744,42 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     type="button"
                                     onClick={event => {
                                       event.stopPropagation();
+                                      setPendingAccept(null);
+                                      setAppliedSuggestionOrder(prev => {
+                                        if (prev.length === 0) return prev;
+                                        const next = [...prev];
+                                        const removedKey = next.pop();
+                                        if (removedKey) {
+                                          setAppliedSuggestionKeys(current => {
+                                            const nextKeys = new Set(current);
+                                            nextKeys.delete(removedKey);
+                                            return nextKeys;
+                                          });
+                                        }
+                                        return next;
+                                      });
+                                      setResolvedViolationStack(prev => {
+                                        if (prev.length === 0) return prev;
+                                        const next = [...prev];
+                                        const removed = next.pop() ?? [];
+                                        setResolvedViolationKeys(current => {
+                                          const nextKeys = new Set(current);
+                                          removed.forEach(key => nextKeys.delete(key));
+                                          return nextKeys;
+                                        });
+                                        return next;
+                                      });
+                                      setResolvedItemsStack(prev => {
+                                        if (prev.length === 0) return prev;
+                                        const next = [...prev];
+                                        const removedItems = next.pop() ?? [];
+                                        setResolvedViolationItems(current =>
+                                          current.filter(item =>
+                                            !removedItems.some(removed => removed.key === item.key)
+                                          )
+                                        );
+                                        return next;
+                                      });
                                       onUndoSuggestion();
                                     }}
                                     className="rounded-lg border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"

@@ -65,7 +65,7 @@ import { normalizeScheduleSettings } from '../../../core/scheduling/normalizeSch
 import type { Scenario, ScenarioType } from '../../../core/scheduling/scenarios/types';
 import { listScenarios, upsertScenario, deleteScenario } from '../../../core/scheduling/scenarios/scenarioService';
 import { ScenarioTimelinePanel } from './scheduling/ScenarioTimelinePanel';
-import { buildSuggestionKey } from './scheduling/ScenarioTimelineUtils';
+import { buildSuggestionKey, buildViolationKey } from './scheduling/ScenarioTimelineUtils';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -2821,6 +2821,7 @@ if (expected === 0) {
   const handleAcceptTimelineSuggestion = useCallback(
     (suggestionKey: string) => {
       if (!engineResult) return;
+      const beforeViolations = engineResult.violations;
       const suggestion = engineResult.suggestions.find(
         item => buildSuggestionKey(item) === suggestionKey
       );
@@ -2831,9 +2832,27 @@ if (expected === 0) {
       ].slice(0, 10));
       const nextDraft = applySuggestionToDraft({ shifts: localSchedule }, suggestion);
       setLocalSchedule(nextDraft.shifts);
-      computeEngineResultForCurrentWeek(nextDraft.shifts);
+      const nextResult = computeEngineResultForCurrentWeek(nextDraft.shifts);
+      if (nextResult) {
+        const afterKeys = new Set(nextResult.violations.map(violation => buildViolationKey(violation)));
+        const resolvedCounts = { low: 0, medium: 0, high: 0 };
+        let resolvedTotal = 0;
+        beforeViolations.forEach(violation => {
+          const key = buildViolationKey(violation);
+          if (!afterKeys.has(key)) {
+            resolvedTotal += 1;
+            resolvedCounts[violation.severity] += 1;
+          }
+        });
+        if (resolvedTotal > 0) {
+          const breakdown = ` – ${resolvedCounts.high} high, ${resolvedCounts.medium} medium, ${resolvedCounts.low} low megszűnt`;
+          setSuccessToast(`✔ Javaslat alkalmazva – ${resolvedTotal} megsértés megszűnt${breakdown}`);
+        } else {
+          setSuccessToast('✔ Javaslat alkalmazva');
+        }
+      }
     },
-    [computeEngineResultForCurrentWeek, engineResult, localSchedule]
+    [computeEngineResultForCurrentWeek, engineResult, localSchedule, setSuccessToast]
   );
 
   const handleUndoTimelineSuggestion = useCallback(() => {
