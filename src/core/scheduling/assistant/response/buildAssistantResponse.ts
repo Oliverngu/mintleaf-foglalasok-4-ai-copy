@@ -83,6 +83,22 @@ const buildSuggestionAffected = (suggestion: Suggestion) => {
   };
 };
 
+const hasOverlap = (left?: string[], right?: string[]) => {
+  if (!left?.length || !right?.length) return false;
+  return left.some(value => right.includes(value));
+};
+
+const isSuggestionRelatedToViolation = (
+  suggestionAffected: Explanation['affected'],
+  violationAffected: Explanation['affected']
+) =>
+  (suggestionAffected.positionId &&
+    suggestionAffected.positionId === violationAffected.positionId) ||
+  hasOverlap(suggestionAffected.userIds, violationAffected.userIds) ||
+  hasOverlap(suggestionAffected.shiftIds, violationAffected.shiftIds) ||
+  hasOverlap(suggestionAffected.dateKeys, violationAffected.dateKeys) ||
+  hasOverlap(suggestionAffected.slots, violationAffected.slots);
+
 export const wasSuggestionAccepted = (
   suggestionId: string,
   decisionMap: Map<string, DecisionRecord['decision']>
@@ -103,11 +119,15 @@ export const getDecisionState = (
 const toAssistantSuggestion = (
   suggestion: Suggestion,
   decisionState: AssistantSuggestion['decisionState'] | undefined,
-  includeDecisionState: boolean
+  includeDecisionState: boolean,
+  explainability: Pick<AssistantSuggestion, 'why' | 'whyNow' | 'whatIfAccepted'>
 ): AssistantSuggestion => ({
   id: buildSuggestionId(suggestion),
   type: suggestion.type,
   severity: 'low',
+  why: explainability.why,
+  whyNow: explainability.whyNow,
+  whatIfAccepted: explainability.whatIfAccepted,
   explanation: suggestion.explanation,
   expectedImpact: suggestion.expectedImpact,
   actions: suggestion.actions,
@@ -150,6 +170,32 @@ export const buildAssistantResponse = (
         getSuggestionIdVersion(decision.suggestionId) === 'v1')
   );
   const decisionMap = buildDecisionMap(versionedDecisions);
+  const suggestionsById = new Map(
+    pipeline.suggestions.map(suggestion => [buildSuggestionId(suggestion), suggestion])
+  );
+  const violationExplanations = pipeline.explanations.filter(
+    explanation => explanation.kind === 'violation'
+  );
+  const buildSuggestionExplainability = (suggestionId: string) => {
+    const suggestion = suggestionsById.get(suggestionId);
+    if (!suggestion) {
+      return { why: undefined, whyNow: undefined, whatIfAccepted: undefined, relatedConstraintId: undefined };
+    }
+    const affected = buildSuggestionAffected(suggestion);
+    const linkedConstraintIds = violationExplanations
+      .filter(violation => isSuggestionRelatedToViolation(affected, violation.affected))
+      .map(violation => violation.relatedConstraintId ?? violation.title)
+      .filter(Boolean)
+      .sort();
+    return {
+      why: suggestion.explanation,
+      whyNow: linkedConstraintIds.length > 0
+        ? `Linked to violations: ${linkedConstraintIds.join(', ')}`
+        : undefined,
+      whatIfAccepted: suggestion.expectedImpact,
+      relatedConstraintId: linkedConstraintIds[0],
+    };
+  };
   const buildDecisionExplanation = (decision: DecisionRecord): Explanation | null => {
     const suggestion = pipeline.suggestions.find(
       item => buildSuggestionId(item) === decision.suggestionId
@@ -185,6 +231,24 @@ export const buildAssistantResponse = (
         .filter((item): item is Explanation => item !== null)
         .sort((a, b) => a.id.localeCompare(b.id))
     : [];
+  const enrichedPipelineExplanations = pipeline.explanations
+    .map(explanation => {
+      if (explanation.kind !== 'suggestion' || !explanation.relatedSuggestionId) {
+        return { ...explanation };
+      }
+      if (includeDecisionState && wasSuggestionAccepted(explanation.relatedSuggestionId, decisionMap)) {
+        return null;
+      }
+      const explainability = buildSuggestionExplainability(explanation.relatedSuggestionId);
+      return {
+        ...explanation,
+        why: explainability.why,
+        whyNow: explainability.whyNow,
+        whatIfAccepted: explainability.whatIfAccepted,
+        relatedConstraintId: explanation.relatedConstraintId ?? explainability.relatedConstraintId,
+      };
+    })
+    .filter((item): item is Explanation => item !== null);
 
   const assistantSuggestions = sortAssistantSuggestions(
     pipeline.suggestions
@@ -199,7 +263,8 @@ export const buildAssistantResponse = (
         toAssistantSuggestion(
           suggestion,
           getDecisionState(buildSuggestionId(suggestion), decisionMap, includeDecisionState),
-          includeDecisionState
+          includeDecisionState,
+          buildSuggestionExplainability(buildSuggestionId(suggestion))
         )
       )
   );
@@ -239,7 +304,16 @@ export const buildAssistantResponse = (
     ...pipelineSuggestionIds,
     ...decisionMap.keys(),
   ]);
-  [...pipeline.explanations, ...decisionExplanations].forEach(explanation => {
+  const finalExplanations = [...enrichedPipelineExplanations, ...decisionExplanations];
+  const explanationIds = finalExplanations.map(explanation => explanation.id);
+  const duplicateExplanationIds = explanationIds.filter(
+    (id, index, list) => list.indexOf(id) !== index
+  );
+  assertInvariant(
+    duplicateExplanationIds.length === 0,
+    `Duplicate explanation id detected: ${duplicateExplanationIds[0]}`
+  );
+  finalExplanations.forEach(explanation => {
     if (!explanation.relatedSuggestionId) return;
     assertInvariant(
       allowedRelatedIds.has(explanation.relatedSuggestionId),
@@ -248,7 +322,7 @@ export const buildAssistantResponse = (
   });
 
   return {
-    explanations: [...pipeline.explanations, ...decisionExplanations],
+    explanations: finalExplanations,
     suggestions: assistantSuggestions,
   };
 };

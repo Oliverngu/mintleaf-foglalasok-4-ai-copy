@@ -49,6 +49,14 @@ describe('assistant decision feedback', () => {
           explanation.relatedSuggestionId === suggestionId
       )
     );
+    assert.equal(
+      response.explanations.some(
+        explanation =>
+          explanation.kind === 'suggestion' &&
+          explanation.relatedSuggestionId === suggestionId
+      ),
+      false
+    );
   });
 
   it('keeps rejected suggestions with decisionState=rejected', () => {

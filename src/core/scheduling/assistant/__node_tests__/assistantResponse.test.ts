@@ -59,6 +59,42 @@ describe('buildAssistantResponse', () => {
     });
   });
 
+  it('adds explainability fields for suggestion explanations and suggestions', () => {
+    const weekDays = buildWeekDays();
+    const input = makeEngineInput({
+      weekDays,
+      shifts: [],
+      ruleset: {
+        minCoverageByPosition: [
+          {
+            positionId: 'p1',
+            dateKeys: [weekDays[0]],
+            startTime: '08:00',
+            endTime: '10:00',
+            minCount: 1,
+          },
+        ],
+      },
+    });
+
+    const result = runEngine(input);
+    const response = buildAssistantResponse(input, result);
+    const suggestion = response.suggestions[0];
+    const suggestionExplanation = response.explanations.find(
+      explanation => explanation.kind === 'suggestion'
+    );
+
+    assert.ok(suggestion);
+    assert.ok(suggestionExplanation);
+    assert.equal(suggestion.why, suggestion.explanation);
+    assert.equal(suggestion.whatIfAccepted, suggestion.expectedImpact);
+    assert.equal(suggestionExplanation.why, suggestion.explanation);
+    assert.equal(suggestionExplanation.whatIfAccepted, suggestion.expectedImpact);
+    assert.ok(
+      suggestionExplanation.whyNow?.startsWith('Linked to violations:') ?? true
+    );
+  });
+
   it('returns info explanations with no suggestions for empty inputs', () => {
     const input = makeEngineInput({
       shifts: [],

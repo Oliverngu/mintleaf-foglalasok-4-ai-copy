@@ -63,7 +63,7 @@ const buildActionKey = (action: SuggestionAction) => {
 
 const buildSuggestionId = (suggestion: Suggestion) =>
   [
-    'suggestion',
+    'assistant-suggestion:v1',
     suggestion.type,
     suggestion.actions.map(buildActionKey).join(';'),
     suggestion.expectedImpact,
