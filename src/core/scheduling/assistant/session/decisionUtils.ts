@@ -5,6 +5,9 @@ const decisionRank: Record<DecisionRecord['decision'], number> = {
   rejected: 1,
 };
 
+const sourceRank = (source?: DecisionRecord['source']) =>
+  source === 'system' ? 2 : source === 'user' ? 1 : 0;
+
 const assertInvariant = (condition: boolean, message: string) => {
   if (process.env.NODE_ENV === 'production') return;
   if (!condition) {
@@ -19,7 +22,11 @@ export const normalizeDecisions = (decisions: DecisionRecord[]): DecisionRecord[
     const timeA = a.timestamp ?? -1;
     const timeB = b.timestamp ?? -1;
     if (timeA !== timeB) return timeB - timeA;
-    return decisionRank[b.decision] - decisionRank[a.decision];
+    const decisionDiff = decisionRank[b.decision] - decisionRank[a.decision];
+    if (decisionDiff !== 0) return decisionDiff;
+    const sourceDiff = sourceRank(b.source) - sourceRank(a.source);
+    if (sourceDiff !== 0) return sourceDiff;
+    return (a.reason ?? '').localeCompare(b.reason ?? '');
   });
 
   const seen = new Set<string>();
@@ -42,7 +49,10 @@ const areDecisionsNormalized = (
     (decision, index) =>
       decision.suggestionId === normalized[index]?.suggestionId &&
       decision.decision === normalized[index]?.decision &&
-      decision.timestamp === normalized[index]?.timestamp
+      decision.timestamp === normalized[index]?.timestamp &&
+      // reason and source are part of the normalization contract
+      decision.reason === normalized[index]?.reason &&
+      decision.source === normalized[index]?.source
   );
 
 export const buildDecisionMap = (decisions?: DecisionRecord[]) => {

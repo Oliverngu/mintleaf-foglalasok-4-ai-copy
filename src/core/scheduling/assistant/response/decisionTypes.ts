@@ -4,4 +4,6 @@ export type DecisionRecord = {
   timestamp?: number;
   sessionId?: string;
   suggestionVersion?: 'v1' | 'v0';
+  reason?: string;
+  source?: 'user' | 'system';
 };

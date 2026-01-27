@@ -10,6 +10,15 @@ export type ExplanationAffected = {
   dateKeys?: string[];
 };
 
+export type DecisionExplanationMeta = {
+  decisionSource: 'user' | 'system';
+  hasDecisionReason: boolean;
+  decisionTimestamp?: number;
+  decision: 'accepted' | 'rejected';
+};
+
+export type ExplanationMeta = DecisionExplanationMeta | Record<string, unknown>;
+
 export type Explanation = {
   id: string;
   kind: ExplanationKind;
@@ -22,5 +31,5 @@ export type Explanation = {
   affected: ExplanationAffected;
   relatedConstraintId?: string;
   relatedSuggestionId?: string;
-  meta?: Record<string, unknown>;
+  meta?: ExplanationMeta;
 };
