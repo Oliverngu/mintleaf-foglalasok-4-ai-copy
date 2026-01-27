@@ -57,6 +57,9 @@ import {
   EngineResult,
   Suggestion
 } from '../../../core/scheduling/engine/types';
+import { normalizeScheduleSettings } from '../../../core/scheduling/normalizeScheduleSettings';
+import type { Scenario, ScenarioType } from '../../../core/scheduling/scenarios/types';
+import { listScenarios, upsertScenario, deleteScenario } from '../../../core/scheduling/scenarios/scenarioService';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -83,7 +86,7 @@ const SUCCESS_TOAST_EXIT_MS = 240;
 const calculateShiftDuration = (
   shift: Shift,
   options?: {
-    closingTime?: string | null;
+    closingTime?: string;
     closingOffsetMinutes?: number;
     referenceDate?: Date;
   }
@@ -869,6 +872,7 @@ const createDefaultSettings = (
     isOpen: true,
     openingTime: '08:00',
     closingTime: DEFAULT_CLOSING_TIME,
+    closingTimeInherit: false,
     closingOffsetMinutes: DEFAULT_CLOSING_OFFSET_MINUTES,
     quotas: {}
   })).reduce(
@@ -1640,6 +1644,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [weekSettings, setWeekSettings] =
     useState<ScheduleSettings | null>(null);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [isScenarioLoading, setIsScenarioLoading] = useState(false);
+  const [sicknessScenarioUserId, setSicknessScenarioUserId] = useState('');
+  const [sicknessScenarioDateKeys, setSicknessScenarioDateKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [coverageScenarioType, setCoverageScenarioType] =
+    useState<ScenarioType>('EVENT');
+  const [coverageScenarioDateKey, setCoverageScenarioDateKey] = useState('');
+  const [coverageScenarioStartTime, setCoverageScenarioStartTime] =
+    useState('18:00');
+  const [coverageScenarioEndTime, setCoverageScenarioEndTime] =
+    useState('21:00');
+  const [coverageScenarioPositionId, setCoverageScenarioPositionId] =
+    useState('');
+  const [coverageScenarioMinCount, setCoverageScenarioMinCount] =
+    useState('2');
   const [showSettings, setShowSettings] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
@@ -2302,6 +2323,20 @@ if (expected === 0) {
   );
 
   useEffect(() => {
+    const defaultDateKey = weekDays[0] ? toDateString(weekDays[0]) : '';
+    if (defaultDateKey && !coverageScenarioDateKey) {
+      setCoverageScenarioDateKey(defaultDateKey);
+    } else if (
+      defaultDateKey &&
+      coverageScenarioDateKey &&
+      !weekDayKeySet.has(coverageScenarioDateKey)
+    ) {
+      setCoverageScenarioDateKey(defaultDateKey);
+    }
+    setSicknessScenarioDateKeys(new Set());
+  }, [coverageScenarioDateKey, weekDayKeySet, weekDays]);
+
+  useEffect(() => {
     clearSelection();
   }, [clearSelection, weekStartDateStr]);
 
@@ -2330,20 +2365,23 @@ if (expected === 0) {
             );
             if (snap.exists()) {
               const data = snap.data() as ScheduleSettings;
-              return data.unitId ? data : { ...data, unitId };
+              const withUnitId = data.unitId ? data : { ...data, unitId };
+              const withId = withUnitId.id ? withUnitId : { ...withUnitId, id: settingsId };
+              return normalizeScheduleSettings(withId);
             }
             const defaults = createDefaultSettings(
               unitId,
               weekStartDateStr
             );
+            const normalizedDefaults = normalizeScheduleSettings(defaults);
             if (canManage) {
-              await setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+              await setDoc(doc(db, 'schedule_settings', normalizedDefaults.id), normalizedDefaults).catch(
                 error => {
                   console.error('Failed to persist default settings:', error);
                 }
               );
             }
-            return defaults;
+            return normalizedDefaults;
           } catch (error) {
             console.error(
               'Failed to load schedule settings for unit',
@@ -2385,6 +2423,21 @@ if (expected === 0) {
       );
   }, [allAppUsers, activeUnitIds, getUserUnitIds]);
 
+  const userNameById = useMemo(
+    () => new Map(allAppUsers.map(user => [user.id, user.fullName])),
+    [allAppUsers]
+  );
+  const positionNameById = useMemo(
+    () => new Map(positions.map(position => [position.id, position.name])),
+    [positions]
+  );
+
+  useEffect(() => {
+    if (!coverageScenarioPositionId && positions.length > 0) {
+      setCoverageScenarioPositionId(positions[0].id);
+    }
+  }, [coverageScenarioPositionId, positions]);
+
   const buildEngineInput = useCallback((): EngineInput => {
     const unitId = activeUnitIds[0] || 'default';
     const activeSettings =
@@ -2423,7 +2476,10 @@ if (expected === 0) {
             positionId: resolvedPositionId,
             dateKeys: [dateKey],
             startTime: setting.openingTime,
-            endTime: setting.closingTime,
+            endTime:
+              setting.closingTimeInherit === true
+                ? DEFAULT_CLOSING_TIME
+                : setting.closingTime,
             minCount
           };
         })
@@ -2489,6 +2545,7 @@ if (expected === 0) {
         defaultClosingTime: DEFAULT_CLOSING_TIME,
         defaultClosingOffsetMinutes: DEFAULT_CLOSING_OFFSET_MINUTES
       },
+      scenarios,
       ruleset: {
         bucketMinutes: 60,
         minCoverageByPosition,
@@ -2503,6 +2560,7 @@ if (expected === 0) {
     localSchedule,
     openingSettings,
     positions,
+    scenarios,
     unitWeekSettings,
     weekDayKeySet,
     weekDays
@@ -2877,16 +2935,17 @@ if (expected === 0) {
       docSnap => {
         if (docSnap.exists()) {
           const data = docSnap.data() as ScheduleSettings;
-          setWeekSettings(
-            data.unitId ? data : { ...data, unitId, id: settingsId }
-          );
+          const withUnitId = data.unitId ? data : { ...data, unitId, id: settingsId };
+          const withId = withUnitId.id ? withUnitId : { ...withUnitId, id: settingsId };
+          setWeekSettings(normalizeScheduleSettings(withId));
         } else {
           const defaults = createDefaultSettings(
             unitId,
             weekStartDateStr
           );
-          setWeekSettings(defaults);
-          setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
+          const normalizedDefaults = normalizeScheduleSettings(defaults);
+          setWeekSettings(normalizedDefaults);
+          setDoc(doc(db, 'schedule_settings', normalizedDefaults.id), normalizedDefaults).catch(
             error => {
               console.error('Failed to persist default settings:', error);
             }
@@ -2896,6 +2955,34 @@ if (expected === 0) {
     );
     return () => unsub();
   }, [activeUnitIds, weekDays, canManage]);
+
+  useEffect(() => {
+    if (activeUnitIds.length !== 1) {
+      setScenarios([]);
+      return;
+    }
+    const unitId = activeUnitIds[0];
+    let isMounted = true;
+    const loadScenarios = async () => {
+      setIsScenarioLoading(true);
+      try {
+        const items = await listScenarios(unitId, weekStartDateStr);
+        if (isMounted) {
+          setScenarios(items);
+        }
+      } catch (error) {
+        console.error('Failed to load scenarios:', error);
+      } finally {
+        if (isMounted) {
+          setIsScenarioLoading(false);
+        }
+      }
+    };
+    loadScenarios();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeUnitIds, weekStartDateStr]);
 
   const activeShifts = useMemo(() => {
     const filtered = effectiveSchedule.filter(s => {
@@ -3009,7 +3096,10 @@ if (expected === 0) {
             if (!shiftForDay) return sum;
 
             const daySetting = getUnitDaySetting(shiftForDay, dayIndex);
-            const closingTime = daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
+            const closingTime =
+              daySetting?.closingTimeInherit === true
+                ? DEFAULT_CLOSING_TIME
+                : daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
             const closingOffsetMinutes =
               daySetting?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
 
@@ -3298,7 +3388,9 @@ if (expected === 0) {
                           key={i}
                           className="px-3 py-1 text-center text-[11px] text-slate-500 border border-slate-200"
                         >
-                          {weekSettings.dailySettings[i]?.closingTime || '-'}
+                          {weekSettings.dailySettings[i]?.closingTimeInherit === true
+                            ? DEFAULT_CLOSING_TIME
+                            : weekSettings.dailySettings[i]?.closingTime || '-'}
                         </td>
                       ))}
                     </tr>
@@ -4681,6 +4773,97 @@ if (expected === 0) {
     }
   };
 
+  const createScenarioId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const handleCreateSicknessScenario = async () => {
+    if (activeUnitIds.length !== 1) return;
+    const unitId = activeUnitIds[0];
+    const dateKeys = Array.from(sicknessScenarioDateKeys);
+    if (!sicknessScenarioUserId || dateKeys.length === 0) return;
+
+    const scenario: Scenario = {
+      id: createScenarioId(),
+      unitId,
+      weekStartDate: weekStartDateStr,
+      type: 'SICKNESS',
+      dateKeys,
+      payload: {
+        userId: sicknessScenarioUserId,
+        dateKeys
+      },
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser.id
+    };
+
+    try {
+      await upsertScenario(scenario);
+      setScenarios(prev => [...prev.filter(item => item.id !== scenario.id), scenario]);
+      setSicknessScenarioDateKeys(new Set());
+    } catch (error) {
+      console.error('Failed to create sickness scenario:', error);
+    }
+  };
+
+  const handleCreateCoverageScenario = async () => {
+    if (activeUnitIds.length !== 1) return;
+    const unitId = activeUnitIds[0];
+    const minCount = Number(coverageScenarioMinCount);
+    if (
+      !coverageScenarioDateKey ||
+      !coverageScenarioPositionId ||
+      !coverageScenarioStartTime ||
+      !coverageScenarioEndTime ||
+      !Number.isFinite(minCount) ||
+      minCount <= 0 ||
+      (coverageScenarioType !== 'EVENT' && coverageScenarioType !== 'PEAK')
+    ) {
+      return;
+    }
+
+    const dateKeys = [coverageScenarioDateKey];
+    const scenario: Scenario = {
+      id: createScenarioId(),
+      unitId,
+      weekStartDate: weekStartDateStr,
+      type: coverageScenarioType,
+      dateKeys,
+      payload: {
+        dateKeys,
+        timeRange: {
+          startTime: coverageScenarioStartTime,
+          endTime: coverageScenarioEndTime
+        },
+        minCoverageOverrides: [
+          {
+            positionId: coverageScenarioPositionId,
+            minCount
+          }
+        ]
+      }
+    };
+
+    try {
+      await upsertScenario(scenario);
+      setScenarios(prev => [...prev.filter(item => item.id !== scenario.id), scenario]);
+    } catch (error) {
+      console.error('Failed to create coverage scenario:', error);
+    }
+  };
+
+  const handleDeleteScenario = async (scenarioId: string) => {
+    try {
+      await deleteScenario(scenarioId);
+      setScenarios(prev => prev.filter(item => item.id !== scenarioId));
+    } catch (error) {
+      console.error('Failed to delete scenario:', error);
+    }
+  };
+
   const handleSettingsChange = useCallback(
     (updater: (prev: ScheduleSettings) => ScheduleSettings) => {
       setWeekSettings(prev => {
@@ -4696,13 +4879,14 @@ if (expected === 0) {
           ...updated,
           unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
         };
+        const normalizedSettings = normalizeScheduleSettings(updatedWithUnitId);
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
+          setDoc(doc(db, 'schedule_settings', normalizedSettings.id), normalizedSettings)
             .catch(error => {
               console.error('Failed to save settings:', error);
             });
         }
-        return updatedWithUnitId;
+        return normalizedSettings;
       });
     },
     [canManage, activeUnitIds, weekStartDateStr]
@@ -5611,7 +5795,12 @@ if (expected === 0) {
                       <input
                         type="time"
                         value={
-                          openingSettings.dailySettings[i]?.closingTime || ''
+                          openingSettings.dailySettings[i]?.closingTimeInherit === true
+                            ? DEFAULT_CLOSING_TIME
+                            : openingSettings.dailySettings[i]?.closingTime || ''
+                        }
+                        disabled={
+                          openingSettings.dailySettings[i]?.closingTimeInherit === true
                         }
                         onChange={e =>
                           handleSettingsChange(prev => ({
@@ -5620,13 +5809,39 @@ if (expected === 0) {
                               ...prev.dailySettings,
                               [i]: {
                                 ...prev.dailySettings[i],
-                                closingTime: e.target.value
+                                closingTime: e.target.value,
+                                closingTimeInherit: false
                               }
                             }
                           }))
                         }
-                        className="p-1 border rounded"
+                        className="p-1 border rounded disabled:bg-gray-100 disabled:text-gray-400"
                       />
+                      <label className="flex items-center gap-2 text-xs text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={
+                            openingSettings.dailySettings[i]?.closingTimeInherit === true
+                          }
+                          onChange={e =>
+                            handleSettingsChange(prev => ({
+                              ...prev,
+                              dailySettings: {
+                                ...prev.dailySettings,
+                                [i]: {
+                                  ...prev.dailySettings[i],
+                                  closingTimeInherit: e.target.checked,
+                                  closingTime: e.target.checked
+                                    ? DEFAULT_CLOSING_TIME
+                                    : prev.dailySettings[i]?.closingTime || DEFAULT_CLOSING_TIME
+                                }
+                              }
+                            }))
+                          }
+                          className="h-3 w-3 rounded"
+                        />
+                        Egység zárási idejének használata
+                      </label>
                       <div className="flex flex-col">
                         <input
                           type="number"
@@ -5657,6 +5872,221 @@ if (expected === 0) {
                       </div>
                     </div>
                   ))}
+                  <div className="mt-6 border-t pt-4">
+                    <h3 className="text-lg font-semibold mb-3">Scenáriók</h3>
+                    {activeUnitIds.length !== 1 && (
+                      <p className="text-sm text-gray-500">
+                        Scenáriók szerkesztéséhez válassz pontosan egy egységet.
+                      </p>
+                    )}
+                    {activeUnitIds.length === 1 && (
+                      <>
+                        {isScenarioLoading ? (
+                          <p className="text-sm text-gray-500">Scenáriók betöltése...</p>
+                        ) : (
+                          <div className="mb-4">
+                            {scenarios.length === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                Nincs rögzített scenárió erre a hétre.
+                              </p>
+                            ) : (
+                              <ul className="space-y-2">
+                                {scenarios.map(scenario => {
+                                  const coverageOverride =
+                                    scenario.type === 'EVENT' || scenario.type === 'PEAK'
+                                      ? scenario.payload.minCoverageOverrides?.[0]
+                                      : undefined;
+                                  const coverageLabel = coverageOverride
+                                    ? `${positionNameById.get(coverageOverride.positionId) || coverageOverride.positionId} (${coverageOverride.minCount})`
+                                    : '';
+                                  const details =
+                                    scenario.type === 'SICKNESS'
+                                      ? `Betegség · ${userNameById.get(scenario.payload.userId) || scenario.payload.userId}`
+                                      : scenario.type === 'EVENT'
+                                        ? `Esemény${coverageLabel ? ` · ${coverageLabel}` : ''}`
+                                        : scenario.type === 'PEAK'
+                                          ? `Csúcsidő${coverageLabel ? ` · ${coverageLabel}` : ''}`
+                                          : 'Last minute';
+                                  const scenarioDateKeys =
+                                    'dateKeys' in scenario.payload
+                                      ? scenario.payload.dateKeys
+                                      : scenario.dateKeys ?? [];
+                                  return (
+                                    <li
+                                      key={scenario.id}
+                                      className="flex items-center justify-between rounded border px-3 py-2 text-sm"
+                                    >
+                                      <div>
+                                        <div className="font-semibold">{details}</div>
+                                        <div className="text-xs text-gray-500">
+                                          {scenarioDateKeys.join(', ')}
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteScenario(scenario.id)}
+                                        className="text-xs text-red-600 hover:text-red-700"
+                                      >
+                                        Törlés
+                                      </button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded border p-3">
+                            <h4 className="text-sm font-semibold mb-2">Betegség</h4>
+                            <label className="text-xs text-gray-500">Munkatárs</label>
+                            <select
+                              value={sicknessScenarioUserId}
+                              onChange={e => setSicknessScenarioUserId(e.target.value)}
+                              className="mt-1 w-full rounded border p-1 text-sm"
+                            >
+                              <option value="">Válassz...</option>
+                              {filteredUsers.map(user => (
+                                <option key={user.id} value={user.id}>
+                                  {user.fullName}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {weekDays.map(day => {
+                                const dateKey = toDateString(day);
+                                const checked = sicknessScenarioDateKeys.has(dateKey);
+                                return (
+                                  <label key={dateKey} className="flex items-center gap-1 text-xs text-gray-600">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => {
+                                        setSicknessScenarioDateKeys(prev => {
+                                          const next = new Set(prev);
+                                          if (next.has(dateKey)) {
+                                            next.delete(dateKey);
+                                          } else {
+                                            next.add(dateKey);
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                      className="h-3 w-3 rounded"
+                                    />
+                                    {day.toLocaleDateString('hu-HU', {
+                                      weekday: 'short',
+                                      day: '2-digit',
+                                      month: '2-digit'
+                                    })}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCreateSicknessScenario}
+                              disabled={
+                                !sicknessScenarioUserId || sicknessScenarioDateKeys.size === 0
+                              }
+                              className="mt-3 rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              Betegség rögzítése
+                            </button>
+                          </div>
+                          <div className="rounded border p-3">
+                            <h4 className="text-sm font-semibold mb-2">
+                              Extra lefedettség
+                            </h4>
+                            <label className="text-xs text-gray-500">Típus</label>
+                            <select
+                              value={coverageScenarioType}
+                              onChange={e =>
+                                setCoverageScenarioType(e.target.value as ScenarioType)
+                              }
+                              className="mt-1 w-full rounded border p-1 text-sm"
+                            >
+                              <option value="EVENT">Esemény</option>
+                              <option value="PEAK">Csúcsidő</option>
+                            </select>
+                            <label className="mt-3 block text-xs text-gray-500">Dátum</label>
+                            <select
+                              value={coverageScenarioDateKey}
+                              onChange={e => setCoverageScenarioDateKey(e.target.value)}
+                              className="mt-1 w-full rounded border p-1 text-sm"
+                            >
+                              {weekDays.map(day => {
+                                const dateKey = toDateString(day);
+                                return (
+                                  <option key={dateKey} value={dateKey}>
+                                    {day.toLocaleDateString('hu-HU', {
+                                      weekday: 'short',
+                                      day: '2-digit',
+                                      month: '2-digit'
+                                    })}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <div className="mt-3 flex gap-2">
+                              <div className="flex-1">
+                                <label className="text-xs text-gray-500">Kezdés</label>
+                                <input
+                                  type="time"
+                                  value={coverageScenarioStartTime}
+                                  onChange={e => setCoverageScenarioStartTime(e.target.value)}
+                                  className="mt-1 w-full rounded border p-1 text-sm"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs text-gray-500">Vége</label>
+                                <input
+                                  type="time"
+                                  value={coverageScenarioEndTime}
+                                  onChange={e => setCoverageScenarioEndTime(e.target.value)}
+                                  className="mt-1 w-full rounded border p-1 text-sm"
+                                />
+                              </div>
+                            </div>
+                            <label className="mt-3 block text-xs text-gray-500">Pozíció</label>
+                            <select
+                              value={coverageScenarioPositionId}
+                              onChange={e => setCoverageScenarioPositionId(e.target.value)}
+                              className="mt-1 w-full rounded border p-1 text-sm"
+                            >
+                              {positions.map(position => (
+                                <option key={position.id} value={position.id}>
+                                  {position.name}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="mt-3 block text-xs text-gray-500">Minimum létszám</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={coverageScenarioMinCount}
+                              onChange={e => setCoverageScenarioMinCount(e.target.value)}
+                              className="mt-1 w-full rounded border p-1 text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleCreateCoverageScenario}
+                              disabled={
+                                !coverageScenarioDateKey ||
+                                !coverageScenarioPositionId ||
+                                !coverageScenarioStartTime ||
+                                !coverageScenarioEndTime ||
+                                Number(coverageScenarioMinCount) <= 0
+                              }
+                              className="mt-3 rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              Lefedettség rögzítése
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               )}
               {activeSettingsTab === 'export' && (

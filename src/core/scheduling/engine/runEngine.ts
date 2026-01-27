@@ -2,6 +2,10 @@ import { computeCapacity } from './computeCapacity.js';
 import { evaluateConstraints } from './evaluateConstraints.js';
 import { generateSuggestions } from './generateSuggestions.js';
 import { EngineInput, EngineResult } from './types.js';
+import {
+  applyScenariosToEngineInputWithEffects,
+  computeScenarioEffects
+} from '../scenarios/applyScenarios.js';
 
 /**
  * runEngine
@@ -15,19 +19,22 @@ import { EngineInput, EngineResult } from './types.js';
  */
 export const runEngine = (input: EngineInput): EngineResult => {
   const trace: string[] = [];
+  const { adjustedInput, effects } = applyScenariosToEngineInputWithEffects(input);
+  const scenarioEffects = computeScenarioEffects(input, adjustedInput, effects);
   trace.push('computeCapacity');
-  const { capacityMap } = computeCapacity(input);
+  const { capacityMap } = computeCapacity(adjustedInput);
 
   trace.push('evaluateConstraints');
-  const violations = evaluateConstraints(input, capacityMap);
+  const violations = evaluateConstraints(adjustedInput, capacityMap);
 
   trace.push('generateSuggestions');
-  const suggestions = generateSuggestions(input, capacityMap, violations);
+  const suggestions = generateSuggestions(adjustedInput, capacityMap, violations);
 
   return {
     capacityMap,
     violations,
     suggestions,
+    scenarioEffects,
     explanation: {
       trace
     }

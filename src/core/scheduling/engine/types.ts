@@ -31,6 +31,7 @@ export type EngineScheduleSettings = {
       isOpen?: boolean;
       openingTime: string;
       closingTime: string;
+      closingTimeInherit?: boolean;
       closingOffsetMinutes?: number;
     }
   >;
@@ -73,6 +74,7 @@ export type EngineInput = {
   shifts: EngineShift[];
   scheduleSettings: EngineScheduleSettings;
   ruleset: Ruleset;
+  scenarios?: import('../scenarios/types.js').Scenario[];
 };
 
 export type CapacityMap = Record<string, Record<string, number>>;
@@ -120,6 +122,11 @@ export type EngineResult = {
   capacityMap: CapacityMap;
   violations: ConstraintViolation[];
   suggestions: Suggestion[];
+  scenarioEffects?: {
+    removedShiftsCount: number;
+    addedRulesCount: number;
+    overriddenRulesCount: number;
+  };
   explanation: {
     trace: string[];
     inputsHash?: string;

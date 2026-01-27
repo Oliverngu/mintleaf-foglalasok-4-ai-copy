@@ -30,9 +30,11 @@ const resolveShiftRange = (
   } else {
     const dailySettings = input.scheduleSettings.dailySettings[dayIndex];
     const closingTime =
-      dailySettings?.closingTime ||
-      input.scheduleSettings.defaultClosingTime ||
-      DEFAULT_CLOSING_TIME;
+      dailySettings?.closingTimeInherit === true
+        ? input.scheduleSettings.defaultClosingTime || DEFAULT_CLOSING_TIME
+        : dailySettings?.closingTime ||
+          input.scheduleSettings.defaultClosingTime ||
+          DEFAULT_CLOSING_TIME;
     const closingOffsetMinutes =
       dailySettings?.closingOffsetMinutes ??
       input.scheduleSettings.defaultClosingOffsetMinutes ??
