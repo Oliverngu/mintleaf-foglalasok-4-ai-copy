@@ -5,9 +5,10 @@ import {
   EngineResult,
   Severity,
   Suggestion,
-  SuggestionAction,
 } from '../engine/types.js';
 import { buildViolationAffectedKey } from '../engine/violationUtils.js';
+import { buildSuggestionAffected } from './explainability/suggestionAffected.js';
+import { buildAssistantSuggestionIdV1 } from './ids/suggestionId.js';
 import { Explanation } from './types.js';
 
 type SuggestionPipelineInput = {
@@ -38,64 +39,6 @@ const normalizeArray = (values?: string[]) =>
 const buildViolationId = (violation: ConstraintViolation) =>
   `violation:${violation.constraintId}:${buildViolationAffectedKey(violation)}`;
 
-const buildActionKey = (action: SuggestionAction) => {
-  if (action.type === 'moveShift') {
-    return [
-      action.type,
-      action.shiftId,
-      action.userId,
-      action.dateKey,
-      action.newStartTime,
-      action.newEndTime,
-      action.positionId ?? '',
-    ].join('|');
-  }
-
-  return [
-    action.type,
-    action.userId,
-    action.dateKey,
-    action.startTime,
-    action.endTime,
-    action.positionId ?? '',
-  ].join('|');
-};
-
-const buildSuggestionId = (suggestion: Suggestion) =>
-  [
-    'assistant-suggestion:v1',
-    suggestion.type,
-    suggestion.actions.map(buildActionKey).join(';'),
-    suggestion.expectedImpact,
-    suggestion.explanation,
-  ].join(':');
-
-const buildSuggestionAffected = (suggestion: Suggestion) => {
-  const userIds: string[] = [];
-  const shiftIds: string[] = [];
-  const dateKeys: string[] = [];
-  const positionIds: string[] = [];
-
-  suggestion.actions.forEach(action => {
-    userIds.push(action.userId);
-    if (action.type === 'moveShift') {
-      shiftIds.push(action.shiftId);
-      dateKeys.push(action.dateKey);
-      if (action.positionId) positionIds.push(action.positionId);
-    } else {
-      dateKeys.push(action.dateKey);
-      if (action.positionId) positionIds.push(action.positionId);
-    }
-  });
-
-  return {
-    userIds: normalizeArray(userIds),
-    shiftIds: normalizeArray(shiftIds),
-    dateKeys: normalizeArray(dateKeys),
-    positionId: positionIds.sort()[0],
-  };
-};
-
 const createViolationExplanation = (violation: ConstraintViolation): Explanation => ({
   id: buildViolationId(violation),
   kind: 'violation',
@@ -113,13 +56,13 @@ const createViolationExplanation = (violation: ConstraintViolation): Explanation
 });
 
 const createSuggestionExplanation = (suggestion: Suggestion): Explanation => ({
-  id: buildSuggestionId(suggestion),
+  id: buildAssistantSuggestionIdV1(suggestion),
   kind: 'suggestion',
   severity: 'low',
   title: suggestion.type,
   details: suggestion.explanation,
   affected: buildSuggestionAffected(suggestion),
-  relatedSuggestionId: buildSuggestionId(suggestion),
+  relatedSuggestionId: buildAssistantSuggestionIdV1(suggestion),
 });
 
 const createInfoExplanations = (input: EngineInput): Explanation[] => {
@@ -161,7 +104,7 @@ const sortSuggestions = (suggestions: Suggestion[]) =>
   [...suggestions].sort((a, b) => {
     const severityDiff = severityRank['low'] - severityRank['low'];
     if (severityDiff !== 0) return severityDiff;
-    return buildSuggestionId(a).localeCompare(buildSuggestionId(b));
+    return buildAssistantSuggestionIdV1(a).localeCompare(buildAssistantSuggestionIdV1(b));
   });
 
 export const runSuggestionPipeline = (
