@@ -98,12 +98,12 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const onRemoveSeat = seatUI?.onRemoveSeat;
   const debugEnabled = Boolean(seatUI?.debug);
   const uiScaleRaw = typeof seatUI?.uiScale === 'number' ? seatUI.uiScale : 1;
-  const uiScale = Math.min(1.6, Math.max(0.8, uiScaleRaw));
-  const seatSize = 16 * uiScale;
+  const uiScale = Math.min(1.2, Math.max(0.65, uiScaleRaw));
+  const seatSize = 12 * uiScale;
   const seatRadius = seatSize / 2;
-  const controlSize = 18 * uiScale;
+  const controlSize = 14 * uiScale;
   const controlRadius = controlSize / 2;
-  const gap = 6 * uiScale;
+  const gap = 4 * uiScale;
 
   let selectedSeatCount = 0;
   let selectedControlCount = 0;
@@ -113,6 +113,8 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   let selectedSideCapacities: Table['sideCapacities'] | undefined;
   let selectedPlusOutsets: Record<SeatSide, number> | undefined;
   let selectedRemoveOutsets: Record<SeatSide, number> | undefined;
+  let selectedSeatLimits: ReturnType<typeof getSeatAddLimits> | null = null;
+  let selectedSeatSideCounts: Record<SeatSide, number> | null = null;
   let anySelected = false;
   const hasSeatLayout = (table: Table) => {
     if (table.seatLayout?.kind === 'circle') {
@@ -256,6 +258,61 @@ const FloorplanWorldLayer: React.FC<Props> = ({
               return { x: geometry.w / 2, y: -outset };
           }
         };
+        const seatOffsets: Record<SeatSide, { x: number; y: number } | null> = {
+          north: null,
+          south: null,
+          east: null,
+          west: null,
+          radial: null,
+        };
+        (['north', 'south', 'east', 'west'] as SeatSide[]).forEach(side => {
+          const sideSeats = seats.filter(seat => seat.side === side);
+          if (!sideSeats.length) return;
+          if (side === 'north' || side === 'south') {
+            const maxSeat = sideSeats.reduce(
+              (acc, seat) => (seat.x > acc.x ? seat : acc),
+              sideSeats[0]
+            );
+            seatOffsets[side] = {
+              x: maxSeat.x + seatRadius + controlRadius + gap,
+              y: maxSeat.y,
+            };
+          } else {
+            const maxSeat = sideSeats.reduce(
+              (acc, seat) => (seat.y > acc.y ? seat : acc),
+              sideSeats[0]
+            );
+            seatOffsets[side] = {
+              x: maxSeat.x,
+              y: maxSeat.y + seatRadius + controlRadius + gap,
+            };
+          }
+        });
+        const resolvePlusPosition = (side: SeatSide) => {
+          if (side === 'radial') {
+            return resolveControlPosition(side, plusOutsets[side] ?? defaultOutsetRect);
+          }
+          return (
+            seatOffsets[side] ??
+            resolveControlPosition(side, plusOutsets[side] ?? defaultOutsetRect)
+          );
+        };
+        const resolveRemovePosition = (side: SeatSide, base: { x: number; y: number }) => {
+          if (side === 'radial') {
+            const cx = geometry.w / 2;
+            const cy = geometry.h / 2;
+            const angle = -Math.PI / 2;
+            const distance = plusOutsets.radial + controlSize + gap;
+            return {
+              x: cx + Math.cos(angle) * (circleRadius + distance),
+              y: cy + Math.sin(angle) * (circleRadius + distance),
+            };
+          }
+          if (side === 'north' || side === 'south') {
+            return { x: base.x + controlSize + gap, y: base.y };
+          }
+          return { x: base.x, y: base.y + controlSize + gap };
+        };
 
         const addControls: SeatAddControl[] =
           seatEditable && selected
@@ -284,6 +341,14 @@ const FloorplanWorldLayer: React.FC<Props> = ({
           selectedSideCapacities = table.sideCapacities;
           selectedPlusOutsets = plusOutsets;
           selectedRemoveOutsets = removeOutsets;
+          selectedSeatLimits = seatLimits;
+          selectedSeatSideCounts = seats.reduce(
+            (acc, seat) => {
+              acc[seat.side] += 1;
+              return acc;
+            },
+            { north: 0, east: 0, south: 0, west: 0, radial: 0 } as Record<SeatSide, number>
+          );
         }
 
         const tableRadius =
@@ -387,15 +452,17 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 {addControls.map(ctrl => {
                   const disabled = Boolean(ctrl.disabled);
                   const clickable = Boolean(onAddSeat) && !disabled;
-                  const plusPosition = resolveControlPosition(
-                    ctrl.side,
-                    plusOutsets[ctrl.side] ?? defaultOutsetRect
-                  );
+                  const plusPosition = resolvePlusPosition(ctrl.side);
                   return (
                     <button
                       key={ctrl.id}
                       type="button"
-                      onClick={() => {
+                      data-seating-seat-control="1"
+                      onPointerDown={event => {
+                        event.stopPropagation();
+                      }}
+                      onClick={event => {
+                        event.stopPropagation();
                         if (!onAddSeat || disabled) return;
                         onAddSeat(table.id, ctrl.side);
                       }}
@@ -411,7 +478,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                       top: plusPosition.y - controlRadius,
                       width: controlSize,
                       height: controlSize,
-                      zIndex: 4,
+                      zIndex: 10,
                       cursor: clickable ? 'pointer' : 'not-allowed',
                       pointerEvents: 'auto',
                     }}
@@ -440,15 +507,18 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                           : side !== 'radial' && seatLimits.sides[side] > 0;
                       if (!shouldRender) return null;
                       const canRemove = Boolean(onRemoveSeat);
-                      const removePosition = resolveControlPosition(
-                        side,
-                        removeOutsets[side] ?? defaultOutsetRect
-                      );
+                      const plusPosition = resolvePlusPosition(side);
+                      const removePosition = resolveRemovePosition(side, plusPosition);
                       return (
                         <button
                           key={`${table.id}-remove-${side}`}
                           type="button"
-                          onClick={() => {
+                          data-seating-seat-control="1"
+                          onPointerDown={event => {
+                            event.stopPropagation();
+                          }}
+                          onClick={event => {
+                            event.stopPropagation();
                             if (!onRemoveSeat) return;
                             onRemoveSeat(table.id, side);
                           }}
@@ -458,7 +528,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                             top: removePosition.y - controlRadius,
                             width: controlSize,
                             height: controlSize,
-                            zIndex: 4,
+                            zIndex: 11,
                             cursor: canRemove ? 'pointer' : 'not-allowed',
                             pointerEvents: 'auto',
                             opacity: canRemove ? 1 : 0.4,
@@ -512,6 +582,20 @@ const FloorplanWorldLayer: React.FC<Props> = ({
             removeOutsets:{' '}
             {selectedRemoveOutsets
               ? `N${Math.round(selectedRemoveOutsets.north)} E${Math.round(selectedRemoveOutsets.east)} S${Math.round(selectedRemoveOutsets.south)} W${Math.round(selectedRemoveOutsets.west)} R${Math.round(selectedRemoveOutsets.radial)}`
+              : 'n/a'}
+          </div>
+          <div>
+            seatLimits:{' '}
+            {selectedSeatLimits
+              ? selectedSeatLimits.kind === 'circle'
+                ? `circle (${selectedSeatLimits.count})`
+                : `rect N${selectedSeatLimits.sides.north} E${selectedSeatLimits.sides.east} S${selectedSeatLimits.sides.south} W${selectedSeatLimits.sides.west}`
+              : 'n/a'}
+          </div>
+          <div>
+            per-side seats:{' '}
+            {selectedSeatSideCounts
+              ? `N${selectedSeatSideCounts.north} E${selectedSeatSideCounts.east} S${selectedSeatSideCounts.south} W${selectedSeatSideCounts.west} R${selectedSeatSideCounts.radial}`
               : 'n/a'}
           </div>
           <div>addControls: {selectedControlCount}</div>

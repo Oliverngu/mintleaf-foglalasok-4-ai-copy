@@ -1012,20 +1012,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
   );
-  const handleSelectTable = useCallback(
-    (tableId: string) => {
-      if (viewportMode === 'fit') {
-        setViewportMode('selected');
+  const handleSelectTable = useCallback((tableId: string) => {
+    setSelectedTableId(tableId);
+  }, []);
+  const handleZoomOutFit = useCallback(() => {
+    setViewportMode('fit');
+    prevSelectedTableIdRef.current = null;
+    setFloorplanTransformOverride(null);
+    viewportCanvasRef.current?.resetToFit();
+  }, []);
+  const handleFloorplanBackgroundPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.closest('[data-seating-table-root="1"]') ||
+        target.closest('[data-seating-seat-control="1"]')
+      ) {
+        return;
       }
-      setSelectedTableId(tableId);
+      setSelectedTableId(null);
     },
-    [viewportMode]
+    []
   );
-  useEffect(() => {
-    if (!selectedEditorTable) return;
-    if (viewportMode !== 'fit') return;
-    setViewportMode('selected');
-  }, [selectedEditorTable?.id, viewportMode]);
   const getRenderPosition = useCallback(
     (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
       resolveTableRenderPosition(
@@ -5000,7 +5009,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     offsetX: number;
     offsetY: number;
   }) => {
-    if (!selectedEditorTable || !selectedTableDraft) return null;
+    if (!selectedTableKey || !selectedEditorTable || !selectedTableDraft) return null;
     const geometry = resolveTableGeometryInFloorplanSpace(
       selectedEditorTable,
       floorplanDims,
@@ -5048,7 +5057,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   ? 'border-blue-200 bg-blue-50 text-blue-700'
                   : 'border-gray-200 bg-white text-gray-700'
               }`}
-              onClick={() => setViewportMode('fit')}
+              onClick={handleZoomOutFit}
             >
               Zoom out (teljes)
             </button>
@@ -5257,7 +5266,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         ? 'border-blue-200 bg-blue-50 text-blue-700'
                         : 'border-gray-200 bg-white text-gray-600'
                     }`}
-                    onClick={() => setViewportMode('fit')}
+                    onClick={handleZoomOutFit}
                   >
                     Zoom out (teljes)
                   </button>
@@ -5437,6 +5446,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
                   isEditMode ? 'touch-none' : ''
                 }`}
+                onPointerDownCapture={handleFloorplanBackgroundPointerDown}
               >
                 {debugEnabled && (
                   <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
@@ -5500,7 +5510,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                   </div>
                 )}
-                {renderSelectedTablePopover(activeFloorplanTransform)}
+                {selectedTableKey ? renderSelectedTablePopover(activeFloorplanTransform) : null}
                 <div
                   className="absolute inset-0"
                   style={{
@@ -5732,10 +5742,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             touchAction: 'none',
                             zIndex: 2,
                           }}
-                          onClick={() => handleSelectTable(table.id)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleSelectTable(table.id);
+                          }}
                           onPointerDown={
                             floorplanMode === 'edit'
-                              ? event => handleTablePointerDown(event, table, geometry)
+                              ? event => {
+                                  event.stopPropagation();
+                                  handleTablePointerDown(event, table, geometry);
+                                }
+                              : event => {
+                                  event.stopPropagation();
+                                }
                               : undefined
                           }
                           onPointerMove={
@@ -5986,94 +6005,98 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               </div>
               </div>
             ) : (
-              <FloorplanViewportCanvas
-                ref={viewportCanvasRef}
-                floorplanDims={floorplanDims}
-                debugEnabled={debugEnabled}
-                viewportDeps={[resolvedActiveFloorplanId]}
-                debugOverlay={context => (
-                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-                    <div>
-                      dims: {Math.round(context.floorplanDims.width)}×
-                      {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
-                    </div>
-                    <div>
-                      viewport: {Math.round(context.viewportRect.width)}×
-                      {Math.round(context.viewportRect.height)}
-                    </div>
-                    <div>
-                      scale: {context.transform.scale.toFixed(3)} | offset:{' '}
-                      {context.transform.offsetX.toFixed(1)},{' '}
-                      {context.transform.offsetY.toFixed(1)} | ready:{' '}
-                      {context.transform.ready ? 'yes' : 'no'}
-                    </div>
-                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-                    <div>mode: view</div>
-                    {debugRawGeometry && (
+              <div onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
+                <FloorplanViewportCanvas
+                  ref={viewportCanvasRef}
+                  floorplanDims={floorplanDims}
+                  debugEnabled={debugEnabled}
+                  viewportDeps={[resolvedActiveFloorplanId]}
+                  debugOverlay={context => (
+                    <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                       <div>
-                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                        {debugRawGeometry.rot.toFixed(1)}
+                        dims: {Math.round(context.floorplanDims.width)}×
+                        {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
                       </div>
-                    )}
-                    {sampleTableGeometry && (
                       <div>
-                        floor: {sampleTableGeometry.x.toFixed(1)},
-                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
-                        {sampleTableGeometry.h.toFixed(1)} r
-                        {sampleTableGeometry.rot.toFixed(1)}
+                        viewport: {Math.round(context.viewportRect.width)}×
+                        {Math.round(context.viewportRect.height)}
                       </div>
-                    )}
-                    {sampleTableRender && (
                       <div>
-                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                        {sampleTableRender.rot.toFixed(1)}
+                        scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+                        {context.transform.offsetX.toFixed(1)},{' '}
+                        {context.transform.offsetY.toFixed(1)} | ready:{' '}
+                        {context.transform.ready ? 'yes' : 'no'}
                       </div>
-                    )}
-                    {debugTableRows.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {debugTableRows.map(row => (
-                          <div key={`dbg-view-${row.id}`}>
-                            t:{' '}
-                            {row.name ? `${row.name} ` : ''}
-                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
-                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
-                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
-                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
-                            {row.floor.rot.toFixed(1)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                renderOverlay={context => renderSelectedTablePopover(context.transform)}
-                renderWorld={context => (
-                  <FloorplanWorldLayer
-                    tables={editorTables}
-                    obstacles={activeObstacles}
-                    floorplanDims={floorplanDims}
-                    tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-                    seatUI={{
-                      preview: floorplanMode === 'view',
-                      editable: floorplanMode === 'edit',
-                      onAddSeat: handleAddSeat,
-                      onRemoveSeat: handleRemoveSeat,
-                      debug: debugEnabled,
-                      debugMode: floorplanMode,
-                      debugSelectedTableId: selectedTableId,
-                      debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
-                      debugSelectedTableKey: selectedTableKey,
-                      uiScale: context.transform.scale,
-                    }}
-                    appearance={{
-                      showCapacity: true,
-                      isSelected: t => t.id === selectedTableKey,
-                    }}
-                  />
-                )}
-              />
+                      <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                      <div>mode: view</div>
+                      {debugRawGeometry && (
+                        <div>
+                          raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                          {debugRawGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableGeometry && (
+                        <div>
+                          floor: {sampleTableGeometry.x.toFixed(1)},
+                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                          {sampleTableGeometry.h.toFixed(1)} r
+                          {sampleTableGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableRender && (
+                        <div>
+                          render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                          {sampleTableRender.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {debugTableRows.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {debugTableRows.map(row => (
+                            <div key={`dbg-view-${row.id}`}>
+                              t:{' '}
+                              {row.name ? `${row.name} ` : ''}
+                              {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
+                              {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
+                              {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
+                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
+                              {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  renderOverlay={context =>
+                    selectedTableKey ? renderSelectedTablePopover(context.transform) : null
+                  }
+                  renderWorld={context => (
+                    <FloorplanWorldLayer
+                      tables={editorTables}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      seatUI={{
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit',
+                        onAddSeat: handleAddSeat,
+                        onRemoveSeat: handleRemoveSeat,
+                        debug: debugEnabled,
+                        debugMode: floorplanMode,
+                        debugSelectedTableId: selectedTableId,
+                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
+                        uiScale: context.transform.scale,
+                      }}
+                      appearance={{
+                        showCapacity: true,
+                        isSelected: t => t.id === selectedTableKey,
+                      }}
+                    />
+                  )}
+                />
+              </div>
             )}
           </div>
         )}
