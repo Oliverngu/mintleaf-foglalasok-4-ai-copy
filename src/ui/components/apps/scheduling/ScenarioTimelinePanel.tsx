@@ -32,6 +32,9 @@ type ScenarioTimelinePanelProps = {
   users: User[];
   weekDays: string[];
   selectedDateKey?: string;
+  onAcceptSuggestion: (suggestionKey: string) => void;
+  onUndoSuggestion: () => void;
+  canUndoSuggestion: boolean;
   onClose: () => void;
 };
 
@@ -79,6 +82,9 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   users,
   weekDays,
   selectedDateKey,
+  onAcceptSuggestion,
+  onUndoSuggestion,
+  canUndoSuggestion,
   onClose
 }) => {
   const [showAllBeforeRules, setShowAllBeforeRules] = useState(false);
@@ -614,6 +620,32 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                 )}
                                 {actionLabel && (
                                   <p className="mt-1">Action: {actionLabel}</p>
+                                )}
+                              </div>
+                            )}
+                            {isSelected && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onAcceptSuggestion(card.key);
+                                  }}
+                                  className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700"
+                                >
+                                  Alkalmaz
+                                </button>
+                                {canUndoSuggestion && (
+                                  <button
+                                    type="button"
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      onUndoSuggestion();
+                                    }}
+                                    className="rounded-lg border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                                  >
+                                    Visszavonás
+                                  </button>
                                 )}
                               </div>
                             )}

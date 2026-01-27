@@ -57,10 +57,15 @@ import {
   EngineResult,
   Suggestion
 } from '../../../core/scheduling/engine/types';
+import {
+  applySuggestionToDraft,
+  DraftSchedule
+} from '../../../core/scheduling/assistant/applySuggestionToDraft';
 import { normalizeScheduleSettings } from '../../../core/scheduling/normalizeScheduleSettings';
 import type { Scenario, ScenarioType } from '../../../core/scheduling/scenarios/types';
 import { listScenarios, upsertScenario, deleteScenario } from '../../../core/scheduling/scenarios/scenarioService';
 import { ScenarioTimelinePanel } from './scheduling/ScenarioTimelinePanel';
+import { buildSuggestionKey } from './scheduling/ScenarioTimelineUtils';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -1705,6 +1710,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     () => new Set()
   );
   const [undoStack, setUndoStack] = useState<UndoStackItem[]>([]);
+  const [timelineUndoStack, setTimelineUndoStack] = useState<DraftSchedule[]>([]);
   const [savingSuggestionKeys, setSavingSuggestionKeys] = useState<Set<string>>(
     () => new Set()
   );
@@ -2442,7 +2448,7 @@ if (expected === 0) {
     }
   }, [coverageScenarioPositionId, positions]);
 
-  const buildEngineInput = useCallback((): EngineInput => {
+  const buildEngineInputForSchedule = useCallback((scheduleOverride?: Shift[]): EngineInput => {
     const unitId = activeUnitIds[0] || 'default';
     const activeSettings =
       unitWeekSettings[unitId] || openingSettings;
@@ -2500,6 +2506,7 @@ if (expected === 0) {
         );
     });
 
+    const scheduleToUse = scheduleOverride ?? localSchedule;
     return {
       unitId,
       weekStart: dateKeys[0],
@@ -2517,7 +2524,7 @@ if (expected === 0) {
         id: position.id,
         name: position.name
       })),
-      shifts: localSchedule
+      shifts: scheduleToUse
         .filter(
           shift =>
             shift.unitId === unitId &&
@@ -2570,10 +2577,11 @@ if (expected === 0) {
     weekDays
   ]);
 
-  const computeEngineResultForCurrentWeek = useCallback((): EngineResult | null => {
+  const computeEngineResultForCurrentWeek = useCallback(
+    (scheduleOverride?: Shift[]): EngineResult | null => {
     try {
       setScenarioTimelineError(null);
-      const input = buildEngineInput();
+      const input = buildEngineInputForSchedule(scheduleOverride);
       const result = runEngine(input);
       setEngineResult(result);
       setEngineLastRunAt(Date.now());
@@ -2583,7 +2591,7 @@ if (expected === 0) {
       setScenarioTimelineError('Nem sikerült kiszámolni a scenáriók hatását.');
       return null;
     }
-  }, [buildEngineInput]);
+  }, [buildEngineInputForSchedule]);
 
   const runEngineAndStore = useCallback((): EngineResult | null => {
     return computeEngineResultForCurrentWeek();
@@ -2809,6 +2817,34 @@ if (expected === 0) {
       return nextStack;
     });
   }, [isDevEnv]);
+
+  const handleAcceptTimelineSuggestion = useCallback(
+    (suggestionKey: string) => {
+      if (!engineResult) return;
+      const suggestion = engineResult.suggestions.find(
+        item => buildSuggestionKey(item) === suggestionKey
+      );
+      if (!suggestion) return;
+      setTimelineUndoStack(prev => [
+        { shifts: localSchedule },
+        ...prev
+      ].slice(0, 10));
+      const nextDraft = applySuggestionToDraft({ shifts: localSchedule }, suggestion);
+      setLocalSchedule(nextDraft.shifts);
+      computeEngineResultForCurrentWeek(nextDraft.shifts);
+    },
+    [computeEngineResultForCurrentWeek, engineResult, localSchedule]
+  );
+
+  const handleUndoTimelineSuggestion = useCallback(() => {
+    setTimelineUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const [latest, ...rest] = prev;
+      setLocalSchedule(latest.shifts);
+      computeEngineResultForCurrentWeek(latest.shifts);
+      return rest;
+    });
+  }, [computeEngineResultForCurrentWeek]);
 
   const buildSuggestionPreview = useCallback(
     (suggestion: Suggestion): string => {
@@ -6194,6 +6230,9 @@ if (expected === 0) {
                 users={allAppUsers}
                 weekDays={weekDayKeys}
                 selectedDateKey={weekDayKeys[0]}
+                onAcceptSuggestion={handleAcceptTimelineSuggestion}
+                onUndoSuggestion={handleUndoTimelineSuggestion}
+                canUndoSuggestion={timelineUndoStack.length > 0}
                 onClose={() => setIsScenarioTimelineOpen(false)}
               />
             ) : (
