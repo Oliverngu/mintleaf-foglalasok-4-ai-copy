@@ -74,10 +74,11 @@ export function computeRectangularSeats(
   const seats: Seat[] = [];
 
   const distribute = (count: number) => {
-    if (count <= 1) return [0.5];
-    if (count === 2) return [0.33, 0.67];
-    return [0.25, 0.5, 0.75];
-  };
+  if (count <= 0) return [];
+  if (count === 1) return [0.5];
+  if (count === 2) return [0.33, 0.67];
+  return [0.25, 0.5, 0.75];
+};
 
   distribute(north).forEach((t, i) => {
     seats.push({
