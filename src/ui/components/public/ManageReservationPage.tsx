@@ -242,6 +242,10 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
     isAdminTokenValid &&
     !isAdminTokenExpired(booking) &&
     !isAdminTokenUsed(booking);
+  const adminUnavailableMessage =
+    booking?.status !== 'pending' && isAdminTokenValid
+      ? t.adminActionNotPending
+      : t.invalidAdminToken;
 
   useEffect(() => {
     const fetchBooking = async () => {
@@ -947,7 +951,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 {t.adminActionsLabel}
               </div>
               <details
-                className={`border ${theme.radiusClass} p-4`}
+                className={`border ${theme.radiusClass} p-4 group`}
                 style={{
                   backgroundColor: `${theme.colors.accent}08`,
                   color: theme.colors.textPrimary,
@@ -955,15 +959,21 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 }}
               >
                 <summary
-                  className="cursor-pointer font-semibold list-none"
+                  className="flex items-center justify-between cursor-pointer font-semibold list-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
                   style={{ color: theme.colors.textPrimary }}
                 >
-                  {t.adminActionTitle}
+                  <span>{t.adminActionTitle}</span>
+                  <span
+                    aria-hidden="true"
+                    className="text-xs transition-transform group-open:rotate-180"
+                  >
+                    ▾
+                  </span>
                 </summary>
                 <div className="mt-3 space-y-3">
                   {!isAdminActionAvailable && (
                     <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
-                      {t.invalidAdminToken}
+                      {adminUnavailableMessage}
                     </p>
                   )}
                   {isAdminActionAvailable && actionMessage && (
