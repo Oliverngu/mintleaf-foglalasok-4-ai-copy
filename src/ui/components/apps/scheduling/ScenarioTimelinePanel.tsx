@@ -39,7 +39,11 @@ type ScenarioTimelinePanelProps = {
   onAcceptSuggestion: (suggestionKey: string) => void;
   onUndoSuggestion: () => void;
   canUndoSuggestion: boolean;
-  onOpenProfile: (userId: string) => void;
+  onOpenProfile?: (userId: string) => void;
+  onFocusSuggestion?: (suggestionKey: string) => void;
+  onFocusViolation?: (violationKey: string) => void;
+  externalAcceptSuggestionKey?: string | null;
+  onExternalAcceptHandled?: (suggestionKey: string) => void;
   onClose: () => void;
 };
 
@@ -103,6 +107,10 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
   onUndoSuggestion,
   canUndoSuggestion,
   onOpenProfile,
+  onFocusSuggestion,
+  onFocusViolation,
+  externalAcceptSuggestionKey,
+  onExternalAcceptHandled,
   onClose
 }) => {
   const [showAllBeforeRules, setShowAllBeforeRules] = useState(false);
@@ -318,6 +326,33 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
     pendingAcceptRef.current = null;
     setPendingAccept(null);
   }, [buildResolvedLabel, engineResult.violations, pendingAccept]);
+
+  const handleAcceptSuggestion = useCallback(
+    (suggestionKey: string) => {
+      const nextPending: PendingAccept = {
+        suggestionKey,
+        beforeViolationKeys: engineResult.violations.map(violation =>
+          buildViolationKey(violation)
+        ),
+        beforeViolationByKey: new Map(
+          engineResult.violations.map(violation => [
+            buildViolationKey(violation),
+            violation
+          ])
+        )
+      };
+      pendingAcceptRef.current = nextPending;
+      setPendingAccept(nextPending);
+      onAcceptSuggestion(suggestionKey);
+    },
+    [engineResult.violations, onAcceptSuggestion]
+  );
+
+  useEffect(() => {
+    if (!externalAcceptSuggestionKey) return;
+    handleAcceptSuggestion(externalAcceptSuggestionKey);
+    onExternalAcceptHandled?.(externalAcceptSuggestionKey);
+  }, [externalAcceptSuggestionKey, handleAcceptSuggestion, onExternalAcceptHandled]);
 
   return (
     <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -551,6 +586,9 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                           <li
                             key={`${violation.constraintId}-${index}`}
                             className="rounded-xl border border-red-100 bg-white px-3 py-2 text-xs"
+                            onClick={() => {
+                              onFocusViolation?.(buildViolationKey(violation));
+                            }}
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-semibold text-red-700">
@@ -572,8 +610,10 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                     <button
                                       key={ref.key}
                                       type="button"
-                                      onClick={() => {
+                                      onClick={event => {
+                                        event.stopPropagation();
                                         setSelectedSuggestionKey(ref.key);
+                                        onFocusSuggestion?.(ref.key);
                                         suggestionRefs.current.get(ref.key)?.scrollIntoView({
                                           behavior: 'smooth',
                                           block: 'center'
@@ -679,6 +719,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                             }`}
                             onClick={() => {
                               setSelectedSuggestionKey(card.key);
+                              onFocusSuggestion?.(card.key);
                               suggestionRefs.current.get(card.key)?.scrollIntoView({
                                 behavior: 'smooth',
                                 block: 'center'
@@ -760,7 +801,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                       type="button"
                                       onClick={event => {
                                         event.stopPropagation();
-                                        onOpenProfile(userId);
+                                        onOpenProfile?.(userId);
                                       }}
                                       className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50"
                                     >
@@ -780,12 +821,17 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                 </p>
                                 <div className="mt-1 flex flex-wrap gap-2">
                                   {unavailablePeople.map(person => (
-                                    <span
+                                    <button
                                       key={person.userId}
+                                      type="button"
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        onOpenProfile?.(person.userId);
+                                      }}
                                       className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-700"
                                     >
                                       {person.name}
-                                    </span>
+                                    </button>
                                   ))}
                                 </div>
                               </div>
@@ -796,21 +842,7 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                   type="button"
                                   onClick={event => {
                                     event.stopPropagation();
-                                    const nextPending: PendingAccept = {
-                                      suggestionKey: card.key,
-                                      beforeViolationKeys: engineResult.violations.map(violation =>
-                                        buildViolationKey(violation)
-                                      ),
-                                      beforeViolationByKey: new Map(
-                                        engineResult.violations.map(violation => [
-                                          buildViolationKey(violation),
-                                          violation
-                                        ])
-                                      )
-                                    };
-                                    pendingAcceptRef.current = nextPending;
-                                    setPendingAccept(nextPending);
-                                    onAcceptSuggestion(card.key);
+                                    handleAcceptSuggestion(card.key);
                                   }}
                                   className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700"
                                 >

@@ -1,0 +1,43 @@
+@keyframes ml-preview-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+}
+
+.ml-preview-grid {
+  position: relative;
+  pointer-events: none;
+}
+
+.ml-preview-cell-active {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.ml-preview-pulse {
+  animation: ml-preview-pulse 1.6s ease-in-out infinite;
+  outline: 2px solid rgba(99, 102, 241, 0.6);
+  outline-offset: -2px;
+}
+
+.ml-preview-focus-suggestion {
+  outline-color: rgba(99, 102, 241, 0.8);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35), 0 0 16px rgba(99, 102, 241, 0.3);
+}
+
+.ml-preview-focus-violation {
+  outline-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35), 0 0 16px rgba(239, 68, 68, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-preview-pulse {
+    animation: none;
+  }
+}

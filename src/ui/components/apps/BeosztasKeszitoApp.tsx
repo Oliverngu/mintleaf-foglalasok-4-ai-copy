@@ -53,6 +53,7 @@ import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
 import { SCHEDULER_DASH } from '../../styles/scheduler/schedulerDashTokens';
 import { runEngine } from '../../../core/scheduling/engine/runEngine';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   EngineInput,
   EngineResult,
@@ -70,6 +71,11 @@ import { listScenarios, upsertScenario, deleteScenario } from '../../../core/sch
 import { ScenarioTimelinePanel } from './scheduling/ScenarioTimelinePanel';
 import { EmployeeProfilePanel } from './scheduling/EmployeeProfilePanel';
 import { buildSuggestionKey, buildViolationKey } from './scheduling/ScenarioTimelineUtils';
+import { SchedulerPreviewPanel } from './scheduling/SchedulerPreviewPanel';
+import {
+  getSuggestionHighlightCellKeys,
+  getViolationHighlightCellKeys
+} from './scheduling/previewHighlight';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -1673,6 +1679,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     useState('2');
   const [isScenarioTimelineOpen, setIsScenarioTimelineOpen] = useState(false);
   const [scenarioTimelineError, setScenarioTimelineError] = useState<string | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const [timelineFocus, setTimelineFocus] = useState<{
+    type: 'suggestion' | 'violation';
+    key: string;
+  } | null>(null);
+  const [selectedSuggestionKey, setSelectedSuggestionKey] = useState<string | null>(null);
+  const [previewHighlightCellKeys, setPreviewHighlightCellKeys] = useState<string[]>([]);
+  const [externalAcceptSuggestionKey, setExternalAcceptSuggestionKey] = useState<string | null>(
+    null
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
@@ -2642,6 +2658,12 @@ if (expected === 0) {
     setIsScenarioTimelineOpen(true);
   }, [computeEngineResultForCurrentWeek, engineResult]);
 
+  const handleCloseScenarioTimeline = useCallback(() => {
+    setIsScenarioTimelineOpen(false);
+    setTimelineFocus(null);
+    setSelectedSuggestionKey(null);
+  }, []);
+
   const handleRunEngineDebug = useCallback(() => {
     const result = runEngineAndStore();
     if (!result) {
@@ -2902,6 +2924,41 @@ if (expected === 0) {
       return rest;
     });
   }, [computeEngineResultForCurrentWeek]);
+
+  const handleApplySuggestionFromCell = useCallback((suggestionKey: string) => {
+    setExternalAcceptSuggestionKey(suggestionKey);
+  }, []);
+
+  const handleFocusSuggestion = useCallback((suggestionKey: string) => {
+    setTimelineFocus({ type: 'suggestion', key: suggestionKey });
+    setSelectedSuggestionKey(suggestionKey);
+  }, []);
+
+  const handleFocusViolation = useCallback((violationKey: string) => {
+    setTimelineFocus({ type: 'violation', key: violationKey });
+    setSelectedSuggestionKey(null);
+  }, []);
+
+  useEffect(() => {
+    if (!engineResult || !timelineFocus) {
+      setPreviewHighlightCellKeys([]);
+      return;
+    }
+    if (timelineFocus.type === 'suggestion') {
+      setPreviewHighlightCellKeys(
+        getSuggestionHighlightCellKeys(engineResult, timelineFocus.key, {
+          weekDayKeys: weekDayKeys
+        })
+      );
+    } else {
+      setPreviewHighlightCellKeys(
+        getViolationHighlightCellKeys(engineResult, timelineFocus.key, {
+          weekDayKeys: weekDayKeys
+        })
+      );
+    }
+  }, [engineResult, timelineFocus, weekDayKeys]);
+
 
   const buildSuggestionPreview = useCallback(
     (suggestion: Suggestion): string => {
@@ -3443,10 +3500,38 @@ if (expected === 0) {
 
   const renderWeekTable = (
     weekDaysForBlock: Date[],
-    blockIndex: number
+    blockIndex: number,
+    options?: {
+      enableCellRefs?: boolean;
+      enableInteractions?: boolean;
+    }
   ) => {
     const weekDays = weekDaysForBlock;
     const dayKeysForBlock = weekDays.map(toDateString);
+    const enableCellRefs = options?.enableCellRefs ?? true;
+    const enableInteractions = options?.enableInteractions ?? true;
+    let localZebraRowIndex = 0;
+    let localRenderRowIndex = 0;
+    const getNextZebraIndex = () => {
+      if (enableCellRefs) {
+        const index = zebraRowIndex;
+        zebraRowIndex += 1;
+        return index;
+      }
+      const index = localZebraRowIndex;
+      localZebraRowIndex += 1;
+      return index;
+    };
+    const getNextRenderRowIndex = () => {
+      if (enableCellRefs) {
+        const index = renderRowIndex;
+        renderRowIndex += 1;
+        return index;
+      }
+      const index = localRenderRowIndex;
+      localRenderRowIndex += 1;
+      return index;
+    };
     const defaultUserTotals: Record<string, number> = {};
     orderedUsers.forEach(user => {
       defaultUserTotals[user.id] = 0;
@@ -3621,7 +3706,8 @@ if (expected === 0) {
                     const isEmptyWeek =
                       weeklyHours <= 0.01 && !hasShiftInBlockWeek;
 
-                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const zebraIndex = getNextZebraIndex();
+                    const isAltRow = zebraIndex % 2 === 1;
                     const rowBg = isAltRow
                       ? tableAltZebraColor
                       : tableBaseZebraColor;
@@ -3630,8 +3716,7 @@ if (expected === 0) {
                       : tableBaseNameColor;
                     const nameTextColor = getContrastingTextColor(nameBg);
                     const rowTextColor = getContrastingTextColor(rowBg);
-                    zebraRowIndex += 1;
-                    const currentRowIndex = renderRowIndex++;
+                    const currentRowIndex = getNextRenderRowIndex();
 
                     const hasTags = !!(user.tags && user.tags.length);
 
@@ -3860,36 +3945,44 @@ if (expected === 0) {
                           return (
                             <td
                               key={dayIndex}
-                              ref={node => {
-                                if (node) {
-                                  cellRefs.current.set(cellUiKey, node);
-                                  cellMetaRef.current.set(cellUiKey, {
-                                    row: currentRowIndex,
-                                    col: dayIndex
-                                  });
-                                  cellCoordIndexRef.current.set(
-                                    `${currentRowIndex}:${dayIndex}`,
-                                    cellUiKey
-                                  );
-                                } else {
-                                  cellRefs.current.delete(cellUiKey);
-                                  cellMetaRef.current.delete(cellUiKey);
-                                  cellCoordIndexRef.current.delete(
-                                    `${currentRowIndex}:${dayIndex}`
-                                  );
-                                }
-                              }}
+                              ref={
+                                enableCellRefs
+                                  ? node => {
+                                      if (node) {
+                                        cellRefs.current.set(cellUiKey, node);
+                                        cellMetaRef.current.set(cellUiKey, {
+                                          row: currentRowIndex,
+                                          col: dayIndex
+                                        });
+                                        cellCoordIndexRef.current.set(
+                                          `${currentRowIndex}:${dayIndex}`,
+                                          cellUiKey
+                                        );
+                                      } else {
+                                        cellRefs.current.delete(cellUiKey);
+                                        cellMetaRef.current.delete(cellUiKey);
+                                        cellCoordIndexRef.current.delete(
+                                          `${currentRowIndex}:${dayIndex}`
+                                        );
+                                      }
+                                    }
+                                  : undefined
+                              }
                               className={cellClasses}
                               style={cellStyle}
-                              onClick={event =>
-                                handleCellInteraction(
-                                  cellUiKey,
-                                  canEditCell,
-                                  userDayShifts,
-                                  user.id,
-                                  day,
-                                  event
-                                )
+                              data-preview-cell-key={cellDataKey}
+                              onClick={
+                                enableInteractions
+                                  ? event =>
+                                      handleCellInteraction(
+                                        cellUiKey,
+                                        canEditCell,
+                                        userDayShifts,
+                                        user.id,
+                                        day,
+                                        event
+                                      )
+                                  : undefined
                               }
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
@@ -6337,24 +6430,47 @@ if (expected === 0) {
               setSelectedProfileUserId(null);
               return;
             }
-            setIsScenarioTimelineOpen(false);
+            handleCloseScenarioTimeline();
           }}
         >
-          <div className="relative" onClick={e => e.stopPropagation()}>
+          <div
+            className={
+              isDesktop
+                ? 'relative flex w-full max-w-[1400px] items-stretch gap-4'
+                : 'relative'
+            }
+            onClick={e => e.stopPropagation()}
+          >
             {engineResult ? (
-              <ScenarioTimelinePanel
-                engineResult={engineResult}
-                scenarios={scenarios}
-                positions={positions}
-                users={allAppUsers}
-                weekDays={weekDayKeys}
-                selectedDateKey={weekDayKeys[0]}
-                onAcceptSuggestion={handleAcceptTimelineSuggestion}
-                onUndoSuggestion={handleUndoTimelineSuggestion}
-                canUndoSuggestion={timelineUndoStack.length > 0}
-                onOpenProfile={userId => setSelectedProfileUserId(userId)}
-                onClose={() => setIsScenarioTimelineOpen(false)}
-              />
+              <>
+                <ScenarioTimelinePanel
+                  engineResult={engineResult}
+                  scenarios={scenarios}
+                  positions={positions}
+                  users={allAppUsers}
+                  weekDays={weekDayKeys}
+                  selectedDateKey={weekDayKeys[0]}
+                  onAcceptSuggestion={handleAcceptTimelineSuggestion}
+                  onUndoSuggestion={handleUndoTimelineSuggestion}
+                  canUndoSuggestion={timelineUndoStack.length > 0}
+                  onOpenProfile={userId => setSelectedProfileUserId(userId)}
+                  onFocusSuggestion={handleFocusSuggestion}
+                  onFocusViolation={handleFocusViolation}
+                  externalAcceptSuggestionKey={externalAcceptSuggestionKey}
+                  onExternalAcceptHandled={() => setExternalAcceptSuggestionKey(null)}
+                  onClose={handleCloseScenarioTimeline}
+                />
+                {isDesktop && (
+                  <SchedulerPreviewPanel
+                    weekBlocksDays={finalWeekBlocksDays}
+                    renderWeekTable={renderWeekTable}
+                    focus={timelineFocus}
+                    highlightCellKeys={previewHighlightCellKeys}
+                    onApplySuggestionFromCell={handleApplySuggestionFromCell}
+                    selectedSuggestionKey={selectedSuggestionKey}
+                  />
+                )}
+              </>
             ) : (
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
                 <h2 className="text-lg font-semibold text-gray-900">Scenario Timeline</h2>
@@ -6374,7 +6490,7 @@ if (expected === 0) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsScenarioTimelineOpen(false)}
+                    onClick={handleCloseScenarioTimeline}
                     className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
                   >
                     Mégse
@@ -6383,7 +6499,7 @@ if (expected === 0) {
               </div>
             )}
             {selectedProfileUserId && (
-              <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
                 <EmployeeProfilePanel
                   profile={selectedProfile}
                   userName={userById.get(selectedProfileUserId)?.fullName ?? selectedProfileUserId}
