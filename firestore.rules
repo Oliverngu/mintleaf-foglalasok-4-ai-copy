@@ -195,6 +195,13 @@ service cloud.firestore {
         allow create, update, delete: if canManageUnit(unitId)
           || (isUnitLeader() && hasUnit(unitId));
       }
+
+      match /employeeProfiles/{userId} {
+        allow read: if canViewUnit(unitId);
+        // Unit leaders can manage staff profiles similar to other unit subcollections.
+        allow create, update, delete: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+      }
     }
 
     // --- positions ---
