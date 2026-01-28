@@ -6295,9 +6295,15 @@ if (expected === 0) {
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
           style={{ zIndex: LAYERS.modal }}
-          onClick={() => setIsScenarioTimelineOpen(false)}
+          onClick={() => {
+            if (selectedProfileUserId) {
+              setSelectedProfileUserId(null);
+              return;
+            }
+            setIsScenarioTimelineOpen(false);
+          }}
         >
-          <div onClick={e => e.stopPropagation()}>
+          <div className="relative" onClick={e => e.stopPropagation()}>
             {engineResult ? (
               <ScenarioTimelinePanel
                 engineResult={engineResult}
@@ -6339,23 +6345,16 @@ if (expected === 0) {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {selectedProfileUserId && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-          style={{ zIndex: LAYERS.modal }}
-          onClick={() => setSelectedProfileUserId(null)}
-        >
-          <div onClick={e => e.stopPropagation()}>
-            <EmployeeProfilePanel
-              profile={selectedProfile}
-              userName={userById.get(selectedProfileUserId)?.fullName ?? selectedProfileUserId}
-              positionNameById={positionNameById}
-              onClose={() => setSelectedProfileUserId(null)}
-            />
+            {selectedProfileUserId && (
+              <div className="absolute inset-0 flex items-center justify-center p-4">
+                <EmployeeProfilePanel
+                  profile={selectedProfile}
+                  userName={userById.get(selectedProfileUserId)?.fullName ?? selectedProfileUserId}
+                  positionNameById={positionNameById}
+                  onClose={() => setSelectedProfileUserId(null)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -659,9 +659,10 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                         );
                         const unavailableIds =
                           card.suggestion.candidateEvaluation?.excludedUserIdsByReason.unavailable ?? [];
-                        const unavailableNames = unavailableIds
-                          .map(userId => userNameById.get(userId) ?? userId)
-                          .filter(Boolean);
+                        const unavailablePeople = unavailableIds.map(userId => ({
+                          userId,
+                          name: userNameById.get(userId) ?? userId
+                        }));
                         const isApplied = appliedSuggestionKeys.has(card.key);
                         return (
                           <div
@@ -769,21 +770,21 @@ export const ScenarioTimelinePanel: React.FC<ScenarioTimelinePanelProps> = ({
                                 </div>
                               </div>
                             )}
-                            {isSelected && unavailableNames.length > 0 && (
+                            {isSelected && unavailablePeople.length > 0 && (
                               <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs text-amber-700">
                                 <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400">
                                   Excluded (unavailable)
                                 </div>
                                 <p className="mt-1 text-[11px]">
-                                  {unavailableNames.length} munkatárs
+                                  {unavailablePeople.length} munkatárs
                                 </p>
                                 <div className="mt-1 flex flex-wrap gap-2">
-                                  {unavailableNames.map(name => (
+                                  {unavailablePeople.map(person => (
                                     <span
-                                      key={name}
+                                      key={person.userId}
                                       className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-700"
                                     >
-                                      {name}
+                                      {person.name}
                                     </span>
                                   ))}
                                 </div>

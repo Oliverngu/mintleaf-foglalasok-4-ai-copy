@@ -63,8 +63,11 @@ export const EmployeeProfilePanel: React.FC<EmployeeProfilePanelProps> = ({
           <h3 className="text-sm font-semibold text-gray-800">Kivételek</h3>
           {profile && profile.availability.exceptions.length > 0 ? (
             <ul className="mt-2 space-y-2 text-xs text-gray-600">
-              {profile.availability.exceptions.map(exception => (
-                <li key={`${exception.dateKey}-${exception.available}`} className="rounded-lg bg-gray-50 px-3 py-2">
+              {profile.availability.exceptions.map((exception, index) => (
+                <li
+                  key={`${exception.dateKey}-${exception.available}-${index}`}
+                  className="rounded-lg bg-gray-50 px-3 py-2"
+                >
                   <div className="font-semibold text-gray-700">{exception.dateKey}</div>
                   <div>
                     {exception.available ? 'Elérhető' : 'Nem elérhető'}
