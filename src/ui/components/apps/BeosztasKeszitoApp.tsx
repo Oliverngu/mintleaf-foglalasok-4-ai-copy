@@ -47,6 +47,7 @@ import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
+import { DASH_STYLE as DASH_LAYOUT } from '../../styles/scheduler/schedulerDashStyle';
 
 const LAYERS = {
   modal: 90,
@@ -4466,7 +4467,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     );
 
   return (
-    <div className="p-4 md:p-8">
+    <div className={DASH_LAYOUT.root}>
       <style>
         {`@import url('https://fonts.googleapis.com/css2?family=Kalam&display=swap');
         .toggle-checkbox:checked { right: 0; border-color: #16a34a; }
@@ -4528,265 +4529,290 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         layer={LAYERS.modal}
       />
 
-      <div
-        className={toolbarWrapperClassName}
-        style={{ zIndex: LAYERS.toolbar }}
+      <header
+        className={`${DASH_LAYOUT.toolbar.container} h-auto flex-col items-stretch gap-3 py-3`}
       >
-        <GlassOverlay
-          className={`w-full ${toolbarDisabledClass}`}
-          elevation="high"
-          radius={18}
-          style={{ padding: 12 }}
-          interactive={!isSidebarOpen}
-        >
-          <div className="flex w-full flex-col">
-            <div
-              className="toolbar-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
-              style={{
-                touchAction: 'pan-x',
-                overscrollBehaviorX: 'contain',
-                WebkitOverflowScrolling: 'touch',
-              }}
-            >
-              <div className="flex items-center gap-2 flex-nowrap">
-                <button
-                  onClick={cycleViewSpan}
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={isToolbarDisabled}
-                >
-                  {currentViewLabel}
-                </button>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className={DASH_LAYOUT.toolbar.identity}>
+            <div className={DASH_LAYOUT.toolbar.logo}>M</div>
+            <div className="flex flex-col leading-tight">
+              <div className="flex items-center gap-2">
+                <span className={DASH_LAYOUT.toolbar.title}>Beosztás</span>
+                {!isMultiUnitView && unitMap.get(activeUnitIds[0] || '') && (
+                  <UnitLogoBadge
+                    unit={unitMap.get(activeUnitIds[0] || '')!}
+                    size={20}
+                  />
+                )}
               </div>
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                {isMultiUnitView
+                  ? 'Több egység'
+                  : unitMap.get(activeUnitIds[0] || '')?.name || 'Egység'}
+              </span>
+            </div>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap md:gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePrevWeek}
+                className="p-2 rounded-full hover:bg-slate-100"
+              >
+                &lt;
+              </button>
+              <h2 className="text-sm md:text-lg font-black text-center text-slate-800">
+                {headerStart?.toLocaleDateString('hu-HU', {
+                  month: 'long',
+                  day: 'numeric'
+                })}{' '}
+                -{' '}
+                {headerEnd?.toLocaleDateString('hu-HU', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </h2>
+              <button
+                onClick={handleNextWeek}
+                className="p-2 rounded-full hover:bg-slate-100"
+              >
+                &gt;
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               {canManage && (
-                <div className="flex items-center gap-2 flex-nowrap">
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="p-2 rounded-full hover:bg-slate-100"
+                  title="Heti beállítások"
+                >
+                  <SettingsIcon className="h-5 w-5" />
+                </button>
+              )}
+              {canManage && (
+                <div className="flex items-center bg-slate-100 rounded-full p-1">
                   <button
-                    onClick={handleToggleEditMode}
-                    className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                    disabled={isToolbarDisabled}
+                    onClick={() => setViewMode('draft')}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold ${
+                      viewMode === 'draft'
+                        ? 'bg-white shadow text-emerald-700'
+                        : 'text-slate-500'
+                    }`}
                   >
-                    Névsor szerkesztése
+                    Piszkozat
                   </button>
                   <button
-                    onClick={handleToggleSelectionMode}
-                    className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                    disabled={isToolbarDisabled}
+                    onClick={() => setViewMode('published')}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold ${
+                      viewMode === 'published'
+                        ? 'bg-white shadow text-emerald-700'
+                        : 'text-slate-500'
+                    }`}
                   >
-                    Cella kijelölése
+                    Publikált
                   </button>
                 </div>
               )}
-              <div className="flex items-center gap-2 flex-nowrap">
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setIsHiddenModalOpen(true)}
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
-                  disabled={isToolbarDisabled}
-                >
-                  <span className="inline-flex items-center gap-2 leading-none">
-                    <EyeIcon className="h-5 w-5" />
-                    <span className="leading-none">({hiddenUsers.length})</span>
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div
-              className={`w-full min-w-0 overflow-hidden transition-all duration-300 ease-out ${
-                isSelectionActive
-                  ? 'max-h-40 opacity-100'
-                  : 'max-h-0 opacity-0'
-              }`}
-            >
-              <div className="mt-2 text-xs text-slate-700 ml-[6px]">
-                Kijelölve: {selectedCellKeys.size} cella
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
-                  disabled={isToolbarDisabled}
-                >
-                  Kezdő idő
-                </button>
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={() => setBulkTimeModal({ type: 'end', value: '' })}
-                  disabled={isToolbarDisabled}
-                >
-                  Vég idő
-                </button>
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={handleBulkDayOff}
-                  disabled={isToolbarDisabled}
-                >
-                  Szabadnap
-                </button>
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={
-                    isToolbarDisabled ||
-                    activeUnitIds.length !== 1 ||
-                    selectedCellKeys.size === 0
+                  onClick={() =>
+                    setExportConfirmation({ type: 'PNG' })
                   }
-                  title={
-                    activeUnitIds.length !== 1
-                      ? 'Csak egy egység esetén érhető el'
-                      : selectedCellKeys.size === 0
-                        ? 'Nincs kijelölt cella a kiemeléshez'
-                        : undefined
-                  }
-                  onClick={() => applyHighlightToSelection()}
+                  disabled={isPngExporting}
+                  className="p-2 rounded-full hover:bg-slate-100"
+                  title="Exportálás PNG-be"
                 >
-                  Kiemelés
+                  {isPngExporting ? (
+                    <svg
+                      className="animate-spin h-5 w-5 text-slate-700"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                  ) : (
+                    <ImageIcon className="h-5 w-5" />
+                  )}
                 </button>
                 <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  disabled={
-                    isToolbarDisabled ||
-                    activeUnitIds.length !== 1 ||
-                    selectedCellKeys.size === 0
+                  onClick={() =>
+                    setExportConfirmation({ type: 'Excel' })
                   }
-                  title={
-                    activeUnitIds.length !== 1
-                      ? 'Csak egy egység esetén érhető el'
-                      : selectedCellKeys.size === 0
-                        ? 'Nincs kijelölt cella a kiemeléshez'
-                        : undefined
-                  }
-                  onClick={() => applyHighlightToSelection(false)}
+                  className="p-2 rounded-full hover:bg-slate-100"
+                  title="Exportálás Excelbe"
                 >
-                  Kiemelés törlése
-                </button>
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={handleBulkClearCells}
-                  disabled={isToolbarDisabled}
-                >
-                  Törlés
-                </button>
-                <button
-                  className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
-                  onClick={clearSelection}
-                  disabled={isToolbarDisabled}
-                >
-                  Kijelölés megszüntetése
+                  <DownloadIcon className="h-5 w-5" />
                 </button>
               </div>
             </div>
           </div>
-        </GlassOverlay>
-      </div>
-
-
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handlePrevWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &lt;
-          </button>
-          <h2 className="text-xl font-bold text-center">
-            {headerStart?.toLocaleDateString('hu-HU', {
-              month: 'long',
-              day: 'numeric'
-            })}{' '}
-            -{' '}
-            {headerEnd?.toLocaleDateString('hu-HU', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </h2>
-          <button
-            onClick={handleNextWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &gt;
-          </button>
         </div>
-        <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex w-full flex-wrap items-center justify-center gap-3 md:justify-end">
-            {canManage && (
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Heti beállítások"
+        <div
+          className={toolbarWrapperClassName}
+          style={{ zIndex: LAYERS.toolbar }}
+        >
+          <GlassOverlay
+            className={`w-full ${toolbarDisabledClass}`}
+            elevation="high"
+            radius={18}
+            style={{ padding: 12 }}
+            interactive={!isSidebarOpen}
+          >
+            <div className="flex w-full flex-col">
+              <div
+                className="toolbar-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
+                style={{
+                  touchAction: 'pan-x',
+                  overscrollBehaviorX: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                }}
               >
-                <SettingsIcon className="h-6 w-6" />
-              </button>
-            )}
-            {canManage && (
-              <div className="flex items-center bg-gray-200 rounded-full p-1">
-                <button
-                  onClick={() => setViewMode('draft')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'draft'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Piszkozat
-                </button>
-                <button
-                  onClick={() => setViewMode('published')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'published'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Publikált
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'PNG' })
-                }
-                disabled={isPngExporting}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás PNG-be"
-              >
-                {isPngExporting ? (
-                  <svg
-                    className="animate-spin h-6 w-6 text-gray-700"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <button
+                    onClick={cycleViewSpan}
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                ) : (
-                  <ImageIcon className="h-6 w-6" />
+                    {currentViewLabel}
+                  </button>
+                </div>
+                {canManage && (
+                  <div className="flex items-center gap-2 flex-nowrap">
+                    <button
+                      onClick={handleToggleEditMode}
+                      className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                      disabled={isToolbarDisabled}
+                    >
+                      Névsor szerkesztése
+                    </button>
+                    <button
+                      onClick={handleToggleSelectionMode}
+                      className={`${toolbarButtonClass(isSelectionMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                      disabled={isToolbarDisabled}
+                    >
+                      Cella kijelölése
+                    </button>
+                  </div>
                 )}
-              </button>
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'Excel' })
-                }
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás Excelbe"
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <button
+                    onClick={() => setIsHiddenModalOpen(true)}
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
+                    disabled={isToolbarDisabled}
+                  >
+                    <span className="inline-flex items-center gap-2 leading-none">
+                      <EyeIcon className="h-5 w-5" />
+                      <span className="leading-none">({hiddenUsers.length})</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className={`w-full min-w-0 overflow-hidden transition-all duration-300 ease-out ${
+                  isSelectionActive
+                    ? 'max-h-40 opacity-100'
+                    : 'max-h-0 opacity-0'
+                }`}
               >
-                <DownloadIcon className="h-6 w-6" />
-              </button>
+                <div className="mt-2 text-xs text-slate-700 ml-[6px]">
+                  Kijelölve: {selectedCellKeys.size} cella
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    onClick={() =>
+                      setBulkTimeModal({ type: 'start', value: '' })
+                    }
+                    disabled={isToolbarDisabled}
+                  >
+                    Kezdő idő
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    onClick={() =>
+                      setBulkTimeModal({ type: 'end', value: '' })
+                    }
+                    disabled={isToolbarDisabled}
+                  >
+                    Vég idő
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    onClick={handleBulkDayOff}
+                    disabled={isToolbarDisabled}
+                  >
+                    Szabadnap
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={
+                      isToolbarDisabled ||
+                      activeUnitIds.length !== 1 ||
+                      selectedCellKeys.size === 0
+                    }
+                    title={
+                      activeUnitIds.length !== 1
+                        ? 'Csak egy egység esetén érhető el'
+                        : selectedCellKeys.size === 0
+                          ? 'Nincs kijelölt cella a kiemeléshez'
+                          : undefined
+                    }
+                    onClick={() => applyHighlightToSelection()}
+                  >
+                    Kiemelés
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={
+                      isToolbarDisabled ||
+                      activeUnitIds.length !== 1 ||
+                      selectedCellKeys.size === 0
+                    }
+                    title={
+                      activeUnitIds.length !== 1
+                        ? 'Csak egy egység esetén érhető el'
+                        : selectedCellKeys.size === 0
+                          ? 'Nincs kijelölt cella a kiemeléshez'
+                          : undefined
+                    }
+                    onClick={() => applyHighlightToSelection(false)}
+                  >
+                    Kiemelés törlése
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    onClick={handleBulkClearCells}
+                    disabled={isToolbarDisabled}
+                  >
+                    Törlés
+                  </button>
+                  <button
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    onClick={clearSelection}
+                    disabled={isToolbarDisabled}
+                  >
+                    Kijelölés megszüntetése
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          </GlassOverlay>
         </div>
-      </div>
+      </header>
 
       {canManage && showSettings && (
         <div
@@ -4985,51 +5011,59 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         </div>
       )}
 
-      {canManage && viewMode === 'draft' && (
-        <div className="mb-4 text-center">
-          <button
-            onClick={handlePublishWeek}
-            className="text-white font-bold py-2 px-6 rounded-lg"
-            style={{ backgroundColor: 'var(--color-accent)' }}
-          >
-            Hét publikálása
-          </button>
-        </div>
-      )}
+      <div className={DASH_LAYOUT.layoutWrapper}>
+        <main className={`${DASH_LAYOUT.mainArea} min-h-0`}>
+          <div className="flex flex-1 min-h-0 flex-col gap-6 px-4 md:px-6 pb-6 pt-2">
+            {canManage && viewMode === 'draft' && (
+              <div className="text-center">
+                <button
+                  onClick={handlePublishWeek}
+                  className="text-white font-bold py-2 px-6 rounded-lg"
+                  style={{ backgroundColor: 'var(--color-accent)' }}
+                >
+                  Hét publikálása
+                </button>
+              </div>
+            )}
 
-      <div
-        ref={node => {
-          tableWrapperRef.current = node;
-          exportRef.current = node;
-        }}
-        className="relative overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
-        style={{
-          backgroundColor: 'var(--color-surface-static)',
-          color: 'var(--color-text-main)',
-          borderColor: 'var(--color-border)',
-        }}
-      >
-        {isSelectionMode && selectionOverlays.length > 0 && (
-          <div className="pointer-events-none absolute inset-0 z-[15]">
-            {selectionOverlays.map(overlay => (
-              <GlassOverlay
-                key={overlay.id}
-                interactive={false}
-                className="absolute z-[20]"
-                style={{
-                  position: 'absolute',
-                  top: overlay.top,
-                  left: overlay.left,
-                  width: overlay.width,
-                  height: overlay.height,
-                }}
-              />
-            ))}
+            <div
+              ref={node => {
+                tableWrapperRef.current = node;
+                exportRef.current = node;
+              }}
+              className={`${DASH_LAYOUT.table.container} min-h-0 rounded-2xl border border-gray-200 shadow-sm`}
+              style={{
+                backgroundColor: 'var(--color-surface-static)',
+                color: 'var(--color-text-main)',
+                borderColor: 'var(--color-border)',
+              }}
+            >
+              {isSelectionMode && selectionOverlays.length > 0 && (
+                <div className="pointer-events-none absolute inset-0 z-[15]">
+                  {selectionOverlays.map(overlay => (
+                    <GlassOverlay
+                      key={overlay.id}
+                      interactive={false}
+                      className="absolute z-[20]"
+                      style={{
+                        position: 'absolute',
+                        top: overlay.top,
+                        left: overlay.left,
+                        width: overlay.width,
+                        height: overlay.height,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className={`p-4 grid ${weekBlockGridColumns} gap-4`}>
+                {finalWeekBlocksDays.map((week, idx) =>
+                  renderWeekTable(week, idx)
+                )}
+              </div>
+            </div>
           </div>
-        )}
-        <div className={`p-4 grid ${weekBlockGridColumns} gap-4`}>
-          {finalWeekBlocksDays.map((week, idx) => renderWeekTable(week, idx))}
-        </div>
+        </main>
       </div>
 
       <BulkTimeModal
