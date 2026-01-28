@@ -51,7 +51,9 @@ import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
+import { SCHEDULER_DASH } from '../../styles/scheduler/schedulerDashTokens';
 import { runEngine } from '../../../core/scheduling/engine/runEngine';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   EngineInput,
   EngineResult,
@@ -69,6 +71,11 @@ import { listScenarios, upsertScenario, deleteScenario } from '../../../core/sch
 import { ScenarioTimelinePanel } from './scheduling/ScenarioTimelinePanel';
 import { EmployeeProfilePanel } from './scheduling/EmployeeProfilePanel';
 import { buildSuggestionKey, buildViolationKey } from './scheduling/ScenarioTimelineUtils';
+import { SchedulerPreviewPanel } from './scheduling/SchedulerPreviewPanel';
+import {
+  getSuggestionHighlightCellKeys,
+  getViolationHighlightCellKeys
+} from './scheduling/previewHighlight';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -1672,6 +1679,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     useState('2');
   const [isScenarioTimelineOpen, setIsScenarioTimelineOpen] = useState(false);
   const [scenarioTimelineError, setScenarioTimelineError] = useState<string | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const [timelineFocus, setTimelineFocus] = useState<{
+    type: 'suggestion' | 'violation';
+    key: string;
+  } | null>(null);
+  const [selectedSuggestionKey, setSelectedSuggestionKey] = useState<string | null>(null);
+  const [previewHighlightCellKeys, setPreviewHighlightCellKeys] = useState<string[]>([]);
+  const [externalAcceptSuggestionKey, setExternalAcceptSuggestionKey] = useState<string | null>(
+    null
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<
     'opening' | 'export'
@@ -2641,6 +2658,12 @@ if (expected === 0) {
     setIsScenarioTimelineOpen(true);
   }, [computeEngineResultForCurrentWeek, engineResult]);
 
+  const handleCloseScenarioTimeline = useCallback(() => {
+    setIsScenarioTimelineOpen(false);
+    setTimelineFocus(null);
+    setSelectedSuggestionKey(null);
+  }, []);
+
   const handleRunEngineDebug = useCallback(() => {
     const result = runEngineAndStore();
     if (!result) {
@@ -2901,6 +2924,41 @@ if (expected === 0) {
       return rest;
     });
   }, [computeEngineResultForCurrentWeek]);
+
+  const handleApplySuggestionFromCell = useCallback((suggestionKey: string) => {
+    setExternalAcceptSuggestionKey(suggestionKey);
+  }, []);
+
+  const handleFocusSuggestion = useCallback((suggestionKey: string) => {
+    setTimelineFocus({ type: 'suggestion', key: suggestionKey });
+    setSelectedSuggestionKey(suggestionKey);
+  }, []);
+
+  const handleFocusViolation = useCallback((violationKey: string) => {
+    setTimelineFocus({ type: 'violation', key: violationKey });
+    setSelectedSuggestionKey(null);
+  }, []);
+
+  useEffect(() => {
+    if (!engineResult || !timelineFocus) {
+      setPreviewHighlightCellKeys([]);
+      return;
+    }
+    if (timelineFocus.type === 'suggestion') {
+      setPreviewHighlightCellKeys(
+        getSuggestionHighlightCellKeys(engineResult, timelineFocus.key, {
+          weekDayKeys: weekDayKeys
+        })
+      );
+    } else {
+      setPreviewHighlightCellKeys(
+        getViolationHighlightCellKeys(engineResult, timelineFocus.key, {
+          weekDayKeys: weekDayKeys
+        })
+      );
+    }
+  }, [engineResult, timelineFocus, weekDayKeys]);
+
 
   const buildSuggestionPreview = useCallback(
     (suggestion: Suggestion): string => {
@@ -3350,6 +3408,19 @@ if (expected === 0) {
   const headerStart = finalWeekBlocksDays[0]?.[0] || weekDays[0];
   const headerEnd =
     finalWeekBlocksDays[finalWeekBlocksDays.length - 1]?.[6] || weekDays[6];
+  const activeUnit = useMemo(
+    () =>
+      activeUnitIds.length === 1
+        ? allUnits.find(unit => unit.id === activeUnitIds[0])
+        : undefined,
+    [activeUnitIds, allUnits]
+  );
+  const headerUnitName =
+    activeUnitIds.length === 1
+      ? activeUnit?.name || 'Ismeretlen egység'
+      : 'Több egység';
+  const headerStatusLabel =
+    viewMode === 'published' ? 'Publikált' : 'Piszkozat';
 
   const viewOptions = useMemo<Array<{ label: string; value: 1 | 2 | 3 | 4 | 'month' }>>(
     () => [
@@ -3382,15 +3453,17 @@ if (expected === 0) {
   const toolbarButtonDisabledClass = isToolbarDisabled
     ? 'pointer-events-none'
     : '';
-  const toolbarWrapperClassName = `export-hide sticky top-2 mb-4 ${isSidebarOpen ? 'pointer-events-none' : ''}`;
+  const toolbarWrapperClassName = `${SCHEDULER_DASH.toolbarWrapper} ${
+    isSidebarOpen ? 'pointer-events-none' : ''
+  }`;
   const toolbarPillBase = 'shrink-0 whitespace-nowrap';
 
   const toolbarButtonClass = useCallback(
     (active: boolean) =>
-      `text-sm px-4 py-2 rounded-full border border-white/40 backdrop-blur-md transition-colors shadow-sm ${
+      `text-sm px-4 py-2 rounded-full border transition-colors shadow-sm ${
         active
-          ? 'bg-slate-900/85 text-white shadow-md'
-          : 'bg-white/30 text-slate-950 hover:bg-white/40'
+          ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
       } disabled:cursor-not-allowed disabled:opacity-60 disabled:pointer-events-none`,
     []
   );
@@ -3427,10 +3500,38 @@ if (expected === 0) {
 
   const renderWeekTable = (
     weekDaysForBlock: Date[],
-    blockIndex: number
+    blockIndex: number,
+    options?: {
+      enableCellRefs?: boolean;
+      enableInteractions?: boolean;
+    }
   ) => {
     const weekDays = weekDaysForBlock;
     const dayKeysForBlock = weekDays.map(toDateString);
+    const enableCellRefs = options?.enableCellRefs ?? true;
+    const enableInteractions = options?.enableInteractions ?? true;
+    let localZebraRowIndex = 0;
+    let localRenderRowIndex = 0;
+    const getNextZebraIndex = () => {
+      if (enableCellRefs) {
+        const index = zebraRowIndex;
+        zebraRowIndex += 1;
+        return index;
+      }
+      const index = localZebraRowIndex;
+      localZebraRowIndex += 1;
+      return index;
+    };
+    const getNextRenderRowIndex = () => {
+      if (enableCellRefs) {
+        const index = renderRowIndex;
+        renderRowIndex += 1;
+        return index;
+      }
+      const index = localRenderRowIndex;
+      localRenderRowIndex += 1;
+      return index;
+    };
     const defaultUserTotals: Record<string, number> = {};
     orderedUsers.forEach(user => {
       defaultUserTotals[user.id] = 0;
@@ -3605,7 +3706,8 @@ if (expected === 0) {
                     const isEmptyWeek =
                       weeklyHours <= 0.01 && !hasShiftInBlockWeek;
 
-                    const isAltRow = zebraRowIndex % 2 === 1;
+                    const zebraIndex = getNextZebraIndex();
+                    const isAltRow = zebraIndex % 2 === 1;
                     const rowBg = isAltRow
                       ? tableAltZebraColor
                       : tableBaseZebraColor;
@@ -3614,8 +3716,7 @@ if (expected === 0) {
                       : tableBaseNameColor;
                     const nameTextColor = getContrastingTextColor(nameBg);
                     const rowTextColor = getContrastingTextColor(rowBg);
-                    zebraRowIndex += 1;
-                    const currentRowIndex = renderRowIndex++;
+                    const currentRowIndex = getNextRenderRowIndex();
 
                     const hasTags = !!(user.tags && user.tags.length);
 
@@ -3844,36 +3945,44 @@ if (expected === 0) {
                           return (
                             <td
                               key={dayIndex}
-                              ref={node => {
-                                if (node) {
-                                  cellRefs.current.set(cellUiKey, node);
-                                  cellMetaRef.current.set(cellUiKey, {
-                                    row: currentRowIndex,
-                                    col: dayIndex
-                                  });
-                                  cellCoordIndexRef.current.set(
-                                    `${currentRowIndex}:${dayIndex}`,
-                                    cellUiKey
-                                  );
-                                } else {
-                                  cellRefs.current.delete(cellUiKey);
-                                  cellMetaRef.current.delete(cellUiKey);
-                                  cellCoordIndexRef.current.delete(
-                                    `${currentRowIndex}:${dayIndex}`
-                                  );
-                                }
-                              }}
+                              ref={
+                                enableCellRefs
+                                  ? node => {
+                                      if (node) {
+                                        cellRefs.current.set(cellUiKey, node);
+                                        cellMetaRef.current.set(cellUiKey, {
+                                          row: currentRowIndex,
+                                          col: dayIndex
+                                        });
+                                        cellCoordIndexRef.current.set(
+                                          `${currentRowIndex}:${dayIndex}`,
+                                          cellUiKey
+                                        );
+                                      } else {
+                                        cellRefs.current.delete(cellUiKey);
+                                        cellMetaRef.current.delete(cellUiKey);
+                                        cellCoordIndexRef.current.delete(
+                                          `${currentRowIndex}:${dayIndex}`
+                                        );
+                                      }
+                                    }
+                                  : undefined
+                              }
                               className={cellClasses}
                               style={cellStyle}
-                              onClick={event =>
-                                handleCellInteraction(
-                                  cellUiKey,
-                                  canEditCell,
-                                  userDayShifts,
-                                  user.id,
-                                  day,
-                                  event
-                                )
+                              data-preview-cell-key={cellDataKey}
+                              onClick={
+                                enableInteractions
+                                  ? event =>
+                                      handleCellInteraction(
+                                        cellUiKey,
+                                        canEditCell,
+                                        userDayShifts,
+                                        user.id,
+                                        day,
+                                        event
+                                      )
+                                  : undefined
                               }
                             >
                               <div className="relative flex flex-col items-center justify-center px-1 py-2 min-h-[40px] gap-1">
@@ -5483,7 +5592,7 @@ if (expected === 0) {
     );
 
   return (
-    <div className="p-4 md:p-8">
+    <div className={SCHEDULER_DASH.page}>
       <style>
         {`@import url('https://fonts.googleapis.com/css2?family=Kalam&display=swap');
         .toggle-checkbox:checked { right: 0; border-color: #16a34a; }
@@ -5514,36 +5623,177 @@ if (expected === 0) {
         `}
       </style>
 
-      <ShiftModal
-        isOpen={isShiftModalOpen}
-        onClose={() => setIsShiftModalOpen(false)}
-        onSave={handleSaveShift}
-        onDelete={handleDeleteShift}
-        shift={editingShift?.shift || null}
-        userId={editingShift?.userId || currentUser.id}
-        date={editingShift?.date || new Date()}
-        users={filteredUsers}
-        schedule={effectiveSchedule}
-        viewMode={viewMode}
-        currentUser={currentUser}
-        canManage={canManage}
-      />
-
-      {isPublishModalOpen && (
-        <PublishWeekModal
-          units={unitsWithDrafts}
-          onClose={() => setIsPublishModalOpen(false)}
-          onConfirm={handleConfirmPublish}
+      <div className={SCHEDULER_DASH.container}>
+        <ShiftModal
+          isOpen={isShiftModalOpen}
+          onClose={() => setIsShiftModalOpen(false)}
+          onSave={handleSaveShift}
+          onDelete={handleDeleteShift}
+          shift={editingShift?.shift || null}
+          userId={editingShift?.userId || currentUser.id}
+          date={editingShift?.date || new Date()}
+          users={filteredUsers}
+          schedule={effectiveSchedule}
+          viewMode={viewMode}
+          currentUser={currentUser}
+          canManage={canManage}
         />
-      )}
 
-      <HiddenUsersModal
-        isOpen={isHiddenModalOpen}
-        onClose={() => setIsHiddenModalOpen(false)}
-        hiddenUsers={hiddenUsers}
-        onUnhide={handleShowUser}
-        layer={LAYERS.modal}
-      />
+        {isPublishModalOpen && (
+          <PublishWeekModal
+            units={unitsWithDrafts}
+            onClose={() => setIsPublishModalOpen(false)}
+            onConfirm={handleConfirmPublish}
+          />
+        )}
+
+        <HiddenUsersModal
+          isOpen={isHiddenModalOpen}
+          onClose={() => setIsHiddenModalOpen(false)}
+          hiddenUsers={hiddenUsers}
+          onUnhide={handleShowUser}
+          layer={LAYERS.modal}
+        />
+
+        <div className={SCHEDULER_DASH.headerCard}>
+          <div className={SCHEDULER_DASH.headerInner}>
+            <div className={SCHEDULER_DASH.headerTop}>
+              <div className="flex flex-col gap-2">
+                <div className={SCHEDULER_DASH.titleGroup}>
+                  <h1 className={SCHEDULER_DASH.title}>Beosztás</h1>
+                  <span className={SCHEDULER_DASH.badge}>
+                    {activeUnit && (
+                      <UnitLogoBadge unit={activeUnit} size={18} />
+                    )}
+                    {headerUnitName}
+                  </span>
+                </div>
+                <div className={SCHEDULER_DASH.subtitle}>
+                  {headerStatusLabel}
+                </div>
+              </div>
+              <div className={SCHEDULER_DASH.navGroup}>
+                <button
+                  onClick={handlePrevWeek}
+                  className={SCHEDULER_DASH.navButton}
+                  aria-label="Előző hét"
+                >
+                  &lt;
+                </button>
+                <div className={SCHEDULER_DASH.dateRange}>
+                  {headerStart?.toLocaleDateString('hu-HU', {
+                    month: 'long',
+                    day: 'numeric'
+                  })}{' '}
+                  -{' '}
+                  {headerEnd?.toLocaleDateString('hu-HU', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </div>
+                <button
+                  onClick={handleNextWeek}
+                  className={SCHEDULER_DASH.navButton}
+                  aria-label="Következő hét"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className={SCHEDULER_DASH.controlGroup}>
+                {canManage && (
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={SCHEDULER_DASH.iconButton}
+                    title="Heti beállítások"
+                  >
+                    <SettingsIcon className="h-5 w-5" />
+                  </button>
+                )}
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={handleOpenScenarioTimeline}
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50"
+                    title="Timeline"
+                  >
+                    Timeline
+                  </button>
+                )}
+                {canManage && (
+                  <div className={SCHEDULER_DASH.pillToggle}>
+                    <button
+                      onClick={() => setViewMode('draft')}
+                      className={`${SCHEDULER_DASH.pillButton} ${
+                        viewMode === 'draft'
+                          ? SCHEDULER_DASH.pillActive
+                          : SCHEDULER_DASH.pillInactive
+                      }`}
+                    >
+                      Piszkozat
+                    </button>
+                    <button
+                      onClick={() => setViewMode('published')}
+                      className={`${SCHEDULER_DASH.pillButton} ${
+                        viewMode === 'published'
+                          ? SCHEDULER_DASH.pillActive
+                          : SCHEDULER_DASH.pillInactive
+                      }`}
+                    >
+                      Publikált
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className={SCHEDULER_DASH.controlGroup}>
+                <button
+                  onClick={() =>
+                    setExportConfirmation({ type: 'PNG' })
+                  }
+                  disabled={isPngExporting || isPngExportConfirming}
+                  className={SCHEDULER_DASH.iconButton}
+                  title="Exportálás PNG-be"
+                >
+                  {isPngExporting ? (
+                    <svg
+                      className="animate-spin h-5 w-5 text-slate-700"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                  ) : (
+                    <ImageIcon className="h-5 w-5" />
+                  )}
+                </button>
+                <button
+                  onClick={() =>
+                    setExportConfirmation({ type: 'Excel' })
+                  }
+                  className={SCHEDULER_DASH.iconButton}
+                  title="Exportálás Excelbe"
+                >
+                  <DownloadIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
       <div
         className={toolbarWrapperClassName}
@@ -5558,14 +5808,14 @@ if (expected === 0) {
         >
           <div className="flex w-full flex-col">
             <div
-              className="toolbar-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
+              className="toolbar-scroll flex w-full min-w-0 flex-wrap items-center gap-2 overflow-x-auto"
               style={{
                 touchAction: 'pan-x',
                 overscrollBehaviorX: 'contain',
                 WebkitOverflowScrolling: 'touch',
               }}
             >
-              <div className="flex items-center gap-2 flex-nowrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={cycleViewSpan}
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
@@ -5575,7 +5825,7 @@ if (expected === 0) {
                 </button>
               </div>
               {canManage && (
-                <div className="flex items-center gap-2 flex-nowrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={handleToggleEditMode}
                     className={`${toolbarButtonClass(isEditMode)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
@@ -5592,7 +5842,7 @@ if (expected === 0) {
                   </button>
                 </div>
               )}
-              <div className="flex items-center gap-2 flex-nowrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setIsHiddenModalOpen(true)}
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase} min-w-[76px] h-10 inline-flex items-center justify-center`}
@@ -5605,7 +5855,7 @@ if (expected === 0) {
                 </button>
               </div>
               {isDevEnv && (
-                <div className="flex items-center gap-2 flex-nowrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={handleRunEngineDebug}
                     className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
@@ -5631,10 +5881,10 @@ if (expected === 0) {
                   : 'max-h-0 opacity-0'
               }`}
             >
-              <div className="mt-2 text-xs text-slate-700 ml-[6px]">
+              <div className={`mt-2 ml-[6px] ${SCHEDULER_DASH.selectionSummary}`}>
                 Kijelölve: {selectedCellKeys.size} cella
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <div className={SCHEDULER_DASH.selectionActions}>
                 <button
                   className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
                   onClick={() => setBulkTimeModal({ type: 'start', value: '' })}
@@ -5712,126 +5962,6 @@ if (expected === 0) {
         </GlassOverlay>
       </div>
 
-
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handlePrevWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &lt;
-          </button>
-          <h2 className="text-xl font-bold text-center">
-            {headerStart?.toLocaleDateString('hu-HU', {
-              month: 'long',
-              day: 'numeric'
-            })}{' '}
-            -{' '}
-            {headerEnd?.toLocaleDateString('hu-HU', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </h2>
-          <button
-            onClick={handleNextWeek}
-            className="p-2 rounded-full hover:bg-gray-200"
-          >
-            &gt;
-          </button>
-        </div>
-        <div className="flex flex-col md:flex-row items-center gap-3 md:gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex w-full flex-wrap items-center justify-center gap-3 md:justify-end">
-            {canManage && (
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Heti beállítások"
-              >
-                <SettingsIcon className="h-6 w-6" />
-              </button>
-            )}
-            {canManage && (
-              <button
-                type="button"
-                onClick={handleOpenScenarioTimeline}
-                className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
-                title="Timeline"
-              >
-                Timeline
-              </button>
-            )}
-            {canManage && (
-              <div className="flex items-center bg-gray-200 rounded-full p-1">
-                <button
-                  onClick={() => setViewMode('draft')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'draft'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Piszkozat
-                </button>
-                <button
-                  onClick={() => setViewMode('published')}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold ${
-                    viewMode === 'published'
-                      ? 'bg-white shadow'
-                      : ''
-                  }`}
-                >
-                  Publikált
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'PNG' })
-                }
-                disabled={isPngExporting || isPngExportConfirming}
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás PNG-be"
-              >
-                {isPngExporting ? (
-                  <svg
-                    className="animate-spin h-6 w-6 text-gray-700"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                ) : (
-                  <ImageIcon className="h-6 w-6" />
-                )}
-              </button>
-              <button
-                onClick={() =>
-                  setExportConfirmation({ type: 'Excel' })
-                }
-                className="p-2 rounded-full hover:bg-gray-200"
-                title="Exportálás Excelbe"
-              >
-                <DownloadIcon className="h-6 w-6" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {staffWarning && !isAdminUser && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
@@ -6300,24 +6430,47 @@ if (expected === 0) {
               setSelectedProfileUserId(null);
               return;
             }
-            setIsScenarioTimelineOpen(false);
+            handleCloseScenarioTimeline();
           }}
         >
-          <div className="relative" onClick={e => e.stopPropagation()}>
+          <div
+            className={
+              isDesktop
+                ? 'relative flex w-full max-w-[1400px] items-stretch gap-4'
+                : 'relative'
+            }
+            onClick={e => e.stopPropagation()}
+          >
             {engineResult ? (
-              <ScenarioTimelinePanel
-                engineResult={engineResult}
-                scenarios={scenarios}
-                positions={positions}
-                users={allAppUsers}
-                weekDays={weekDayKeys}
-                selectedDateKey={weekDayKeys[0]}
-                onAcceptSuggestion={handleAcceptTimelineSuggestion}
-                onUndoSuggestion={handleUndoTimelineSuggestion}
-                canUndoSuggestion={timelineUndoStack.length > 0}
-                onOpenProfile={userId => setSelectedProfileUserId(userId)}
-                onClose={() => setIsScenarioTimelineOpen(false)}
-              />
+              <>
+                <ScenarioTimelinePanel
+                  engineResult={engineResult}
+                  scenarios={scenarios}
+                  positions={positions}
+                  users={allAppUsers}
+                  weekDays={weekDayKeys}
+                  selectedDateKey={weekDayKeys[0]}
+                  onAcceptSuggestion={handleAcceptTimelineSuggestion}
+                  onUndoSuggestion={handleUndoTimelineSuggestion}
+                  canUndoSuggestion={timelineUndoStack.length > 0}
+                  onOpenProfile={userId => setSelectedProfileUserId(userId)}
+                  onFocusSuggestion={handleFocusSuggestion}
+                  onFocusViolation={handleFocusViolation}
+                  externalAcceptSuggestionKey={externalAcceptSuggestionKey}
+                  onExternalAcceptHandled={() => setExternalAcceptSuggestionKey(null)}
+                  onClose={handleCloseScenarioTimeline}
+                />
+                {isDesktop && (
+                  <SchedulerPreviewPanel
+                    weekBlocksDays={finalWeekBlocksDays}
+                    renderWeekTable={renderWeekTable}
+                    focus={timelineFocus}
+                    highlightCellKeys={previewHighlightCellKeys}
+                    onApplySuggestionFromCell={handleApplySuggestionFromCell}
+                    selectedSuggestionKey={selectedSuggestionKey}
+                  />
+                )}
+              </>
             ) : (
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
                 <h2 className="text-lg font-semibold text-gray-900">Scenario Timeline</h2>
@@ -6337,7 +6490,7 @@ if (expected === 0) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsScenarioTimelineOpen(false)}
+                    onClick={handleCloseScenarioTimeline}
                     className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
                   >
                     Mégse
@@ -6346,7 +6499,7 @@ if (expected === 0) {
               </div>
             )}
             {selectedProfileUserId && (
-              <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
                 <EmployeeProfilePanel
                   profile={selectedProfile}
                   userName={userById.get(selectedProfileUserId)?.fullName ?? selectedProfileUserId}
@@ -6360,10 +6513,10 @@ if (expected === 0) {
       )}
 
       {canManage && viewMode === 'draft' && (
-        <div className="mb-4 text-center">
+        <div className={SCHEDULER_DASH.publishWrapper}>
           <button
             onClick={handlePublishWeek}
-            className="text-white font-bold py-2 px-6 rounded-lg"
+            className={SCHEDULER_DASH.publishButton}
             style={{ backgroundColor: 'var(--color-accent)' }}
           >
             Hét publikálása
@@ -6376,7 +6529,7 @@ if (expected === 0) {
           tableWrapperRef.current = node;
           exportRef.current = node;
         }}
-        className="relative overflow-x-auto rounded-2xl border border-gray-200 shadow-sm"
+        className={SCHEDULER_DASH.tableWrapper}
         style={{
           backgroundColor: 'var(--color-surface-static)',
           color: 'var(--color-text-main)',
@@ -6697,6 +6850,7 @@ if (expected === 0) {
           </GlassOverlay>
         </div>
       )}
+      </div>
     </div>
   );
 };
