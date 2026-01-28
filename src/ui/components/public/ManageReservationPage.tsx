@@ -235,6 +235,17 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
   const isAdminTokenValid = isAdminTokenMatch(booking, hashedAdminToken);
   const isModifyLocked =
     !booking?.startTimeMs || booking?.status !== 'pending';
+  const showAdminSection = !!adminToken && !isHashingAdminToken;
+  const isAdminActionAvailable =
+    showAdminSection &&
+    booking?.status === 'pending' &&
+    isAdminTokenValid &&
+    !isAdminTokenExpired(booking) &&
+    !isAdminTokenUsed(booking);
+  const adminUnavailableMessage =
+    booking?.status !== 'pending' && isAdminTokenValid
+      ? t.adminActionNotPending
+      : t.invalidAdminToken;
 
   useEffect(() => {
     const fetchBooking = async () => {
@@ -934,26 +945,38 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
             </div>
           )}
 
-          {booking.status === 'pending' &&
-            adminToken &&
-            !isHashingAdminToken &&
-            isAdminTokenValid &&
-            !isAdminTokenExpired(booking) &&
-            !isAdminTokenUsed(booking) && (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
-                  {locale === 'hu' ? 'Admin műveletek' : 'Admin actions'}
-                </div>
-                <div
-                  className={`p-4 border ${theme.radiusClass} space-y-3`}
-                  style={{
-                    backgroundColor: `${theme.colors.accent}10`,
-                    color: theme.colors.textPrimary,
-                    borderColor: `${theme.colors.accent}40`,
-                  }}
+          {showAdminSection && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
+                {t.adminActionsLabel}
+              </div>
+              <details
+                className={`border ${theme.radiusClass} p-4 group`}
+                style={{
+                  backgroundColor: `${theme.colors.accent}08`,
+                  color: theme.colors.textPrimary,
+                  borderColor: `${theme.colors.accent}40`,
+                }}
+              >
+                <summary
+                  className="flex items-center justify-between cursor-pointer font-semibold list-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+                  style={{ color: theme.colors.textPrimary }}
                 >
-                  <p className="font-semibold">{t.adminActionTitle}</p>
-                  {actionMessage && (
+                  <span>{t.adminActionTitle}</span>
+                  <span
+                    aria-hidden="true"
+                    className="text-xs transition-transform group-open:rotate-180"
+                  >
+                    ▾
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {!isAdminActionAvailable && (
+                    <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
+                      {adminUnavailableMessage}
+                    </p>
+                  )}
+                  {isAdminActionAvailable && actionMessage && (
                     <p
                       className={`text-sm p-2 ${theme.radiusClass} border`}
                       style={{
@@ -965,7 +988,7 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                       {actionMessage}
                     </p>
                   )}
-                  {!actionMessage && (
+                  {isAdminActionAvailable && !actionMessage && (
                     <div className="flex flex-col sm:flex-row gap-3">
                       <button
                         onClick={() => handleAdminDecision('approve')}
@@ -986,14 +1009,15 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              </details>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
           <div className="space-y-3">
             <div className="text-sm font-semibold" style={{ color: theme.colors.textPrimary }}>
-              {locale === 'hu' ? 'Vendég műveletek' : 'Guest actions'}
+              {t.guestActionsLabel}
             </div>
             <div
               className={`p-4 border ${theme.radiusClass}`}
@@ -1083,9 +1107,14 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
                 </p>
               )}
               {modifySuccess && (
-                <p className="text-sm mt-3" style={{ color: theme.colors.primary }}>
-                  {modifySuccess}
-                </p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm" style={{ color: theme.colors.primary }}>
+                    {modifySuccess}
+                  </p>
+                  <p className="text-xs" style={{ color: theme.colors.textSecondary }}>
+                    {t.modifyNextSteps}
+                  </p>
+                </div>
               )}
               <button
                 onClick={handleModifyReservation}
@@ -1132,6 +1161,9 @@ const ManageReservationPage: React.FC<ManageReservationPageProps> = ({
               <div className="text-center">
                 <p className="text-lg font-semibold" style={{ color: theme.colors.danger }}>
                   {t.reservationCancelledSuccess}
+                </p>
+                <p className="text-sm mt-2" style={{ color: theme.colors.textSecondary }}>
+                  {t.cancelNextSteps}
                 </p>
               </div>
             )}
