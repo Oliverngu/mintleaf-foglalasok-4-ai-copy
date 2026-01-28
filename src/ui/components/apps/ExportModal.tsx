@@ -1,4 +1,5 @@
 import { Shift, User, Request, Unit, ScheduleSettings, ExportStyleSettings } from '../../../core/models/data';
+import { DEFAULT_CLOSING_TIME } from '../../../core/scheduling/engine/timeUtils';
 
 // Make sure SheetJS is loaded from index.html
 declare const XLSX: any;
@@ -93,7 +94,13 @@ export const generateExcelExport = async ({
 
             if (weekSettings?.showClosingTime) {
                 const closingTimeRow: (string | null)[] = ['Zárás'];
-                weekDays.forEach((_, i) => closingTimeRow.push(weekSettings.dailySettings[i]?.closingTime || ''));
+                weekDays.forEach((_, i) =>
+                  closingTimeRow.push(
+                    weekSettings.dailySettings[i]?.closingTimeInherit === true
+                      ? DEFAULT_CLOSING_TIME
+                      : weekSettings.dailySettings[i]?.closingTime || ''
+                  )
+                );
                 data.push(closingTimeRow);
             }
             
