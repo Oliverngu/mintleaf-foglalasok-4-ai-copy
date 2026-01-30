@@ -2747,7 +2747,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const tablesForWorldLayer = useMemo(
     () =>
       editorTables.map(table => {
-        if (!isEditMode) return table;
+        // Always use draft geometry if available (fixes zoom-in mode drag)
         const draftPos = draftPositions[table.id];
         const draftRot = draftRotations[table.id];
         if (!draftPos && draftRot === undefined) return table;
@@ -2757,7 +2757,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(draftRot !== undefined ? { rot: draftRot } : {}),
         };
       }),
-    [draftPositions, draftRotations, editorTables, isEditMode]
+    [draftPositions, draftRotations, editorTables]
   );
   const debugTableRows = useMemo(
     () =>
@@ -5207,7 +5207,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <div
           className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
           data-seating-no-deselect="1"
-          style={{ position: 'absolute', left: screenX, top: screenY }}
+          style={{ position: 'absolute', left: screenX + 8, top: screenY + 16 }}
         >
           <div className="font-semibold">
             {selectedEditorTable.name || selectedEditorTable.id}
