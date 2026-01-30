@@ -694,7 +694,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!isDev) return;
     if (floorplans.length === 0 && tables.length === 0) return;
     const debugFloorplanDims = resolveCanonicalFloorplanDims(floorplans[0], tables);
-    const normalizedFloorplans = floorplans.map(plan => {
+    const normalizedFloorplans = (floorplans || []).map(plan => {
       const width = Number(plan.width);
       const height = Number(plan.height);
       return {
@@ -703,7 +703,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         height: Number.isFinite(height) && height > 0 ? height : 1,
       };
     });
-    const normalizedTables = tables.slice(0, 3).map(table => ({
+    const normalizedTables = (tables || []).slice(0, 3).map(table => ({
       id: table.id,
       ...resolveTableGeometryInFloorplanSpace(
         table,
@@ -854,8 +854,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           throw err;
         }
         if (!isMounted) return;
-        const tableIds = new Set(tablesData.map(table => table.id));
-        const prunedTables = tablesData.map(table => {
+        const tableIds = new Set((tablesData || []).map(table => table.id));
+        const prunedTables = (tablesData || []).map(table => {
           const prunedCombinable = (table.combinableWithIds ?? []).filter(
             id => tableIds.has(id) && id !== table.id
           );
@@ -1001,7 +1001,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const seatLayoutForDraft = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
       ? undefined
       : selectedTableDraft.seatLayout;
-    return filtered.map(table =>
+    return (filtered || []).map(table =>
       table.id === selectedTableDraft.id
         ? {
             ...table,
@@ -1580,7 +1580,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       setFloorplans(current =>
-        current.map(plan =>
+        (current || []).map(plan =>
           plan.id === activeFloorplan.id ? { ...plan, obstacles: nextObstacles } : plan
         )
       );
@@ -2346,7 +2346,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         await updateTable(unitId, selectedTableDraft.id, payload);
         const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
         setTables(current =>
-          current.map(table =>
+          (current || []).map(table =>
             table.id === selectedTableDraft.id
               ? {
                   ...table,
@@ -2391,7 +2391,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `base-combo-${Date.now()}`;
-    const updates = baseComboSelection.map(tableId => ({
+    const updates = (baseComboSelection || []).map(tableId => ({
       tableId,
       baseCombo: { groupId, role: 'member' as const },
     }));
@@ -2402,12 +2402,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       successMessage: 'Base kombináció létrehozva.',
       action: async () => {
         await Promise.all(
-          updates.map(update =>
+          (updates || []).map(update =>
             updateTable(unitId, update.tableId, { baseCombo: update.baseCombo })
           )
         );
         setTables(current =>
-          current.map(table => {
+          (current || []).map(table => {
             const update = updates.find(item => item.tableId === table.id);
             return update ? { ...table, baseCombo: update.baseCombo } : table;
           })
@@ -4343,7 +4343,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               }
             >
               <option value="">Nincs beállítva</option>
-              {zones.map(zone => (
+              {(zones || []).map(zone => (
                 <option key={zone.id} value={zone.id}>
                   {zone.name}
                 </option>
@@ -4714,7 +4714,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         {actionSaving['zone-submit'] ? 'Mentés...' : 'Mentés'}
       </button>
       <div className="space-y-2 text-sm">
-        {zones.map(zone => {
+        {(zones || []).map(zone => {
           const isDeleting = actionSaving[`zone-delete-${zone.id}`];
           return (
             <div key={zone.id} className="flex items-center justify-between border rounded p-2">
@@ -4779,7 +4779,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
         >
           <option value="">Zóna kiválasztása</option>
-          {zones.map(zone => (
+          {(zones || []).map(zone => (
             <option key={zone.id} value={zone.id}>
               {zone.name}
             </option>
@@ -4924,7 +4924,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         {actionSaving['table-submit'] ? 'Mentés...' : 'Mentés'}
       </button>
       <div className="space-y-2 text-sm">
-        {tables.map(table => {
+        {(tables || []).map(table => {
           const isDeleting = actionSaving[`table-delete-${table.id}`];
           return (
             <div key={table.id} className="flex items-center justify-between border rounded p-2">
@@ -4995,7 +4995,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <h3 className="font-semibold">Kombinációk</h3>
       <div className="space-y-2 text-sm">
         <div className="grid grid-cols-2 gap-2">
-          {tables.map(table => (
+          {(tables || []).map(table => (
             <label key={table.id} className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -5021,7 +5021,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           {actionSaving['combo-submit'] ? 'Mentés...' : 'Mentés'}
         </button>
         <div className="space-y-2">
-          {combos.map(combo => {
+          {(combos || []).map(combo => {
             const isToggling = actionSaving[`combo-toggle-${combo.id}`];
             const isDeleting = actionSaving[`combo-delete-${combo.id}`];
             return (
@@ -5344,7 +5344,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           {actionSaving['floorplan-submit'] ? 'Mentés...' : 'Mentés'}
         </button>
         <div className="space-y-2 text-sm">
-          {visibleFloorplans.map(plan => {
+          {(visibleFloorplans || []).map(plan => {
             const width = Number(plan.width);
             const height = Number(plan.height);
             const safeWidth = Number.isFinite(width) && width > 0 ? width : 1;
@@ -5681,7 +5681,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                     {debugTableRows.length > 0 && (
                       <div className="mt-1 space-y-1">
-                        {debugTableRows.map(row => (
+                        {(debugTableRows || []).map(row => (
                           <div key={`dbg-${row.id}`}>
                             t:{' '}
                             {row.name ? `${row.name} ` : ''}
@@ -5801,7 +5801,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       </>
                     )}
                     {showObstacleDebug &&
-                      activeObstacles.map(obstacle => {
+                      (activeObstacles || []).map(obstacle => {
                         const rect = getObstacleRenderRect(obstacle);
                         return (
                           <div
@@ -5820,7 +5820,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           </div>
                         );
                       })}
-                    {activeObstacles.map(obstacle => {
+                    {(activeObstacles || []).map(obstacle => {
                       const rect = getObstacleRenderRect(obstacle);
                       const isSelected = selectedObstacleId === obstacle.id;
                       return (
@@ -5877,7 +5877,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         </div>
                       );
                     })}
-                    {editorTables.map(table => {
+                    {(editorTables || []).map(table => {
                       const geometry = resolveTableGeometryInFloorplanSpace(
                         table,
                         floorplanDims,
@@ -6243,7 +6243,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       )}
                       {debugTableRows.length > 0 && (
                         <div className="mt-1 space-y-1">
-                          {debugTableRows.map(row => (
+                          {(debugTableRows || []).map(row => (
                             <div key={`dbg-view-${row.id}`}>
                               t:{' '}
                               {row.name ? `${row.name} ` : ''}
