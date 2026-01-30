@@ -948,7 +948,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const activeZones = useMemo(() => zones.filter(zone => zone.isActive), [zones]);
   const activeZoneIds = useMemo(
-    () => new Set(activeZones.map(zone => zone.id)),
+    () => new Set((activeZones || []).map(zone => zone.id)),
     [activeZones]
   );
   function isRectIntersecting(
@@ -2761,7 +2761,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const debugTableRows = useMemo(
     () =>
-      editorTables.slice(0, 5).map(table => {
+      (editorTables || []).slice(0, 5).map(table => {
         const raw = normalizeTableGeometry(table);
         const floor = resolveTableGeometryInFloorplanSpace(
           table,
@@ -4030,7 +4030,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     const previousObstacles = activeObstacles;
-    const nextObstacles = activeObstacles.map(obstacle =>
+    const nextObstacles = (activeObstacles || []).map(obstacle =>
       obstacle.id === obstacleId ? { ...obstacle, ...next } : obstacle
     );
     updateActiveFloorplanObstacles(nextObstacles);
@@ -4478,7 +4478,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               <div className="col-span-2 space-y-2">
                 <div className="text-sm font-semibold">Overflow zónák</div>
                 <div className="grid gap-2 md:grid-cols-2">
-                  {activeZones.map(zone => (
+                  {(activeZones || []).map(zone => (
                     <label key={zone.id} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -4560,7 +4560,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       });
                     }}
                   >
-                    {emergencyZoneOptions.map(zone => (
+                    {(emergencyZoneOptions || []).map(zone => (
                       <option key={zone.id} value={zone.id}>
                         {zone.name}
                       </option>
@@ -4591,7 +4591,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
                 {(settings?.emergencyZones?.activeRule ?? 'always') === 'byWeekday' && (
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    {weekdays.map(day => (
+                    {(weekdays || []).map(day => (
                       <label key={day.value} className="flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -4839,7 +4839,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             }
           >
             <option value="">Nincs kiválasztva</option>
-            {visibleFloorplans.map(plan => (
+            {(visibleFloorplans || []).map(plan => (
               <option key={plan.id} value={plan.id}>
                 {plan.name}
               </option>
@@ -5277,7 +5277,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             }
           >
             <option value="">Nincs kiválasztva</option>
-            {visibleFloorplans.map(plan => (
+            {(visibleFloorplans || []).map(plan => (
               <option key={plan.id} value={plan.id}>
                 {plan.name}
               </option>
@@ -6051,7 +6051,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     height: tableRect.h,
                                   }}
                                 />
-                                {obstacleHits.map(hit => (
+                                {(obstacleHits || []).map(hit => (
                                   <div
                                     key={`overlap-${table.id}-${hit.id}`}
                                     className="pointer-events-none absolute border border-dashed border-rose-500"
@@ -6449,7 +6449,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </div>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {combinableTableOptions.map(option => (
+                      {(combinableTableOptions || []).map(option => (
                         <label key={option.id} className="flex items-center gap-2 text-xs">
                           <input
                             type="checkbox"
