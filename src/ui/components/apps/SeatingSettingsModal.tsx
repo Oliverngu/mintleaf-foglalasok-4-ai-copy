@@ -2747,7 +2747,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const tablesForWorldLayer = useMemo(
     () =>
       editorTables.map(table => {
-        if (!isEditMode) return table;
         const draftPos = draftPositions[table.id];
         const draftRot = draftRotations[table.id];
         if (!draftPos && draftRot === undefined) return table;
@@ -2757,7 +2756,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(draftRot !== undefined ? { rot: draftRot } : {}),
         };
       }),
-    [draftPositions, draftRotations, editorTables, isEditMode]
+    [draftPositions, draftRotations, editorTables]
   );
   const debugTableRows = useMemo(
     () =>
