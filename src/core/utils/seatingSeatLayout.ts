@@ -77,7 +77,10 @@ export function computeRectangularSeats(
   if (count <= 0) return [];
   if (count === 1) return [0.5];
   if (count === 2) return [0.33, 0.67];
-  return [0.25, 0.5, 0.75];
+  // For 3 seats, distribute evenly with better spacing
+  if (count === 3) return [0.25, 0.5, 0.75];
+  // Fallback for any count
+  return Array.from({ length: count }, (_, i) => (i + 1) / (count + 1));
 };
 
   distribute(north).forEach((t, i) => {
