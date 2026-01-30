@@ -98,12 +98,12 @@ interface SeatingSettingsModalProps {
 }
 
 const weekdays = [
-  { value: 0, label: 'VasĂĄrnap' },
-  { value: 1, label: 'HĂŠtfĹ' },
+  { value: 0, label: 'Vasárnap' },
+  { value: 1, label: 'Hétfő' },
   { value: 2, label: 'Kedd' },
   { value: 3, label: 'Szerda' },
-  { value: 4, label: 'CsĂźtĂśrtĂśk' },
-  { value: 5, label: 'PĂŠntek' },
+  { value: 4, label: 'Csütörtök' },
+  { value: 5, label: 'Péntek' },
   { value: 6, label: 'Szombat' },
 ];
 
@@ -586,12 +586,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         },
       });
       if (isMountedRef.current) {
-        setSuccess('Debug allocation log lĂŠtrehozva.');
+        setSuccess('Debug allocation log létrehozva.');
       }
       console.debug('[seating] debug allocation log success', { unitId });
     } catch (error) {
       if (isMountedRef.current) {
-        setError('Nem sikerĂźlt lĂŠtrehozni a debug allocation logot.');
+        setError('Nem sikerült létrehozni a debug allocation logot.');
       }
       console.warn('[seating] debug allocation log failed', error);
     }
@@ -810,7 +810,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
           if (isPermissionDenied(err)) {
             permissionDeniedShown = true;
-            safeSetError('Nincs jogosultsĂĄg az ĂźltetĂŠs beĂĄllĂ­tĂĄsokhoz ennĂŠl az egysĂŠgnĂŠl.');
+            safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
             if (isMounted) {
               setSettings(null);
               setZones([]);
@@ -841,7 +841,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
           if (isPermissionDenied(err)) {
             permissionDeniedShown = true;
-            safeSetError('Nincs jogosultsĂĄg az ĂźltetĂŠs beĂĄllĂ­tĂĄsokhoz ennĂŠl az egysĂŠgnĂŠl.');
+            safeSetError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
             if (isMounted) {
               setSettings(null);
               setZones([]);
@@ -889,7 +889,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
         console.error('Error loading seating settings:', err);
         if (isMounted && !permissionDeniedShown) {
-          setError('Nem sikerĂźlt betĂślteni az ĂźltetĂŠsi beĂĄllĂ­tĂĄsokat.');
+          setError('Nem sikerült betölteni az ültetési beállításokat.');
           setSettings(null);
           setZones([]);
           setTables([]);
@@ -1554,13 +1554,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           console.warn('[seating] action aborted', { key, context: errorContext });
         }
         if (isMountedRef.current) {
-          setError('HĂĄlĂłzati megszakĂ­tĂĄs (Abort). PrĂłbĂĄld Ăşjra.');
+          setError('Hálózati megszakítás (Abort). Próbáld újra.');
         }
         return;
       }
       if (isMountedRef.current) {
         if (isPermissionDenied(err)) {
-          setError('Nincs jogosultsĂĄg az ĂźltetĂŠs beĂĄllĂ­tĂĄsokhoz ennĂŠl az egysĂŠgnĂŠl.');
+          setError('Nincs jogosultság az ültetés beállításokhoz ennél az egységnél.');
         } else {
           setError(errorMessage);
         }
@@ -1595,7 +1595,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       await runAction({
         key: `floorplan-obstacles-${activeFloorplan.id}`,
-        errorMessage: 'Nem sikerĂźlt menteni az akadĂĄlyokat.',
+        errorMessage: 'Nem sikerült menteni az akadályokat.',
         errorContext: 'Error saving floorplan obstacles:',
         action: async () => {
           try {
@@ -1687,13 +1687,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
-  const saveLabel = isSaving ? 'MentĂŠs...' : isDirty ? 'MentĂŠs' : 'Nincs vĂĄltozĂĄs';
+  const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
       actionSavingRef.current['settings-save'] || actionSaving['settings-save']
     );
     if (typeof window !== 'undefined' && isDirty && !isSavingNow) {
-      const ok = window.confirm('Vannak nem mentett vĂĄltozĂĄsok. Biztos bezĂĄrod?');
+      const ok = window.confirm('Vannak nem mentett változások. Biztos bezárod?');
       if (!ok) {
         return;
       }
@@ -1719,7 +1719,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return;
     }
     if (typeof window !== 'undefined') {
-      const ok = window.confirm('VisszaĂĄllĂ­tod az utolsĂł mentett ĂĄllapotot?');
+      const ok = window.confirm('Visszaállítod az utolsó mentett állapotot?');
       if (!ok) {
         return;
       }
@@ -1739,11 +1739,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const tabs = useMemo(
     () =>
       [
-        { id: 'overview', label: 'ĂttekintĂŠs' },
-        { id: 'zones', label: 'ZĂłnĂĄk' },
+        { id: 'overview', label: 'Áttekintés' },
+        { id: 'zones', label: 'Zónák' },
         { id: 'tables', label: 'Asztalok' },
-        { id: 'combinations', label: 'KombĂłk' },
-        { id: 'floorplans', label: 'AsztaltĂŠrkĂŠp' },
+        { id: 'combinations', label: 'Kombók' },
+        { id: 'floorplans', label: 'Asztaltérkép' },
       ] as const,
     []
   );
@@ -1908,7 +1908,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const defaultZoneId = normalizeOptionalString(settings.defaultZoneId ?? '');
     await runAction({
       key: 'settings-save',
-      errorMessage: 'Nem sikerĂźlt menteni a beĂĄllĂ­tĂĄsokat.',
+      errorMessage: 'Nem sikerült menteni a beállításokat.',
       errorContext: 'Error saving seating settings:',
       action: async () => {
         const { activeFloorplanId, ...restSettings } = settings;
@@ -2008,16 +2008,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleFloorplanSubmit = async () => {
     if (!floorplanForm.name.trim()) {
-      setError('Az alaprajz neve kĂśtelezĹ.');
+      setError('Az alaprajz neve kötelező.');
       return;
     }
     if (floorplanForm.width < 1 || floorplanForm.height < 1) {
-      setError('A mĂŠreteknek legalĂĄbb 1-nek kell lenniĂźk.');
+      setError('A méreteknek legalább 1-nek kell lenniük.');
       return;
     }
     await runAction({
       key: 'floorplan-submit',
-      errorMessage: 'Nem sikerĂźlt menteni az alaprajzot.',
+      errorMessage: 'Nem sikerült menteni az alaprajzot.',
       errorContext: 'Error saving floorplan:',
       successMessage: 'Alaprajz mentve.',
       action: async () => {
@@ -2060,9 +2060,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-activate-${floorplanId}`,
-      errorMessage: 'Nem sikerĂźlt aktivĂĄlni az alaprajzot.',
+      errorMessage: 'Nem sikerült aktiválni az alaprajzot.',
       errorContext: 'Error activating floorplan:',
-      successMessage: 'Alaprajz aktivĂĄlva.',
+      successMessage: 'Alaprajz aktiválva.',
       action: async () => {
         await updateSeatingSettings(unitId, { activeFloorplanId: floorplanId });
         const nextFloorplans = await listFloorplans(unitId);
@@ -2088,9 +2088,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `floorplan-delete-${floorplanId}`,
-      errorMessage: 'Nem sikerĂźlt tĂśrĂślni az alaprajzot.',
+      errorMessage: 'Nem sikerült törölni az alaprajzot.',
       errorContext: 'Error deleting floorplan:',
-      successMessage: 'Alaprajz tĂśrĂślve.',
+      successMessage: 'Alaprajz törölve.',
       action: async () => {
         if (debugSeating) {
           console.debug('[seating] delete floorplan call start', { floorplanId });
@@ -2143,14 +2143,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleZoneSubmit = async () => {
     if (!zoneForm.name.trim()) {
-      setError('A zĂłna neve kĂśtelezĹ.');
+      setError('A zóna neve kötelező.');
       return;
     }
     await runAction({
       key: 'zone-submit',
-      errorMessage: 'Nem sikerĂźlt menteni a zĂłnĂĄt.',
+      errorMessage: 'Nem sikerült menteni a zónát.',
       errorContext: 'Error saving zone:',
-      successMessage: 'ZĂłna mentve.',
+      successMessage: 'Zóna mentve.',
       action: async () => {
         if (zoneForm.id) {
           await updateZone(unitId, zoneForm.id, {
@@ -2180,9 +2180,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `zone-delete-${zoneId}`,
-      errorMessage: 'Nem sikerĂźlt tĂśrĂślni a zĂłnĂĄt.',
+      errorMessage: 'Nem sikerült törölni a zónát.',
       errorContext: 'Error deleting zone:',
-      successMessage: 'ZĂłna tĂśrĂślve.',
+      successMessage: 'Zóna törölve.',
       action: async () => {
         if (debugSeating) {
           console.debug('[seating] delete zone call start', { zoneId });
@@ -2208,28 +2208,28 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleTableSubmit = async () => {
     if (!tableForm.name.trim()) {
-      setError('Az asztal neve kĂśtelezĹ.');
+      setError('Az asztal neve kötelező.');
       return;
     }
     if (!tableForm.zoneId) {
-      setError('Az asztalhoz zĂłna megadĂĄsa kĂśtelezĹ.');
+      setError('Az asztalhoz zóna megadása kötelező.');
       return;
     }
     if (tableForm.minCapacity < 1 || tableForm.capacityMax < 1) {
-      setError('A kapacitĂĄs ĂŠrtĂŠkeknek legalĂĄbb 1-nek kell lenniĂźk.');
+      setError('A kapacitás értékeknek legalább 1-nek kell lenniük.');
       return;
     }
     if (tableForm.minCapacity > tableForm.capacityMax) {
-      setError('A min. kapacitĂĄs nem lehet nagyobb, mint a max. kapacitĂĄs.');
+      setError('A min. kapacitás nem lehet nagyobb, mint a max. kapacitás.');
       return;
     }
     if (!zones.some(zone => zone.id === tableForm.zoneId)) {
-      setError('A kivĂĄlasztott zĂłna nem lĂŠtezik.');
+      setError('A kiválasztott zóna nem létezik.');
       return;
     }
     await runAction({
       key: 'table-submit',
-      errorMessage: 'Nem sikerĂźlt menteni az asztalt.',
+      errorMessage: 'Nem sikerült menteni az asztalt.',
       errorContext: 'Error saving table:',
       successMessage: 'Asztal mentve.',
       action: async () => {
@@ -2300,7 +2300,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
         );
     if (seatLayoutEmpty && capacityTotal < 1) {
-      setError('A kapacitĂĄs megadĂĄsa kĂśtelezĹ, ha nincs seat layout.');
+      setError('A kapacitás megadása kötelező, ha nincs seat layout.');
       setSuccess(null);
       return;
     }
@@ -2331,9 +2331,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
-      errorMessage: 'Nem sikerĂźlt menteni az asztal kapacitĂĄs adatait.',
+      errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
       errorContext: 'Error saving table capacity metadata:',
-      successMessage: 'Asztal kapacitĂĄs mentve.',
+      successMessage: 'Asztal kapacitás mentve.',
       action: async () => {
         if (debugEnabled) {
           console.debug('[seating] saving table meta payload', {
@@ -2383,7 +2383,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleCreateBaseCombo = async () => {
     if (baseComboSelection.length < 2) {
-      setError('LegalĂĄbb kĂŠt asztalt vĂĄlassz a base kombinĂĄciĂłhoz.');
+      setError('Legalább két asztalt válassz a base kombinációhoz.');
       setSuccess(null);
       return;
     }
@@ -2397,9 +2397,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }));
     await runAction({
       key: `base-combo-${groupId}`,
-      errorMessage: 'Nem sikerĂźlt lĂŠtrehozni a base kombinĂĄciĂłt.',
+      errorMessage: 'Nem sikerült létrehozni a base kombinációt.',
       errorContext: 'Error creating base combo:',
-      successMessage: 'Base kombinĂĄciĂł lĂŠtrehozva.',
+      successMessage: 'Base kombináció létrehozva.',
       action: async () => {
         await Promise.all(
           updates.map(update =>
@@ -2424,9 +2424,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `table-delete-${tableId}`,
-      errorMessage: 'Nem sikerĂźlt tĂśrĂślni az asztalt.',
+      errorMessage: 'Nem sikerült törölni az asztalt.',
       errorContext: 'Error deleting table:',
-      successMessage: 'Asztal tĂśrĂślve.',
+      successMessage: 'Asztal törölve.',
       action: async () => {
         if (debugSeating) {
           console.debug('[seating] delete table call start', { tableId });
@@ -2894,7 +2894,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         [action.tableId]: { x: action.next.x, y: action.next.y },
       }));
       setDraftRotations(current => ({ ...current, [action.tableId]: action.next.rot }));
-      setError('Nem sikerĂźlt visszavonni a legutĂłbbi mĹąveletet.');
+      setError('Nem sikerült visszavonni a legutóbbi műveletet.');
     } finally {
       setSavingById(current => ({ ...current, [action.tableId]: false }));
     }
@@ -2974,7 +2974,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setLastSaved(current => ({ ...current, [tableId]: { x, y } }));
     } catch (err) {
       console.error('Error updating table position:', err);
-      setError('Nem sikerĂźlt menteni az asztal pozĂ­ciĂłjĂĄt.');
+      setError('Nem sikerült menteni az asztal pozícióját.');
       setDraftPositions(current => {
         const fallback = lastSavedByIdRef.current[tableId];
         if (!fallback) {
@@ -3007,7 +3007,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setLastSavedRot(current => ({ ...current, [tableId]: rot }));
     } catch (err) {
       console.error('Error updating table rotation:', err);
-      setError('Nem sikerĂźlt menteni az asztal forgatĂĄsĂĄt.');
+      setError('Nem sikerült menteni az asztal forgatását.');
       setDraftRotations(current => {
         const fallback = lastSavedRotByIdRef.current[tableId];
         if (fallback === undefined) {
@@ -4126,21 +4126,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleComboSubmit = async () => {
     const uniqueSelection = Array.from(new Set<string>(comboSelection));
     if (uniqueSelection.length < 2 || uniqueSelection.length > 3) {
-      setError('A kombinĂĄciĂł 2-3 asztalbĂłl ĂĄllhat.');
+      setError('A kombináció 2-3 asztalból állhat.');
       return;
     }
     const missingTable = uniqueSelection.find(
       tableId => !tables.some(table => table.id === tableId)
     );
     if (missingTable) {
-      setError('Csak lĂŠtezĹ asztalok vĂĄlaszthatĂłk.');
+      setError('Csak létező asztalok választhatók.');
       return;
     }
     await runAction({
       key: 'combo-submit',
-      errorMessage: 'Nem sikerĂźlt menteni a kombinĂĄciĂłt.',
+      errorMessage: 'Nem sikerült menteni a kombinációt.',
       errorContext: 'Error saving combination:',
-      successMessage: 'KombinĂĄciĂł mentve.',
+      successMessage: 'Kombináció mentve.',
       action: async () => {
         await createCombination(unitId, {
           tableIds: uniqueSelection,
@@ -4159,9 +4159,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-toggle-${combo.id}`,
-      errorMessage: 'Nem sikerĂźlt frissĂ­teni a kombinĂĄciĂłt.',
+      errorMessage: 'Nem sikerült frissíteni a kombinációt.',
       errorContext: 'Error updating combination:',
-      successMessage: combo.isActive ? 'KombinĂĄciĂł kikapcsolva.' : 'KombinĂĄciĂł aktivĂĄlva.',
+      successMessage: combo.isActive ? 'Kombináció kikapcsolva.' : 'Kombináció aktiválva.',
       action: async () => {
         await updateCombination(unitId, combo.id, { isActive: !combo.isActive });
         setCombos(await listCombinations(unitId));
@@ -4182,9 +4182,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const startedAt = debugSeating ? getNow() : 0;
     await runAction({
       key: `combo-delete-${comboId}`,
-      errorMessage: 'Nem sikerĂźlt tĂśrĂślni a kombinĂĄciĂłt.',
+      errorMessage: 'Nem sikerült törölni a kombinációt.',
       errorContext: 'Error deleting combination:',
-      successMessage: 'KombinĂĄciĂł tĂśrĂślve.',
+      successMessage: 'Kombináció törölve.',
       action: async () => {
         if (debugSeating) {
           console.debug('[seating] delete combo call start', { comboId });
@@ -4211,7 +4211,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const renderOverviewPanel = () => (
     <div className="space-y-6">
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">FoglalĂĄs alapok</h3>
+        <h3 className="font-semibold">Foglalás alapok</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex flex-col gap-1">
             Buffer (perc)
@@ -4228,7 +4228,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             />
           </label>
           <label className="flex flex-col gap-1">
-            Alap foglalĂĄsi idĹ (perc)
+            Alap foglalási idő (perc)
             <input
               type="number"
               className="border rounded p-2"
@@ -4242,7 +4242,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             />
           </label>
           <label className="flex flex-col gap-1">
-            KĂŠsĂŠs kezelĂŠse (perc)
+            Késés kezelése (perc)
             <input
               type="number"
               className="border rounded p-2"
@@ -4266,13 +4266,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }))
               }
             />
-            VIP engedĂŠlyezve
+            VIP engedélyezve
           </label>
         </div>
       </section>
 
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">Automatikus ĂźltetĂŠs (allokĂĄciĂł)</h3>
+        <h3 className="font-semibold">Automatikus ültetés (allokáció)</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <label className="flex items-center gap-2 text-sm col-span-2">
             <input
@@ -4285,10 +4285,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }))
               }
             />
-            Automatikus ĂźltetĂŠs engedĂŠlyezĂŠse
+            Automatikus ültetés engedélyezése
           </label>
           <label className="flex flex-col gap-1">
-            AllokĂĄciĂł mĂłd
+            Allokáció mód
             <select
               className="border rounded p-2"
               value={settings?.allocationMode ?? 'capacity'}
@@ -4300,16 +4300,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }))
               }
             >
-              <option value="capacity">KapacitĂĄs</option>
+              <option value="capacity">Kapacitás</option>
               <option value="floorplan">Alaprajz</option>
               <option value="hybrid">Hibrid</option>
             </select>
             <span className="text-xs text-gray-500">
-              KapacitĂĄs: legjobb asztal â˘ Alaprajz: tĂŠrkĂŠpes kiosztĂĄs â˘ Hibrid: vegyes.
+              Kapacitás: legjobb asztal • Alaprajz: térképes kiosztás • Hibrid: vegyes.
             </span>
           </label>
           <label className="flex flex-col gap-1">
-            AllokĂĄciĂłs stratĂŠgia
+            Allokációs stratégia
             <select
               className="border rounded p-2"
               value={settings?.allocationStrategy ?? 'bestFit'}
@@ -4323,14 +4323,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             >
               <option value="bestFit">Best fit</option>
               <option value="minWaste">Min waste</option>
-              <option value="priorityZoneFirst">ZĂłna prioritĂĄs</option>
+              <option value="priorityZoneFirst">Zóna prioritás</option>
             </select>
             <span className="text-xs text-gray-500">
-              Best fit: legjobb illeszkedĂŠs â˘ Min waste: minimĂĄlis pazarlĂĄs â˘ ZĂłna prioritĂĄs: sorrend szerint.
+              Best fit: legjobb illeszkedés • Min waste: minimális pazarlás • Zóna prioritás: sorrend szerint.
             </span>
           </label>
           <label className="flex flex-col gap-1">
-            AlapĂŠrtelmezett zĂłna
+            Alapértelmezett zóna
             <select
               className="border rounded p-2"
               value={settings?.defaultZoneId ?? ''}
@@ -4342,7 +4342,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 }))
               }
             >
-              <option value="">Nincs beĂĄllĂ­tva</option>
+              <option value="">Nincs beállítva</option>
               {zones.map(zone => (
                 <option key={zone.id} value={zone.id}>
                   {zone.name}
@@ -4359,13 +4359,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           onClick={() => setAdvancedOpen(current => !current)}
           className="w-full text-left font-semibold text-sm"
         >
-          HaladĂł beĂĄllĂ­tĂĄsok
+          Haladó beállítások
         </button>
         {advancedOpen && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="col-span-2 space-y-2">
-                <div className="text-sm font-semibold">ZĂłna prioritĂĄs</div>
+                <div className="text-sm font-semibold">Zóna prioritás</div>
                 <div className="flex flex-wrap gap-2 text-sm">
                   {(settings?.zonePriority ?? []).map((zoneId, index) => {
                     const zone = zones.find(item => item.id === zoneId);
@@ -4395,7 +4395,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               })
                             }
                           >
-                            â
+                            ↑
                           </button>
                           <button
                             type="button"
@@ -4416,7 +4416,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               })
                             }
                           >
-                            â
+                            ↓
                           </button>
                           <button
                             type="button"
@@ -4432,7 +4432,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               })
                             }
                           >
-                            tĂśrlĂŠs
+                            törlés
                           </button>
                         </div>
                       </div>
@@ -4464,7 +4464,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     setZonePriorityAdd('');
                   }}
                 >
-                    <option value="">ZĂłna hozzĂĄadĂĄsa</option>
+                    <option value="">Zóna hozzáadása</option>
                     {activeZones
                       .filter(zone => !(settings?.zonePriority ?? []).includes(zone.id))
                       .map(zone => (
@@ -4476,7 +4476,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
               </div>
               <div className="col-span-2 space-y-2">
-                <div className="text-sm font-semibold">Overflow zĂłnĂĄk</div>
+                <div className="text-sm font-semibold">Overflow zónák</div>
                 <div className="grid gap-2 md:grid-cols-2">
                   {activeZones.map(zone => (
                     <label key={zone.id} className="flex items-center gap-2 text-sm">
@@ -4512,11 +4512,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   })
                 }
               />
-                KombinĂĄlt asztalok engedĂŠlyezĂŠse zĂłnĂĄk kĂśzĂśtt
+                Kombinált asztalok engedélyezése zónák között
               </label>
             </div>
             <section className="space-y-3 border rounded-lg p-4">
-              <h3 className="font-semibold">Emergency zĂłnĂĄk</h3>
+              <h3 className="font-semibold">Emergency zónák</h3>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -4534,11 +4534,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     })
                   }
                 />
-                Emergency zĂłnĂĄk engedĂŠlyezve
+                Emergency zónák engedélyezve
               </label>
               <div className="text-sm space-y-2">
                 <div>
-                  <label className="block mb-1">ZĂłnĂĄk</label>
+                  <label className="block mb-1">Zónák</label>
                   <select
                     multiple
                     className="border rounded p-2 w-full"
@@ -4568,7 +4568,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </select>
                 </div>
                 <div>
-                  <label className="block mb-1">SzabĂĄly</label>
+                  <label className="block mb-1">Szabály</label>
                   <select
                     className="border rounded p-2 w-full"
                     value={settings?.emergencyZones?.activeRule ?? 'always'}
@@ -4586,7 +4586,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     }
                   >
                     <option value="always">Mindig</option>
-                    <option value="byWeekday">HĂŠt napjai szerint</option>
+                    <option value="byWeekday">Hét napjai szerint</option>
                   </select>
                 </div>
                 {(settings?.emergencyZones?.activeRule ?? 'always') === 'byWeekday' && (
@@ -4669,18 +4669,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const renderZonesPanel = () => (
     <section className="space-y-3 border rounded-lg p-4">
-      <h3 className="font-semibold">ZĂłnĂĄk</h3>
+      <h3 className="font-semibold">Zónák</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <input
           className="border rounded p-2"
-          placeholder="ZĂłna neve"
+          placeholder="Zóna neve"
           value={zoneForm.name}
           onChange={event => setZoneForm(current => ({ ...current, name: event.target.value }))}
         />
         <input
           type="number"
           className="border rounded p-2"
-          placeholder="PrioritĂĄs"
+          placeholder="Prioritás"
           value={zoneForm.priority}
           onChange={event =>
             setZoneForm(current => ({ ...current, priority: Number(event.target.value) }))
@@ -4692,7 +4692,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             checked={zoneForm.isActive}
             onChange={event => setZoneForm(current => ({ ...current, isActive: event.target.checked }))}
           />
-          AktĂ­v
+          Aktív
         </label>
         <label className="flex items-center gap-2">
           <input
@@ -4711,7 +4711,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
         disabled={actionSaving['zone-submit']}
       >
-        {actionSaving['zone-submit'] ? 'MentĂŠs...' : 'MentĂŠs'}
+        {actionSaving['zone-submit'] ? 'Mentés...' : 'Mentés'}
       </button>
       <div className="space-y-2 text-sm">
         {zones.map(zone => {
@@ -4719,7 +4719,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           return (
             <div key={zone.id} className="flex items-center justify-between border rounded p-2">
               <div>
-                {zone.name} (prio {zone.priority}) {zone.isEmergency ? 'â˘ emergency' : ''}
+                {zone.name} (prio {zone.priority}) {zone.isEmergency ? '• emergency' : ''}
               </div>
               <div className="flex gap-2">
                 <button
@@ -4751,7 +4751,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   className="text-red-600 disabled:opacity-50"
                   disabled={isDeleting}
                 >
-                  {isDeleting ? 'TĂśrlĂŠs...' : 'TĂśrlĂŠs'}
+                  {isDeleting ? 'Törlés...' : 'Törlés'}
                 </button>
               </div>
             </div>
@@ -4778,7 +4778,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             setTableForm(current => ({ ...current, zoneId: event.target.value }))
           }
         >
-          <option value="">ZĂłna kivĂĄlasztĂĄsa</option>
+          <option value="">Zóna kiválasztása</option>
           {zones.map(zone => (
             <option key={zone.id} value={zone.id}>
               {zone.name}
@@ -4788,7 +4788,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <input
           type="number"
           className="border rounded p-2"
-          placeholder="Min kapacitĂĄs"
+          placeholder="Min kapacitás"
           value={tableForm.minCapacity}
           onChange={event =>
             setTableForm(current => ({
@@ -4800,7 +4800,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         <input
           type="number"
           className="border rounded p-2"
-          placeholder="Max kapacitĂĄs"
+          placeholder="Max kapacitás"
           value={tableForm.capacityMax}
           onChange={event =>
             setTableForm(current => ({
@@ -4817,7 +4817,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               setTableForm(current => ({ ...current, isActive: event.target.checked }))
             }
           />
-          AktĂ­v
+          Aktív
         </label>
         <label className="flex items-center gap-2">
           <input
@@ -4838,7 +4838,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               setTableForm(current => ({ ...current, floorplanId: event.target.value }))
             }
           >
-            <option value="">Nincs kivĂĄlasztva</option>
+            <option value="">Nincs kiválasztva</option>
             {visibleFloorplans.map(plan => (
               <option key={plan.id} value={plan.id}>
                 {plan.name}
@@ -4858,8 +4858,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               }))
             }
           >
-            <option value="rect">TĂŠglalap</option>
-            <option value="circle">KĂśr</option>
+            <option value="rect">Téglalap</option>
+            <option value="circle">Kör</option>
           </select>
         </label>
         {tableForm.shape === 'rect' ? (
@@ -4867,7 +4867,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <input
               type="number"
               className="border rounded p-2"
-              placeholder="SzĂŠlessĂŠg"
+              placeholder="Szélesség"
               value={tableForm.w}
               onChange={event =>
                 setTableForm(current => ({ ...current, w: Number(event.target.value) }))
@@ -4876,7 +4876,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             <input
               type="number"
               className="border rounded p-2"
-              placeholder="MagassĂĄg"
+              placeholder="Magasság"
               value={tableForm.h}
               onChange={event =>
                 setTableForm(current => ({ ...current, h: Number(event.target.value) }))
@@ -4887,7 +4887,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <input
             type="number"
             className="border rounded p-2"
-            placeholder="SugĂĄr"
+            placeholder="Sugár"
             value={tableForm.radius}
             onChange={event =>
               setTableForm(current => ({ ...current, radius: Number(event.target.value) }))
@@ -4912,7 +4912,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               setTableForm(current => ({ ...current, locked: event.target.checked }))
             }
           />
-          ZĂĄrolt
+          Zárolt
         </label>
       </div>
       <button
@@ -4921,7 +4921,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
         disabled={actionSaving['table-submit']}
       >
-        {actionSaving['table-submit'] ? 'MentĂŠs...' : 'MentĂŠs'}
+        {actionSaving['table-submit'] ? 'Mentés...' : 'Mentés'}
       </button>
       <div className="space-y-2 text-sm">
         {tables.map(table => {
@@ -4929,7 +4929,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           return (
             <div key={table.id} className="flex items-center justify-between border rounded p-2">
               <div>
-                {table.name} ({table.minCapacity}-{table.capacityMax} fĹ) â˘ {table.zoneId}
+                {table.name} ({table.minCapacity}-{table.capacityMax} fő) • {table.zoneId}
               </div>
               <div className="flex gap-2">
                 <button
@@ -4980,7 +4980,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   className="text-red-600 disabled:opacity-50"
                   disabled={isDeleting}
                 >
-                  {isDeleting ? 'TĂśrlĂŠs...' : 'TĂśrlĂŠs'}
+                  {isDeleting ? 'Törlés...' : 'Törlés'}
                 </button>
               </div>
             </div>
@@ -4992,7 +4992,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const renderCombinationsPanel = () => (
     <section className="space-y-3 border rounded-lg p-4">
-      <h3 className="font-semibold">KombinĂĄciĂłk</h3>
+      <h3 className="font-semibold">Kombinációk</h3>
       <div className="space-y-2 text-sm">
         <div className="grid grid-cols-2 gap-2">
           {tables.map(table => (
@@ -5018,7 +5018,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
           disabled={actionSaving['combo-submit']}
         >
-          {actionSaving['combo-submit'] ? 'MentĂŠs...' : 'MentĂŠs'}
+          {actionSaving['combo-submit'] ? 'Mentés...' : 'Mentés'}
         </button>
         <div className="space-y-2">
           {combos.map(combo => {
@@ -5027,7 +5027,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             return (
               <div key={combo.id} className="flex items-center justify-between border rounded p-2">
                 <div>
-                  {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktĂ­v)'}
+                  {combo.tableIds.join(', ')} {combo.isActive ? '' : '(inaktív)'}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -5040,11 +5040,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   >
                     {combo.isActive
                       ? isToggling
-                        ? 'KikapcsolĂĄs...'
+                        ? 'Kikapcsolás...'
                         : 'Kikapcsol'
                       : isToggling
-                      ? 'AktivĂĄlĂĄs...'
-                      : 'AktivĂĄl'}
+                      ? 'Aktiválás...'
+                      : 'Aktivál'}
                   </button>
                   <button
                     type="button"
@@ -5059,7 +5059,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="text-red-600 disabled:opacity-50"
                     disabled={isDeleting || isToggling}
                   >
-                    {isDeleting ? 'TĂśrlĂŠs...' : 'TĂśrlĂŠs'}
+                    {isDeleting ? 'Törlés...' : 'Törlés'}
                   </button>
                 </div>
               </div>
@@ -5219,7 +5219,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             {seatLayoutSummary}
           </div>
           <div className="text-[10px] text-gray-500">
-            KapacitĂĄs: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
+            Kapacitás: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             <button
@@ -5249,7 +5249,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
               onClick={() => void handleSelectedTableMetadataSave()}
             >
-              MentĂŠs
+              Mentés
             </button>
           </div>
         </div>
@@ -5260,12 +5260,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const renderFloorplansPanel = () => (
     <div className="space-y-6">
       <div className="text-sm text-[var(--color-text-secondary)]">
-        Az aktĂ­v asztaltĂŠrkĂŠpet itt tudod kivĂĄlasztani.
+        Az aktív asztaltérképet itt tudod kiválasztani.
       </div>
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">AktĂ­v alaprajz</h3>
+        <h3 className="font-semibold">Aktív alaprajz</h3>
         <label className="flex flex-col gap-1 text-sm">
-          AktĂ­v alaprajz
+          Aktív alaprajz
           <select
             className="border rounded p-2"
             value={settings?.activeFloorplanId ?? resolvedActiveFloorplanId}
@@ -5276,7 +5276,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               }))
             }
           >
-            <option value="">Nincs kivĂĄlasztva</option>
+            <option value="">Nincs kiválasztva</option>
             {visibleFloorplans.map(plan => (
               <option key={plan.id} value={plan.id}>
                 {plan.name}
@@ -5299,7 +5299,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <input
             type="number"
             className="border rounded p-2"
-            placeholder="SzĂŠlessĂŠg"
+            placeholder="Szélesség"
             value={floorplanForm.width}
             onChange={event =>
               setFloorplanForm(current => ({ ...current, width: Number(event.target.value) }))
@@ -5308,7 +5308,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <input
             type="number"
             className="border rounded p-2"
-            placeholder="MagassĂĄg"
+            placeholder="Magasság"
             value={floorplanForm.height}
             onChange={event =>
               setFloorplanForm(current => ({ ...current, height: Number(event.target.value) }))
@@ -5317,7 +5317,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <input
             type="number"
             className="border rounded p-2"
-            placeholder="Grid mĂŠret"
+            placeholder="Grid méret"
             value={floorplanForm.gridSize}
             onChange={event =>
               setFloorplanForm(current => ({ ...current, gridSize: Number(event.target.value) }))
@@ -5325,7 +5325,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           />
           <input
             className="border rounded p-2 col-span-2"
-            placeholder="HĂĄttĂŠrkĂŠp URL (opcionĂĄlis)"
+            placeholder="Háttérkép URL (opcionális)"
             value={floorplanForm.backgroundImageUrl}
             onChange={event =>
               setFloorplanForm(current => ({
@@ -5341,7 +5341,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
           disabled={actionSaving['floorplan-submit']}
         >
-          {actionSaving['floorplan-submit'] ? 'MentĂŠs...' : 'MentĂŠs'}
+          {actionSaving['floorplan-submit'] ? 'Mentés...' : 'Mentés'}
         </button>
         <div className="space-y-2 text-sm">
           {visibleFloorplans.map(plan => {
@@ -5354,7 +5354,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             return (
               <div key={plan.id} className="flex items-center justify-between border rounded p-2">
                 <div>
-                  {plan.name} ({safeWidth}Ă{safeHeight})
+                  {plan.name} ({safeWidth}×{safeHeight})
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -5366,10 +5366,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     disabled={isActivating || isDeleting}
                   >
                     {resolvedActiveFloorplanId === plan.id
-                      ? 'AktĂ­v'
+                      ? 'Aktív'
                       : isActivating
-                      ? 'AktivĂĄlĂĄs...'
-                      : 'AktivĂĄl'}
+                      ? 'Aktiválás...'
+                      : 'Aktivál'}
                   </button>
                   <button
                     type="button"
@@ -5384,7 +5384,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     className="text-red-600 disabled:opacity-50"
                     disabled={isDeleting || isActivating}
                   >
-                    {isDeleting ? 'TĂśrlĂŠs...' : 'TĂśrlĂŠs'}
+                    {isDeleting ? 'Törlés...' : 'Törlés'}
                   </button>
                 </div>
               </div>
@@ -5393,10 +5393,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </section>
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">AsztaltĂŠrkĂŠp szerkesztĹ</h3>
+        <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
         {!activeFloorplan ? (
           <div className="text-sm text-[var(--color-text-secondary)]">
-            Nincs aktĂ­v alaprajz kivĂĄlasztva.
+            Nincs aktív alaprajz kiválasztva.
           </div>
         ) : (
           <div className="space-y-2">
@@ -5405,7 +5405,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               data-seating-no-deselect="1"
             >
               <span>
-                Grid: {editorGridSize}px â˘ HĂşzd a pĂśttyĂśt = forgatĂĄs â˘ Shift = 15Â° â˘ Alt = 1Â°
+                Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
               </span>
               <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5">
                 <button
@@ -5417,7 +5417,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       : 'text-gray-500'
                   }`}
                 >
-                  MegtekintĂŠs
+                  Megtekintés
                 </button>
                 <button
                   type="button"
@@ -5429,7 +5429,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   }`}
                   disabled={!canEditFloorplan}
                 >
-                  SzerkesztĂŠs
+                  Szerkesztés
                 </button>
               </div>
               {selectedEditorTable && (
@@ -5464,7 +5464,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 onClick={() => void handleUndoLastAction()}
                 disabled={!isUndoAvailable || floorplanMode !== 'edit'}
               >
-                VisszavonĂĄs
+                Visszavonás
               </button>
               <button
                 type="button"
@@ -5536,7 +5536,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       void persistActiveObstacles(nextObstacles, previousObstacles);
                     }}
                   >
-                    + No-go zĂłna
+                    + No-go zóna
                   </button>
                   <button
                     type="button"
@@ -5553,7 +5553,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       void persistActiveObstacles(nextObstacles, previousObstacles);
                     }}
                   >
-                    No-go tĂśrlĂŠs
+                    No-go törlés
                   </button>
                 </>
               )}
@@ -5591,7 +5591,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       floorplan size
                     </dt>
                     <dd>
-                      {floorplanW} Ă {floorplanH}
+                      {floorplanW} × {floorplanH}
                     </dd>
                   </div>
                   <div>
@@ -5599,7 +5599,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       viewport rect
                     </dt>
                     <dd>
-                      {formatDebugNumber(floorplanViewportRect.width)} Ă{' '}
+                      {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
                       {formatDebugNumber(floorplanViewportRect.height)}
                     </dd>
                   </div>
@@ -5607,7 +5607,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     <dt className="text-[10px] uppercase text-amber-700">transform</dt>
                     <dd>
                       scale {formatDebugNumber(activeFloorplanTransform.scale)} | rect{' '}
-                      {formatDebugNumber(activeFloorplanTransform.rectWidth)} Ă{' '}
+                      {formatDebugNumber(activeFloorplanTransform.rectWidth)} ×{' '}
                       {formatDebugNumber(activeFloorplanTransform.rectHeight)}
                     </dd>
                   </div>
@@ -5637,11 +5637,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 {debugEnabled && (
                   <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                     <div>
-                      dims: {Math.round(floorplanDims.width)}Ă
+                      dims: {Math.round(floorplanDims.width)}×
                       {Math.round(floorplanDims.height)} ({floorplanDims.source})
                     </div>
                     <div>
-                      viewport: {Math.round(floorplanViewportRect.width)}Ă
+                      viewport: {Math.round(floorplanViewportRect.width)}×
                       {Math.round(floorplanViewportRect.height)}
                     </div>
                     <div>
@@ -5660,14 +5660,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     {debugRawGeometry && (
                       <div>
                         raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                        {debugRawGeometry.w.toFixed(1)}Ă{debugRawGeometry.h.toFixed(1)} r
+                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
                         {debugRawGeometry.rot.toFixed(1)}
                       </div>
                     )}
                     {sampleTableGeometry && (
                       <div>
                         floor: {sampleTableGeometry.x.toFixed(1)},
-                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}Ă
+                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
                         {sampleTableGeometry.h.toFixed(1)} r
                         {sampleTableGeometry.rot.toFixed(1)}
                       </div>
@@ -5675,7 +5675,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     {sampleTableRender && (
                       <div>
                         render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                        {sampleTableRender.w.toFixed(1)}Ă{sampleTableRender.h.toFixed(1)} r
+                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
                         {sampleTableRender.rot.toFixed(1)}
                       </div>
                     )}
@@ -5685,10 +5685,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           <div key={`dbg-${row.id}`}>
                             t:{' '}
                             {row.name ? `${row.name} ` : ''}
-                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}Ă
-                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} â{' '}
+                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
+                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
                             {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
-                            {row.floor.w.toFixed(1)}Ă{row.floor.h.toFixed(1)} r
+                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
                             {row.floor.rot.toFixed(1)}
                           </div>
                         ))}
@@ -5786,13 +5786,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                           {debugSeating && isOverlappingObstacle && (
                             <div>
                               tableRect: {Math.round(tableRect.x)},{Math.round(tableRect.y)}{' '}
-                              {Math.round(tableRect.w)}Ă{Math.round(tableRect.h)} | obstacles:{' '}
+                              {Math.round(tableRect.w)}×{Math.round(tableRect.h)} | obstacles:{' '}
                               {obstacleHits
                                 .map(
                                   hit =>
                                     `${hit.id}:${Math.round(hit.rect.x)},${Math.round(
                                       hit.rect.y
-                                    )} ${Math.round(hit.rect.w)}Ă${Math.round(hit.rect.h)}`
+                                    )} ${Math.round(hit.rect.w)}×${Math.round(hit.rect.h)}`
                                 )
                                 .join(' | ')}
                             </div>
@@ -6068,7 +6068,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             {table.name}
                             <div className="flex gap-1 mt-1">
                               {table.locked && (
-                                <span className="px-1 rounded bg-gray-200 text-[9px]">đ</span>
+                                <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
                               )}
                               {table.canCombine && (
                                 <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
@@ -6080,7 +6080,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               )}
                               {isSelected && (
                                 <span className="px-1 rounded bg-gray-100 text-[9px]">
-                                  {Math.round(renderRot)}Â°
+                                  {Math.round(renderRot)}°
                                 </span>
                               )}
                             </div>
@@ -6109,7 +6109,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     void finalizeRotationRef.current(table.id, nextRot, renderRot);
                                   }}
                                 >
-                                  âş
+                                  ↺
                                 </button>
                                 <button
                                   type="button"
@@ -6134,7 +6134,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     void finalizeRotationRef.current(table.id, nextRot, renderRot);
                                   }}
                                 >
-                                  âť
+                                  ↻
                                 </button>
                                 <button
                                   type="button"
@@ -6204,11 +6204,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   debugOverlay={context => (
                     <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                       <div>
-                        dims: {Math.round(context.floorplanDims.width)}Ă
+                        dims: {Math.round(context.floorplanDims.width)}×
                         {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
                       </div>
                       <div>
-                        viewport: {Math.round(context.viewportRect.width)}Ă
+                        viewport: {Math.round(context.viewportRect.width)}×
                         {Math.round(context.viewportRect.height)}
                       </div>
                       <div>
@@ -6222,14 +6222,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       {debugRawGeometry && (
                         <div>
                           raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                          {debugRawGeometry.w.toFixed(1)}Ă{debugRawGeometry.h.toFixed(1)} r
+                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
                           {debugRawGeometry.rot.toFixed(1)}
                         </div>
                       )}
                       {sampleTableGeometry && (
                         <div>
                           floor: {sampleTableGeometry.x.toFixed(1)},
-                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}Ă
+                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
                           {sampleTableGeometry.h.toFixed(1)} r
                           {sampleTableGeometry.rot.toFixed(1)}
                         </div>
@@ -6237,7 +6237,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       {sampleTableRender && (
                         <div>
                           render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                          {sampleTableRender.w.toFixed(1)}Ă{sampleTableRender.h.toFixed(1)} r
+                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
                           {sampleTableRender.rot.toFixed(1)}
                         </div>
                       )}
@@ -6248,9 +6248,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                               t:{' '}
                               {row.name ? `${row.name} ` : ''}
                               {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
-                              {row.raw.w.toFixed(1)}Ă{row.raw.h.toFixed(1)} r
-                              {row.raw.rot.toFixed(1)} â {row.floor.x.toFixed(1)},
-                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}Ă
+                              {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
+                              {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
+                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
                               {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
                             </div>
                           ))}
@@ -6292,19 +6292,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         )}
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="border rounded-lg p-3 text-sm space-y-3">
-            <h4 className="font-semibold">KivĂĄlasztott asztal</h4>
+            <h4 className="font-semibold">Kiválasztott asztal</h4>
             {!selectedTable || !selectedTableDraft ? (
               <div className="text-xs text-[var(--color-text-secondary)]">
-                Kattints egy asztalra az alaprajzon a szerkesztĂŠshez.
+                Kattints egy asztalra az alaprajzon a szerkesztéshez.
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="text-xs text-[var(--color-text-secondary)]">
-                  {selectedTable.name || selectedTable.id} â˘ zĂłna: {selectedTable.zoneId}
+                  {selectedTable.name || selectedTable.id} • zóna: {selectedTable.zoneId}
                   {selectedTable.baseCombo ? (
                     <>
                       {' '}
-                      â˘ base combo: {selectedTable.baseCombo.groupId} (
+                      • base combo: {selectedTable.baseCombo.groupId} (
                       {selectedTable.baseCombo.role})
                     </>
                   ) : null}
@@ -6314,7 +6314,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">
-                    KapacitĂĄs Ăśsszesen
+                    Kapacitás összesen
                     <input
                       type="number"
                       min={0}
@@ -6336,7 +6336,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex flex-col gap-1 text-xs">
-                      Ăszak
+                      Észak
                       <input
                         type="number"
                         min={0}
@@ -6384,7 +6384,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs">
-                      DĂŠl
+                      Dél
                       <input
                         type="number"
                         min={0}
@@ -6435,17 +6435,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
                 {sideCapacitySum !== selectedTableDraft.capacityTotal && (
                   <div className="text-xs text-amber-600">
-                    Figyelem: az oldal kapacitĂĄsok Ăśsszege ({sideCapacitySum}) nem
-                    egyezik a teljes kapacitĂĄssal ({selectedTableDraft.capacityTotal}).
+                    Figyelem: az oldal kapacitások összege ({sideCapacitySum}) nem
+                    egyezik a teljes kapacitással ({selectedTableDraft.capacityTotal}).
                   </div>
                 )}
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-gray-600">
-                    KombinĂĄlhatĂł asztalok (azonos zĂłna)
+                    Kombinálható asztalok (azonos zóna)
                   </div>
                   {combinableTableOptions.length === 0 ? (
                     <div className="text-xs text-[var(--color-text-secondary)]">
-                      Nincs elĂŠrhetĹ asztal a zĂłnĂĄban.
+                      Nincs elérhető asztal a zónában.
                     </div>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -6479,16 +6479,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   disabled={actionSaving[`table-meta-${selectedTableDraft.id}`]}
                 >
                   {actionSaving[`table-meta-${selectedTableDraft.id}`]
-                    ? 'MentĂŠs...'
-                    : 'KapacitĂĄs mentĂŠse'}
+                    ? 'Mentés...'
+                    : 'Kapacitás mentése'}
                 </button>
               </div>
             )}
           </div>
           <div className="border rounded-lg p-3 text-sm space-y-3">
-            <h4 className="font-semibold">Base kombinĂĄciĂł</h4>
+            <h4 className="font-semibold">Base kombináció</h4>
             <div className="text-xs text-[var(--color-text-secondary)]">
-              JelĂślj ki tĂśbb asztalt, majd hozd lĂŠtre a base kombĂłt (csak metaadat).
+              Jelölj ki több asztalt, majd hozd létre a base kombót (csak metaadat).
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
           
@@ -6499,7 +6499,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               className="px-3 py-2 rounded-lg bg-amber-500 text-white text-xs disabled:opacity-50"
               disabled={baseComboSelection.length < 2}
             >
-              Base combo lĂŠtrehozĂĄsa
+              Base combo létrehozása
             </button>
           </div>
         </div>
@@ -6571,11 +6571,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         containerClassName="max-w-3xl h-[40vh]"
         header={
           <h2 id="seating-settings-title" className="text-xl font-bold">
-            ĂltetĂŠs beĂĄllĂ­tĂĄsok
+            Ültetés beállítások
           </h2>
         }
       >
-        BetĂśltĂŠs...
+        Betöltés...
       </ModalShell>
     );
   }
@@ -6585,14 +6585,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h2 id="seating-settings-title" className="text-xl font-bold">
-            ĂltetĂŠs beĂĄllĂ­tĂĄsok
+            Ültetés beállítások
           </h2>
           <div className="text-xs text-gray-500">
-            EgysĂŠg: {unitId.slice(0, 8)}âŚ â˘{' '}
+            Egység: {unitId.slice(0, 8)}… •{' '}
             {isSaving
-              ? 'MentĂŠs folyamatban...'
+              ? 'Mentés folyamatban...'
               : isDirty
-              ? 'Nem mentett vĂĄltozĂĄsok'
+              ? 'Nem mentett változások'
               : 'Minden mentve'}
           </div>
         </div>
@@ -6604,7 +6604,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           {isDirty && (
             <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-blue-400" />
           )}
-          BezĂĄrĂĄs
+          Bezárás
         </button>
       </div>
       {error && <div className="text-sm text-red-600">{error}</div>}
@@ -6616,9 +6616,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     <div className="border-t pt-3 pb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
         {isSaving
-          ? 'MentĂŠs folyamatban...'
+          ? 'Mentés folyamatban...'
           : isDirty
-          ? 'Nem mentett vĂĄltozĂĄsok'
+          ? 'Nem mentett változások'
           : 'Minden mentve'}
       </div>
       <div className="flex items-center gap-3">
@@ -6633,7 +6633,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             onClick={handleResetChanges}
             className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm"
           >
-            VisszaĂĄllĂ­tĂĄs
+            Visszaállítás
           </button>
         )}
         <button
@@ -6664,7 +6664,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         activeId={activeTab}
         onChange={setActiveTab}
         onKeyDown={handleTabsKeyDown}
-        ariaLabel="ĂltetĂŠs beĂĄllĂ­tĂĄsok szakaszok"
+        ariaLabel="Ültetés beállítások szakaszok"
         idPrefix="seating"
         renderPanel={renderActivePanel}
       />
