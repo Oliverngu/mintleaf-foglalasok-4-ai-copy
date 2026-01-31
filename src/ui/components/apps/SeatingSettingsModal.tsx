@@ -3692,6 +3692,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') return;
     if (table.locked) return;
     event.preventDefault();
+    if (recenterRafIdRef.current !== null) {
+      cancelAnimationFrame(recenterRafIdRef.current);
+      recenterRafIdRef.current = null;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     handleSelectTable(table.id);
     if (debugSeating) {
       requestDebugFlush(null);
@@ -3705,11 +3710,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         used: { w: floorplanW, h: floorplanH },
       });
     }
-    if (recenterRafIdRef.current !== null) {
-      cancelAnimationFrame(recenterRafIdRef.current);
-      recenterRafIdRef.current = null;
-    }
-    event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
     const renderRot = draftRotations[table.id] ?? geometry.rot;
     lastValidTablePosRef.current = { x: position.x, y: position.y };
