@@ -74,7 +74,42 @@ type DebugErrorInfo = {
   url: string;
   source: 'error-boundary' | 'window:error' | 'window:unhandledrejection';
   time: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+  reason?: unknown;
 };
+
+function safeStringify(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDebugError(info: DebugErrorInfo) {
+  try {
+    return [
+      `name: ${info.name || 'Error'}`,
+      `message: ${info.message || 'Unknown error'}`,
+      `source: ${info.source}`,
+      `time: ${info.time}`,
+      `url: ${info.url}`,
+      info.filename ? `file: ${info.filename}` : '',
+      typeof info.lineno === 'number' ? `line: ${info.lineno}` : '',
+      typeof info.colno === 'number' ? `col: ${info.colno}` : '',
+      info.stack ? `stack:\n${info.stack}` : '',
+      info.componentStack ? `componentStack:\n${info.componentStack}` : '',
+      typeof info.reason !== 'undefined' ? `reason:\n${safeStringify(info.reason)}` : '',
+      'hint: open with ?fpdebug=1 and reproduce the issue, then copy this log.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  } catch {
+    return 'Failed to format debug error.';
+  }
+}
 
 interface FoglalasokAppProps {
   currentUser: User;
@@ -1318,31 +1353,21 @@ const BookingDetailsModal: React.FC<{
     tableIds?.length
       ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
       : '—';
-  const formatDebugError = useCallback((info: DebugErrorInfo) => {
-    return [
-      `name: ${info.name}`,
-      `message: ${info.message}`,
-      `source: ${info.source}`,
-      `time: ${info.time}`,
-      `url: ${info.url}`,
-      info.stack ? `stack:\n${info.stack}` : '',
-      info.componentStack ? `componentStack:\n${info.componentStack}` : '',
-      'hint: open with ?fpdebug=1 and reproduce the issue, then copy this log.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }, []);
   const handleCopyDebug = useCallback(async () => {
     if (!debugError) return;
     const text = formatDebugError(debugError);
     try {
-      await navigator.clipboard.writeText(text);
+      if (clipboardSupported) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error('Clipboard API not available');
+      }
       setDebugCopyStatus('copied');
       window.setTimeout(() => setDebugCopyStatus('idle'), 1200);
     } catch {
       setDebugCopyStatus('idle');
     }
-  }, [debugError, formatDebugError]);
+  }, [clipboardSupported, debugError]);
 
   useEffect(() => {
     if (!debugEnabled) return;
@@ -1357,6 +1382,9 @@ const BookingDetailsModal: React.FC<{
         stack: error.stack,
         componentStack: undefined,
         url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
         source: 'window:error',
         time: new Date().toISOString(),
       });
@@ -1371,6 +1399,7 @@ const BookingDetailsModal: React.FC<{
         stack: error.stack,
         componentStack: undefined,
         url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        reason,
         source: 'window:unhandledrejection',
         time: new Date().toISOString(),
       });
@@ -1889,6 +1918,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   }, []);
   const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
+  const clipboardSupported =
+    typeof navigator !== 'undefined' && Boolean(navigator.clipboard?.writeText);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
@@ -2434,6 +2465,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 {formatDebugError(debugError)}
               </pre>
               <div className="flex items-center justify-end gap-2">
+                {!clipboardSupported && (
+                  <span className="text-xs text-gray-500 mr-auto">
+                    Clipboard unavailable — select text and copy.
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={handleCopyDebug}
