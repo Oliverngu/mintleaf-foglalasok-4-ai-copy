@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { User, Request, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll, Unit } from '../../core/models/data';
+import { User, Request, Shift, Todo, TimeEntry, WidgetConfig, Feedback, Poll, Unit } from '../../core/models/data';
 import { db } from '../../core/firebase/config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import ClockInOutModal from './ClockInOutModal';

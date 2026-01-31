@@ -6,7 +6,7 @@ import Dashboard from './components/Dashboard';
 import ReservationPage from './components/public/ReservationPage';
 import ManageReservationPage from './components/public/ManageReservationPage';
 
-import type {
+import {
   User,
   Request,
   Shift,
@@ -14,11 +14,12 @@ import type {
   Unit,
   RolePermissions,
   Permissions,
+  demoUser,
+  demoData,
   TimeEntry,
   Feedback,
   Poll,
 } from '../core/models/data';
-import { demoUser, demoData } from '../core/models/data';
 
 import { auth, db } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';

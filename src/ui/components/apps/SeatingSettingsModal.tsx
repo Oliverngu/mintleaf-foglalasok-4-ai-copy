@@ -3,7 +3,7 @@ import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestor
 import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { auth, db, functions } from '../../../core/firebase/config';
-import {
+import type {
   Floorplan,
   FloorplanObstacle,
   SeatingSettings,
