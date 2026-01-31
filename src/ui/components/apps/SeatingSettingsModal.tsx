@@ -438,6 +438,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   >(async () => {});
   const dragMoveDebugRef = useRef(0);
   const dragClampDebugRef = useRef(0);
+  const dragRecenterLogRef = useRef(0);
   const obstacleMoveDebugRef = useRef(0);
   const rotatedBoundsLogRef = useRef(0);
   const [lastDragBlockReason, setLastDragBlockReason] = useState<string | null>(null);
@@ -477,7 +478,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const recenterRafIdRef = useRef<number | null>(null);
+  const dragRecenterRafIdRef = useRef<number | null>(null);
   const scheduleRecenterSelectedTableRef = useRef<(scaleOverride?: number) => void>(() => {});
+  const pendingDragRecenterRef = useRef<{
+    position: { x: number; y: number };
+    size: { w: number; h: number };
+    scaleOverride?: number;
+    source: string;
+  } | null>(null);
   const [undoTick, setUndoTick] = useState(0);
   const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
   const lastActionRef = useRef<null | {
@@ -1051,9 +1059,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleZoomOutFit = useCallback(() => {
     setViewportMode('fit');
     prevSelectedTableIdRef.current = null;
-    setFloorplanTransformOverride(null);
+    applyTransformOverride('zoom-out-fit', null);
     viewportCanvasRef.current?.resetToFit();
-  }, []);
+  }, [applyTransformOverride]);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -2577,6 +2585,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     rectWidth: number;
     rectHeight: number;
   } | null>(null);
+  const transformOverrideLogRef = useRef(0);
+  const applyTransformOverride = useCallback(
+    (tag: string, next: typeof floorplanTransformOverride) => {
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - transformOverrideLogRef.current > 200) {
+          transformOverrideLogRef.current = now;
+          console.debug('[seating] transform override', {
+            tag,
+            viewportMode,
+            selectedTableKey,
+            dragTableId: dragStateRef.current?.tableId ?? null,
+            next,
+          });
+        }
+      }
+      setFloorplanTransformOverride(next);
+    },
+    [debugSeating, selectedTableKey, viewportMode]
+  );
   const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
   const getActivePointerTransform = useCallback(() => {
     const rect = getViewportRect();
@@ -2630,7 +2658,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const scale = safeScale(
         scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
       );
-      setFloorplanTransformOverride({
+      applyTransformOverride('recenter-selected-table', {
         scale,
         offsetX: floorplanViewportRect.width / 2 - centerX * scale,
         offsetY: floorplanViewportRect.height / 2 - centerY * scale,
@@ -2642,6 +2670,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     [
       activeFloorplanTransform.scale,
+      applyTransformOverride,
       floorplanDims,
       floorplanTransformOverride?.scale,
       floorplanViewportRect.height,
@@ -2653,31 +2682,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ]
   );
   const recenterSelectedDragPosition = useCallback(
-    (position: { x: number; y: number }, size: { w: number; h: number }, scaleOverride?: number) => {
+    (
+      position: { x: number; y: number },
+      size: { w: number; h: number },
+      scaleOverride: number | undefined,
+      source: string
+    ) => {
       if (viewportMode !== 'selected') return;
-      if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
-      const centerX = position.x + size.w / 2;
-      const centerY = position.y + size.h / 2;
-      const scale = safeScale(
-        scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
-      );
-      setFloorplanTransformOverride({
-        scale,
-        offsetX: floorplanViewportRect.width / 2 - centerX * scale,
-        offsetY: floorplanViewportRect.height / 2 - centerY * scale,
-        rectLeft: floorplanViewportRect.left ?? 0,
-        rectTop: floorplanViewportRect.top ?? 0,
-        rectWidth: floorplanViewportRect.width,
-        rectHeight: floorplanViewportRect.height,
+      pendingDragRecenterRef.current = { position, size, scaleOverride, source };
+      if (dragRecenterRafIdRef.current !== null) {
+        return;
+      }
+      dragRecenterRafIdRef.current = requestAnimationFrame(() => {
+        dragRecenterRafIdRef.current = null;
+        const pending = pendingDragRecenterRef.current;
+        if (!pending) return;
+        if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
+        const centerX = pending.position.x + pending.size.w / 2;
+        const centerY = pending.position.y + pending.size.h / 2;
+        const scale = safeScale(
+          pending.scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
+        );
+        if (debugSeating) {
+          console.debug('[seating] drag recenter', {
+            source: pending.source,
+            viewportMode,
+            selectedTableKey,
+            dragTableId: dragStateRef.current?.tableId ?? null,
+          });
+        }
+        applyTransformOverride('recenter-selected-drag', {
+          scale,
+          offsetX: floorplanViewportRect.width / 2 - centerX * scale,
+          offsetY: floorplanViewportRect.height / 2 - centerY * scale,
+          rectLeft: floorplanViewportRect.left ?? 0,
+          rectTop: floorplanViewportRect.top ?? 0,
+          rectWidth: floorplanViewportRect.width,
+          rectHeight: floorplanViewportRect.height,
+        });
       });
     },
     [
       activeFloorplanTransform.scale,
+      applyTransformOverride,
+      debugSeating,
       floorplanTransformOverride?.scale,
       floorplanViewportRect.height,
       floorplanViewportRect.left,
       floorplanViewportRect.top,
       floorplanViewportRect.width,
+      selectedTableKey,
       viewportMode,
     ]
   );
@@ -2700,19 +2754,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [scheduleRecenterSelectedTable]);
   useEffect(() => {
     if (!isEditMode) {
-      setFloorplanTransformOverride(null);
+      applyTransformOverride('mode-exit-edit', null);
       return;
     }
     if (dragStateRef.current) {
       return;
     }
     if (viewportMode === 'fit') {
-      setFloorplanTransformOverride(null);
+      applyTransformOverride('fit-mode', null);
       return;
     }
     if (!selectedEditorTable) {
       prevSelectedTableIdRef.current = null;
-      setFloorplanTransformOverride(null);
+      applyTransformOverride('no-selected-table', null);
       return;
     }
     if (
@@ -2729,6 +2783,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     recenterSelectedTable(scale);
     prevSelectedTableIdRef.current = selectedEditorTable.id;
   }, [
+    applyTransformOverride,
     floorplanDims,
     floorplanTransformOverride,
     floorplanViewportRect.height,
@@ -3344,12 +3399,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
         }
       }
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragRecenterLogRef.current > 400) {
+          dragRecenterLogRef.current = now;
+          console.debug('[seating] drag move recenter check', {
+            viewportMode,
+            selectedTableKey,
+            dragTableId: drag.tableId,
+            shouldRecenter: viewportMode === 'selected' && selectedTableKey === drag.tableId,
+          });
+        }
+      }
       updateDraftPosition(drag.tableId, nextX, nextY);
       if (viewportMode === 'selected' && selectedTableKey === drag.tableId) {
         recenterSelectedDragPosition(
           { x: nextX, y: nextY },
           { w: drag.width, h: drag.height },
-          drag.dragStartScale
+          drag.dragStartScale,
+          'pointer-move'
         );
       }
     },
@@ -3599,7 +3667,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         recenterSelectedDragPosition(
           { x: nextX, y: nextY },
           { w: drag.width, h: drag.height },
-          drag.dragStartScale
+          drag.dragStartScale,
+          'pointer-up'
         );
       }
       scheduleRecenterSelectedTable();
