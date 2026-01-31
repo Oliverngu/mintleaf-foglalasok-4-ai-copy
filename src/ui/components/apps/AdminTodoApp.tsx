@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Todo, User } from '../../../core/models/data';
+import type { Todo, User } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
 import { collection, addDoc, doc, updateDoc, writeBatch, arrayUnion } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
