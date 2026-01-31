@@ -66,11 +66,51 @@ interface BookingLog {
   message: string;
 }
 
+type DebugErrorInfo = {
+  name: string;
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  url: string;
+  source: 'error-boundary' | 'window:error' | 'window:unhandledrejection';
+  time: string;
+};
+
 interface FoglalasokAppProps {
   currentUser: User;
   canAddBookings: boolean;
   allUnits: Unit[];
   activeUnitIds: string[];
+}
+
+class SeatingSettingsErrorBoundary extends React.Component<
+  { onError: (info: DebugErrorInfo) => void; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    this.props.onError({
+      name: error.name || 'Error',
+      message: error.message || 'Unknown error',
+      stack: error.stack,
+      componentStack: info.componentStack,
+      url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+      source: 'error-boundary',
+      time: new Date().toISOString(),
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+    return this.props.children;
+  }
 }
 
 const DeleteConfirmationModal: React.FC<{
@@ -1278,6 +1318,70 @@ const BookingDetailsModal: React.FC<{
     tableIds?.length
       ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
       : '—';
+  const formatDebugError = useCallback((info: DebugErrorInfo) => {
+    return [
+      `name: ${info.name}`,
+      `message: ${info.message}`,
+      `source: ${info.source}`,
+      `time: ${info.time}`,
+      `url: ${info.url}`,
+      info.stack ? `stack:\n${info.stack}` : '',
+      info.componentStack ? `componentStack:\n${info.componentStack}` : '',
+      'hint: open with ?fpdebug=1 and reproduce the issue, then copy this log.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }, []);
+  const handleCopyDebug = useCallback(async () => {
+    if (!debugError) return;
+    const text = formatDebugError(debugError);
+    try {
+      await navigator.clipboard.writeText(text);
+      setDebugCopyStatus('copied');
+      window.setTimeout(() => setDebugCopyStatus('idle'), 1200);
+    } catch {
+      setDebugCopyStatus('idle');
+    }
+  }, [debugError, formatDebugError]);
+
+  useEffect(() => {
+    if (!debugEnabled) return;
+    const handleWindowError = (event: ErrorEvent) => {
+      const error =
+        event.error instanceof Error
+          ? event.error
+          : new Error(event.message || 'Unknown error');
+      setDebugError({
+        name: error.name || 'Error',
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        componentStack: undefined,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        source: 'window:error',
+        time: new Date().toISOString(),
+      });
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const error =
+        reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Unhandled rejection');
+      setDebugError({
+        name: error.name || 'Error',
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        componentStack: undefined,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        source: 'window:unhandledrejection',
+        time: new Date().toISOString(),
+      });
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, [debugEnabled]);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -1773,6 +1877,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
+  const debugEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fpdebug') === '1') return true;
+    try {
+      return window.localStorage.getItem('ml_fp_debug') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
+  const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
+  const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
@@ -2283,10 +2399,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         />
       )}
       {isSeatingSettingsOpen && activeUnitId && (
-        <SeatingSettingsModal
-          unitId={activeUnitId}
-          onClose={() => setIsSeatingSettingsOpen(false)}
-        />
+        <SeatingSettingsErrorBoundary
+          onError={info => {
+            if (debugEnabled) {
+              setDebugError(info);
+            }
+          }}
+        >
+          <SeatingSettingsModal
+            unitId={activeUnitId}
+            onClose={() => setIsSeatingSettingsOpen(false)}
+          />
+        </SeatingSettingsErrorBoundary>
       )}
       {bookingToDelete && (
         <DeleteConfirmationModal
@@ -2294,6 +2418,40 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           onClose={() => setBookingToDelete(null)}
           onConfirm={handleConfirmDelete}
         />
+      )}
+      {debugEnabled && debugError && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="max-w-2xl w-full rounded-xl bg-white shadow-xl border border-gray-200">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="font-semibold text-gray-900">Seating debug error</div>
+              <div className="text-xs text-gray-500">fpdebug=1</div>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-gray-600">
+                Open with <code>?fpdebug=1</code>, reproduce, then copy the stack below.
+              </div>
+              <pre className="text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto rounded bg-gray-100 p-3">
+                {formatDebugError(debugError)}
+              </pre>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyDebug}
+                  className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm"
+                >
+                  {debugCopyStatus === 'copied' ? 'Copied' : 'Copy'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDebugError(null)}
+                  className="px-3 py-1.5 rounded bg-gray-200 text-gray-800 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
