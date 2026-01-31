@@ -406,7 +406,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                 width: geometry.w,
                 height: geometry.h,
                 transform: `rotate(${geometry.rot}deg)`,
-                transformOrigin: 'top left',
+                transformOrigin: 'center',
                 zIndex: 2,
                 pointerEvents: 'none',
               }}
@@ -425,7 +425,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                     opacity: seatPreview ? 0.28 : 0.85,
                     pointerEvents: 'none',
                   }}
-                  title="szék"
+                  title="szĂŠk"
                 >
                   <div className="relative">
                     <div
@@ -483,7 +483,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                   width: geometry.w,
                   height: geometry.h,
                   transform: `rotate(${geometry.rot}deg)`,
-                  transformOrigin: 'top left',
+                  transformOrigin: 'center',
                   zIndex: 6,
                   pointerEvents: 'auto',
                 }}
@@ -523,7 +523,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                       pointerEvents: 'auto',
                       opacity: disabled ? 0.45 : 0.65,
                     }}
-                    title={disabled ? ctrl.reason ?? 'limit' : 'szék hozzáadása'}
+                    title={disabled ? ctrl.reason ?? 'limit' : 'szĂŠk hozzĂĄadĂĄsa'}
                     >
                       <span
                         className="leading-none"
@@ -575,7 +575,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                             pointerEvents: 'auto',
                             opacity: canRemove ? 0.65 : 0.4,
                           }}
-                          title="szék eltávolítása"
+                          title="szĂŠk eltĂĄvolĂ­tĂĄsa"
                         >
                           <span className="leading-none" style={{ fontSize: controlFontSize }}>
                             -
