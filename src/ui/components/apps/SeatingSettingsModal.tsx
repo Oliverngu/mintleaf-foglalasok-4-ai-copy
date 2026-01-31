@@ -477,6 +477,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const rafPosId = useRef<number | null>(null);
   const rafRotId = useRef<number | null>(null);
   const recenterRafIdRef = useRef<number | null>(null);
+  const scheduleRecenterSelectedTableRef = useRef<(scaleOverride?: number) => void>(() => {});
   const [undoTick, setUndoTick] = useState(0);
   const floorplanViewportRef = useRef<HTMLDivElement | null>(null);
   const lastActionRef = useRef<null | {
@@ -1249,17 +1250,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     (tableId: string, currentRot: number, delta: number) => {
       const nextRot = normalizeRotation(currentRot + delta);
       updateDraftRotation(tableId, nextRot);
-      scheduleRecenterSelectedTable();
+      scheduleRecenterSelectedTableRef.current();
     },
-    [scheduleRecenterSelectedTable]
+    [updateDraftRotation]
   );
   const applyRotationAbsolute = useCallback(
     (tableId: string, rot: number) => {
       const nextRot = normalizeRotation(rot);
       updateDraftRotation(tableId, nextRot);
-      scheduleRecenterSelectedTable();
+      scheduleRecenterSelectedTableRef.current();
     },
-    [scheduleRecenterSelectedTable]
+    [updateDraftRotation]
   );
   function snapRotation(value: number, step = 5) {
     return Math.round(value / step) * step;
@@ -2468,7 +2469,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   };
 
-  const updateDraftPosition = (tableId: string, x: number, y: number) => {
+  function updateDraftPosition(tableId: string, x: number, y: number) {
     if (rafPosId.current !== null) {
       cancelAnimationFrame(rafPosId.current);
     }
@@ -2479,9 +2480,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }));
       rafPosId.current = null;
     });
-  };
+  }
 
-  const updateDraftRotation = (tableId: string, rot: number) => {
+  function updateDraftRotation(tableId: string, rot: number) {
     if (rafRotId.current !== null) {
       cancelAnimationFrame(rafRotId.current);
     }
@@ -2492,7 +2493,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }));
       rafRotId.current = null;
     });
-  };
+  }
 
   function computeFloorplanTransformFromRect(
     rect: { width: number; height: number; left?: number; top?: number },
@@ -2665,6 +2666,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     [recenterSelectedTable, viewportMode]
   );
+  useEffect(() => {
+    scheduleRecenterSelectedTableRef.current = scheduleRecenterSelectedTable;
+  }, [scheduleRecenterSelectedTable]);
   useEffect(() => {
     if (!isEditMode) {
       setFloorplanTransformOverride(null);
@@ -3700,6 +3704,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         form: { w: floorplanForm.width ?? null, h: floorplanForm.height ?? null },
         used: { w: floorplanW, h: floorplanH },
       });
+    }
+    if (recenterRafIdRef.current !== null) {
+      cancelAnimationFrame(recenterRafIdRef.current);
+      recenterRafIdRef.current = null;
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const position = getRenderPosition(table, geometry);
@@ -5996,6 +6004,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     if (!activeFloorplan) return;
                                     event.preventDefault();
                                     event.stopPropagation();
+                                    if (recenterRafIdRef.current !== null) {
+                                      cancelAnimationFrame(recenterRafIdRef.current);
+                                      recenterRafIdRef.current = null;
+                                    }
                                     event.currentTarget.setPointerCapture?.(event.pointerId);
                                     handleSelectTable(table.id);
                                     if (debugSeating) {
@@ -6115,21 +6127,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
-                                  onPointerDown={(event) => {
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
                                     event.preventDefault();
                                     event.stopPropagation();
                                     const step = 5;
                                     applyRotationDelta(table.id, renderRot, -step);
                                     lastRotateActionRef.current = { t: Date.now() };
                                   }}
-                                  onClick={(event) => {
+                                  onClick={event => {
                                     event.stopPropagation();
-                                    const last = lastRotateActionRef.current;
-                                    if (last && Date.now() - last.t < 350) return;
-                                    const step = 5;
-                                    applyRotationDelta(table.id, renderRot, -step);
-                                    lastRotateActionRef.current = { t: Date.now() };
                                   }}
                                 >
                                   ↺
@@ -6138,21 +6145,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
-                                  onPointerDown={(event) => {
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
                                     event.preventDefault();
                                     event.stopPropagation();
                                     const step = 5;
                                     applyRotationDelta(table.id, renderRot, step);
                                     lastRotateActionRef.current = { t: Date.now() };
                                   }}
-                                  onClick={(event) => {
+                                  onClick={event => {
                                     event.stopPropagation();
-                                    const last = lastRotateActionRef.current;
-                                    if (last && Date.now() - last.t < 350) return;
-                                    const step = 5;
-                                    applyRotationDelta(table.id, renderRot, step);
-                                    lastRotateActionRef.current = { t: Date.now() };
                                   }}
                                 >
                                   ↻
@@ -6161,19 +6163,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
-                                  onPointerDown={(event) => {
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
                                     event.preventDefault();
                                     event.stopPropagation();
                                     applyRotationAbsolute(table.id, 0);
                                     lastRotateActionRef.current = { t: Date.now() };
                                   }}
-                                  onClick={(event) => {
+                                  onClick={event => {
                                     event.stopPropagation();
-                                    const last = lastRotateActionRef.current;
-                                    if (last && Date.now() - last.t < 350) return;
-                                    applyRotationAbsolute(table.id, 0);
-                                    lastRotateActionRef.current = { t: Date.now() };
                                   }}
                                 >
                                   Reset
