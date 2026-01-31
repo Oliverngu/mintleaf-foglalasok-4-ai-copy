@@ -1,4 +1,3 @@
-TARGET_PATH: src/ui/components/apps/SeatingSettingsModal.tsx
 import { FirebaseError } from 'firebase/app';
 import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
