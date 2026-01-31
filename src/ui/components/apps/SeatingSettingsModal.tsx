@@ -1,3 +1,4 @@
+TARGET_PATH: src/ui/components/apps/SeatingSettingsModal.tsx
 import { FirebaseError } from 'firebase/app';
 import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -2647,6 +2648,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [recenterSelectedTable, viewportMode]
   );
   useEffect(() => {
+    if (dragState) return;
     if (!isEditMode) {
       setFloorplanTransformOverride(null);
       return;
@@ -2747,6 +2749,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const tablesForWorldLayer = useMemo(
     () =>
       editorTables.map(table => {
+        if (!isEditMode) return table;
         const draftPos = draftPositions[table.id];
         const draftRot = draftRotations[table.id];
         if (!draftPos && draftRot === undefined) return table;
@@ -2756,7 +2759,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...(draftRot !== undefined ? { rot: draftRot } : {}),
         };
       }),
-    [draftPositions, draftRotations, editorTables]
+    [draftPositions, draftRotations, editorTables, isEditMode]
   );
   const debugTableRows = useMemo(
     () =>
@@ -3082,8 +3085,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               requestDebugFlush('invalid-transform');
             }
           }
-          abortDragRef.current(drag);
+          // Pointer mapping failed (invalid transform); end drag safely.
+          // Avoid releasing capture on event.currentTarget; use the captured pointer target if available.
+          releaseDragPointerCaptureRef.current(drag);
+          unregisterWindowTableDragListenersRef.current();
+          setDragState(null);
           return;
+
         }
         const currentAngle =
           Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
@@ -3130,7 +3138,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             requestDebugFlush('invalid-transform');
           }
         }
-        abortDragRef.current(drag);
+        // Pointer mapping failed (invalid transform); end drag safely.
+        // Avoid releasing capture on event.currentTarget; use the captured pointer target if available.
+        releaseDragPointerCaptureRef.current(drag);
+        unregisterWindowTableDragListenersRef.current();
+        setDragState(null);
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
@@ -3425,7 +3437,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             requestDebugFlush('invalid-transform');
           }
         }
-        abortDragRef.current(drag);
+        // Pointer mapping failed (invalid transform); end drag safely.
+        // Avoid releasing capture on event.currentTarget; use the captured pointer target if available.
+        releaseDragPointerCaptureRef.current(drag);
+        unregisterWindowTableDragListenersRef.current();
+        setDragState(null);
         return;
       }
       lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
