@@ -2705,12 +2705,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           pending.scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
         );
         if (debugSeating) {
-          console.debug('[seating] drag recenter', {
-            source: pending.source,
-            viewportMode,
-            selectedTableIdForDrag,
-            dragTableId: dragStateRef.current?.tableId ?? null,
-          });
+          const now = Date.now();
+          const shouldLog =
+            pending.source === 'drag-start' ||
+            pending.source === 'pointer-up' ||
+            (pending.source === 'pointer-move' && now - dragRecenterLogRef.current > 250);
+          if (shouldLog) {
+            dragRecenterLogRef.current = now;
+            console.debug('[seating] drag recenter applied', {
+              source: pending.source,
+              viewportMode,
+              selectedTableIdForDrag,
+              dragTableId: dragStateRef.current?.tableId ?? null,
+            });
+          }
         }
         applyTransformOverride('recenter-selected-drag', {
           scale,
@@ -3400,18 +3408,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
         }
       }
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragRecenterLogRef.current > 400) {
-          dragRecenterLogRef.current = now;
-          console.debug('[seating] drag move recenter check', {
-            viewportMode,
-            selectedTableIdForDrag,
-            dragTableId: drag.tableId,
-            shouldRecenter: viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId,
-          });
-        }
-      }
       updateDraftPosition(drag.tableId, nextX, nextY);
       if (viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId) {
         recenterSelectedDragPosition(
@@ -3938,6 +3934,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       gridSize: editorGridSize,
       snapToGrid: table.snapToGrid ?? false,
     });
+    if (viewportMode === 'selected' && selectedTableIdForDrag === table.id) {
+      recenterSelectedDragPosition(
+        { x: position.x, y: position.y },
+        { w: geometry.w, h: geometry.h },
+        dragTransform.scale,
+        'drag-start'
+      );
+    }
     registerWindowTableDragListeners();
     setLastSaved(current =>
       current[table.id] ? current : { ...current, [table.id]: position }
