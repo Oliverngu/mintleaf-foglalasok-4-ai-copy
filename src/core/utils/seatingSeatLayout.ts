@@ -24,6 +24,7 @@ export type SeatLayoutInput = {
     radius?: number;
     rot: number; // degrees
   };
+  renderMode?: 'preview' | 'edit';
 };
 
 const clampInt = (value: unknown, min: number, max: number, fallback: number) => {
@@ -44,15 +45,16 @@ export function computeSeatLayout(input: SeatLayoutInput): Seat[] {
   const { table, geometry } = input;
 
   if (safeShape(table.shape) === 'circle') {
-    return computeCircularSeats(table, geometry);
+    return computeCircularSeats(table, geometry, input.renderMode);
   }
 
-  return computeRectangularSeats(table, geometry);
+  return computeRectangularSeats(table, geometry, input.renderMode);
 }
 
 export function computeRectangularSeats(
   table: Table,
-  geometry: SeatLayoutInput['geometry']
+  geometry: SeatLayoutInput['geometry'],
+  renderMode: SeatLayoutInput['renderMode'] = 'edit'
 ): Seat[] {
   const w = Math.max(1, geometry.w);
   const h = Math.max(1, geometry.h);
@@ -66,15 +68,17 @@ export function computeRectangularSeats(
   const west = clampInt(sides.west, 0, 3, 0);
 
   const inset = Math.max(10, Math.min(w, h) * 0.12);
-  const outside = Math.max(10, Math.min(w, h) * 0.14);
+  const outside =
+    renderMode === 'preview' ? 0 : Math.max(10, Math.min(w, h) * 0.14);
 
   const seats: Seat[] = [];
 
   const distribute = (count: number) => {
-    if (count <= 1) return [0.5];
-    if (count === 2) return [0.33, 0.67];
-    return [0.25, 0.5, 0.75];
-  };
+  if (count <= 0) return [];
+  if (count === 1) return [0.5];
+  if (count === 2) return [0.33, 0.67];
+  return [0.25, 0.5, 0.75];
+};
 
   distribute(north).forEach((t, i) => {
     seats.push({
@@ -121,7 +125,8 @@ export function computeRectangularSeats(
 
 export function computeCircularSeats(
   table: Table,
-  geometry: SeatLayoutInput['geometry']
+  geometry: SeatLayoutInput['geometry'],
+  renderMode: SeatLayoutInput['renderMode'] = 'edit'
 ): Seat[] {
   const maxSeats = 16;
   const w = Math.max(1, geometry.w);
@@ -137,7 +142,7 @@ export function computeCircularSeats(
   const cx = w / 2;
   const cy = h / 2;
 
-  const outside = Math.max(10, r * 0.18);
+  const outside = renderMode === 'preview' ? 0 : Math.max(10, r * 0.18);
   const seatRadius = r + outside;
 
   const startAngle = -Math.PI / 2;
@@ -221,8 +226,7 @@ function computeRectAddControls(
   const h = Math.max(1, geometry.h);
 
   const sides =
-    table.seatLayout?.kind === 'rect' ?
-  table.seatLayout.sides ?? {} : {};
+    table.seatLayout?.kind === 'rect' ? table.seatLayout.sides ?? {} : {};
 
   const north = clampInt(sides.north, 0, 3, 0);
   const east = clampInt(sides.east, 0, 3, 0);
@@ -288,12 +292,11 @@ function computeCircleAddControls(
   const r = Math.max(1, geometry.radius ?? Math.min(w, h) / 2);
 
   const count = clampInt(
-    table.seatLayout?.kind === 'circle' ?
-  table.seatLayout.count : 0,
-  0,
-  maxSeats,
-  0
-);
+    table.seatLayout?.kind === 'circle' ? table.seatLayout.count : 0,
+    0,
+    maxSeats,
+    0
+  );
 
   if (count >= maxSeats) return [];
 

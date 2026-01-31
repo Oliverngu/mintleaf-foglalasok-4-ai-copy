@@ -47,6 +47,37 @@ const normalizeZone = (raw: unknown, idFallback?: string): Zone => {
   };
 };
 
+const normalizeSeatLayout = (value: unknown): Table['seatLayout'] | undefined => {
+  const data = (value ?? {}) as { kind?: unknown; count?: unknown; sides?: unknown };
+  if (data.kind === 'circle') {
+    const count =
+      typeof data.count === 'number' && Number.isFinite(data.count)
+        ? Math.max(0, Math.round(data.count))
+        : 0;
+    return { kind: 'circle', count };
+  }
+  if (data.kind === 'rect') {
+    const sides = (data.sides ?? {}) as {
+      north?: unknown;
+      east?: unknown;
+      south?: unknown;
+      west?: unknown;
+    };
+    const safeSide = (side: unknown) =>
+      typeof side === 'number' && Number.isFinite(side) ? Math.max(0, Math.round(side)) : 0;
+    return {
+      kind: 'rect',
+      sides: {
+        north: safeSide(sides.north),
+        east: safeSide(sides.east),
+        south: safeSide(sides.south),
+        west: safeSide(sides.west),
+      },
+    };
+  }
+  return undefined;
+};
+
 const normalizeTable = (raw: unknown, idFallback?: string): Table => {
   const data = (raw ?? {}) as Record<string, unknown>;
   const canCombine =
@@ -163,6 +194,7 @@ const normalizeTable = (raw: unknown, idFallback?: string): Table => {
     rot: data.rot as Table['rot'],
     canSeatSolo: data.canSeatSolo as Table['canSeatSolo'],
     canCombine,
+    seatLayout: normalizeSeatLayout(data.seatLayout),
     createdAt: data.createdAt as Table['createdAt'],
     updatedAt: data.updatedAt as Table['updatedAt'],
   };

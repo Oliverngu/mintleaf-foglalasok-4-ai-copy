@@ -1,5 +1,5 @@
 import { FirebaseError } from 'firebase/app';
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { auth, db, functions } from '../../../core/firebase/config';
@@ -43,7 +43,9 @@ import {
 import ModalShell from '../common/ModalShell';
 import PillPanelLayout from '../common/PillPanelLayout';
 import { getTableVisualState, isRectIntersecting as isRectIntersectingFn } from './seating/floorplanUtils';
-import FloorplanViewportCanvas from './seating/FloorplanViewportCanvas';
+import FloorplanViewportCanvas, {
+  FloorplanViewportHandle,
+} from './seating/FloorplanViewportCanvas';
 import { useViewportRect } from '../../hooks/useViewportRect';
 import FloorplanWorldLayer from './seating/FloorplanWorldLayer';
 
@@ -105,6 +107,95 @@ const weekdays = [
   { value: 6, label: 'Szombat' },
 ];
 
+type RuntimeErrorSnapshot = {
+  message: string;
+  stack?: string;
+  source?: string;
+  time: string;
+};
+
+const useRuntimeErrorOverlay = (enabled: boolean) => {
+  const [snapshot, setSnapshot] = useState<RuntimeErrorSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') {
+      return;
+    }
+
+    const handleError = (event: ErrorEvent) => {
+      const err = event.error as Error | undefined;
+      setSnapshot({
+        message: event.message || err?.message || 'Unknown error',
+        stack: err?.stack,
+        source: event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : undefined,
+        time: new Date().toISOString(),
+      });
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      let message = 'Unhandled rejection';
+      let stack: string | undefined;
+      if (event.reason instanceof Error) {
+        message = event.reason.message || message;
+        stack = event.reason.stack;
+      } else if (typeof event.reason === 'string') {
+        message = event.reason;
+      } else {
+        try {
+          message = JSON.stringify(event.reason);
+        } catch {
+          message = String(event.reason);
+        }
+      }
+      setSnapshot({
+        message,
+        stack,
+        time: new Date().toISOString(),
+      });
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [enabled]);
+
+  return snapshot;
+};
+
+const RuntimeErrorOverlay: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  const snapshot = useRuntimeErrorOverlay(enabled);
+
+  if (!enabled || !snapshot) {
+    return null;
+  }
+
+  const details = [
+    snapshot.message,
+    snapshot.source ? `Source: ${snapshot.source}` : null,
+    snapshot.stack ? `Stack:\n${snapshot.stack}` : null,
+    `Time: ${snapshot.time}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[9999] max-w-[min(90vw,420px)] rounded-lg border border-red-200 bg-red-50/95 p-3 text-xs text-red-900 shadow-lg">
+      <div className="mb-2 font-semibold">Runtime error</div>
+      <textarea
+        readOnly
+        value={details}
+        className="w-full resize-none rounded border border-red-200 bg-white/90 p-2 text-[11px] leading-snug text-red-900"
+        rows={8}
+        onFocus={event => event.currentTarget.select()}
+      />
+    </div>
+  );
+};
+
 const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onClose }) => {
   const [settings, setSettings] = useState<SeatingSettings | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -118,6 +209,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const lastSavedSettingsRef = useRef<SeatingSettings | null>(null);
+  const viewportCanvasRef = useRef<FloorplanViewportHandle | null>(null);
   const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
@@ -218,12 +310,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       return isDev;
     }
   }, [isDev]);
+  const errorOverlayEnabled = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return isDev;
+    }
+    const params = new URLSearchParams(window.location.search);
+    return isDev || params.get('fpdebug') === '1';
+  }, [isDev]);
   const getNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const [probeSummary, setProbeSummary] = useState<string | null>(null);
   const [probeRunning, setProbeRunning] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
+  const isEditMode = floorplanMode === 'edit';
+  const [viewportMode, setViewportMode] = useState<'auto' | 'selected' | 'fit'>('auto');
+  const prevSelectedTableIdRef = useRef<string | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
   const [showObstacleDebug, setShowObstacleDebug] = useState(false);
@@ -426,9 +528,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const [selectedTableDraft, setSelectedTableDraft] = useState<{
     id: string;
+    shape?: Table['shape'];
     capacityTotal: number;
     sideCapacities: { north: number; east: number; south: number; west: number };
     combinableWithIds: string[];
+    seatLayout?: Table['seatLayout'];
   } | null>(null);
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
@@ -491,6 +595,50 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const north = Math.ceil(capacityTotal / 2);
     const south = Math.max(0, capacityTotal - north);
     return { north, east: 0, south, west: 0 };
+  };
+  const isSeatLayoutEmpty = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return true;
+    if (seatLayout.kind === 'circle') {
+      return (seatLayout.count ?? 0) <= 0;
+    }
+    if (seatLayout.kind === 'rect') {
+      const sides = seatLayout.sides ?? {};
+      return (
+        (sides.north ?? 0) <= 0 &&
+        (sides.east ?? 0) <= 0 &&
+        (sides.south ?? 0) <= 0 &&
+        (sides.west ?? 0) <= 0
+      );
+    }
+    return true;
+  };
+  const computeSeatCountFromSeatLayout = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return 0;
+    if (seatLayout.kind === 'circle') {
+      return Math.max(0, seatLayout.count ?? 0);
+    }
+    if (seatLayout.kind === 'rect') {
+      const sides = seatLayout.sides ?? {};
+      return (
+        Math.max(0, sides.north ?? 0) +
+        Math.max(0, sides.east ?? 0) +
+        Math.max(0, sides.south ?? 0) +
+        Math.max(0, sides.west ?? 0)
+      );
+    }
+    return 0;
+  };
+  const formatSeatLayoutSummary = (seatLayout?: Table['seatLayout']) => {
+    if (!seatLayout) return 'Seat layout: n/a';
+    if (seatLayout.kind === 'circle') {
+      return `Seat layout: circle (${seatLayout.count ?? 0})`;
+    }
+    if (seatLayout.kind === 'rect') {
+      return `Seat layout: rect N${seatLayout.sides?.north ?? 0} E${
+        seatLayout.sides?.east ?? 0
+      } S${seatLayout.sides?.south ?? 0} W${seatLayout.sides?.west ?? 0}`;
+    }
+    return 'Seat layout: n/a';
   };
 
   useEffect(() => {
@@ -686,6 +834,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
           return { ...table, combinableWithIds: prunedCombinable };
         });
+        if (debugEnabled) {
+          prunedTables.forEach(table => {
+            console.debug('[seating] loaded table seatLayout', {
+              tableId: table.id,
+              seatLayout: table.seatLayout,
+            });
+          });
+        }
         setSettings(settingsData);
         setZones(zonesData);
         setTables(prunedTables);
@@ -807,11 +963,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const editorTables = useMemo(() => {
     if (!activeFloorplan) return [] as Table[];
-    return tables.filter(table => {
+    const filtered = tables.filter(table => {
       const matchesFloorplan = !table.floorplanId || table.floorplanId === activeFloorplan.id;
       return matchesFloorplan && table.isActive !== false;
     });
-  }, [activeFloorplan, tables]);
+    if (!selectedTableDraft) return filtered;
+    const seatLayoutForDraft = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? undefined
+      : selectedTableDraft.seatLayout;
+    return filtered.map(table =>
+      table.id === selectedTableDraft.id
+        ? {
+            ...table,
+            capacityTotal: selectedTableDraft.capacityTotal,
+            sideCapacities: selectedTableDraft.sideCapacities,
+            combinableWithIds: selectedTableDraft.combinableWithIds,
+            seatLayout: seatLayoutForDraft,
+          }
+        : table
+    );
+  }, [activeFloorplan, selectedTableDraft, tables]);
 
   const activeObstacles = useMemo(
     () => activeFloorplan?.obstacles ?? [],
@@ -836,6 +1007,34 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => tables.find(table => table.id === selectedTableId) ?? null,
     [selectedTableId, tables]
   );
+  const selectedTableKey = selectedTableId || selectedTableDraft?.id || null;
+  const selectedEditorTable = useMemo(
+    () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
+    [editorTables, selectedTableKey]
+  );
+  const handleSelectTable = useCallback(
+    (tableId: string) => {
+      if (viewportMode === 'fit') {
+        setViewportMode('selected');
+      }
+      setSelectedTableId(tableId);
+    },
+    [viewportMode]
+  );
+  useEffect(() => {
+    if (!selectedEditorTable) return;
+    if (viewportMode !== 'fit') return;
+    setViewportMode('selected');
+  }, [selectedEditorTable?.id, viewportMode]);
+  const getRenderPosition = useCallback(
+    (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
+      resolveTableRenderPosition(
+        geometry,
+        floorplanDims,
+        isEditMode ? draftPositions[table.id] : null
+      ),
+    [draftPositions, floorplanDims, isEditMode]
+  );
   useEffect(() => {
     if (!selectedTable) {
       setSelectedTableDraft(null);
@@ -852,10 +1051,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         : 2;
     setSelectedTableDraft({
       id: selectedTable.id,
+      shape: selectedTable.shape ?? 'rect',
       capacityTotal,
       sideCapacities:
         selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
       combinableWithIds: selectedTable.combinableWithIds ?? [],
+      seatLayout: selectedTable.seatLayout,
     });
   }, [
     selectedTable?.id,
@@ -867,6 +1068,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.sideCapacities?.south,
     selectedTable?.sideCapacities?.west,
     selectedTable?.combinableWithIds?.join('|'),
+    selectedTable?.seatLayout?.kind,
+    selectedTable?.seatLayout?.count,
+    selectedTable?.seatLayout?.sides?.north,
+    selectedTable?.seatLayout?.sides?.east,
+    selectedTable?.seatLayout?.sides?.south,
+    selectedTable?.seatLayout?.sides?.west,
+    selectedTable?.shape,
   ]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
@@ -883,6 +1091,68 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       selectedTableDraft.sideCapacities.west
     );
   }, [selectedTableDraft]);
+  const seatLayoutCapacityTotal = useMemo(() => {
+    if (!selectedTableDraft) return null;
+    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
+    return computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+  }, [selectedTableDraft?.seatLayout]);
+  const seatLayoutSummary = useMemo(
+    () => formatSeatLayoutSummary(selectedTableDraft?.seatLayout),
+    [selectedTableDraft?.seatLayout]
+  );
+  useEffect(() => {
+    if (!selectedTableDraft) return;
+    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+    if (nextCapacityTotal === selectedTableDraft.capacityTotal) return;
+    setSelectedTableDraft(current =>
+      current
+        ? {
+            ...current,
+            capacityTotal: nextCapacityTotal,
+          }
+        : current
+    );
+  }, [
+    selectedTableDraft?.capacityTotal,
+    selectedTableDraft?.seatLayout?.kind,
+    selectedTableDraft?.seatLayout?.count,
+    selectedTableDraft?.seatLayout?.sides?.north,
+    selectedTableDraft?.seatLayout?.sides?.east,
+    selectedTableDraft?.seatLayout?.sides?.south,
+    selectedTableDraft?.seatLayout?.sides?.west,
+  ]);
+  useEffect(() => {
+    if (isEditMode) return;
+    const selectedId = selectedEditorTable?.id ?? null;
+    if (!selectedId) {
+      prevSelectedTableIdRef.current = null;
+      if (viewportMode === 'fit') {
+        viewportCanvasRef.current?.resetToFit();
+      }
+      return;
+    }
+    if (viewportMode === 'fit') {
+      viewportCanvasRef.current?.resetToFit();
+      return;
+    }
+    if (viewportMode === 'auto' && prevSelectedTableIdRef.current === selectedId) {
+      return;
+    }
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    viewportCanvasRef.current?.centerOnRect({
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    });
+    prevSelectedTableIdRef.current = selectedId;
+  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable, viewportMode]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -1946,7 +2216,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSelectedTableMetadataSave = async () => {
     if (!selectedTableDraft) return;
-    const capacityTotal = sanitizeCapacityValue(selectedTableDraft.capacityTotal);
+    const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+    const capacityTotal = seatLayoutEmpty
+      ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
+      : sanitizeCapacityValue(
+          computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
+        );
     const sideCapacities = {
       north: sanitizeCapacityValue(selectedTableDraft.sideCapacities.north),
       east: sanitizeCapacityValue(selectedTableDraft.sideCapacities.east),
@@ -1956,24 +2231,64 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
-    const payload = { capacityTotal, sideCapacities, combinableWithIds };
+    const payload: Record<string, unknown> = {
+      capacityTotal,
+      sideCapacities,
+      combinableWithIds,
+    };
+    if (seatLayoutEmpty) {
+      payload.seatLayout = deleteField();
+    } else if (selectedTableDraft.seatLayout) {
+      payload.seatLayout = selectedTableDraft.seatLayout;
+    }
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
       errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
       errorContext: 'Error saving table capacity metadata:',
       successMessage: 'Asztal kapacitás mentve.',
       action: async () => {
+        if (debugEnabled) {
+          console.debug('[seating] saving table meta payload', {
+            tableId: selectedTableDraft.id,
+            seatLayout: payload.seatLayout,
+            capacityTotal,
+            sideCapacities,
+          });
+        }
         await updateTable(unitId, selectedTableDraft.id, payload);
+        const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
         setTables(current =>
           current.map(table =>
-            table.id === selectedTableDraft.id ? { ...table, ...payload } : table
+            table.id === selectedTableDraft.id
+              ? {
+                  ...table,
+                  capacityTotal,
+                  sideCapacities,
+                  combinableWithIds,
+                  seatLayout: seatLayoutForState,
+                }
+              : table
           )
         );
-        setSelectedTableDraft(current =>
-          current && current.id === selectedTableDraft.id
-            ? { ...current, capacityTotal, sideCapacities, combinableWithIds }
-            : current
-        );
+        setSelectedTableDraft(current => {
+          if (!current || current.id !== selectedTableDraft.id) return current;
+          return {
+            ...current,
+            capacityTotal,
+            sideCapacities,
+            combinableWithIds,
+            seatLayout: seatLayoutForState,
+          };
+        });
+        if (debugEnabled) {
+          console.debug('[seating] table meta saved', {
+            tableId: selectedTableDraft.id,
+            payloadKeys: Object.keys(payload),
+            seatLayoutEmpty,
+            capacityTotal,
+            seatLayoutAction: seatLayoutEmpty ? 'deleted' : 'set',
+          });
+        }
       },
     });
   };
@@ -2046,14 +2361,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       });
     }
   };
-
-  const isEditMode = floorplanMode === 'edit';
-  const getRenderPosition = (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
-    resolveTableRenderPosition(
-      geometry,
-      floorplanDims,
-      isEditMode ? draftPositions[table.id] : null
-    );
 
   const updateDraftPosition = (tableId: string, x: number, y: number) => {
     if (rafPosId.current !== null) {
@@ -2154,6 +2461,81 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       computeFloorplanTransformFromRect(floorplanViewportRect, floorplanW, floorplanH),
     [floorplanViewportRect, floorplanH, floorplanW]
   );
+  const [floorplanTransformOverride, setFloorplanTransformOverride] = useState<{
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    rectLeft: number;
+    rectTop: number;
+    rectWidth: number;
+    rectHeight: number;
+  } | null>(null);
+  const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
+  useEffect(() => {
+    if (!isEditMode) {
+      setFloorplanTransformOverride(null);
+      return;
+    }
+    if (viewportMode === 'fit') {
+      setFloorplanTransformOverride(null);
+      return;
+    }
+    if (!selectedEditorTable) {
+      prevSelectedTableIdRef.current = null;
+      setFloorplanTransformOverride(null);
+      return;
+    }
+    if (
+      viewportMode === 'auto' &&
+      prevSelectedTableIdRef.current === selectedEditorTable.id
+    ) {
+      return;
+    }
+    if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    const rect = {
+      x: position.x,
+      y: position.y,
+      w: geometry.w,
+      h: geometry.h,
+    };
+    const padding = 0.25;
+    const paddedW = rect.w * (1 + padding * 2);
+    const paddedH = rect.h * (1 + padding * 2);
+    const scale = Math.min(
+      Math.max(0.4, Math.min(floorplanViewportRect.width / paddedW, floorplanViewportRect.height / paddedH)),
+      2.5
+    );
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const offsetX = floorplanViewportRect.width / 2 - centerX * scale;
+    const offsetY = floorplanViewportRect.height / 2 - centerY * scale;
+    setFloorplanTransformOverride({
+      scale,
+      offsetX,
+      offsetY,
+      rectLeft: floorplanViewportRect.left ?? 0,
+      rectTop: floorplanViewportRect.top ?? 0,
+      rectWidth: floorplanViewportRect.width,
+      rectHeight: floorplanViewportRect.height,
+    });
+    prevSelectedTableIdRef.current = selectedEditorTable.id;
+  }, [
+    floorplanDims,
+    floorplanViewportRect.height,
+    floorplanViewportRect.left,
+    floorplanViewportRect.top,
+    floorplanViewportRect.width,
+    getRenderPosition,
+    isEditMode,
+    selectedEditorTable,
+    viewportMode,
+  ]);
   const debugRawGeometry = useMemo(() => {
     const table = editorTables[0];
     if (!table) return null;
@@ -2250,11 +2632,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanH <= 0) {
       reasons.push(`floorplanHeight=${floorplanH}`);
     }
-    if (floorplanRenderTransform.rectWidth <= 0) {
-      reasons.push(`rectWidth=${floorplanRenderTransform.rectWidth}`);
+    if (activeFloorplanTransform.rectWidth <= 0) {
+      reasons.push(`rectWidth=${activeFloorplanTransform.rectWidth}`);
     }
-    if (floorplanRenderTransform.rectHeight <= 0) {
-      reasons.push(`rectHeight=${floorplanRenderTransform.rectHeight}`);
+    if (activeFloorplanTransform.rectHeight <= 0) {
+      reasons.push(`rectHeight=${activeFloorplanTransform.rectHeight}`);
     }
     return reasons;
   }, [
@@ -2262,8 +2644,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     debugSeating,
     editorTables.length,
     floorplanH,
-    floorplanRenderTransform.rectHeight,
-    floorplanRenderTransform.rectWidth,
+    activeFloorplanTransform.rectHeight,
+    activeFloorplanTransform.rectWidth,
     floorplanW,
   ]);
 
@@ -2300,21 +2682,21 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     if (
       editorTables.length > 0 &&
-      (floorplanRenderTransform.rectWidth <= 0 ||
-        floorplanRenderTransform.rectHeight <= 0)
+      (activeFloorplanTransform.rectWidth <= 0 ||
+        activeFloorplanTransform.rectHeight <= 0)
     ) {
       zeroRectLogRef.current = true;
       try {
         console.debug('[seating] viewport zero rect with tables', {
           tablesCount: editorTables.length,
           rect: floorplanViewportRect,
-          transform: floorplanRenderTransform,
+          transform: activeFloorplanTransform,
         });
       } catch (error) {
         console.warn('[seating] zero-rect debug log failed', error);
       }
     }
-  }, [debugSeating, editorTables.length, floorplanRenderTransform, floorplanViewportRect]);
+  }, [debugSeating, editorTables.length, activeFloorplanTransform, floorplanViewportRect]);
 
   const handleUndoLastAction = React.useCallback(async () => {
     const action = lastActionRef.current;
@@ -3114,7 +3496,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (floorplanMode !== 'edit') return;
     if (table.locked) return;
     event.preventDefault();
-    setSelectedTableId(table.id);
+    handleSelectTable(table.id);
     if (debugSeating) {
       requestDebugFlush(null);
       console.debug('[seating] floorplan dims source', {
@@ -4523,7 +4905,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleAddSeat = (
     tableId: string,
-    side: 'north'|'east'|'south'|'west'|'radial'
+    side: 'north' | 'east' | 'south' | 'west' | 'radial'
   ) => {
     setSelectedTableDraft(curr => {
       if (!curr || curr.id !== tableId) return curr;
@@ -4533,18 +4915,154 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (shape === 'circle') {
         const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
         const next = Math.min(16, current + 1);
-        return { ...curr, seatLayout: { kind: 'circle', count: next } };
+        return {
+          ...curr,
+          seatLayout: { kind: 'circle', count: next },
+          capacityTotal: next,
+        };
       }
 
-      const sides = curr.seatLayout?.kind === 'rect'
-        ? { ...(curr.seatLayout.sides ?? {}) }
-        : { north: 0, east: 0, south: 0, west: 0 };
+      if (side === 'radial') return curr;
+
+      const sides =
+        curr.seatLayout?.kind === 'rect'
+          ? { ...(curr.seatLayout.sides ?? {}) }
+          : { north: 0, east: 0, south: 0, west: 0 };
 
       const current = Number((sides as any)[side] ?? 0);
-      (sides as any)[side] = Math.min(3, current + 1);
+      const nextSide = Math.min(3, current + 1);
+      (sides as any)[side] = nextSide;
 
-      return { ...curr, seatLayout: { kind: 'rect', sides } };
+      const nextSideCapacities = {
+        ...curr.sideCapacities,
+        [side]: nextSide,
+      } as typeof curr.sideCapacities;
+      const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+
+      return {
+        ...curr,
+        seatLayout: nextSeatLayout,
+        sideCapacities: nextSideCapacities,
+        capacityTotal: nextCapacityTotal,
+      };
     });
+  };
+
+  const handleRemoveSeat = (
+    tableId: string,
+    side: 'north' | 'east' | 'south' | 'west' | 'radial'
+  ) => {
+    setSelectedTableDraft(curr => {
+      if (!curr || curr.id !== tableId) return curr;
+
+      const shape = curr.shape === 'circle' ? 'circle' : 'rect';
+
+      if (shape === 'circle') {
+        const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
+        const next = Math.max(0, current - 1);
+        return {
+          ...curr,
+          seatLayout: { kind: 'circle', count: next },
+          capacityTotal: next,
+        };
+      }
+
+      if (side === 'radial') return curr;
+
+      const sides =
+        curr.seatLayout?.kind === 'rect'
+          ? { ...(curr.seatLayout.sides ?? {}) }
+          : { north: 0, east: 0, south: 0, west: 0 };
+
+      const current = Number((sides as any)[side] ?? 0);
+      const nextSide = Math.max(0, current - 1);
+      (sides as any)[side] = nextSide;
+
+      const nextSideCapacities = {
+        ...curr.sideCapacities,
+        [side]: nextSide,
+      } as typeof curr.sideCapacities;
+      const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+
+      return {
+        ...curr,
+        seatLayout: nextSeatLayout,
+        sideCapacities: nextSideCapacities,
+        capacityTotal: nextCapacityTotal,
+      };
+    });
+  };
+  
+  const renderSelectedTablePopover = (transform: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }) => {
+    if (!selectedEditorTable || !selectedTableDraft) return null;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    const centerX = position.x + geometry.w / 2;
+    const centerY = position.y + geometry.h / 2;
+    const screenX = centerX * transform.scale + transform.offsetX + 12;
+    const screenY = centerY * transform.scale + transform.offsetY - 12;
+    return (
+      <div className="pointer-events-none absolute inset-0 z-[12]">
+        <div
+          className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
+          style={{ position: 'absolute', left: screenX, top: screenY }}
+        >
+          <div className="font-semibold">
+            {selectedEditorTable.name || selectedEditorTable.id}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            {selectedEditorTable.zoneId}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            {seatLayoutSummary}
+          </div>
+          <div className="text-[10px] text-gray-500">
+            Kapacitás: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[10px] ${
+                viewportMode === 'selected'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-700'
+              }`}
+              onClick={() => setViewportMode('selected')}
+            >
+              Zoom in (asztal)
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[10px] ${
+                viewportMode === 'fit'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-700'
+              }`}
+              onClick={() => setViewportMode('fit')}
+            >
+              Zoom out (teljes)
+            </button>
+            <button
+              type="button"
+              className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+              onClick={() => void handleSelectedTableMetadataSave()}
+            >
+              Mentés
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
   
   const renderFloorplansPanel = () => (
@@ -4719,6 +5237,32 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   Szerkesztés
                 </button>
               </div>
+              {selectedEditorTable && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      viewportMode === 'selected'
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setViewportMode('selected')}
+                  >
+                    Zoom in (asztal)
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                      viewportMode === 'fit'
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                    onClick={() => setViewportMode('fit')}
+                  >
+                    Zoom out (teljes)
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
@@ -4867,9 +5411,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   <div>
                     <dt className="text-[10px] uppercase text-amber-700">transform</dt>
                     <dd>
-                      scale {formatDebugNumber(floorplanRenderTransform.scale)} | rect{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectWidth)} ×{' '}
-                      {formatDebugNumber(floorplanRenderTransform.rectHeight)}
+                      scale {formatDebugNumber(activeFloorplanTransform.scale)} | rect{' '}
+                      {formatDebugNumber(activeFloorplanTransform.rectWidth)} ×{' '}
+                      {formatDebugNumber(activeFloorplanTransform.rectHeight)}
                     </dd>
                   </div>
                 </dl>
@@ -4905,11 +5449,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       {Math.round(floorplanViewportRect.height)}
                     </div>
                     <div>
-                      scale: {floorplanRenderTransform.scale.toFixed(3)} | offset:{' '}
-                      {floorplanRenderTransform.offsetX.toFixed(1)},{' '}
-                      {floorplanRenderTransform.offsetY.toFixed(1)} | ready:{' '}
-                      {floorplanRenderTransform.rectWidth > 0 &&
-                      floorplanRenderTransform.rectHeight > 0 &&
+                      scale: {activeFloorplanTransform.scale.toFixed(3)} | offset:{' '}
+                      {activeFloorplanTransform.offsetX.toFixed(1)},{' '}
+                      {activeFloorplanTransform.offsetY.toFixed(1)} | ready:{' '}
+                      {activeFloorplanTransform.rectWidth > 0 &&
+                      activeFloorplanTransform.rectHeight > 0 &&
                       floorplanW > 0 &&
                       floorplanH > 0
                         ? 'yes'
@@ -4956,11 +5500,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                   </div>
                 )}
+                {renderSelectedTablePopover(activeFloorplanTransform)}
                 <div
                   className="absolute inset-0"
                   style={{
-                    transform: `translate(${floorplanRenderTransform.offsetX}px, ${floorplanRenderTransform.offsetY}px) scale(${floorplanRenderTransform.scale})`,
+                    transform: `translate(${activeFloorplanTransform.offsetX}px, ${activeFloorplanTransform.offsetY}px) scale(${activeFloorplanTransform.scale})`,
                     transformOrigin: 'top left',
+                    transition: floorplanTransformOverride ? 'transform 200ms ease' : undefined,
                   }}
                 >
                   <div
@@ -5186,7 +5732,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             touchAction: 'none',
                             zIndex: 2,
                           }}
-                          onClick={() => setSelectedTableId(table.id)}
+                          onClick={() => handleSelectTable(table.id)}
                           onPointerDown={
                             floorplanMode === 'edit'
                               ? event => handleTablePointerDown(event, table, geometry)
@@ -5218,7 +5764,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                     if (!activeFloorplan) return;
                                     event.preventDefault();
                                     event.stopPropagation();
-                                    setSelectedTableId(table.id);
+                                    handleSelectTable(table.id);
                                     if (debugSeating) {
                                       requestDebugFlush(null);
                                     }
@@ -5411,12 +5957,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         </div>
                       );
                     })}
+                    <FloorplanWorldLayer
+                      tables={editorTables}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      seatUI={{
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit',
+                        onAddSeat: handleAddSeat,
+                        onRemoveSeat: handleRemoveSeat,
+                        debug: debugEnabled,
+                        debugMode: floorplanMode,
+                        debugSelectedTableId: selectedTableId,
+                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
+                        uiScale: activeFloorplanTransform.scale,
+                      }}
+                      appearance={{
+                        showCapacity: false,
+                        renderTableBody: false,
+                        renderObstacles: false,
+                        isSelected: t => t.id === selectedTableKey,
+                      }}
+                    />
                   </div>
                 </div>
               </div>
               </div>
             ) : (
               <FloorplanViewportCanvas
+                ref={viewportCanvasRef}
                 floorplanDims={floorplanDims}
                 debugEnabled={debugEnabled}
                 viewportDeps={[resolvedActiveFloorplanId]}
@@ -5477,23 +6048,31 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     )}
                   </div>
                 )}
-                renderWorld={() => (
+                renderOverlay={context => renderSelectedTablePopover(context.transform)}
+                renderWorld={context => (
                   <FloorplanWorldLayer
                     tables={editorTables}
                     obstacles={activeObstacles}
                     floorplanDims={floorplanDims}
                     tableDefaults={TABLE_GEOMETRY_DEFAULTS}
                     seatUI={{
-                        preview: floorplanMode === 'view',
-                        editable: floorplanMode === 'edit',
-                        onAddSeat: handleAddSeat,
-                      }}
-                      appearance={{
-                        showCapacity: true,
-                        isSelected: t => t.id === selectedTable?.id,
-                      }}
-                    />
-                  )}
+                      preview: floorplanMode === 'view',
+                      editable: floorplanMode === 'edit',
+                      onAddSeat: handleAddSeat,
+                      onRemoveSeat: handleRemoveSeat,
+                      debug: debugEnabled,
+                      debugMode: floorplanMode,
+                      debugSelectedTableId: selectedTableId,
+                      debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                      debugSelectedTableKey: selectedTableKey,
+                      uiScale: context.transform.scale,
+                    }}
+                    appearance={{
+                      showCapacity: true,
+                      isSelected: t => t.id === selectedTableKey,
+                    }}
+                  />
+                )}
               />
             )}
           </div>
@@ -5517,6 +6096,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </>
                   ) : null}
                 </div>
+                <div className="text-xs text-[var(--color-text-secondary)]">
+                  {seatLayoutSummary}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">
                     Kapacitás összesen
@@ -5524,7 +6106,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       type="number"
                       min={0}
                       className="border rounded p-2"
-                      value={selectedTableDraft.capacityTotal}
+                      value={seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
+                      disabled={seatLayoutCapacityTotal !== null}
+                      readOnly={seatLayoutCapacityTotal !== null}
                       onChange={event =>
                         setSelectedTableDraft(current =>
                           current
@@ -5545,6 +6129,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.north}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5567,6 +6153,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.east}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5589,6 +6177,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.south}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5611,6 +6201,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                         min={0}
                         className="border rounded p-2"
                         value={selectedTableDraft.sideCapacities.west}
+                        disabled={seatLayoutCapacityTotal !== null}
+                        readOnly={seatLayoutCapacityTotal !== null}
                         onChange={event =>
                           setSelectedTableDraft(current =>
                             current
@@ -5853,6 +6445,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       header={headerContent}
       footer={footerContent}
     >
+      <RuntimeErrorOverlay enabled={errorOverlayEnabled} />
       <PillPanelLayout
         sections={tabs}
         activeId={activeTab}
