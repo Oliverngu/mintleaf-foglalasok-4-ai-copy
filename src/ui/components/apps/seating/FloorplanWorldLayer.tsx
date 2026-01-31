@@ -485,7 +485,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
                   transform: `rotate(${geometry.rot}deg)`,
                   transformOrigin: 'center',
                   zIndex: 6,
-                  pointerEvents: 'auto',
+                  pointerEvents: 'none',
                 }}
               >
                 {addControls.map(ctrl => {

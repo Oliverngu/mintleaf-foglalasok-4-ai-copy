@@ -129,15 +129,19 @@ class SeatingSettingsErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    this.props.onError({
-      name: error.name || 'Error',
-      message: error.message || 'Unknown error',
-      stack: error.stack,
-      componentStack: info.componentStack,
-      url: typeof window !== 'undefined' ? window.location.href : 'unknown',
-      source: 'error-boundary',
-      time: new Date().toISOString(),
-    });
+    try {
+      this.props.onError({
+        name: error.name || 'Error',
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        componentStack: info.componentStack,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        source: 'error-boundary',
+        time: new Date().toISOString(),
+      });
+    } catch {
+      // no-op
+    }
   }
 
   render() {
@@ -1353,64 +1357,6 @@ const BookingDetailsModal: React.FC<{
     tableIds?.length
       ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
       : '—';
-  const handleCopyDebug = useCallback(async () => {
-    if (!debugError) return;
-    const text = formatDebugError(debugError);
-    try {
-      if (clipboardSupported) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        throw new Error('Clipboard API not available');
-      }
-      setDebugCopyStatus('copied');
-      window.setTimeout(() => setDebugCopyStatus('idle'), 1200);
-    } catch {
-      setDebugCopyStatus('idle');
-    }
-  }, [clipboardSupported, debugError]);
-
-  useEffect(() => {
-    if (!debugEnabled) return;
-    const handleWindowError = (event: ErrorEvent) => {
-      const error =
-        event.error instanceof Error
-          ? event.error
-          : new Error(event.message || 'Unknown error');
-      setDebugError({
-        name: error.name || 'Error',
-        message: error.message || 'Unknown error',
-        stack: error.stack,
-        componentStack: undefined,
-        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
-        filename: event.filename,
-        lineno: event.lineno,
-        colno: event.colno,
-        source: 'window:error',
-        time: new Date().toISOString(),
-      });
-    };
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason;
-      const error =
-        reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Unhandled rejection');
-      setDebugError({
-        name: error.name || 'Error',
-        message: error.message || 'Unknown error',
-        stack: error.stack,
-        componentStack: undefined,
-        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
-        reason,
-        source: 'window:unhandledrejection',
-        time: new Date().toISOString(),
-      });
-    };
-    window.addEventListener('error', handleWindowError);
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    return () => {
-      window.removeEventListener('error', handleWindowError);
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    };
-  }, [debugEnabled]);
 
   const dateKey = useMemo(() => {
     const year = selectedDate.getFullYear();
@@ -1917,9 +1863,58 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   }, []);
   const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
-  const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
-  const clipboardSupported =
-    typeof navigator !== 'undefined' && Boolean(navigator.clipboard?.writeText);
+  useEffect(() => {
+    if (!debugEnabled) return;
+    const handleWindowError = (event: ErrorEvent) => {
+      try {
+        const error =
+          event.error instanceof Error
+            ? event.error
+            : new Error(event.message || 'Unknown error');
+        setDebugError({
+          name: error.name || 'Error',
+          message: error.message || 'Unknown error',
+          stack: error.stack,
+          componentStack: undefined,
+          url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          source: 'window:error',
+          time: new Date().toISOString(),
+        });
+      } catch {
+        // no-op
+      }
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      try {
+        const reason = event.reason;
+        const error =
+          reason instanceof Error
+            ? reason
+            : new Error(typeof reason === 'string' ? reason : 'Unhandled rejection');
+        setDebugError({
+          name: error.name || 'Error',
+          message: error.message || 'Unknown error',
+          stack: error.stack,
+          componentStack: undefined,
+          url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+          reason,
+          source: 'window:unhandledrejection',
+          time: new Date().toISOString(),
+        });
+      } catch {
+        // no-op
+      }
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, [debugEnabled]);
 
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
   const isAdmin =
@@ -2459,24 +2454,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             </div>
             <div className="p-4 space-y-3">
               <div className="text-sm text-gray-600">
-                Open with <code>?fpdebug=1</code>, reproduce, then copy the stack below.
+                Open with <code>?fpdebug=1</code>, reproduce, copy text.
               </div>
               <pre className="text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto rounded bg-gray-100 p-3">
                 {formatDebugError(debugError)}
               </pre>
               <div className="flex items-center justify-end gap-2">
-                {!clipboardSupported && (
-                  <span className="text-xs text-gray-500 mr-auto">
-                    Clipboard unavailable — select text and copy.
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={handleCopyDebug}
-                  className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm"
-                >
-                  {debugCopyStatus === 'copied' ? 'Copied' : 'Copy'}
-                </button>
                 <button
                   type="button"
                   onClick={() => setDebugError(null)}
