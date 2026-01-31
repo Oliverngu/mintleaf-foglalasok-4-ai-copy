@@ -2598,7 +2598,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ]);
   const recenterSelectedTable = useCallback(
     (scaleOverride?: number) => {
-      if (windowDragListenersActiveRef.current) return;
       if (!selectedEditorTable) return;
       if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
       const geometry = resolveTableGeometryInFloorplanSpace(
@@ -2648,9 +2647,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [recenterSelectedTable, viewportMode]
   );
   useEffect(() => {
-    if (dragState) {
-      return;
-    }
     if (!isEditMode) {
       setFloorplanTransformOverride(null);
       return;
@@ -2663,6 +2659,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       prevSelectedTableIdRef.current = null;
       setFloorplanTransformOverride(null);
       return;
+    const drag = dragStateRef.current;
+    if (drag) {
+      return;
+    }
     }
     if (
       viewportMode === 'auto' &&
@@ -2678,7 +2678,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     recenterSelectedTable(scale);
     prevSelectedTableIdRef.current = selectedEditorTable.id;
   }, [
-    dragState,
     floorplanDims,
     floorplanTransformOverride,
     floorplanViewportRect.height,
@@ -3699,11 +3698,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       dragRect
     );
     if (!pointer) {
-      try {
-        event.currentTarget.releasePointerCapture?.(event.pointerId);
-      } catch {
-        // ignore
-      }
       return;
     }
     const startAngle = Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
@@ -5712,7 +5706,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   style={{
                     transform: `translate(${activeFloorplanTransform.offsetX}px, ${activeFloorplanTransform.offsetY}px) scale(${activeFloorplanTransform.scale})`,
                     transformOrigin: 'top left',
-                    transition: floorplanTransformOverride && !dragState ? 'transform 200ms ease' : undefined,
+                    transition: floorplanTransformOverride ? 'transform 200ms ease' : undefined,
                   }}
                 >
                   <div
@@ -5965,7 +5959,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                             floorplanMode === 'edit' ? handleLostPointerCapture : undefined
                           }
                         >
-                          <div className="relative h-full w-full">
+                          <div className="relative h-full w-full" style={{ pointerEvents: 'none' }}>
                             {isSelected && !table.locked && floorplanMode === 'edit' && (
                               <>
                                 <span
@@ -5976,16 +5970,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
-                                  style={{ touchAction: 'none' }}
+                                  style={{ touchAction: 'none', pointerEvents: 'auto', zIndex: 40 }}
                                   onPointerDown={event => {
                                     if (!activeFloorplan) return;
                                     event.preventDefault();
                                     event.stopPropagation();
+                                    event.currentTarget.setPointerCapture?.(event.pointerId);
                                     handleSelectTable(table.id);
                                     if (debugSeating) {
                                       requestDebugFlush(null);
                                     }
-                                    event.currentTarget.setPointerCapture?.(event.pointerId);
                                     const centerX = position.x + geometry.w / 2;
                                     const centerY = position.y + geometry.h / 2;
                                     const { rect: dragRect, transform: dragTransform } =
@@ -6094,31 +6088,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                 </span>
                               )}
                             </div>
-                            {isSelected && !table.locked && floorplanMode === 'edit' && (
+                            {isSelected && !table.locked && (
                               <div className="flex gap-1 mt-1">
                                 <button
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    const step = 15;
-                                    const nextRot = normalizeRotation(renderRot - step);
-                                    updateDraftRotation(table.id, nextRot);
-                                    scheduleRecenterSelectedTable();
-                                    setLastSavedRot(current => ({
-                                      ...current,
-                                      [table.id]:
-                                        current[table.id] !== undefined
-                                          ? current[table.id]
-                                          : renderRot,
-                                    }));
-                                    void finalizeRotationRef.current(table.id, nextRot, renderRot);
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
+                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
+                                  onPointerDown={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const step = 5;
+  const nextRot = normalizeRotation(renderRot - step);
+  updateDraftRotation(table.id, nextRot);
+  scheduleRecenterSelectedTable();
+}}
+                                  onClick={(event) => event.stopPropagation()}
                                 >
                                   ↺
                                 </button>
@@ -6126,25 +6111,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    const step = 15;
-                                    const nextRot = normalizeRotation(renderRot + step);
-                                    updateDraftRotation(table.id, nextRot);
-                                    scheduleRecenterSelectedTable();
-                                    setLastSavedRot(current => ({
-                                      ...current,
-                                      [table.id]:
-                                        current[table.id] !== undefined
-                                          ? current[table.id]
-                                          : renderRot,
-                                    }));
-                                    void finalizeRotationRef.current(table.id, nextRot, renderRot);
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
+                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
+                                  onPointerDown={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const step = 5;
+  const nextRot = normalizeRotation(renderRot + step);
+  updateDraftRotation(table.id, nextRot);
+  scheduleRecenterSelectedTable();
+}}
+                                  onClick={(event) => event.stopPropagation()}
                                 >
                                   ↻
                                 </button>
@@ -6152,23 +6128,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                                   type="button"
                                   data-seating-no-deselect="1"
                                   className="px-1 rounded bg-gray-100 text-[9px]"
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    updateDraftRotation(table.id, 0);
-                                    scheduleRecenterSelectedTable();
-                                    setLastSavedRot(current => ({
-                                      ...current,
-                                      [table.id]:
-                                        current[table.id] !== undefined
-                                          ? current[table.id]
-                                          : renderRot,
-                                    }));
-                                    void finalizeRotationRef.current(table.id, 0, renderRot);
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
+                                  style={{ pointerEvents: 'auto', zIndex: 30 }}
+                                  onPointerDown={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const nextRot = normalizeRotation(0);
+  updateDraftRotation(table.id, nextRot);
+  scheduleRecenterSelectedTable();
+}}
+                                  onClick={(event) => event.stopPropagation()}
                                 >
                                   Reset
                                 </button>
