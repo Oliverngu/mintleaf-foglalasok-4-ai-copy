@@ -1049,6 +1049,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [selectedTableId, tables]
   );
   const selectedTableKey = selectedTableId || selectedTableDraft?.id || null;
+  const selectedTableIdForDrag = selectedTableId ?? selectedTableDraft?.id ?? null;
   const selectedEditorTable = useMemo(
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
@@ -1059,9 +1060,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleZoomOutFit = useCallback(() => {
     setViewportMode('fit');
     prevSelectedTableIdRef.current = null;
-    applyTransformOverride('zoom-out-fit', null);
+    setFloorplanTransformOverride(null);
     viewportCanvasRef.current?.resetToFit();
-  }, [applyTransformOverride]);
+  }, []);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -2595,7 +2596,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           console.debug('[seating] transform override', {
             tag,
             viewportMode,
-            selectedTableKey,
+            selectedTableIdForDrag,
             dragTableId: dragStateRef.current?.tableId ?? null,
             next,
           });
@@ -2603,7 +2604,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setFloorplanTransformOverride(next);
     },
-    [debugSeating, selectedTableKey, viewportMode]
+    [debugSeating, selectedTableIdForDrag, viewportMode]
   );
   const activeFloorplanTransform = floorplanTransformOverride ?? floorplanRenderTransform;
   const getActivePointerTransform = useCallback(() => {
@@ -2707,7 +2708,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           console.debug('[seating] drag recenter', {
             source: pending.source,
             viewportMode,
-            selectedTableKey,
+            selectedTableIdForDrag,
             dragTableId: dragStateRef.current?.tableId ?? null,
           });
         }
@@ -2731,7 +2732,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       floorplanViewportRect.left,
       floorplanViewportRect.top,
       floorplanViewportRect.width,
-      selectedTableKey,
+      selectedTableIdForDrag,
       viewportMode,
     ]
   );
@@ -3405,14 +3406,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           dragRecenterLogRef.current = now;
           console.debug('[seating] drag move recenter check', {
             viewportMode,
-            selectedTableKey,
+            selectedTableIdForDrag,
             dragTableId: drag.tableId,
-            shouldRecenter: viewportMode === 'selected' && selectedTableKey === drag.tableId,
+            shouldRecenter: viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId,
           });
         }
       }
       updateDraftPosition(drag.tableId, nextX, nextY);
-      if (viewportMode === 'selected' && selectedTableKey === drag.tableId) {
+      if (viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId) {
         recenterSelectedDragPosition(
           { x: nextX, y: nextY },
           { w: drag.width, h: drag.height },
@@ -3438,7 +3439,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       recenterSelectedDragPosition,
       requestDebugFlush,
       snapRotation,
-      selectedTableKey,
+      selectedTableIdForDrag,
       viewportMode,
     ]
   );
@@ -3663,7 +3664,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = lastValid.y;
       }
       updateDraftPosition(tableId, nextX, nextY);
-      if (viewportMode === 'selected' && selectedTableKey === tableId) {
+      if (viewportMode === 'selected' && selectedTableIdForDrag === tableId) {
         recenterSelectedDragPosition(
           { x: nextX, y: nextY },
           { w: drag.width, h: drag.height },
@@ -3694,7 +3695,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       requestDebugFlush,
       scheduleRecenterSelectedTable,
       snapRotation,
-      selectedTableKey,
+      selectedTableIdForDrag,
       viewportMode,
     ]
   );
