@@ -2652,6 +2652,35 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       selectedEditorTable,
     ]
   );
+  const recenterSelectedDragPosition = useCallback(
+    (position: { x: number; y: number }, size: { w: number; h: number }, scaleOverride?: number) => {
+      if (viewportMode !== 'selected') return;
+      if (floorplanViewportRect.width <= 0 || floorplanViewportRect.height <= 0) return;
+      const centerX = position.x + size.w / 2;
+      const centerY = position.y + size.h / 2;
+      const scale = safeScale(
+        scaleOverride ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale
+      );
+      setFloorplanTransformOverride({
+        scale,
+        offsetX: floorplanViewportRect.width / 2 - centerX * scale,
+        offsetY: floorplanViewportRect.height / 2 - centerY * scale,
+        rectLeft: floorplanViewportRect.left ?? 0,
+        rectTop: floorplanViewportRect.top ?? 0,
+        rectWidth: floorplanViewportRect.width,
+        rectHeight: floorplanViewportRect.height,
+      });
+    },
+    [
+      activeFloorplanTransform.scale,
+      floorplanTransformOverride?.scale,
+      floorplanViewportRect.height,
+      floorplanViewportRect.left,
+      floorplanViewportRect.top,
+      floorplanViewportRect.width,
+      viewportMode,
+    ]
+  );
   const scheduleRecenterSelectedTable = useCallback(
     (scaleOverride?: number) => {
       if (viewportMode !== 'selected') return;
@@ -3316,6 +3345,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
       }
       updateDraftPosition(drag.tableId, nextX, nextY);
+      if (viewportMode === 'selected' && selectedTableKey === drag.tableId) {
+        recenterSelectedDragPosition(
+          { x: nextX, y: nextY },
+          { w: drag.width, h: drag.height },
+          drag.dragStartScale
+        );
+      }
     },
     [
       activeObstacles,
@@ -3331,8 +3367,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       isTableOverlappingObstacle,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
+      recenterSelectedDragPosition,
       requestDebugFlush,
       snapRotation,
+      selectedTableKey,
+      viewportMode,
     ]
   );
 
@@ -3556,6 +3595,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         nextY = lastValid.y;
       }
       updateDraftPosition(tableId, nextX, nextY);
+      if (viewportMode === 'selected' && selectedTableKey === tableId) {
+        recenterSelectedDragPosition(
+          { x: nextX, y: nextY },
+          { w: drag.width, h: drag.height },
+          drag.dragStartScale
+        );
+      }
       scheduleRecenterSelectedTable();
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
@@ -3575,9 +3621,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       getSelectedDragSpeedFactor,
       mapClientToFloorplanUsingTransform,
       normalizeRotation,
+      recenterSelectedDragPosition,
       requestDebugFlush,
       scheduleRecenterSelectedTable,
       snapRotation,
+      selectedTableKey,
+      viewportMode,
     ]
   );
 
