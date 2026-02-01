@@ -3255,13 +3255,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
-      const pointer = mapClientToFloorplanUsingTransform(
-        clientX,
-        clientY,
-        drag.dragStartTransform,
-        drag.dragStartRect
-      );
-      if (!pointer) {
+      // MOVE: compute delta from screen/client space so camera recenter (offset changes) can't break dragging
+      const speedFactor = getSelectedDragSpeedFactor();
+
+// Use drag-start scale only; offsetX/offsetY changes during drag must NOT affect movement.
+      const scale = safeScale(drag.dragStartScale);
+      if (!Number.isFinite(scale) || scale <= 0) {
         if (debugSeating) {
           const now = Date.now();
           if (now - dragMoveDebugRef.current > 500) {
@@ -3269,19 +3268,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             console.debug('[seating] drag blocked', {
               reason: 'invalid-transform',
               tableId: drag.tableId,
-            });
-            requestDebugFlush('invalid-transform');
+              });
+              requestDebugFlush('invalid-transform');
+            }
           }
+          abortDragRef.current(drag);
+          return;
         }
-        abortDragRef.current(drag);
-        return;
-      }
-      lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const speedFactor = getSelectedDragSpeedFactor();
-      const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
-      const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
-      let nextX = drag.tableStartX + deltaLocalX;
-      let nextY = drag.tableStartY + deltaLocalY;
+
+// Client delta → floor delta (only scale matters)
+    const deltaFloorX = ((clientX - drag.pointerStartClientX) / scale) * speedFactor;
+    const deltaFloorY = ((clientY - drag.pointerStartClientY) / scale) * speedFactor;
+
+// For debug overlays (optional)
+    lastDragPointerRef.current = {
+      x: drag.pointerStartFloorX + deltaFloorX,
+      y: drag.pointerStartFloorY + deltaFloorY,
+    };
+
+    let nextX = drag.tableStartX + deltaFloorX;
+    let nextY = drag.tableStartY + deltaFloorY;
       const unclampedX = nextX;
       const unclampedY = nextY;
       const shouldSnap =
