@@ -2685,6 +2685,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       selectedEditorTable,
     ]
   );
+
+  const shouldKeepSelectedTableCenteredDuringDrag = useCallback(
+  (tableId: string) => {
+    // “zoom in active” = van transform override
+    const zoomActive = Boolean(floorplanTransformOverride);
+    const selectedId = selectedTableIdForDrag;
+    return Boolean(selectedId && tableId === selectedId && zoomActive);
+  },
+  [floorplanTransformOverride, selectedTableIdForDrag]
+);
+  
   const recenterSelectedDragPosition = useCallback(
     (
       position: { x: number; y: number },
@@ -2692,7 +2703,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       scaleOverride: number | undefined,
       source: string
     ) => {
-      if (viewportMode !== 'selected') return;
+      // Keep-centered only when zoom is active (transform override exists).
+      if (!floorplanTransformOverride) return;
       pendingDragRecenterRef.current = { position, size, scaleOverride, source };
       if (dragRecenterRafIdRef.current !== null) {
         return;
@@ -3439,7 +3451,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
     updateDraftPosition(drag.tableId, nextX, nextY);
 
-    if (viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId) {
+    if (shouldKeepSelectedTableCenteredDuringDrag(drag.tableId)) {
       recenterSelectedDragPosition(
         { x: nextX, y: nextY },
         { w: drag.width, h: drag.height },
@@ -3651,10 +3663,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
     updateDraftPosition(tableId, nextX, nextY);
 
-    if (
-      viewportMode === 'selected' &&
-      selectedTableIdForDrag === tableId
-    ) {
+    if (shouldKeepSelectedTableCenteredDuringDrag(tableId)) {
       recenterSelectedDragPosition(
         { x: nextX, y: nextY },
         { w: drag.width, h: drag.height },
@@ -3928,7 +3937,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       gridSize: editorGridSize,
       snapToGrid: table.snapToGrid ?? false,
     });
-    if (viewportMode === 'selected' && selectedTableIdForDrag === table.id) {
+    if (shouldKeepSelectedTableCenteredDuringDrag(table.id)) {
       recenterSelectedDragPosition(
         { x: position.x, y: position.y },
         { w: geometry.w, h: geometry.h },
