@@ -3172,401 +3172,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [activeFloorplanTransform.scale, viewportMode]);
 
   const handleTablePointerMoveCore = useCallback(
-    ({
-      clientX,
-      clientY,
-      pointerId,
-      shiftKey,
-      altKey,
-    }: {
-      clientX: number;
-      clientY: number;
-      pointerId: number;
-      shiftKey: boolean;
-      altKey: boolean;
-    }) => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-      if (pointerId !== drag.pointerId) return;
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragMoveDebugRef.current > 500) {
-          const { transform: currentTransform } = getActivePointerTransform();
-          const scaleDiff = Math.abs(currentTransform.scale - drag.dragStartTransform.scale);
-          const offsetDiff =
-            Math.abs(currentTransform.offsetX - drag.dragStartTransform.offsetX) +
-            Math.abs(currentTransform.offsetY - drag.dragStartTransform.offsetY);
-          if (scaleDiff > 0.001 || offsetDiff > 0.5) {
-            dragMoveDebugRef.current = now;
-            requestDebugFlush('transform-changed-during-drag');
-          }
-        }
-      }
-      if (!floorplanViewportRef.current) {
-        abortDragRef.current(drag);
-        return;
-      }
-      if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplanUsingTransform(
-          clientX,
-          clientY,
-          drag.dragStartTransform,
-          drag.dragStartRect
-        );
-        if (!pointer) {
-          if (debugSeating) {
-            const now = Date.now();
-            if (now - dragMoveDebugRef.current > 500) {
-              dragMoveDebugRef.current = now;
-              console.debug('[seating] drag blocked', {
-                reason: 'invalid-transform',
-                tableId: drag.tableId,
-              });
-              requestDebugFlush('invalid-transform');
-            }
-          }
-          abortDragRef.current(drag);
-          return;
-        }
-        const currentAngle =
-          Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
-          (180 / Math.PI);
-        const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
-        const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
-        const step = altKey ? 1 : shiftKey ? 15 : 5;
-        updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
-        return;
-      }
-      // Manual check: add 3 tables, ensure side-by-side placement on same y-level.
-      // Manual check: vertical movement clamps at floorplan edge, rotate still works.
-      const scale = safeScale(drag.dragStartScale);
-      if (!Number.isFinite(scale) || scale <= 0) {
-        if (debugSeating) {
-          const now = Date.now();
-          if (now - dragMoveDebugRef.current > 500) {
-            dragMoveDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'invalid-transform',
-              tableId: drag.tableId,
-            });
-            requestDebugFlush('invalid-transform');
-          }
-        }
-        abortDragRef.current(drag);
-        return;
-      }
-      // MOVE: compute delta from screen/client space so camera recenter (offset changes) can't break dragging
-      const speedFactor = getSelectedDragSpeedFactor();
+  ({
+    clientX,
+    clientY,
+    pointerId,
+    shiftKey,
+    altKey,
+  }: {
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+    shiftKey: boolean;
+    altKey: boolean;
+  }) => {
+    const drag = dragStateRef.current;
+    if (!drag) return;
+    if (pointerId !== drag.pointerId) return;
 
-// Use drag-start scale only; offsetX/offsetY changes during drag must NOT affect movement.
-      const scale = safeScale(drag.dragStartScale);
-      if (!Number.isFinite(scale) || scale <= 0) {
-        if (debugSeating) {
-          const now = Date.now();
-          if (now - dragMoveDebugRef.current > 500) {
-            dragMoveDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'invalid-transform',
-              tableId: drag.tableId,
-              });
-              requestDebugFlush('invalid-transform');
-            }
-          }
-          abortDragRef.current(drag);
-          return;
-        }
+    if (!floorplanViewportRef.current) {
+      abortDragRef.current(drag);
+      return;
+    }
 
-// Client delta → floor delta (only scale matters)
-    const deltaFloorX = ((clientX - drag.pointerStartClientX) / scale) * speedFactor;
-    const deltaFloorY = ((clientY - drag.pointerStartClientY) / scale) * speedFactor;
-
-// For debug overlays (optional)
-    lastDragPointerRef.current = {
-      x: drag.pointerStartFloorX + deltaFloorX,
-      y: drag.pointerStartFloorY + deltaFloorY,
-    };
-
-    let nextX = drag.tableStartX + deltaFloorX;
-    let nextY = drag.tableStartY + deltaFloorY;
-      const unclampedX = nextX;
-      const unclampedY = nextY;
-      const shouldSnap =
-        snapEnabledRef.current &&
-        drag.snapToGrid &&
-        !altKey &&
-        !precisionEnabledRef.current;
-      lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
-      requestDebugFlush();
-      if (shouldSnap) {
-        nextX = applyGrid(nextX, drag.gridSize);
-        nextY = applyGrid(nextY, drag.gridSize);
-      }
-      const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
-      if (debugSeating) {
-        const prevBounds = lastDragComputedBoundsRef.current;
-        const boundsChanged =
-          !prevBounds ||
-          prevBounds.minX !== bounds.minX ||
-          prevBounds.minY !== bounds.minY ||
-          prevBounds.maxX !== bounds.maxX ||
-          prevBounds.maxY !== bounds.maxY;
-        if (boundsChanged) {
-          const now = Date.now();
-          if (now - dragBoundsChangeLogRef.current > 500) {
-            dragBoundsChangeLogRef.current = now;
-            console.debug('[seating] drag bounds changed', {
-              tableId: drag.tableId,
-              prev: prevBounds,
-              next: bounds,
-            });
-          }
-          lastDragComputedBoundsRef.current = bounds;
-        }
-      }
-      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
-      nextX = clamped.x;
-      nextY = clamped.y;
-      requestDebugFlush();
-      if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
-        const now = Date.now();
-        if (now - dragClampDebugRef.current > 500) {
-          dragClampDebugRef.current = now;
-          console.debug('[seating] drag blocked', {
-            reason: 'bounds-clamp',
-            tableId: drag.tableId,
-            unclampedX,
-            unclampedY,
-            nextX,
-            nextY,
-            bounds,
-          });
-          requestDebugFlush('bounds-clamp');
-        }
-      }
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragClampDebugRef.current > 500) {
-          dragClampDebugRef.current = now;
-          console.debug('[seating] move delta', {
-            scale,
-            proposed: { x: unclampedX, y: unclampedY },
-            clamped: { x: nextX, y: nextY },
-          });
-        }
-      }
-      if (
-        isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        const start =
-          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
-        const resolved = resolveTablePositionWithSweep({
-          startX: start.x,
-          startY: start.y,
-          endX: nextX,
-          endY: nextY,
-          drag,
-          rotDeg: rotForClamp,
-          bounds,
-          mode: 'move',
-        });
-        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
-          nextX = start.x;
-          nextY = start.y;
-        } else {
-          nextX = resolved.x;
-          nextY = resolved.y;
-        }
-        if (debugSeating && resolved.collided) {
-          const now = Date.now();
-          if (now - dragClampDebugRef.current > 500) {
-            dragClampDebugRef.current = now;
-            console.debug('[seating] drag sweep', {
-              reason: 'obstacle-sweep',
-              tableId: drag.tableId,
-              nextX,
-              nextY,
-              rot: rotForClamp,
-            });
-            requestDebugFlush('obstacle-sweep');
-          }
-        }
-      }
-      if (
-        !isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        lastValidTablePosRef.current = { x: nextX, y: nextY };
-      }
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragClampDebugRef.current > 500) {
-          dragClampDebugRef.current = now;
-          const deltaX = Math.abs(nextX - unclampedX);
-          const deltaY = Math.abs(nextY - unclampedY);
-          if (deltaX > 1 || deltaY > 1) {
-            console.debug('[seating] drag clamp', {
-              reason: 'rotation-clamp',
-              tableId: drag.tableId,
-              unclampedX,
-              unclampedY,
-              width: drag.width,
-              height: drag.height,
-              boundW: drag.boundW,
-              boundH: drag.boundH,
-              rotatedHx: clamped.hx,
-              rotatedHy: clamped.hy,
-              floorplanWidth: drag.floorplanWidth,
-              floorplanHeight: drag.floorplanHeight,
-              nextX,
-              nextY,
-              shouldSnap,
-              gridSize: drag.gridSize,
-            });
-          }
-        }
-      }
-      updateDraftPosition(drag.tableId, nextX, nextY);
-      if (viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId) {
-        recenterSelectedDragPosition(
-          { x: nextX, y: nextY },
-          { w: drag.width, h: drag.height },
-          drag.dragStartScale,
-          'pointer-move'
-        );
-      }
-    },
-    [
-      activeObstacles,
-      applyGrid,
-      clamp,
-      clampTableToBounds,
-      computeDragBounds,
-      debugSeating,
-      floorplanH,
-      floorplanW,
-      getActivePointerTransform,
-      getSelectedDragSpeedFactor,
-      isTableOverlappingObstacle,
-      mapClientToFloorplanUsingTransform,
-      normalizeRotation,
-      recenterSelectedDragPosition,
-      requestDebugFlush,
-      snapRotation,
-      selectedTableIdForDrag,
-      viewportMode,
-    ]
-  );
-
-  useEffect(() => {
-    handleTablePointerMoveCoreRef.current = args => {
-      void handleTablePointerMoveCore(args);
-    };
-  }, [handleTablePointerMoveCore]);
-
-  const handleTablePointerUpCore = useCallback(
-    ({
-      clientX,
-      clientY,
-      pointerId,
-      shiftKey,
-      altKey,
-    }: {
-      clientX: number;
-      clientY: number;
-      pointerId: number;
-      shiftKey: boolean;
-      altKey: boolean;
-    }) => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-      if (pointerId !== drag.pointerId) return;
-      if (debugSeating) {
-        const now = Date.now();
-        if (now - dragMoveDebugRef.current > 500) {
-          const { transform: currentTransform } = getActivePointerTransform();
-          const scaleDiff = Math.abs(currentTransform.scale - drag.dragStartTransform.scale);
-          const offsetDiff =
-            Math.abs(currentTransform.offsetX - drag.dragStartTransform.offsetX) +
-            Math.abs(currentTransform.offsetY - drag.dragStartTransform.offsetY);
-          if (scaleDiff > 0.001 || offsetDiff > 0.5) {
-            dragMoveDebugRef.current = now;
-            requestDebugFlush('transform-changed-during-drag');
-          }
-        }
-      }
-      if (!floorplanViewportRef.current) {
-        abortDragRef.current(drag);
-        return;
-      }
-      const tableId = drag.tableId;
-      if (drag.mode === 'rotate') {
-        const pointer = mapClientToFloorplanUsingTransform(
-          clientX,
-          clientY,
-          drag.dragStartTransform,
-          drag.dragStartRect
-        );
-        if (!pointer) {
-          if (debugSeating) {
-            const now = Date.now();
-            if (now - dragMoveDebugRef.current > 500) {
-              dragMoveDebugRef.current = now;
-              console.debug('[seating] drag blocked', {
-                reason: 'invalid-transform',
-                tableId: drag.tableId,
-              });
-              requestDebugFlush('invalid-transform');
-            }
-          }
-          releaseDragPointerCaptureRef.current(drag);
-          unregisterWindowTableDragListenersRef.current();
-          setDragState(null);
-          return;
-        }
-        const currentAngle =
-          Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
-          (180 / Math.PI);
-        const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
-        const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
-        const step = altKey ? 1 : shiftKey ? 15 : 5;
-        const snappedRot = snapRotation(nextRot, step);
-        updateDraftRotation(tableId, snappedRot);
-        scheduleRecenterSelectedTable();
-        const prevRot = drag.tableStartRot;
-        releaseDragPointerCaptureRef.current(drag);
-        unregisterWindowTableDragListenersRef.current();
-        setDragState(null);
-        void finalizeRotationRef.current(tableId, snappedRot, prevRot);
-        return;
-      }
-      const scale = safeScale(drag.dragStartScale);
-      if (!Number.isFinite(scale) || scale <= 0) {
-        if (debugSeating) {
-          const now = Date.now();
-          if (now - dragMoveDebugRef.current > 500) {
-            dragMoveDebugRef.current = now;
-            console.debug('[seating] drag blocked', {
-              reason: 'invalid-transform',
-              tableId: drag.tableId,
-            });
-            requestDebugFlush('invalid-transform');
-          }
-        }
-        abortDragRef.current(drag);
-        return;
-      }
+    /* ================= ROTATE MODE ================= */
+    if (drag.mode === 'rotate') {
       const pointer = mapClientToFloorplanUsingTransform(
         clientX,
         clientY,
@@ -3588,142 +3217,478 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         abortDragRef.current(drag);
         return;
       }
-      lastDragPointerRef.current = { x: pointer.x, y: pointer.y };
-      const speedFactor = getSelectedDragSpeedFactor();
-      const deltaLocalX = (pointer.x - drag.pointerStartFloorX) * speedFactor;
-      const deltaLocalY = (pointer.y - drag.pointerStartFloorY) * speedFactor;
-      let nextX = drag.tableStartX + deltaLocalX;
-      let nextY = drag.tableStartY + deltaLocalY;
-      const unclampedX = nextX;
-      const unclampedY = nextY;
-      const shouldSnap =
-        snapEnabledRef.current &&
-        drag.snapToGrid &&
-        !altKey &&
-        !precisionEnabledRef.current;
-      lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
-      requestDebugFlush();
-      if (shouldSnap) {
-        nextX = applyGrid(nextX, drag.gridSize);
-        nextY = applyGrid(nextY, drag.gridSize);
+
+      const currentAngle =
+        Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = normalizeRotation(currentAngle - drag.rotStartAngleDeg);
+      const nextRot = normalizeRotation(drag.tableStartRot + deltaAngle);
+      const step = altKey ? 1 : shiftKey ? 15 : 5;
+      updateDraftRotation(drag.tableId, snapRotation(nextRot, step));
+      return;
+    }
+
+    /* ================= MOVE MODE ================= */
+    const scale = safeScale(drag.dragStartScale);
+    if (!Number.isFinite(scale) || scale <= 0) {
+      if (debugSeating) {
+        const now = Date.now();
+        if (now - dragMoveDebugRef.current > 500) {
+          dragMoveDebugRef.current = now;
+          console.debug('[seating] drag blocked', {
+            reason: 'invalid-transform',
+            tableId: drag.tableId,
+          });
+          requestDebugFlush('invalid-transform');
+        }
       }
-      const rotForClamp = getEffectiveRotationForClamp(drag.tableId, drag.tableStartRot);
-      const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
-      const clamped = clampTableToBounds(nextX, nextY, drag, rotForClamp, bounds, drag.mode);
-      nextX = clamped.x;
-      nextY = clamped.y;
-      requestDebugFlush();
-      if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
+      abortDragRef.current(drag);
+      return;
+    }
+
+    const speedFactor = getSelectedDragSpeedFactor();
+
+    // 🔴 CRITICAL FIX:
+    // Move math from CLIENT deltas only. This makes drag stable even if
+    // activeFloorplanTransform changes due to recenter/zoom while dragging.
+    const deltaFloorX =
+      ((clientX - drag.pointerStartClientX) / scale) * speedFactor;
+    const deltaFloorY =
+      ((clientY - drag.pointerStartClientY) / scale) * speedFactor;
+
+    let nextX = drag.tableStartX + deltaFloorX;
+    let nextY = drag.tableStartY + deltaFloorY;
+
+    const unclampedX = nextX;
+    const unclampedY = nextY;
+
+    const shouldSnap =
+      snapEnabledRef.current &&
+      drag.snapToGrid &&
+      !altKey &&
+      !precisionEnabledRef.current;
+
+    lastDragSnapRef.current = { shouldSnap, gridSize: drag.gridSize };
+    requestDebugFlush();
+
+    if (shouldSnap) {
+      nextX = applyGrid(nextX, drag.gridSize);
+      nextY = applyGrid(nextY, drag.gridSize);
+    }
+
+    const rotForClamp = getEffectiveRotationForClamp(
+      drag.tableId,
+      drag.tableStartRot
+    );
+    const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
+
+    if (debugSeating) {
+      const prevBounds = lastDragComputedBoundsRef.current;
+      const boundsChanged =
+        !prevBounds ||
+        prevBounds.minX !== bounds.minX ||
+        prevBounds.minY !== bounds.minY ||
+        prevBounds.maxX !== bounds.maxX ||
+        prevBounds.maxY !== bounds.maxY;
+      if (boundsChanged) {
+        const now = Date.now();
+        if (now - dragBoundsChangeLogRef.current > 500) {
+          dragBoundsChangeLogRef.current = now;
+          console.debug('[seating] drag bounds changed', {
+            tableId: drag.tableId,
+            prev: prevBounds,
+            next: bounds,
+          });
+        }
+        lastDragComputedBoundsRef.current = bounds;
+      }
+    }
+
+    const clamped = clampTableToBounds(
+      nextX,
+      nextY,
+      drag,
+      rotForClamp,
+      bounds,
+      drag.mode
+    );
+    nextX = clamped.x;
+    nextY = clamped.y;
+
+    requestDebugFlush();
+
+    if (debugSeating && (nextX !== unclampedX || nextY !== unclampedY)) {
+      const now = Date.now();
+      if (now - dragClampDebugRef.current > 500) {
+        dragClampDebugRef.current = now;
+        console.debug('[seating] drag blocked', {
+          reason: 'bounds-clamp',
+          tableId: drag.tableId,
+          unclampedX,
+          unclampedY,
+          nextX,
+          nextY,
+          bounds,
+        });
+        requestDebugFlush('bounds-clamp');
+      }
+    }
+
+    if (debugSeating) {
+      const now = Date.now();
+      if (now - dragClampDebugRef.current > 500) {
+        dragClampDebugRef.current = now;
+        console.debug('[seating] move delta', {
+          scale,
+          proposed: { x: unclampedX, y: unclampedY },
+          clamped: { x: nextX, y: nextY },
+        });
+      }
+    }
+
+    if (
+      isTableOverlappingObstacle(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        rotForClamp
+      )
+    ) {
+      const start =
+        lastValidTablePosRef.current ?? {
+          x: drag.tableStartX,
+          y: drag.tableStartY,
+        };
+
+      const resolved = resolveTablePositionWithSweep({
+        startX: start.x,
+        startY: start.y,
+        endX: nextX,
+        endY: nextY,
+        drag,
+        rotDeg: rotForClamp,
+        bounds,
+        mode: 'move',
+      });
+
+      if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
+        nextX = start.x;
+        nextY = start.y;
+      } else {
+        nextX = resolved.x;
+        nextY = resolved.y;
+      }
+
+      if (debugSeating && resolved.collided) {
         const now = Date.now();
         if (now - dragClampDebugRef.current > 500) {
           dragClampDebugRef.current = now;
-          console.debug('[seating] drag blocked', {
-            reason: 'bounds-clamp',
+          console.debug('[seating] drag sweep', {
+            reason: 'obstacle-sweep',
+            tableId: drag.tableId,
+            nextX,
+            nextY,
+            rot: rotForClamp,
+          });
+          requestDebugFlush('obstacle-sweep');
+        }
+      }
+    }
+
+    if (
+      !isTableOverlappingObstacle(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        rotForClamp
+      )
+    ) {
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
+    }
+
+    if (debugSeating) {
+      const now = Date.now();
+      if (now - dragClampDebugRef.current > 500) {
+        dragClampDebugRef.current = now;
+        const deltaXAbs = Math.abs(nextX - unclampedX);
+        const deltaYAbs = Math.abs(nextY - unclampedY);
+        if (deltaXAbs > 1 || deltaYAbs > 1) {
+          console.debug('[seating] drag clamp', {
+            reason: 'rotation-clamp',
             tableId: drag.tableId,
             unclampedX,
             unclampedY,
+            width: drag.width,
+            height: drag.height,
+            boundW: drag.boundW,
+            boundH: drag.boundH,
+            rotatedHx: clamped.hx,
+            rotatedHy: clamped.hy,
+            floorplanWidth: drag.floorplanWidth,
+            floorplanHeight: drag.floorplanHeight,
             nextX,
             nextY,
-            bounds,
+            shouldSnap,
+            gridSize: drag.gridSize,
           });
-          requestDebugFlush('bounds-clamp');
         }
       }
-      if (
-        isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        const start =
-          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
-        const resolved = resolveTablePositionWithSweep({
-          startX: start.x,
-          startY: start.y,
-          endX: nextX,
-          endY: nextY,
-          drag,
-          rotDeg: rotForClamp,
-          bounds,
-          mode: 'move',
-        });
-        if (resolved.collided && resolved.x === start.x && resolved.y === start.y) {
-          nextX = start.x;
-          nextY = start.y;
-        } else {
-          nextX = resolved.x;
-          nextY = resolved.y;
-        }
-        if (debugSeating && resolved.collided) {
-          const now = Date.now();
-          if (now - dragClampDebugRef.current > 500) {
-            dragClampDebugRef.current = now;
-            console.debug('[seating] drag sweep', {
-              reason: 'obstacle-sweep',
-              tableId: drag.tableId,
-              nextX,
-              nextY,
-              rot: rotForClamp,
-            });
-            requestDebugFlush('obstacle-sweep');
-          }
-        }
+    }
+
+    updateDraftPosition(drag.tableId, nextX, nextY);
+
+    if (viewportMode === 'selected' && selectedTableIdForDrag === drag.tableId) {
+      recenterSelectedDragPosition(
+        { x: nextX, y: nextY },
+        { w: drag.width, h: drag.height },
+        drag.dragStartScale,
+        'pointer-move'
+      );
+    }
+  },
+  [
+    activeObstacles,
+    applyGrid,
+    clamp,
+    clampTableToBounds,
+    computeDragBounds,
+    debugSeating,
+    floorplanH,
+    floorplanW,
+    getActivePointerTransform,
+    getSelectedDragSpeedFactor,
+    isTableOverlappingObstacle,
+    mapClientToFloorplanUsingTransform,
+    normalizeRotation,
+    recenterSelectedDragPosition,
+    requestDebugFlush,
+    snapRotation,
+    selectedTableIdForDrag,
+    viewportMode,
+  ]
+);
+
+  useEffect(() => {
+    handleTablePointerMoveCoreRef.current = args => {
+      void handleTablePointerMoveCore(args);
+    };
+  }, [handleTablePointerMoveCore]);
+
+  const handleTablePointerUpCore = useCallback(
+  ({
+    clientX,
+    clientY,
+    pointerId,
+    shiftKey,
+    altKey,
+  }: {
+    clientX: number;
+    clientY: number;
+    pointerId: number;
+    shiftKey: boolean;
+    altKey: boolean;
+  }) => {
+    const drag = dragStateRef.current;
+    if (!drag) return;
+    if (pointerId !== drag.pointerId) return;
+
+    if (!floorplanViewportRef.current) {
+      abortDragRef.current(drag);
+      return;
+    }
+
+    const tableId = drag.tableId;
+
+    /* ================= ROTATE MODE ================= */
+    if (drag.mode === 'rotate') {
+      const pointer = mapClientToFloorplanUsingTransform(
+        clientX,
+        clientY,
+        drag.dragStartTransform,
+        drag.dragStartRect
+      );
+      if (!pointer) {
+        releaseDragPointerCaptureRef.current(drag);
+        unregisterWindowTableDragListenersRef.current();
+        setDragState(null);
+        return;
       }
-      if (
-        !isTableOverlappingObstacle(
-          nextX,
-          nextY,
-          drag.width,
-          drag.height,
-          rotForClamp
-        )
-      ) {
-        lastValidTablePosRef.current = { x: nextX, y: nextY };
-      } else {
-        const lastValid =
-          lastValidTablePosRef.current ?? { x: drag.tableStartX, y: drag.tableStartY };
-        nextX = lastValid.x;
-        nextY = lastValid.y;
-      }
-      updateDraftPosition(tableId, nextX, nextY);
-      if (viewportMode === 'selected' && selectedTableIdForDrag === tableId) {
-        recenterSelectedDragPosition(
-          { x: nextX, y: nextY },
-          { w: drag.width, h: drag.height },
-          drag.dragStartScale,
-          'pointer-up'
-        );
-      }
+
+      const currentAngle =
+        Math.atan2(pointer.y - drag.rotCenterY, pointer.x - drag.rotCenterX) *
+        (180 / Math.PI);
+      const deltaAngle = normalizeRotation(
+        currentAngle - drag.rotStartAngleDeg
+      );
+      const nextRot = normalizeRotation(
+        drag.tableStartRot + deltaAngle
+      );
+      const step = altKey ? 1 : shiftKey ? 15 : 5;
+      const snappedRot = snapRotation(nextRot, step);
+
+      updateDraftRotation(tableId, snappedRot);
       scheduleRecenterSelectedTable();
+
+      const prevRot = drag.tableStartRot;
+
       releaseDragPointerCaptureRef.current(drag);
       unregisterWindowTableDragListenersRef.current();
       setDragState(null);
-      void finalizeDragRef.current(tableId, nextX, nextY);
-    },
-    [
-      activeObstacles,
-      applyGrid,
-      clamp,
-      computeDragBounds,
-      clampTableToBounds,
-      isTableOverlappingObstacle,
-      floorplanH,
-      floorplanW,
-      getActivePointerTransform,
-      getSelectedDragSpeedFactor,
-      mapClientToFloorplanUsingTransform,
-      normalizeRotation,
-      recenterSelectedDragPosition,
-      requestDebugFlush,
-      scheduleRecenterSelectedTable,
-      snapRotation,
-      selectedTableIdForDrag,
-      viewportMode,
-    ]
-  );
+      void finalizeRotationRef.current(tableId, snappedRot, prevRot);
+      return;
+    }
+
+    /* ================= MOVE MODE ================= */
+    const scale = safeScale(drag.dragStartScale);
+    if (!Number.isFinite(scale) || scale <= 0) {
+      abortDragRef.current(drag);
+      return;
+    }
+
+    const speedFactor = getSelectedDragSpeedFactor();
+
+    // 🔴 CRITICAL FIX:
+    // compute movement purely from CLIENT deltas
+    // so viewport transform / recenter does NOT affect drag math
+    const deltaFloorX =
+      ((clientX - drag.pointerStartClientX) / scale) * speedFactor;
+    const deltaFloorY =
+      ((clientY - drag.pointerStartClientY) / scale) * speedFactor;
+
+    let nextX = drag.tableStartX + deltaFloorX;
+    let nextY = drag.tableStartY + deltaFloorY;
+
+    const unclampedX = nextX;
+    const unclampedY = nextY;
+
+    const shouldSnap =
+      snapEnabledRef.current &&
+      drag.snapToGrid &&
+      !altKey &&
+      !precisionEnabledRef.current;
+
+    lastDragSnapRef.current = {
+      shouldSnap,
+      gridSize: drag.gridSize,
+    };
+
+    if (shouldSnap) {
+      nextX = applyGrid(nextX, drag.gridSize);
+      nextY = applyGrid(nextY, drag.gridSize);
+    }
+
+    const rotForClamp = getEffectiveRotationForClamp(
+      drag.tableId,
+      drag.tableStartRot
+    );
+
+    const bounds = computeDragBounds(drag, rotForClamp, shouldSnap);
+    const clamped = clampTableToBounds(
+      nextX,
+      nextY,
+      drag,
+      rotForClamp,
+      bounds,
+      drag.mode
+    );
+
+    nextX = clamped.x;
+    nextY = clamped.y;
+
+    if (
+      isTableOverlappingObstacle(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        rotForClamp
+      )
+    ) {
+      const start =
+        lastValidTablePosRef.current ?? {
+          x: drag.tableStartX,
+          y: drag.tableStartY,
+        };
+
+      const resolved = resolveTablePositionWithSweep({
+        startX: start.x,
+        startY: start.y,
+        endX: nextX,
+        endY: nextY,
+        drag,
+        rotDeg: rotForClamp,
+        bounds,
+        mode: 'move',
+      });
+
+      if (resolved.collided) {
+        nextX = resolved.x;
+        nextY = resolved.y;
+      }
+    }
+
+    if (
+      !isTableOverlappingObstacle(
+        nextX,
+        nextY,
+        drag.width,
+        drag.height,
+        rotForClamp
+      )
+    ) {
+      lastValidTablePosRef.current = { x: nextX, y: nextY };
+    } else {
+      const lastValid =
+        lastValidTablePosRef.current ?? {
+          x: drag.tableStartX,
+          y: drag.tableStartY,
+        };
+      nextX = lastValid.x;
+      nextY = lastValid.y;
+    }
+
+    updateDraftPosition(tableId, nextX, nextY);
+
+    if (
+      viewportMode === 'selected' &&
+      selectedTableIdForDrag === tableId
+    ) {
+      recenterSelectedDragPosition(
+        { x: nextX, y: nextY },
+        { w: drag.width, h: drag.height },
+        drag.dragStartScale,
+        'pointer-up'
+      );
+    }
+
+    scheduleRecenterSelectedTable();
+
+    releaseDragPointerCaptureRef.current(drag);
+    unregisterWindowTableDragListenersRef.current();
+    setDragState(null);
+
+    void finalizeDragRef.current(tableId, nextX, nextY);
+  },
+  [
+    activeObstacles,
+    applyGrid,
+    clamp,
+    clampTableToBounds,
+    computeDragBounds,
+    floorplanH,
+    floorplanW,
+    getSelectedDragSpeedFactor,
+    isTableOverlappingObstacle,
+    normalizeRotation,
+    recenterSelectedDragPosition,
+    scheduleRecenterSelectedTable,
+    snapRotation,
+    selectedTableIdForDrag,
+    viewportMode,
+  ]
+);
 
   useEffect(() => {
     handleTablePointerUpCoreRef.current = args => {
