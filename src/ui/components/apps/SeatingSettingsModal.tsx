@@ -1002,24 +1002,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   }, [canEditFloorplan, floorplanMode]);
 
-  const isSelectedDragActive =
-  viewportMode === 'selected' &&
-  isDragging &&
-  selectedTableIdForDrag &&
-  dragStateRef.current?.tableId === selectedTableIdForDrag;
-
-  const worldCameraStyle = useMemo<React.CSSProperties>(() => {
-  const t = activeFloorplanTransform;
-  return {
-    transform: `translate3d(${t.offsetX}px, ${t.offsetY}px, 0) scale(${t.scale})`,
-    transformOrigin: 'top left',
-    willChange: 'transform',
-    transition:
-      floorplanTransformOverride && !isSelectedDragActive
-        ? 'transform 200ms ease'
-        : undefined,
-  };
-}, [activeFloorplanTransform, floorplanTransformOverride, isSelectedDragActive]);
   
   const editorTables = useMemo(() => {
     if (!activeFloorplan) return [] as Table[];
@@ -1093,6 +1075,26 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     },
     []
   );
+
+  const isSelectedDragActive =
+  viewportMode === 'selected' &&
+  isDragging &&
+  selectedTableIdForDrag &&
+  dragStateRef.current?.tableId === selectedTableIdForDrag;
+
+  const worldCameraStyle = useMemo<React.CSSProperties>(() => {
+  const t = activeFloorplanTransform;
+  return {
+    transform: `translate3d(${t.offsetX}px, ${t.offsetY}px, 0) scale(${t.scale})`,
+    transformOrigin: 'top left',
+    willChange: 'transform',
+    transition:
+      floorplanTransformOverride && !isSelectedDragActive
+        ? 'transform 200ms ease'
+        : undefined,
+      };
+    }, [activeFloorplanTransform, floorplanTransformOverride, isSelectedDragActive]);
+  
   const getRenderPosition = useCallback(
     (table: Table, geometry: ReturnType<typeof normalizeTableGeometry>) =>
       resolveTableRenderPosition(
