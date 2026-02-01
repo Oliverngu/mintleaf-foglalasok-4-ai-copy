@@ -1002,6 +1002,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
   }, [canEditFloorplan, floorplanMode]);
 
+  const isSelectedDragActive =
+  viewportMode === 'selected' &&
+  isDragging &&
+  selectedTableIdForDrag &&
+  dragStateRef.current?.tableId === selectedTableIdForDrag;
+
+  const worldCameraStyle = useMemo<React.CSSProperties>(() => {
+  const t = activeFloorplanTransform;
+  return {
+    transform: `translate3d(${t.offsetX}px, ${t.offsetY}px, 0) scale(${t.scale})`,
+    transformOrigin: 'top left',
+    willChange: 'transform',
+    transition:
+      floorplanTransformOverride && !isSelectedDragActive
+        ? 'transform 200ms ease'
+        : undefined,
+  };
+}, [activeFloorplanTransform, floorplanTransformOverride, isSelectedDragActive]);
+  
   const editorTables = useMemo(() => {
     if (!activeFloorplan) return [] as Table[];
     const filtered = tables.filter(table => {
@@ -5850,17 +5869,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </div>
                 )}
                 {selectedTableKey ? renderSelectedTablePopover(activeFloorplanTransform) : null}
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    transform: `translate(${activeFloorplanTransform.offsetX}px, ${activeFloorplanTransform.offsetY}px) scale(${activeFloorplanTransform.scale})`,
-                    transformOrigin: 'top left',
-                    transition:
-                      floorplanTransformOverride && !isDragging
-                        ? 'transform 200ms ease'
-                        : undefined,
-                  }}
-                >
+                <div className="absolute inset-0" style={worldCameraStyle}>
                   <div
                     className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
                     style={{ width: floorplanW, height: floorplanH }}
