@@ -51,6 +51,18 @@ import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
+import { runEngine } from '../../../core/scheduling/engine/runEngine';
+import {
+  EngineInput,
+  EngineResult,
+  Suggestion
+} from '../../../core/scheduling/engine/types';
+import {
+  applySuggestionToSchedule,
+  computeSuggestionKey,
+  undoPatches,
+  UndoStackItem
+} from './scheduling/engineWhatIf';
 
 const LAYERS = {
   modal: 90,
@@ -771,6 +783,14 @@ const toDateString = (date: Date): string => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+const formatTime = (date?: Date | null): string | null => {
+  if (!date) return null;
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 
 const createDefaultSettings = (
   unitId: string,
@@ -1541,6 +1561,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const [viewMode, setViewMode] = useState<'draft' | 'published'>(
     'published'
   );
+  const [localSchedule, setLocalSchedule] = useState<Shift[]>(schedule);
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
   const [staffWarning, setStaffWarning] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -1588,6 +1609,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [viewSpan, setViewSpan] = useState<1 | 2 | 3 | 4 | 'month'>(1);
+  const [isEnginePanelOpen, setIsEnginePanelOpen] = useState(false);
+  const [engineResult, setEngineResult] =
+    useState<EngineResult | null>(null);
+  const [engineLastRunAt, setEngineLastRunAt] = useState<number | null>(null);
+  const [rejectedSuggestionKeys, setRejectedSuggestionKeys] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [undoStack, setUndoStack] = useState<UndoStackItem[]>([]);
+  const effectiveSchedule = useMemo(
+    () => (isEnginePanelOpen ? localSchedule : schedule),
+    [isEnginePanelOpen, localSchedule, schedule]
+  );
 
   const userById = useMemo(() => {
     const map = new Map<string, User>();
@@ -1660,6 +1693,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     [currentUser, getUserUnitIds]
   );
   const isAdminUser = currentUser.role === 'Admin';
+
+  useEffect(() => {
+    if (!isEnginePanelOpen) {
+      setLocalSchedule(schedule);
+      setUndoStack([]);
+      setRejectedSuggestionKeys(new Set());
+    }
+  }, [isEnginePanelOpen, schedule]);
 
   const clearToastTimers = useCallback(() => {
     if (successToastTimeoutRef.current) {
@@ -2277,6 +2318,218 @@ if (expected === 0) {
       );
   }, [allAppUsers, activeUnitIds, getUserUnitIds]);
 
+  const buildEngineInput = useCallback((): EngineInput => {
+    const unitId = activeUnitIds[0] || 'default';
+    const activeSettings =
+      unitWeekSettings[unitId] || openingSettings;
+    const dateKeys = weekDays.map(toDateString);
+    const positionByName = new Map(
+      positions.map(position => [position.name, position.id])
+    );
+    const positionIds = new Set(positions.map(position => position.id));
+
+    const minCoverageByPosition = (
+      Object.entries(
+        activeSettings.dailySettings || {}
+      ) as Array<[string, DailySetting]>
+    ).flatMap(([dayIndex, setting]) => {
+      const dateKey = dateKeys[Number(dayIndex)];
+      if (!dateKey || !setting?.quotas) return [];
+      return Object.entries(setting.quotas)
+        .map(([quotaKey, minCount]) => {
+          if (!minCount || minCount <= 0) return null;
+          const isKnownId = positionIds.has(quotaKey);
+          const resolvedPositionId =
+            isKnownId || positionByName.has(quotaKey)
+              ? (isKnownId
+                  ? quotaKey
+                  : positionByName.get(quotaKey) || quotaKey)
+              : quotaKey;
+          if (
+            isDevEnv &&
+            !isKnownId &&
+            !positionByName.has(quotaKey)
+          ) {
+            console.warn('[engine] unknown quota key', quotaKey);
+          }
+          return {
+            positionId: resolvedPositionId,
+            dateKeys: [dateKey],
+            startTime: setting.openingTime,
+            endTime: setting.closingTime,
+            minCount
+          };
+        })
+        .filter(
+          (
+            rule
+          ): rule is {
+            positionId: string;
+            dateKeys: string[];
+            startTime: string;
+            endTime: string;
+            minCount: number;
+          } => rule !== null
+        );
+    });
+
+    return {
+      unitId,
+      weekStart: dateKeys[0],
+      weekDays: dateKeys,
+      users: filteredUsers.map(user => ({
+        id: user.id,
+        displayName: user.fullName,
+        positionIds: user.position
+          ? [positionByName.get(user.position) || user.position]
+          : undefined,
+        unitIds: user.unitIds,
+        isActive: true
+      })),
+      positions: positions.map(position => ({
+        id: position.id,
+        name: position.name
+      })),
+      shifts: localSchedule
+        .filter(
+          shift =>
+            shift.unitId === unitId &&
+            (shift.start || shift.dayKey)
+        )
+        .map(shift => {
+          const dateKey = shift.start
+            ? toDateString(shift.start.toDate())
+            : shift.dayKey;
+          if (!dateKey || !weekDayKeySet.has(dateKey)) return null;
+          return {
+            id: shift.id,
+            userId: shift.userId,
+            unitId: shift.unitId,
+            dateKey,
+            startTime: formatTime(shift.start?.toDate() || null),
+            endTime: formatTime(shift.end?.toDate() || null),
+            positionId:
+              positionByName.get(shift.position) || undefined,
+            isDayOff: shift.isDayOff
+          };
+        })
+        .filter(
+          (shift): shift is EngineInput['shifts'][number] =>
+            shift !== null
+        ),
+      scheduleSettings: {
+        dailySettings: activeSettings.dailySettings,
+        defaultClosingTime: DEFAULT_CLOSING_TIME,
+        defaultClosingOffsetMinutes: DEFAULT_CLOSING_OFFSET_MINUTES
+      },
+      ruleset: {
+        bucketMinutes: 60,
+        minCoverageByPosition,
+        maxHoursPerDay: { maxHoursPerDay: 12 },
+        minRestHoursBetweenShifts: { minRestHours: 11 }
+      }
+    };
+  }, [
+    activeUnitIds,
+    filteredUsers,
+    isDevEnv,
+    localSchedule,
+    openingSettings,
+    positions,
+    unitWeekSettings,
+    weekDayKeySet,
+    weekDays
+  ]);
+
+  const runEngineAndStore = useCallback(() => {
+    const input = buildEngineInput();
+    const result = runEngine(input);
+    setEngineResult(result);
+    setEngineLastRunAt(Date.now());
+    return result;
+  }, [buildEngineInput]);
+
+  const handleRunEngineDebug = useCallback(() => {
+    const result = runEngineAndStore();
+    console.info('[engine] violations:', result.violations.length);
+    console.info('[engine] suggestions:', result.suggestions.length);
+  }, [runEngineAndStore]);
+
+  const getSuggestionKey = useCallback(
+    (suggestion: Suggestion) => computeSuggestionKey(suggestion),
+    []
+  );
+
+  const applySuggestionToLocalSchedule = useCallback(
+    (suggestion: Suggestion) => {
+      const unitId = activeUnitIds[0] || 'default';
+      const { nextSchedule, patches } = applySuggestionToSchedule(
+        localSchedule,
+        suggestion,
+        {
+          unitId,
+          users: allAppUsers,
+          positions
+        }
+      );
+      const key = getSuggestionKey(suggestion);
+      setLocalSchedule(nextSchedule);
+      setUndoStack(prev => [
+        ...prev,
+        {
+          patches,
+          key,
+          appliedAt: Date.now()
+        }
+      ]);
+      if (isDevEnv) {
+        console.debug('[engine] applied suggestion', { key, patches });
+      }
+    },
+    [activeUnitIds, allAppUsers, getSuggestionKey, isDevEnv, localSchedule, positions]
+  );
+
+  const handleUndoLastSuggestion = useCallback(() => {
+    setUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const nextStack = [...prev];
+      const last = nextStack.pop();
+      if (last) {
+        setLocalSchedule(current => undoPatches(current, last.patches));
+        if (isDevEnv) {
+          console.debug('[engine] undo suggestion', last.key);
+        }
+      }
+      return nextStack;
+    });
+  }, [isDevEnv]);
+
+  const buildSuggestionPreview = useCallback(
+    (suggestion: Suggestion): string => {
+      const action = suggestion.actions[0];
+      if (!action) return '';
+      if (action.type === 'moveShift') {
+        const shift = localSchedule.find(item => item.id === action.shiftId);
+        const userName = shift?.userName || userById.get(action.userId)?.fullName || action.userId;
+        return `${userName} · ${action.dateKey} ${action.newStartTime}-${action.newEndTime}`;
+      }
+      const userName =
+        userById.get(action.userId)?.fullName || action.userId;
+      return `${userName} · ${action.dateKey} ${action.startTime}-${action.endTime}`;
+    },
+    [localSchedule, userById]
+  );
+
+  const handleToggleEnginePanel = useCallback(() => {
+    setIsEnginePanelOpen(prev => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (isEnginePanelOpen) {
+      runEngineAndStore();
+    }
+  }, [isEnginePanelOpen, localSchedule, runEngineAndStore]);
+
   useEffect(() => {
     if (!settingsDocId) return;
     const docRef = doc(db, 'schedule_display_settings', settingsDocId);
@@ -2423,7 +2676,7 @@ if (expected === 0) {
   }, [activeUnitIds, weekDays, canManage]);
 
   const activeShifts = useMemo(() => {
-    const filtered = schedule.filter(s => {
+    const filtered = effectiveSchedule.filter(s => {
       const statusMatch = (s.status || 'draft') === viewMode;
       const unitMatch = !s.unitId || activeUnitIds.includes(s.unitId);
       const hasContent =
@@ -2453,7 +2706,7 @@ if (expected === 0) {
     }
 
     return filtered;
-  }, [activeUnitIds, isDevEnv, schedule, viewMode]);
+  }, [activeUnitIds, effectiveSchedule, isDevEnv, viewMode]);
 
   const getUnitDaySetting = useCallback(
     (shift: Shift, dayIndex: number): DailySetting | null => {
@@ -4743,7 +4996,7 @@ if (expected === 0) {
         userId={editingShift?.userId || currentUser.id}
         date={editingShift?.date || new Date()}
         users={filteredUsers}
-        schedule={schedule}
+        schedule={effectiveSchedule}
         viewMode={viewMode}
         currentUser={currentUser}
         canManage={canManage}
@@ -4824,6 +5077,24 @@ if (expected === 0) {
                   </span>
                 </button>
               </div>
+              {isDevEnv && (
+                <div className="flex items-center gap-2 flex-nowrap">
+                  <button
+                    onClick={handleRunEngineDebug}
+                    className={`${toolbarButtonClass(false)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Engine debug
+                  </button>
+                  <button
+                    onClick={handleToggleEnginePanel}
+                    className={`${toolbarButtonClass(isEnginePanelOpen)} ${toolbarButtonDisabledClass} ${toolbarPillBase}`}
+                    disabled={isToolbarDisabled}
+                  >
+                    Engine panel
+                  </button>
+                </div>
+              )}
             </div>
 
             <div
@@ -5334,6 +5605,198 @@ if (expected === 0) {
             }
           }}
         />
+      )}
+
+      {isDevEnv && isEnginePanelOpen && (
+        <div
+          className="fixed top-0 right-0 h-full w-[400px] border-l border-slate-200 bg-white/95 backdrop-blur-md shadow-xl"
+          style={{ zIndex: LAYERS.modal - 1 }}
+        >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    Engine
+                </h3>
+                <div className="text-xs text-slate-500">
+                  {engineLastRunAt
+                    ? `Last run: ${new Date(engineLastRunAt).toLocaleTimeString('hu-HU', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}`
+                    : 'Nincs futtatás'}
+                </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                    onClick={() => runEngineAndStore()}
+                  >
+                    Recompute
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    onClick={handleUndoLastSuggestion}
+                    disabled={undoStack.length === 0}
+                  >
+                    Undo last
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                    onClick={() => setIsEnginePanelOpen(false)}
+                  >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="mb-6">
+                <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">
+                  Violations
+                </h4>
+                <div className="space-y-3">
+                  {(engineResult?.violations || []).map((violation, index) => {
+                    const slotCount = violation.affected.slots?.length || 0;
+                    const userCount = violation.affected.userIds?.length || 0;
+                    const shiftCount = violation.affected.shiftIds?.length || 0;
+                    const dateCount = violation.affected.dateKeys?.length || 0;
+                    return (
+                      <div
+                        key={`${violation.constraintId}-${index}`}
+                        className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
+                            {violation.severity}
+                          </span>
+                          <span className="font-semibold text-slate-800">
+                            {violation.message}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          {violation.affected.positionId && (
+                            <div>Position: {violation.affected.positionId}</div>
+                          )}
+                          <div>
+                            Affected: slots {slotCount}, dates {dateCount}, users {userCount}, shifts {shiftCount}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {engineResult?.violations.length === 0 && (
+                    <div className="text-xs text-slate-400">
+                      Nincs sértés.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">
+                  Suggestions
+                </h4>
+                <div className="space-y-3">
+                  {(engineResult?.suggestions || [])
+                    .filter(
+                      suggestion =>
+                        !rejectedSuggestionKeys.has(
+                          getSuggestionKey(suggestion)
+                        )
+                    )
+                    .map((suggestion, index) => {
+                      const action = suggestion.actions[0];
+                      return (
+                        <div
+                          key={`${suggestion.type}-${index}`}
+                          className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold uppercase text-slate-500">
+                              {suggestion.type}
+                            </span>
+                          </div>
+                          <div className="mt-1 font-semibold text-slate-800">
+                            {suggestion.expectedImpact}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {suggestion.explanation}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {buildSuggestionPreview(suggestion)}
+                          </div>
+                          {action && (
+                            <div className="mt-2 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                              {action.type === 'moveShift' ? (
+                                <div>
+                                  move: {action.shiftId} · {action.dateKey}{' '}
+                                  {action.newStartTime}-{action.newEndTime}
+                                </div>
+                              ) : (
+                                <div>
+                                  add: {action.userId} · {action.dateKey}{' '}
+                                  {action.startTime}-{action.endTime}{' '}
+                                  {action.positionId ? `(${action.positionId})` : ''}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="mt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white"
+                              onClick={() => {
+                                applySuggestionToLocalSchedule(suggestion);
+                              }}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600"
+                              onClick={() =>
+                                setRejectedSuggestionKeys(prev => {
+                                  const next = new Set(prev);
+                                  next.add(getSuggestionKey(suggestion));
+                                  return next;
+                                })
+                              }
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {(engineResult?.suggestions || []).filter(
+                    suggestion =>
+                      !rejectedSuggestionKeys.has(
+                        getSuggestionKey(suggestion)
+                      )
+                  ).length === 0 && (
+                    <div className="text-xs text-slate-400">
+                      Nincs javaslat.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500">
+              Violations: {engineResult?.violations.length || 0} | Suggestions:{' '}
+              {engineResult?.suggestions.length || 0} (shown:{' '}
+              {(engineResult?.suggestions || []).filter(
+                suggestion =>
+                  !rejectedSuggestionKeys.has(getSuggestionKey(suggestion))
+              ).length}
+              )
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Siker üzenet eltüntetése pár másodperc után */}
