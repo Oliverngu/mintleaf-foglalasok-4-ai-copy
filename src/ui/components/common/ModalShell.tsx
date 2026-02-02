@@ -68,7 +68,7 @@ const ModalShell: React.FC<ModalShellProps> = ({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 flex items-center justify-center z-[70] p-4 backdrop-blur-sm bg-black/50"
+      className="fixed inset-0 flex items-center justify-start z-[70] p-4 backdrop-blur-sm bg-black/50"
       tabIndex={-1}
       onClick={event => {
         if (event.target === event.currentTarget) {
@@ -81,20 +81,32 @@ const ModalShell: React.FC<ModalShellProps> = ({
         }
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={ariaLabelledBy}
-        className={`rounded-2xl shadow-xl w-full ${containerClassName ?? ''}`}
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-        onClick={event => event.stopPropagation()}
-      >
-        <div className="flex h-full flex-col gap-4 p-6">
-          <div>{header}</div>
-          <div className="flex-1 min-h-0">{children}</div>
-          {footer && <div>{footer}</div>}
-        </div>
-      </div>
+     <div
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby={ariaLabelledBy}
+  className={[
+    'rounded-2xl shadow-xl w-full',
+    // 🔒 constrain modal height to viewport and clip overflow
+    'max-h-[calc(100dvh-2rem)] overflow-hidden',
+    containerClassName ?? '',
+  ].join(' ')}
+  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+  onClick={event => event.stopPropagation()}
+>
+  <div className="flex h-full min-h-0 flex-col gap-4 p-6">
+    {/* header never scrolls */}
+    <div className="shrink-0">{header}</div>
+
+    {/* ✅ scroll body */}
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      {children}
+    </div>
+
+    {/* footer never scrolls */}
+    {footer && <div className="shrink-0">{footer}</div>}
+  </div>
+</div>
     </div>
   );
 };
