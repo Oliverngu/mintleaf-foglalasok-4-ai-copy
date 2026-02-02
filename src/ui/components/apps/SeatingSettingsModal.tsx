@@ -2,6 +2,7 @@ import { FirebaseError } from 'firebase/app';
 import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { auth, db, functions } from '../../../core/firebase/config';
 import {
   Floorplan,
@@ -53,7 +54,7 @@ const COLLISION_EPS = 0.5;
 const GRID_SPACING = 24;
 const TABLE_GEOMETRY_DEFAULTS = {
   rectWidth: 80,
-  rectHeight: 60,
+  rectHeight: 80,
   circleRadius: 40,
 };
 const gridBackgroundStyle: React.CSSProperties = {
@@ -210,6 +211,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const lastSavedSettingsRef = useRef<SeatingSettings | null>(null);
   const viewportCanvasRef = useRef<FloorplanViewportHandle | null>(null);
+  const floorplanContainerRef = useRef<HTMLDivElement | null>(null);
   const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
@@ -534,7 +536,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanId: '',
     shape: 'rect',
     w: 80,
-    h: 60,
+    h: 80,
     radius: 40,
     x: 0,
     y: 0,
@@ -542,6 +544,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     snapToGrid: true,
     locked: false,
   });
+  type TableDraft = Table & { isNewDraft?: boolean };
+  const [tableCreateDraft, setTableCreateDraft] = useState<TableDraft | null>(null);
+  const [tableQuickForm, setTableQuickForm] = useState<{
+    name: string;
+    minCapacity: number;
+    capacityMax: number;
+    shape: 'rect' | 'circle';
+    w: number;
+    h: number;
+  } | null>(null);
+  const [tableQuickError, setTableQuickError] = useState<string | null>(null);
 
   const [selectedTableDraft, setSelectedTableDraft] = useState<{
     id: string;
@@ -554,6 +567,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
+  const [comboMode, setComboMode] = useState<{
+    active: boolean;
+    baseTableId: string | null;
+    selectedIds: string[];
+    snapshotIds: string[];
+  }>({
+    active: false,
+    baseTableId: null,
+    selectedIds: [],
+    snapshotIds: [],
+  });
   const [floorplanForm, setFloorplanForm] = useState<{
     id?: string;
     name: string;
@@ -565,7 +589,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }>({
     name: '',
     width: 1000,
-    height: 600,
+    height: 1000,
     gridSize: 20,
     backgroundImageUrl: '',
     isActive: true,
@@ -958,6 +982,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [zones]
   );
   const activeZones = useMemo(() => zones.filter(zone => zone.isActive), [zones]);
+  const defaultZoneId = useMemo(
+    () => activeZones[0]?.id ?? zones[0]?.id ?? '',
+    [activeZones, zones]
+  );
   const activeZoneIds = useMemo(
     () => new Set(activeZones.map(zone => zone.id)),
     [activeZones]
@@ -1009,11 +1037,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       const matchesFloorplan = !table.floorplanId || table.floorplanId === activeFloorplan.id;
       return matchesFloorplan && table.isActive !== false;
     });
-    if (!selectedTableDraft) return filtered;
+    const withDraft =
+      tableCreateDraft && tableCreateDraft.floorplanId === activeFloorplan.id
+        ? [...filtered, tableCreateDraft]
+        : filtered;
+    if (!selectedTableDraft) return withDraft;
     const seatLayoutForDraft = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
       ? undefined
       : selectedTableDraft.seatLayout;
-    return filtered.map(table =>
+    return withDraft.map(table =>
       table.id === selectedTableDraft.id
         ? {
             ...table,
@@ -1024,7 +1056,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           }
         : table
     );
-  }, [activeFloorplan, selectedTableDraft, tables]);
+  }, [activeFloorplan, selectedTableDraft, tableCreateDraft, tables]);
 
   const activeObstacles = useMemo(
     () => activeFloorplan?.obstacles ?? [],
@@ -1058,6 +1090,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleSelectTable = useCallback((tableId: string) => {
     setSelectedTableId(tableId);
   }, []);
+  const handleTableClick = useCallback(
+    (tableId: string) => {
+      if (comboMode.active) {
+        setComboMode(current => {
+          if (!current.active) return current;
+          if (tableId === current.baseTableId) return current;
+          const isSelected = current.selectedIds.includes(tableId);
+          const selectedIds = isSelected
+            ? current.selectedIds.filter(id => id !== tableId)
+            : [...current.selectedIds, tableId];
+          return { ...current, selectedIds };
+        });
+        return;
+      }
+      setSelectedTableId(tableId);
+    },
+    [comboMode.active]
+  );
   const handleZoomOutFit = useCallback(() => {
     setViewportMode('fit');
     prevSelectedTableIdRef.current = null;
@@ -1066,6 +1116,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, []);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
+      if (comboMode.active) {
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-seating-no-deselect="1"]')) {
@@ -1073,7 +1126,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setSelectedTableId(null);
     },
-    []
+    [comboMode.active]
   );
 
   
@@ -1143,6 +1196,49 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       selectedTableDraft.sideCapacities.west
     );
   }, [selectedTableDraft]);
+  const comboHighlightSet = useMemo(() => {
+    const next = new Set(comboMode.selectedIds);
+    if (comboMode.baseTableId) {
+      next.add(comboMode.baseTableId);
+    }
+    return next;
+  }, [comboMode.baseTableId, comboMode.selectedIds]);
+  const comboConflictIds = useMemo(() => {
+    if (!comboMode.active || comboHighlightSet.size < 2) {
+      return new Set<string>();
+    }
+    const selectedTables = editorTables.filter(table => comboHighlightSet.has(table.id));
+    const rects = selectedTables.map(table => {
+      const geometry = resolveTableGeometryInFloorplanSpace(
+        table,
+        floorplanDims,
+        TABLE_GEOMETRY_DEFAULTS
+      );
+      const position = getRenderPosition(table, geometry);
+      const renderRot = draftRotations[table.id] ?? geometry.rot;
+      return {
+        id: table.id,
+        rect: getTableAabbForCollision(position.x, position.y, geometry.w, geometry.h, renderRot),
+      };
+    });
+    const conflictIds = new Set<string>();
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        if (rectIntersectEps(rects[i].rect, rects[j].rect)) {
+          conflictIds.add(rects[i].id);
+          conflictIds.add(rects[j].id);
+        }
+      }
+    }
+    return conflictIds;
+  }, [
+    comboHighlightSet,
+    comboMode.active,
+    draftRotations,
+    editorTables,
+    floorplanDims,
+    getRenderPosition,
+  ]);
   const seatLayoutCapacityTotal = useMemo(() => {
     if (!selectedTableDraft) return null;
     if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
@@ -2072,7 +2168,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         setFloorplanForm({
           name: '',
           width: 1000,
-          height: 600,
+          height: 1000,
           gridSize: 20,
           backgroundImageUrl: '',
           isActive: true,
@@ -2307,7 +2403,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           floorplanId: resolvedActiveFloorplanId,
           shape: 'rect',
           w: 80,
-          h: 60,
+          h: 80,
           radius: 40,
           x: 0,
           y: 0,
@@ -2319,8 +2415,228 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     });
   };
 
+  const handleQuickTableDraft = useCallback(() => {
+    if (!activeFloorplan) {
+      setError('Az új asztalhoz aktív alaprajz szükséges.');
+      return;
+    }
+    if (!defaultZoneId) {
+      setError('Az új asztalhoz előbb hozz létre egy zónát.');
+      return;
+    }
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `draft-table-${Date.now()}`;
+    const w = 80;
+    const h = 80;
+    const startX = Math.max(0, (floorplanW - w) / 2);
+    const startY = Math.max(0, (floorplanH - h) / 2);
+    const draft: TableDraft = {
+      id,
+      name: '',
+      zoneId: defaultZoneId,
+      minCapacity: 2,
+      capacityMax: 4,
+      capacityTotal: 4,
+      sideCapacities: defaultSideCapacities(4),
+      isActive: true,
+      canSeatSolo: false,
+      floorplanId: activeFloorplan.id,
+      shape: 'rect',
+      w,
+      h,
+      x: startX,
+      y: startY,
+      rot: 0,
+      snapToGrid: false,
+      locked: false,
+      combinableWithIds: [],
+      isNewDraft: true,
+    };
+    setTableCreateDraft(draft);
+    setTableQuickForm({
+      name: '',
+      minCapacity: 2,
+      capacityMax: 4,
+      shape: 'rect',
+      w,
+      h,
+    });
+    setTableQuickError(null);
+    setSelectedTableId(id);
+    setViewportMode('selected');
+  }, [activeFloorplan, defaultSideCapacities, defaultZoneId, floorplanH, floorplanW]);
+
+  const updateQuickTableDraft = useCallback(
+    (patch: Partial<NonNullable<typeof tableQuickForm>>) => {
+      setTableQuickForm(current => {
+        if (!current) return current;
+        const next = { ...current, ...patch };
+        setTableCreateDraft(draft => {
+          if (!draft) return draft;
+          const circleRadius =
+            next.shape === 'circle' ? Math.max(1, Math.min(next.w, next.h) / 2) : draft.radius;
+          return {
+            ...draft,
+            name: next.name,
+            minCapacity: next.minCapacity,
+            capacityMax: next.capacityMax,
+            shape: next.shape,
+            w: next.w,
+            h: next.h,
+            radius: next.shape === 'circle' ? circleRadius : draft.radius,
+          };
+        });
+        setTableQuickError(null);
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleQuickTableCancel = useCallback(() => {
+    setTableCreateDraft(null);
+    setTableQuickForm(null);
+    setTableQuickError(null);
+    setSelectedTableId(null);
+    setViewportMode('auto');
+  }, []);
+
+  const handleQuickTableSave = useCallback(async () => {
+    if (!tableQuickForm || !tableCreateDraft) return;
+    const trimmedName = tableQuickForm.name.trim();
+    if (!trimmedName) {
+      setTableQuickError('Az asztal neve kötelező.');
+      return;
+    }
+    if (tableQuickForm.minCapacity < 1 || tableQuickForm.capacityMax < 1) {
+      setTableQuickError('A kapacitás értékeknek legalább 1-nek kell lenniük.');
+      return;
+    }
+    if (tableQuickForm.minCapacity > tableQuickForm.capacityMax) {
+      setTableQuickError('A min. kapacitás nem lehet nagyobb, mint a max. kapacitás.');
+      return;
+    }
+    if (tableQuickForm.w <= 0 || tableQuickForm.h <= 0) {
+      setTableQuickError('A méret értékeknek pozitívnak kell lenniük.');
+      return;
+    }
+    const circleRadius = Math.max(1, Math.min(tableQuickForm.w, tableQuickForm.h) / 2);
+    setTableQuickError(null);
+    await runAction({
+      key: `table-quick-create-${tableCreateDraft.id}`,
+      errorMessage: 'Nem sikerült létrehozni az asztalt.',
+      errorContext: 'Error creating quick table:',
+      successMessage: 'Asztal létrehozva.',
+      action: async () => {
+        await createTable(unitId, {
+          name: trimmedName,
+          zoneId: tableCreateDraft.zoneId,
+          minCapacity: tableQuickForm.minCapacity,
+          capacityMax: tableQuickForm.capacityMax,
+          isActive: true,
+          canSeatSolo: false,
+          floorplanId: tableCreateDraft.floorplanId ?? resolvedActiveFloorplanId,
+          shape: tableQuickForm.shape,
+          ...(tableQuickForm.shape === 'rect'
+            ? { w: tableQuickForm.w, h: tableQuickForm.h }
+            : { radius: circleRadius }),
+          x: tableCreateDraft.x ?? 0,
+          y: tableCreateDraft.y ?? 0,
+          rot: tableCreateDraft.rot ?? 0,
+          snapToGrid: false,
+          locked: false,
+        });
+        const nextTables = await listTables(unitId);
+        setTables(nextTables);
+      },
+    });
+    setTableCreateDraft(null);
+    setTableQuickForm(null);
+    setTableQuickError(null);
+    setSelectedTableId(null);
+    setViewportMode('auto');
+  }, [
+    resolvedActiveFloorplanId,
+    runAction,
+    tableCreateDraft,
+    tableQuickForm,
+    unitId,
+  ]);
+
   const sanitizeCapacityValue = (value: number) =>
     Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+
+  const handleEnterComboMode = useCallback(() => {
+    if (!selectedTable || !selectedTableDraft) {
+      setError('Előbb válassz ki egy asztalt az összetoláshoz.');
+      return;
+    }
+    setComboMode({
+      active: true,
+      baseTableId: selectedTable.id,
+      selectedIds: selectedTableDraft.combinableWithIds ?? [],
+      snapshotIds: selectedTableDraft.combinableWithIds ?? [],
+    });
+    handleZoomOutFit();
+  }, [handleZoomOutFit, selectedTable, selectedTableDraft]);
+
+  const exitComboMode = useCallback(
+    (nextSelection?: string[], baseTableId?: string | null) => {
+      setComboMode({
+        active: false,
+        baseTableId: null,
+        selectedIds: [],
+        snapshotIds: [],
+      });
+      const targetId = baseTableId ?? selectedTable?.id;
+      if (targetId) {
+        setSelectedTableId(targetId);
+      }
+      if (typeof nextSelection !== 'undefined' && selectedTableDraft) {
+        setSelectedTableDraft(current =>
+          current
+            ? {
+                ...current,
+                combinableWithIds: nextSelection,
+              }
+            : current
+        );
+      }
+      setViewportMode('selected');
+      scheduleRecenterSelectedTableRef.current?.();
+    },
+    [selectedTable?.id, selectedTableDraft]
+  );
+
+  const handleComboCancel = useCallback(() => {
+    exitComboMode(undefined, comboMode.baseTableId);
+  }, [comboMode.baseTableId, exitComboMode]);
+
+  const handleComboSave = useCallback(async () => {
+    if (!comboMode.baseTableId) return;
+    const selectedIds = comboMode.selectedIds.filter(id => id !== comboMode.baseTableId);
+    await runAction({
+      key: `table-combo-${comboMode.baseTableId}`,
+      errorMessage: 'Nem sikerült menteni az összetolható asztalokat.',
+      errorContext: 'Error saving combinable tables:',
+      successMessage: 'Összetolható asztalok mentve.',
+      action: async () => {
+        await updateTable(unitId, comboMode.baseTableId, {
+          combinableWithIds: selectedIds,
+        });
+        setTables(current =>
+          current.map(table =>
+            table.id === comboMode.baseTableId
+              ? { ...table, combinableWithIds: selectedIds }
+              : table
+          )
+        );
+      },
+    });
+    exitComboMode(selectedIds, comboMode.baseTableId);
+  }, [comboMode.baseTableId, comboMode.selectedIds, exitComboMode, runAction, unitId]);
 
   const handleSelectedTableMetadataSave = async () => {
     if (!selectedTableDraft) return;
@@ -2562,6 +2878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   const viewportRect = useViewportRect(floorplanViewportRef, {
+    retryFrames: 80,
+    deps: [resolvedActiveFloorplanId, floorplanMode],
+  });
+  const floorplanContainerRect = useViewportRect(floorplanContainerRef, {
     retryFrames: 80,
     deps: [resolvedActiveFloorplanId, floorplanMode],
   });
@@ -3808,6 +4128,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ) => {
     if (!activeFloorplan) return;
     if (floorplanMode !== 'edit') return;
+    if (comboMode.active) return;
     if (table.locked) return;
     event.preventDefault();
     if (recenterRafIdRef.current !== null) {
@@ -5242,6 +5563,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string,
     side: 'north' | 'east' | 'south' | 'west' | 'radial'
   ) => {
+    if (tableCreateDraft?.id === tableId) {
+      setTableCreateDraft(curr => {
+        if (!curr || curr.id !== tableId) return curr;
+        return applySeatAdjustmentToDraft(curr, side, 1);
+      });
+      return;
+    }
     setSelectedTableDraft(curr => {
       if (!curr || curr.id !== tableId) return curr;
 
@@ -5294,6 +5622,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string,
     side: 'north' | 'east' | 'south' | 'west' | 'radial'
   ) => {
+    if (tableCreateDraft?.id === tableId) {
+      setTableCreateDraft(curr => {
+        if (!curr || curr.id !== tableId) return curr;
+        return applySeatAdjustmentToDraft(curr, side, -1);
+      });
+      return;
+    }
     setSelectedTableDraft(curr => {
       if (!curr || curr.id !== tableId) return curr;
 
@@ -5341,6 +5676,50 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       };
     });
   };
+
+  function applySeatAdjustmentToDraft(
+    draft: TableDraft,
+    side: 'north' | 'east' | 'south' | 'west' | 'radial',
+    delta: number
+  ) {
+    const shape = draft.shape === 'circle' ? 'circle' : 'rect';
+    const currentSeatLayout = draft.seatLayout;
+    if (shape === 'circle') {
+      const current = currentSeatLayout?.kind === 'circle' ? currentSeatLayout.count : 0;
+      const next = Math.max(0, Math.min(16, current + delta));
+      const nextSeatLayout = { kind: 'circle', count: next } as const;
+      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+        nextSeatLayout,
+        draft.sideCapacities ?? defaultSideCapacities(next)
+      );
+      return {
+        ...draft,
+        seatLayout: nextSeatLayout,
+        sideCapacities: nextSideCapacities,
+        capacityTotal: next,
+      };
+    }
+    if (side === 'radial') return draft;
+    const sides =
+      currentSeatLayout?.kind === 'rect'
+        ? { ...(currentSeatLayout.sides ?? {}) }
+        : { north: 0, east: 0, south: 0, west: 0 };
+    const current = Number((sides as any)[side] ?? 0);
+    const nextSide = Math.max(0, Math.min(3, current + delta));
+    (sides as any)[side] = nextSide;
+    const nextSeatLayout = { kind: 'rect', sides } as const;
+    const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+      nextSeatLayout,
+      draft.sideCapacities ?? defaultSideCapacities(draft.capacityTotal ?? 0)
+    );
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+    return {
+      ...draft,
+      seatLayout: nextSeatLayout,
+      sideCapacities: nextSideCapacities,
+      capacityTotal: nextCapacityTotal,
+    };
+  }
   
   const renderSelectedTablePopover = (transform: {
     scale: number;
@@ -5348,6 +5727,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     offsetY: number;
   }) => {
     if (!selectedTableKey || !selectedEditorTable || !selectedTableDraft) return null;
+    const comboActive =
+      comboMode.active && comboMode.baseTableId === selectedTableDraft.id;
     const geometry = resolveTableGeometryInFloorplanSpace(
       selectedEditorTable,
       floorplanDims,
@@ -5356,14 +5737,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const position = getRenderPosition(selectedEditorTable, geometry);
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const screenX = centerX * transform.scale + transform.offsetX + 12;
-    const screenY = centerY * transform.scale + transform.offsetY - 12;
-    return (
-      <div className="pointer-events-none absolute inset-0 z-[12]">
+    const screenX = centerX * transform.scale + transform.offsetX + 12 + floorplanContainerRect.left;
+    const screenY = centerY * transform.scale + transform.offsetY - 12 + floorplanContainerRect.top;
+    const popover = (
+      <div className="pointer-events-none fixed inset-0 z-[80]">
         <div
           className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
           data-seating-no-deselect="1"
-          style={{ position: 'absolute', left: screenX, top: screenY }}
+          style={{ position: 'fixed', left: screenX, top: screenY }}
         >
           <div className="font-semibold">
             {selectedEditorTable.name || selectedEditorTable.id}
@@ -5377,41 +5758,1146 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           <div className="text-[10px] text-gray-500">
             Kapacitás: {seatLayoutCapacityTotal ?? selectedTableDraft.capacityTotal}
           </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            <button
-              type="button"
-              className={`rounded border px-2 py-0.5 text-[10px] ${
-                viewportMode === 'selected'
-                  ? 'border-blue-200 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 bg-white text-gray-700'
-              }`}
-              onClick={() => setViewportMode('selected')}
-            >
-              Zoom in (asztal)
-            </button>
-            <button
-              type="button"
-              className={`rounded border px-2 py-0.5 text-[10px] ${
-                viewportMode === 'fit'
-                  ? 'border-blue-200 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 bg-white text-gray-700'
-              }`}
-              onClick={handleZoomOutFit}
-            >
-              Zoom out (teljes)
-            </button>
-            <button
-              type="button"
-              className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
-              onClick={() => void handleSelectedTableMetadataSave()}
-            >
-              Mentés
-            </button>
+          {comboActive ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <button
+                type="button"
+                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700"
+                onClick={() => void handleComboSave()}
+              >
+                Kész
+              </button>
+              <button
+                type="button"
+                className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+                onClick={handleComboCancel}
+              >
+                Mégse
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <button
+                type="button"
+                className={`rounded border px-2 py-0.5 text-[10px] ${
+                  viewportMode === 'selected'
+                    ? 'border-blue-200 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-700'
+                }`}
+                onClick={() => setViewportMode('selected')}
+              >
+                Zoom in (asztal)
+              </button>
+              <button
+                type="button"
+                className={`rounded border px-2 py-0.5 text-[10px] ${
+                  viewportMode === 'fit'
+                    ? 'border-blue-200 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-700'
+                }`}
+                onClick={handleZoomOutFit}
+              >
+                Zoom out (teljes)
+              </button>
+              <button
+                type="button"
+                className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+                onClick={() => void handleSelectedTableMetadataSave()}
+              >
+                Mentés
+              </button>
+              <button
+                type="button"
+                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700"
+                onClick={handleEnterComboMode}
+              >
+                Összetolható az asztallal
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+    return typeof document === 'undefined' ? popover : createPortal(popover, document.body);
+  };
+
+  const renderQuickTablePopover = (transform: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }) => {
+    if (!tableCreateDraft || !tableQuickForm) return null;
+    if (selectedTableId !== tableCreateDraft.id) return null;
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      tableCreateDraft,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(tableCreateDraft, geometry);
+    const centerX = position.x + geometry.w / 2;
+    const centerY = position.y + geometry.h / 2;
+    const screenX = centerX * transform.scale + transform.offsetX + 12 + floorplanContainerRect.left;
+    const screenY = centerY * transform.scale + transform.offsetY - 12 + floorplanContainerRect.top;
+    const popover = (
+      <div className="pointer-events-none fixed inset-0 z-[80]">
+        <div
+          className="pointer-events-auto w-64 rounded border border-blue-200 bg-white/95 px-3 py-2 text-[11px] shadow"
+          data-seating-no-deselect="1"
+          style={{ position: 'fixed', left: screenX, top: screenY }}
+        >
+          <div className="font-semibold">Új asztal</div>
+          <div className="mt-2 grid gap-2">
+            <label className="flex flex-col gap-1 text-[10px]">
+              Asztal neve
+              <input
+                className="rounded border px-2 py-1 text-[11px]"
+                value={tableQuickForm.name}
+                onChange={event => updateQuickTableDraft({ name: event.target.value })}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1 text-[10px]">
+                Minimum fő
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded border px-2 py-1 text-[11px]"
+                  value={tableQuickForm.minCapacity}
+                  onChange={event =>
+                    updateQuickTableDraft({
+                      minCapacity: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[10px]">
+                Maximum fő
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded border px-2 py-1 text-[11px]"
+                  value={tableQuickForm.capacityMax}
+                  onChange={event =>
+                    updateQuickTableDraft({
+                      capacityMax: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <div className="grid gap-2">
+              <div className="text-[10px] text-gray-500">Forma</div>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  className={`rounded border px-2 py-0.5 text-[10px] ${
+                    tableQuickForm.shape === 'rect'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  onClick={() => updateQuickTableDraft({ shape: 'rect' })}
+                >
+                  Téglalap
+                </button>
+                <button
+                  type="button"
+                  className={`rounded border px-2 py-0.5 text-[10px] ${
+                    tableQuickForm.shape === 'circle'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  onClick={() => updateQuickTableDraft({ shape: 'circle' })}
+                >
+                  Kör
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1 text-[10px]">
+                Szélesség
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded border px-2 py-1 text-[11px]"
+                  value={tableQuickForm.w}
+                  onChange={event =>
+                    updateQuickTableDraft({
+                      w: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[10px]">
+                Magasság
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded border px-2 py-1 text-[11px]"
+                  value={tableQuickForm.h}
+                  onChange={event =>
+                    updateQuickTableDraft({
+                      h: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            {tableQuickError && (
+              <div className="text-[10px] text-red-600">{tableQuickError}</div>
+            )}
+            <div className="flex flex-wrap gap-1 pt-1">
+              <button
+                type="button"
+                className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700"
+                onClick={() => void handleQuickTableSave()}
+              >
+                Mentés
+              </button>
+              <button
+                type="button"
+                className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-700"
+                onClick={handleQuickTableCancel}
+              >
+                Mégse
+              </button>
+            </div>
           </div>
         </div>
       </div>
     );
+    return typeof document === 'undefined' ? popover : createPortal(popover, document.body);
   };
+
+  const renderFloorplanEditorSection = () => (
+    <section className="space-y-3 border rounded-lg p-4">
+      <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
+      {!activeFloorplan ? (
+        <div className="text-sm text-[var(--color-text-secondary)]">
+          Nincs aktív alaprajz kiválasztva.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div
+            className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]"
+            data-seating-no-deselect="1"
+          >
+            <span>
+              Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
+            </span>
+            <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setFloorplanMode('view')}
+                className={`rounded-full px-2 py-0.5 text-[11px] ${
+                  floorplanMode === 'view' ? 'bg-gray-200 text-gray-800' : 'text-gray-500'
+                }`}
+              >
+                Megtekintés
+              </button>
+              <button
+                type="button"
+                onClick={() => setFloorplanMode('edit')}
+                className={`rounded-full px-2 py-0.5 text-[11px] ${
+                  floorplanMode === 'edit' ? 'bg-gray-200 text-gray-800' : 'text-gray-500'
+                }`}
+                disabled={!canEditFloorplan}
+              >
+                Szerkesztés
+              </button>
+            </div>
+            {selectedEditorTable && !comboMode.active && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className={`rounded border px-2 py-0.5 text-[11px] ${
+                    viewportMode === 'selected'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  onClick={() => setViewportMode('selected')}
+                >
+                  Zoom in (asztal)
+                </button>
+                <button
+                  type="button"
+                  className={`rounded border px-2 py-0.5 text-[11px] ${
+                    viewportMode === 'fit'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  onClick={handleZoomOutFit}
+                >
+                  Zoom out (teljes)
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
+              onClick={() => void handleUndoLastAction()}
+              disabled={!isUndoAvailable || floorplanMode !== 'edit' || comboMode.active}
+            >
+              Visszavonás
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[11px] ${
+                snapEnabled
+                  ? 'border-gray-200 bg-white text-gray-600'
+                  : 'border-blue-200 bg-blue-50 text-blue-700'
+              }`}
+              onClick={() => setSnapEnabled(current => !current)}
+              disabled={comboMode.active}
+            >
+              Snap {snapEnabled ? 'ON' : 'OFF'}
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-2 py-0.5 text-[11px] ${
+                precisionEnabled
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-gray-200 bg-white text-gray-600'
+              }`}
+              onClick={() => setPrecisionEnabled(current => !current)}
+              disabled={comboMode.active}
+            >
+              Precision {precisionEnabled ? 'ON' : 'OFF'}
+            </button>
+            {floorplanMode === 'edit' && (isDev || debugSeating) && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={`rounded border px-2 py-0.5 text-[11px] ${
+                    showObstacleDebug
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                  onClick={() => setShowObstacleDebug(current => !current)}
+                >
+                  Obstacles {showObstacleDebug ? 'ON' : 'OFF'}
+                </button>
+                <span className="text-[11px] text-gray-500">
+                  obstacles: {activeObstacles.length}
+                </span>
+              </div>
+            )}
+            {floorplanMode === 'edit' && !comboMode.active && (
+              <>
+                <button
+                  type="button"
+                  className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
+                  onClick={() => {
+                    if (!activeFloorplan) return;
+                    const id =
+                      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                        ? crypto.randomUUID()
+                        : `obstacle-${Date.now()}`;
+                    const defaultW = 140;
+                    const defaultH = 90;
+                    const startX = Math.max(0, (floorplanW - defaultW) / 2);
+                    const startY = Math.max(0, (floorplanH - defaultH) / 2);
+                    const nextObstacle: FloorplanObstacle = {
+                      id,
+                      name: 'No-go',
+                      x: applyGrid(startX, editorGridSize),
+                      y: applyGrid(startY, editorGridSize),
+                      w: defaultW,
+                      h: defaultH,
+                    };
+                    const previousObstacles = activeObstacles;
+                    const nextObstacles = [...activeObstacles, nextObstacle];
+                    updateActiveFloorplanObstacles(nextObstacles);
+                    setSelectedObstacleId(id);
+                    void persistActiveObstacles(nextObstacles, previousObstacles);
+                  }}
+                >
+                  + No-go zóna
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
+                  disabled={!selectedObstacleId}
+                  onClick={() => {
+                    if (!selectedObstacleId) return;
+                    const previousObstacles = activeObstacles;
+                    const nextObstacles = activeObstacles.filter(
+                      obstacle => obstacle.id !== selectedObstacleId
+                    );
+                    updateActiveFloorplanObstacles(nextObstacles);
+                    setSelectedObstacleId(null);
+                    void persistActiveObstacles(nextObstacles, previousObstacles);
+                  }}
+                >
+                  No-go törlés
+                </button>
+              </>
+            )}
+          </div>
+          {typeof debugSeating !== 'undefined' && debugSeating && (
+            <div className="rounded border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              <div className="font-semibold">Floorplan debug</div>
+              <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">resolved id</dt>
+                  <dd className="truncate">{resolvedActiveFloorplanId || 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">active id</dt>
+                  <dd className="truncate">{activeFloorplan?.id ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">
+                    visible floorplans
+                  </dt>
+                  <dd>{visibleFloorplans.length}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">tables</dt>
+                  <dd>{tables.length}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">editor tables</dt>
+                  <dd>{editorTables.length}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">floorplan size</dt>
+                  <dd>
+                    {floorplanW} × {floorplanH}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">viewport rect</dt>
+                  <dd>
+                    {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
+                    {formatDebugNumber(floorplanViewportRect.height)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] uppercase text-amber-700">transform</dt>
+                  <dd>
+                    scale {formatDebugNumber(activeFloorplanTransform.scale)} | rect{' '}
+                    {formatDebugNumber(activeFloorplanTransform.rectWidth)} ×{' '}
+                    {formatDebugNumber(activeFloorplanTransform.rectHeight)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
+          {typeof debugSeating !== 'undefined' &&
+            debugSeating &&
+            debugFloorplanWarningReasons.length > 0 && (
+              <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+                <div className="font-semibold">Floorplan debug warning</div>
+                <p className="mt-1">
+                  Tables exist but the floorplan cannot render because:{' '}
+                  {debugFloorplanWarningReasons.join(', ')}
+                </p>
+              </div>
+            )}
+          <div
+            ref={floorplanContainerRef}
+            className="relative w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0 pb-14"
+          >
+            {isEditMode ? (
+              <div
+                ref={floorplanViewportRef}
+                className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
+                  isEditMode ? 'touch-none' : ''
+                }`}
+                onPointerDownCapture={handleFloorplanBackgroundPointerDown}
+              >
+                {debugEnabled && (
+                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+                    <div>
+                      dims: {Math.round(floorplanDims.width)}×
+                      {Math.round(floorplanDims.height)} ({floorplanDims.source})
+                    </div>
+                    <div>
+                      viewport: {Math.round(floorplanViewportRect.width)}×
+                      {Math.round(floorplanViewportRect.height)}
+                    </div>
+                    <div>
+                      scale: {activeFloorplanTransform.scale.toFixed(3)} | offset:{' '}
+                      {activeFloorplanTransform.offsetX.toFixed(1)},{' '}
+                      {activeFloorplanTransform.offsetY.toFixed(1)} | ready:{' '}
+                      {activeFloorplanTransform.rectWidth > 0 &&
+                      activeFloorplanTransform.rectHeight > 0 &&
+                      floorplanW > 0 &&
+                      floorplanH > 0
+                        ? 'yes'
+                        : 'no'}
+                    </div>
+                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                    <div>grid mounted: {gridLayerRef.current ? 'yes' : 'no'}</div>
+                    {debugRawGeometry && (
+                      <div>
+                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                        {debugRawGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableGeometry && (
+                      <div>
+                        floor: {sampleTableGeometry.x.toFixed(1)},
+                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                        {sampleTableGeometry.h.toFixed(1)} r
+                        {sampleTableGeometry.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {sampleTableRender && (
+                      <div>
+                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                        {sampleTableRender.rot.toFixed(1)}
+                      </div>
+                    )}
+                    {debugTableRows.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {debugTableRows.map(row => (
+                          <div key={`dbg-${row.id}`}>
+                            t:{' '}
+                            {row.name ? `${row.name} ` : ''}
+                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
+                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
+                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
+                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
+                            {row.floor.rot.toFixed(1)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {renderQuickTablePopover(activeFloorplanTransform)}
+                {selectedTableKey ? renderSelectedTablePopover(activeFloorplanTransform) : null}
+                <div className="absolute inset-0" style={worldCameraStyle}>
+                  <div
+                    className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
+                    style={{ width: floorplanW, height: floorplanH }}
+                  >
+                    <div
+                      ref={gridLayerRef}
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        width: floorplanW,
+                        height: floorplanH,
+                        zIndex: 0,
+                        ...gridBackgroundStyle,
+                      }}
+                    />
+                    {debugSeating && (
+                      <>
+                        {lastDragBlockReason && (
+                          <div className="absolute left-2 top-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
+                            drag: {lastDragBlockReason}
+                          </div>
+                        )}
+                        {lastDragBoundsRef.current && (
+                          <div
+                            className="absolute z-[9] border border-dashed border-amber-400"
+                            style={{
+                              left: lastDragBoundsRef.current.minX,
+                              top: lastDragBoundsRef.current.minY,
+                              width:
+                                lastDragBoundsRef.current.maxX -
+                                lastDragBoundsRef.current.minX,
+                              height:
+                                lastDragBoundsRef.current.maxY -
+                                lastDragBoundsRef.current.minY,
+                            }}
+                          />
+                        )}
+                        {lastDragPointerRef.current && (
+                          <div
+                            className="absolute z-[10] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500"
+                            style={{
+                              left: lastDragPointerRef.current.x,
+                              top: lastDragPointerRef.current.y,
+                            }}
+                          />
+                        )}
+                        <div
+                          className="absolute left-2 bottom-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900"
+                          data-tick={debugTick}
+                        >
+                          <div>reason: {lastDragBlockReason ?? 'n/a'}</div>
+                          <div>
+                            pointer:{' '}
+                            {lastDragPointerRef.current
+                              ? `${Math.round(lastDragPointerRef.current.x)}, ${Math.round(
+                                  lastDragPointerRef.current.y
+                                )}`
+                              : 'n/a'}
+                          </div>
+                          <div>
+                            bounds:{' '}
+                            {lastDragBoundsRef.current
+                              ? `${Math.round(lastDragBoundsRef.current.minX)}-${Math.round(
+                                  lastDragBoundsRef.current.maxX
+                                )}, ${Math.round(lastDragBoundsRef.current.minY)}-${Math.round(
+                                  lastDragBoundsRef.current.maxY
+                                )}`
+                              : 'n/a'}
+                          </div>
+                          <div>
+                            snap:{' '}
+                            {lastDragSnapRef.current
+                              ? `${lastDragSnapRef.current.shouldSnap ? 'on' : 'off'} @ ${
+                                  lastDragSnapRef.current.gridSize
+                                }`
+                              : 'n/a'}
+                          </div>
+                          <div>boundsMode: floorplan</div>
+                          <div>overlapEps: {COLLISION_EPS}</div>
+                          {debugSeating && isOverlappingObstacle && (
+                            <div>
+                              tableRect: {Math.round(tableRect.x)},{Math.round(tableRect.y)}{' '}
+                              {Math.round(tableRect.w)}×{Math.round(tableRect.h)} | obstacles:{' '}
+                              {obstacleHits
+                                .map(
+                                  hit =>
+                                    `${hit.id}:${Math.round(hit.rect.x)},${Math.round(
+                                      hit.rect.y
+                                    )} ${Math.round(hit.rect.w)}×${Math.round(hit.rect.h)}`
+                                )
+                                .join(' | ')}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {showObstacleDebug &&
+                      activeObstacles.map(obstacle => {
+                        const rect = getObstacleRenderRect(obstacle);
+                        return (
+                          <div
+                            key={`debug-${obstacle.id}`}
+                            className="absolute z-[8] border border-dashed border-emerald-400 bg-emerald-200/30 text-[9px] text-emerald-900 pointer-events-none"
+                            style={{
+                              left: rect.x,
+                              top: rect.y,
+                              width: rect.w,
+                              height: rect.h,
+                            }}
+                          >
+                            <span className="absolute left-1 top-1">
+                              {obstacle.name ?? obstacle.id}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    {activeObstacles.map(obstacle => {
+                      const rect = getObstacleRenderRect(obstacle);
+                      const isSelected = selectedObstacleId === obstacle.id;
+                      return (
+                        <div
+                          key={obstacle.id}
+                          className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
+                          data-seating-no-deselect="1"
+                          style={{
+                            left: rect.x,
+                            top: rect.y,
+                            width: rect.w,
+                            height: rect.h,
+                            transform: `rotate(${obstacle.rot ?? 0}deg)`,
+                            outline: isSelected ? '2px solid #2563eb' : undefined,
+                            zIndex: 1,
+                          }}
+                          onClick={event => {
+                            event.stopPropagation();
+                            if (comboMode.active) return;
+                            setSelectedObstacleId(obstacle.id);
+                          }}
+                          onPointerDown={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? event => handleObstaclePointerDown(event, obstacle, 'move')
+                              : undefined
+                          }
+                          onPointerMove={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleObstaclePointerMove
+                              : undefined
+                          }
+                          onPointerUp={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleObstaclePointerUp
+                              : undefined
+                          }
+                          onPointerCancel={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleObstaclePointerCancel
+                              : undefined
+                          }
+                        >
+                          {floorplanMode === 'edit' && (
+                            <span className="absolute left-1 top-1 text-[10px] text-gray-600">
+                              {obstacle.name ?? 'No-go'}
+                            </span>
+                          )}
+                          {floorplanMode === 'edit' && !comboMode.active && (
+                            <span
+                              role="button"
+                              tabIndex={-1}
+                              className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white touch-none"
+                              onPointerDown={event =>
+                                handleObstaclePointerDown(event, obstacle, 'resize')
+                              }
+                              onPointerMove={handleObstaclePointerMove}
+                              onPointerUp={handleObstaclePointerUp}
+                              onPointerCancel={handleObstaclePointerCancel}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                    {editorTables.map(table => {
+                      const geometry = resolveTableGeometryInFloorplanSpace(
+                        table,
+                        floorplanDims,
+                        TABLE_GEOMETRY_DEFAULTS
+                      );
+                      const position = getRenderPosition(table, geometry);
+                      const renderRot =
+                        (isEditMode ? draftRotations[table.id] : undefined) ?? geometry.rot;
+                      const isSelected = selectedTableId === table.id;
+                      const isComboSelected = comboHighlightSet.has(table.id);
+                      const isSaving = Boolean(savingById[table.id]);
+                      const tableVisualState = getTableVisualState();
+                      const tableRect = getTableAabbForCollision(
+                        position.x,
+                        position.y,
+                        geometry.w,
+                        geometry.h,
+                        renderRot
+                      );
+                      const obstacleHits =
+                        floorplanMode === 'edit'
+                          ? activeObstacles
+                              .map(obstacle => ({
+                                id: obstacle.id,
+                                rect: getObstacleRenderRect(obstacle),
+                              }))
+                              .filter(hit => rectIntersectEps(tableRect, hit.rect))
+                          : [];
+                      const isOverlappingObstacle = obstacleHits.length > 0;
+                      const isComboConflict =
+                        comboMode.active && comboConflictIds.has(table.id);
+                      return (
+                        <div
+                          key={table.id}
+                          // Drag root must stay non-relative to preserve pointer math.
+                          className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none touch-none ${
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? 'cursor-grab active:cursor-grabbing'
+                              : ''
+                          }`}
+                          data-seating-table-root="1"
+                          data-seating-no-deselect="1"
+                          style={{
+                            left: position.x,
+                            top: position.y,
+                            width: geometry.w,
+                            height: geometry.h,
+                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
+                            border: isComboSelected
+                              ? '2px solid #16a34a'
+                              : isSelected
+                              ? '2px solid #2563eb'
+                              : '1px solid #9ca3af',
+                            backgroundColor: resolveTableVisualStyle(tableVisualState),
+                            transform: `rotate(${renderRot}deg)`,
+                            boxShadow: isComboSelected
+                              ? '0 0 0 3px rgba(34, 197, 94, 0.35)'
+                              : isSelected
+                              ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
+                              : '0 1px 3px rgba(0,0,0,0.1)',
+                            touchAction: 'none',
+                            zIndex: 2,
+                          }}
+                          onClick={event => {
+                            event.stopPropagation();
+                            handleTableClick(table.id);
+                          }}
+                          onPointerDown={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? event => {
+                                  event.stopPropagation();
+                                  handleTablePointerDown(event, table, geometry);
+                                }
+                              : event => {
+                                  event.stopPropagation();
+                                }
+                          }
+                          onPointerMove={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleTablePointerMove
+                              : undefined
+                          }
+                          onPointerUp={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleTablePointerUp
+                              : undefined
+                          }
+                          onPointerCancel={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleTablePointerCancel
+                              : undefined
+                          }
+                          onLostPointerCapture={
+                            floorplanMode === 'edit' && !comboMode.active
+                              ? handleLostPointerCapture
+                              : undefined
+                          }
+                        >
+                          <div className="relative h-full w-full" style={{ pointerEvents: 'none' }}>
+                            {isSelected &&
+                              !table.locked &&
+                              floorplanMode === 'edit' &&
+                              !comboMode.active && (
+                                <>
+                                  <span
+                                    className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
+                                    aria-hidden="true"
+                                  />
+                                  <button
+                                    type="button"
+                                    data-seating-no-deselect="1"
+                                    className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
+                                    style={{ touchAction: 'none', pointerEvents: 'auto', zIndex: 40 }}
+                                    onPointerDown={event => {
+                                      if (!activeFloorplan) return;
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      if (recenterRafIdRef.current !== null) {
+                                        cancelAnimationFrame(recenterRafIdRef.current);
+                                        recenterRafIdRef.current = null;
+                                      }
+                                      event.currentTarget.setPointerCapture?.(event.pointerId);
+                                      handleSelectTable(table.id);
+                                      if (debugSeating) {
+                                        requestDebugFlush(null);
+                                      }
+                                      const centerX = position.x + geometry.w / 2;
+                                      const centerY = position.y + geometry.h / 2;
+                                      const { rect: dragRect, transform: dragTransform } =
+                                        getActivePointerTransform();
+                                      const pointer = mapClientToFloorplanUsingTransform(
+                                        event.clientX,
+                                        event.clientY,
+                                        dragTransform,
+                                        dragRect
+                                      );
+                                      if (!pointer) {
+                                        return;
+                                      }
+                                      const startAngle =
+                                        Math.atan2(pointer.y - centerY, pointer.x - centerX) *
+                                        (180 / Math.PI);
+                                      setDragState({
+                                        tableId: table.id,
+                                        pointerId: event.pointerId,
+                                        pointerTarget: event.currentTarget,
+                                        pointerStartClientX: event.clientX,
+                                        pointerStartClientY: event.clientY,
+                                        pointerStartFloorX: pointer.x,
+                                        pointerStartFloorY: pointer.y,
+                                        dragStartTransform: dragTransform,
+                                        dragStartRect: dragRect,
+                                        dragStartScale: safeScale(dragTransform.scale),
+                                        tableStartX: position.x,
+                                        tableStartY: position.y,
+                                        width: geometry.w,
+                                        height: geometry.h,
+                                        boundW: geometry.w,
+                                        boundH: geometry.h,
+                                        mode: 'rotate',
+                                        tableStartRot: renderRot,
+                                        rotStartAngleDeg: startAngle,
+                                        rotCenterX: centerX,
+                                        rotCenterY: centerY,
+                                        floorplanWidth: floorplanW,
+                                        floorplanHeight: floorplanH,
+                                        gridSize: editorGridSize,
+                                        snapToGrid: table.snapToGrid ?? false,
+                                      });
+                                      registerWindowTableDragListeners();
+                                      setLastSavedRot(current =>
+                                        current[table.id] !== undefined
+                                          ? current
+                                          : { ...current, [table.id]: renderRot }
+                                      );
+                                    }}
+                                    onPointerMove={handleTablePointerMove}
+                                    onPointerUp={handleTablePointerUp}
+                                    onPointerCancel={handleTablePointerCancel}
+                                    onLostPointerCapture={handleLostPointerCapture}
+                                  >
+                                    <span className="h-1 w-1 rounded-full bg-gray-500" />
+                                  </button>
+                                </>
+                              )}
+                            {(isOverlappingObstacle || isComboConflict) && (
+                              <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
+                                !
+                              </span>
+                            )}
+                            {debugSeating && isOverlappingObstacle && (
+                              <>
+                                <div
+                                  className="pointer-events-none absolute border border-dashed border-amber-500"
+                                  style={{
+                                    left: tableRect.x,
+                                    top: tableRect.y,
+                                    width: tableRect.w,
+                                    height: tableRect.h,
+                                  }}
+                                />
+                                {obstacleHits.map(hit => (
+                                  <div
+                                    key={`overlap-${table.id}-${hit.id}`}
+                                    className="pointer-events-none absolute border border-dashed border-rose-500"
+                                    style={{
+                                      left: hit.rect.x,
+                                      top: hit.rect.y,
+                                      width: hit.rect.w,
+                                      height: hit.rect.h,
+                                    }}
+                                  />
+                                ))}
+                              </>
+                            )}
+                            {table.name}
+                            <div className="flex gap-1 mt-1">
+                              {table.locked && (
+                                <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
+                              )}
+                              {table.canCombine && (
+                                <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
+                              )}
+                              {isSaving && (
+                                <span className="px-1 rounded bg-blue-100 text-[9px]">
+                                  Saving...
+                                </span>
+                              )}
+                              {isSelected && (
+                                <span className="px-1 rounded bg-gray-100 text-[9px]">
+                                  {Math.round(renderRot)}°
+                                </span>
+                              )}
+                            </div>
+                            {isSelected && !table.locked && !comboMode.active && (
+                              <div className="flex gap-1 mt-1">
+                                <button
+                                  type="button"
+                                  data-seating-no-deselect="1"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const step = 5;
+                                    applyRotationDelta(table.id, renderRot, -step);
+                                    lastRotateActionRef.current = { t: Date.now() };
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  ↺
+                                </button>
+                                <button
+                                  type="button"
+                                  data-seating-no-deselect="1"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const step = 5;
+                                    applyRotationDelta(table.id, renderRot, step);
+                                    lastRotateActionRef.current = { t: Date.now() };
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  ↻
+                                </button>
+                                <button
+                                  type="button"
+                                  data-seating-no-deselect="1"
+                                  className="px-1 rounded bg-gray-100 text-[9px]"
+                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
+                                  onPointerDown={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    applyRotationAbsolute(table.id, 0);
+                                    lastRotateActionRef.current = { t: Date.now() };
+                                  }}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <FloorplanWorldLayer
+                      tables={tablesForWorldLayer}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      seatUI={{
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit' && !comboMode.active,
+                        onAddSeat: handleAddSeat,
+                        onRemoveSeat: handleRemoveSeat,
+                        debug: debugEnabled,
+                        debugMode: floorplanMode,
+                        debugSelectedTableId: selectedTableId,
+                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
+                        uiScale: activeFloorplanTransform.scale,
+                      }}
+                      appearance={{
+                        showCapacity: false,
+                        renderTableBody: false,
+                        renderObstacles: false,
+                        isSelected: t =>
+                          comboMode.active ? comboHighlightSet.has(t.id) : t.id === selectedTableKey,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="h-full w-full" onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
+                <FloorplanViewportCanvas
+                  ref={viewportCanvasRef}
+                  floorplanDims={floorplanDims}
+                  debugEnabled={debugEnabled}
+                  viewportDeps={[resolvedActiveFloorplanId]}
+                  debugOverlay={context => (
+                    <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
+                      <div>
+                        dims: {Math.round(context.floorplanDims.width)}×
+                        {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
+                      </div>
+                      <div>
+                        viewport: {Math.round(context.viewportRect.width)}×
+                        {Math.round(context.viewportRect.height)}
+                      </div>
+                      <div>
+                        scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+                        {context.transform.offsetX.toFixed(1)},{' '}
+                        {context.transform.offsetY.toFixed(1)} | ready:{' '}
+                        {context.transform.ready ? 'yes' : 'no'}
+                      </div>
+                      <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                      <div>mode: view</div>
+                      {debugRawGeometry && (
+                        <div>
+                          raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                          {debugRawGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableGeometry && (
+                        <div>
+                          floor: {sampleTableGeometry.x.toFixed(1)},
+                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                          {sampleTableGeometry.h.toFixed(1)} r
+                          {sampleTableGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableRender && (
+                        <div>
+                          render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                          {sampleTableRender.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {debugTableRows.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {debugTableRows.map(row => (
+                            <div key={`dbg-view-${row.id}`}>
+                              t:{' '}
+                              {row.name ? `${row.name} ` : ''}
+                              {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
+                              {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
+                              {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
+                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
+                              {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  renderOverlay={context => (
+                    <>
+                      {renderQuickTablePopover(context.transform)}
+                      {selectedTableKey ? renderSelectedTablePopover(context.transform) : null}
+                    </>
+                  )}
+                  renderWorld={context => (
+                    <FloorplanWorldLayer
+                      tables={tablesForWorldLayer}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      seatUI={{
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit' && !comboMode.active,
+                        onAddSeat: handleAddSeat,
+                        onRemoveSeat: handleRemoveSeat,
+                        debug: debugEnabled,
+                        debugMode: floorplanMode,
+                        debugSelectedTableId: selectedTableId,
+                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
+                        uiScale: context.transform.scale,
+                      }}
+                      appearance={{
+                        showCapacity: true,
+                        isSelected: t =>
+                          comboMode.active ? comboHighlightSet.has(t.id) : t.id === selectedTableKey,
+                        hasConflict: t => comboMode.active && comboConflictIds.has(t.id),
+                        selectionColor: comboMode.active ? '#16a34a' : undefined,
+                      }}
+                    />
+                  )}
+                />
+              </div>
+            )}
+          </div>
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-xs text-gray-600 shadow-sm">
+            <span>
+              {isSaving
+                ? 'Mentés folyamatban...'
+                : isDirty
+                ? 'Nem mentett változások'
+                : 'Minden mentve'}
+            </span>
+            <button
+              type="button"
+              onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+              className={`rounded-lg px-3 py-1.5 text-xs disabled:opacity-50 ${
+                canSave ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+              }`}
+              disabled={!canSave}
+            >
+              {saveLabel}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
   
   const renderFloorplansPanel = () => (
     <div className="space-y-6">
@@ -5549,879 +7035,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </section>
       <section className="space-y-3 border rounded-lg p-4">
-        <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
-        {!activeFloorplan ? (
-          <div className="text-sm text-[var(--color-text-secondary)]">
-            Nincs aktív alaprajz kiválasztva.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div
-              className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]"
-              data-seating-no-deselect="1"
-            >
-              <span>
-                Grid: {editorGridSize}px • Húzd a pöttyöt = forgatás • Shift = 15° • Alt = 1°
-              </span>
-              <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setFloorplanMode('view')}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    floorplanMode === 'view'
-                      ? 'bg-gray-200 text-gray-800'
-                      : 'text-gray-500'
-                  }`}
-                >
-                  Megtekintés
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFloorplanMode('edit')}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    floorplanMode === 'edit'
-                      ? 'bg-gray-200 text-gray-800'
-                      : 'text-gray-500'
-                  }`}
-                  disabled={!canEditFloorplan}
-                >
-                  Szerkesztés
-                </button>
-              </div>
-              {selectedEditorTable && (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className={`rounded border px-2 py-0.5 text-[11px] ${
-                      viewportMode === 'selected'
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 bg-white text-gray-600'
-                    }`}
-                    onClick={() => setViewportMode('selected')}
-                  >
-                    Zoom in (asztal)
-                  </button>
-                  <button
-                    type="button"
-                    className={`rounded border px-2 py-0.5 text-[11px] ${
-                      viewportMode === 'fit'
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 bg-white text-gray-600'
-                    }`}
-                    onClick={handleZoomOutFit}
-                  >
-                    Zoom out (teljes)
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
-                onClick={() => void handleUndoLastAction()}
-                disabled={!isUndoAvailable || floorplanMode !== 'edit'}
-              >
-                Visszavonás
-              </button>
-              <button
-                type="button"
-                className={`rounded border px-2 py-0.5 text-[11px] ${
-                  snapEnabled
-                    ? 'border-gray-200 bg-white text-gray-600'
-                    : 'border-blue-200 bg-blue-50 text-blue-700'
-                }`}
-                onClick={() => setSnapEnabled(current => !current)}
-              >
-                Snap {snapEnabled ? 'ON' : 'OFF'}
-              </button>
-              <button
-                type="button"
-                className={`rounded border px-2 py-0.5 text-[11px] ${
-                  precisionEnabled
-                    ? 'border-amber-200 bg-amber-50 text-amber-700'
-                    : 'border-gray-200 bg-white text-gray-600'
-                }`}
-                onClick={() => setPrecisionEnabled(current => !current)}
-              >
-                Precision {precisionEnabled ? 'ON' : 'OFF'}
-              </button>
-              {floorplanMode === 'edit' && (isDev || debugSeating) && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className={`rounded border px-2 py-0.5 text-[11px] ${
-                      showObstacleDebug
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-gray-200 bg-white text-gray-600'
-                    }`}
-                    onClick={() => setShowObstacleDebug(current => !current)}
-                  >
-                    Obstacles {showObstacleDebug ? 'ON' : 'OFF'}
-                  </button>
-                  <span className="text-[11px] text-gray-500">
-                    obstacles: {activeObstacles.length}
-                  </span>
-                </div>
-              )}
-              {floorplanMode === 'edit' && (
-                <>
-                  <button
-                    type="button"
-                    className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
-                    onClick={() => {
-                      if (!activeFloorplan) return;
-                      const id =
-                        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-                          ? crypto.randomUUID()
-                          : `obstacle-${Date.now()}`;
-                      const defaultW = 140;
-                      const defaultH = 90;
-                      const startX = Math.max(0, (floorplanW - defaultW) / 2);
-                      const startY = Math.max(0, (floorplanH - defaultH) / 2);
-                      const nextObstacle: FloorplanObstacle = {
-                        id,
-                        name: 'No-go',
-                        x: applyGrid(startX, editorGridSize),
-                        y: applyGrid(startY, editorGridSize),
-                        w: defaultW,
-                        h: defaultH,
-                      };
-                      const previousObstacles = activeObstacles;
-                      const nextObstacles = [...activeObstacles, nextObstacle];
-                      updateActiveFloorplanObstacles(nextObstacles);
-                      setSelectedObstacleId(id);
-                      void persistActiveObstacles(nextObstacles, previousObstacles);
-                    }}
-                  >
-                    + No-go zóna
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 disabled:opacity-50"
-                    disabled={!selectedObstacleId}
-                    onClick={() => {
-                      if (!selectedObstacleId) return;
-                      const previousObstacles = activeObstacles;
-                      const nextObstacles = activeObstacles.filter(
-                        obstacle => obstacle.id !== selectedObstacleId
-                      );
-                      updateActiveFloorplanObstacles(nextObstacles);
-                      setSelectedObstacleId(null);
-                      void persistActiveObstacles(nextObstacles, previousObstacles);
-                    }}
-                  >
-                    No-go törlés
-                  </button>
-                </>
-              )}
-            </div>
-            {typeof debugSeating !== 'undefined' && debugSeating && (
-              <div className="rounded border border-dashed border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                <div className="font-semibold">Floorplan debug</div>
-                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">resolved id</dt>
-                    <dd className="truncate">
-                      {resolvedActiveFloorplanId || 'n/a'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">active id</dt>
-                    <dd className="truncate">{activeFloorplan?.id ?? 'n/a'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">
-                      visible floorplans
-                    </dt>
-                    <dd>{visibleFloorplans.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">tables</dt>
-                    <dd>{tables.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">editor tables</dt>
-                    <dd>{editorTables.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">
-                      floorplan size
-                    </dt>
-                    <dd>
-                      {floorplanW} × {floorplanH}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">
-                      viewport rect
-                    </dt>
-                    <dd>
-                      {formatDebugNumber(floorplanViewportRect.width)} ×{' '}
-                      {formatDebugNumber(floorplanViewportRect.height)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] uppercase text-amber-700">transform</dt>
-                    <dd>
-                      scale {formatDebugNumber(activeFloorplanTransform.scale)} | rect{' '}
-                      {formatDebugNumber(activeFloorplanTransform.rectWidth)} ×{' '}
-                      {formatDebugNumber(activeFloorplanTransform.rectHeight)}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            )}
-            {typeof debugSeating !== 'undefined' &&
-              debugSeating &&
-              debugFloorplanWarningReasons.length > 0 && (
-                <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
-                  <div className="font-semibold">Floorplan debug warning</div>
-                  <p className="mt-1">
-                    Tables exist but the floorplan cannot render because:{' '}
-                    {debugFloorplanWarningReasons.join(', ')}
-                  </p>
-                </div>
-              )}
-            {isEditMode ? (
-              <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
-              <div
-                ref={floorplanViewportRef}
-                className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
-                  isEditMode ? 'touch-none' : ''
-                }`}
-                onPointerDownCapture={handleFloorplanBackgroundPointerDown}
-              >
-                {debugEnabled && (
-                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-                    <div>
-                      dims: {Math.round(floorplanDims.width)}×
-                      {Math.round(floorplanDims.height)} ({floorplanDims.source})
-                    </div>
-                    <div>
-                      viewport: {Math.round(floorplanViewportRect.width)}×
-                      {Math.round(floorplanViewportRect.height)}
-                    </div>
-                    <div>
-                      scale: {activeFloorplanTransform.scale.toFixed(3)} | offset:{' '}
-                      {activeFloorplanTransform.offsetX.toFixed(1)},{' '}
-                      {activeFloorplanTransform.offsetY.toFixed(1)} | ready:{' '}
-                      {activeFloorplanTransform.rectWidth > 0 &&
-                      activeFloorplanTransform.rectHeight > 0 &&
-                      floorplanW > 0 &&
-                      floorplanH > 0
-                        ? 'yes'
-                        : 'no'}
-                    </div>
-                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-                    <div>grid mounted: {gridLayerRef.current ? 'yes' : 'no'}</div>
-                    {debugRawGeometry && (
-                      <div>
-                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                        {debugRawGeometry.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {sampleTableGeometry && (
-                      <div>
-                        floor: {sampleTableGeometry.x.toFixed(1)},
-                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
-                        {sampleTableGeometry.h.toFixed(1)} r
-                        {sampleTableGeometry.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {sampleTableRender && (
-                      <div>
-                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                        {sampleTableRender.rot.toFixed(1)}
-                      </div>
-                    )}
-                    {debugTableRows.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {debugTableRows.map(row => (
-                          <div key={`dbg-${row.id}`}>
-                            t:{' '}
-                            {row.name ? `${row.name} ` : ''}
-                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)} {row.raw.w.toFixed(1)}×
-                            {row.raw.h.toFixed(1)} r{row.raw.rot.toFixed(1)} →{' '}
-                            {row.floor.x.toFixed(1)},{row.floor.y.toFixed(1)}{' '}
-                            {row.floor.w.toFixed(1)}×{row.floor.h.toFixed(1)} r
-                            {row.floor.rot.toFixed(1)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {selectedTableKey ? renderSelectedTablePopover(activeFloorplanTransform) : null}
-                <div className="absolute inset-0" style={worldCameraStyle}>
-                  <div
-                    className="relative ring-1 ring-gray-200 rounded-lg bg-white overflow-hidden"
-                    style={{ width: floorplanW, height: floorplanH }}
-                  >
-                    <div
-                      ref={gridLayerRef}
-                      className="absolute inset-0 pointer-events-none"
-                      style={{
-                        width: floorplanW,
-                        height: floorplanH,
-                        zIndex: 0,
-                        ...gridBackgroundStyle,
-                      }}
-                    />
-                    {debugSeating && (
-                      <>
-                        {lastDragBlockReason && (
-                          <div className="absolute left-2 top-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900">
-                            drag: {lastDragBlockReason}
-                          </div>
-                        )}
-                        {lastDragBoundsRef.current && (
-                          <div
-                            className="absolute z-[9] border border-dashed border-amber-400"
-                            style={{
-                              left: lastDragBoundsRef.current.minX,
-                              top: lastDragBoundsRef.current.minY,
-                              width:
-                                lastDragBoundsRef.current.maxX -
-                                lastDragBoundsRef.current.minX,
-                              height:
-                                lastDragBoundsRef.current.maxY -
-                                lastDragBoundsRef.current.minY,
-                            }}
-                          />
-                        )}
-                        {lastDragPointerRef.current && (
-                          <div
-                            className="absolute z-[10] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500"
-                            style={{
-                              left: lastDragPointerRef.current.x,
-                              top: lastDragPointerRef.current.y,
-                            }}
-                          />
-                        )}
-                        <div
-                          className="absolute left-2 bottom-2 z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900"
-                          data-tick={debugTick}
-                        >
-                          <div>reason: {lastDragBlockReason ?? 'n/a'}</div>
-                          <div>
-                            pointer:{' '}
-                            {lastDragPointerRef.current
-                              ? `${Math.round(lastDragPointerRef.current.x)}, ${Math.round(
-                                  lastDragPointerRef.current.y
-                                )}`
-                              : 'n/a'}
-                          </div>
-                          <div>
-                            bounds:{' '}
-                            {lastDragBoundsRef.current
-                              ? `${Math.round(lastDragBoundsRef.current.minX)}-${Math.round(
-                                  lastDragBoundsRef.current.maxX
-                                )}, ${Math.round(lastDragBoundsRef.current.minY)}-${Math.round(
-                                  lastDragBoundsRef.current.maxY
-                                )}`
-                              : 'n/a'}
-                          </div>
-                          <div>
-                            snap:{' '}
-                            {lastDragSnapRef.current
-                              ? `${lastDragSnapRef.current.shouldSnap ? 'on' : 'off'} @ ${
-                                  lastDragSnapRef.current.gridSize
-                                }`
-                              : 'n/a'}
-                          </div>
-                          <div>boundsMode: floorplan</div>
-                          <div>overlapEps: {COLLISION_EPS}</div>
-                          {debugSeating && isOverlappingObstacle && (
-                            <div>
-                              tableRect: {Math.round(tableRect.x)},{Math.round(tableRect.y)}{' '}
-                              {Math.round(tableRect.w)}×{Math.round(tableRect.h)} | obstacles:{' '}
-                              {obstacleHits
-                                .map(
-                                  hit =>
-                                    `${hit.id}:${Math.round(hit.rect.x)},${Math.round(
-                                      hit.rect.y
-                                    )} ${Math.round(hit.rect.w)}×${Math.round(hit.rect.h)}`
-                                )
-                                .join(' | ')}
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                    {showObstacleDebug &&
-                      activeObstacles.map(obstacle => {
-                        const rect = getObstacleRenderRect(obstacle);
-                        return (
-                          <div
-                            key={`debug-${obstacle.id}`}
-                            className="absolute z-[8] border border-dashed border-emerald-400 bg-emerald-200/30 text-[9px] text-emerald-900 pointer-events-none"
-                            style={{
-                              left: rect.x,
-                              top: rect.y,
-                              width: rect.w,
-                              height: rect.h,
-                            }}
-                          >
-                            <span className="absolute left-1 top-1">
-                              {obstacle.name ?? obstacle.id}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    {activeObstacles.map(obstacle => {
-                      const rect = getObstacleRenderRect(obstacle);
-                      const isSelected = selectedObstacleId === obstacle.id;
-                      return (
-                        <div
-                          key={obstacle.id}
-                          className="absolute border border-dashed border-gray-400 bg-gray-200/40 touch-none"
-                          data-seating-no-deselect="1"
-                          style={{
-                            left: rect.x,
-                            top: rect.y,
-                            width: rect.w,
-                            height: rect.h,
-                            transform: `rotate(${obstacle.rot ?? 0}deg)`,
-                            outline: isSelected ? '2px solid #2563eb' : undefined,
-                            zIndex: 1,
-                          }}
-                          onClick={event => {
-                            event.stopPropagation();
-                            setSelectedObstacleId(obstacle.id);
-                          }}
-                          onPointerDown={
-                            floorplanMode === 'edit'
-                              ? event => handleObstaclePointerDown(event, obstacle, 'move')
-                              : undefined
-                          }
-                          onPointerMove={
-                            floorplanMode === 'edit' ? handleObstaclePointerMove : undefined
-                          }
-                          onPointerUp={
-                            floorplanMode === 'edit' ? handleObstaclePointerUp : undefined
-                          }
-                          onPointerCancel={
-                            floorplanMode === 'edit' ? handleObstaclePointerCancel : undefined
-                          }
-                        >
-                          {floorplanMode === 'edit' && (
-                            <span className="absolute left-1 top-1 text-[10px] text-gray-600">
-                              {obstacle.name ?? 'No-go'}
-                            </span>
-                          )}
-                          {floorplanMode === 'edit' && (
-                            <span
-                              role="button"
-                              tabIndex={-1}
-                              className="absolute -right-2 -bottom-2 h-3 w-3 rounded border border-gray-400 bg-white touch-none"
-                              onPointerDown={event =>
-                                handleObstaclePointerDown(event, obstacle, 'resize')
-                              }
-                              onPointerMove={handleObstaclePointerMove}
-                              onPointerUp={handleObstaclePointerUp}
-                              onPointerCancel={handleObstaclePointerCancel}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                    {editorTables.map(table => {
-                      const geometry = resolveTableGeometryInFloorplanSpace(
-                        table,
-                        floorplanDims,
-                        TABLE_GEOMETRY_DEFAULTS
-                      );
-                      const position = getRenderPosition(table, geometry);
-                      const renderRot =
-                        (isEditMode ? draftRotations[table.id] : undefined) ?? geometry.rot;
-                      const isSelected = selectedTableId === table.id;
-                      const isSaving = Boolean(savingById[table.id]);
-                      const tableVisualState = getTableVisualState();
-                      const tableRect = getTableAabbForCollision(
-                        position.x,
-                        position.y,
-                        geometry.w,
-                        geometry.h,
-                        renderRot
-                      );
-                      const obstacleHits =
-                        floorplanMode === 'edit'
-                          ? activeObstacles
-                              .map(obstacle => ({
-                                id: obstacle.id,
-                                rect: getObstacleRenderRect(obstacle),
-                              }))
-                              .filter(hit => rectIntersectEps(tableRect, hit.rect))
-                          : [];
-                      const isOverlappingObstacle = obstacleHits.length > 0;
-                      return (
-                        <div
-                          key={table.id}
-                          // Drag root must stay non-relative to preserve pointer math.
-                          className={`absolute flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800 select-none touch-none ${
-                            floorplanMode === 'edit' ? 'cursor-grab active:cursor-grabbing' : ''
-                          }`}
-                          data-seating-table-root="1"
-                          data-seating-no-deselect="1"
-                          style={{
-                            left: position.x,
-                            top: position.y,
-                            width: geometry.w,
-                            height: geometry.h,
-                            borderRadius: geometry.shape === 'circle' ? geometry.radius : 8,
-                            border: isSelected ? '2px solid #2563eb' : '1px solid #9ca3af',
-                            backgroundColor: resolveTableVisualStyle(tableVisualState),
-                            transform: `rotate(${renderRot}deg)`,
-                            boxShadow: isSelected
-                              ? '0 0 0 3px rgba(59, 130, 246, 0.35)'
-                              : '0 1px 3px rgba(0,0,0,0.1)',
-                            touchAction: 'none',
-                            zIndex: 2,
-                          }}
-                          onClick={event => {
-                            event.stopPropagation();
-                            handleSelectTable(table.id);
-                          }}
-                          onPointerDown={
-                            floorplanMode === 'edit'
-                              ? event => {
-                                  event.stopPropagation();
-                                  handleTablePointerDown(event, table, geometry);
-                                }
-                              : event => {
-                                  event.stopPropagation();
-                                }
-                          }
-                          onPointerMove={
-                            floorplanMode === 'edit' ? handleTablePointerMove : undefined
-                          }
-                          onPointerUp={floorplanMode === 'edit' ? handleTablePointerUp : undefined}
-                          onPointerCancel={
-                            floorplanMode === 'edit' ? handleTablePointerCancel : undefined
-                          }
-                          onLostPointerCapture={
-                            floorplanMode === 'edit' ? handleLostPointerCapture : undefined
-                          }
-                        >
-                          <div className="relative h-full w-full" style={{ pointerEvents: 'none' }}>
-                            {isSelected && !table.locked && floorplanMode === 'edit' && (
-                              <>
-                                <span
-                                  className="absolute left-1/2 -top-3 h-3 w-px -translate-x-1/2 bg-gray-300"
-                                  aria-hidden="true"
-                                />
-                                <button
-                                  type="button"
-                                  data-seating-no-deselect="1"
-                                  className="absolute left-1/2 -top-6 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm"
-                                  style={{ touchAction: 'none', pointerEvents: 'auto', zIndex: 40 }}
-                                  onPointerDown={event => {
-                                    if (!activeFloorplan) return;
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    if (recenterRafIdRef.current !== null) {
-                                      cancelAnimationFrame(recenterRafIdRef.current);
-                                      recenterRafIdRef.current = null;
-                                    }
-                                    event.currentTarget.setPointerCapture?.(event.pointerId);
-                                    handleSelectTable(table.id);
-                                    if (debugSeating) {
-                                      requestDebugFlush(null);
-                                    }
-                                    const centerX = position.x + geometry.w / 2;
-                                    const centerY = position.y + geometry.h / 2;
-                                    const { rect: dragRect, transform: dragTransform } =
-                                      getActivePointerTransform();
-                                    const pointer = mapClientToFloorplanUsingTransform(
-                                      event.clientX,
-                                      event.clientY,
-                                      dragTransform,
-                                      dragRect
-                                    );
-                                    if (!pointer) {
-                                      return;
-                                    }
-                                    const startAngle =
-                                      Math.atan2(pointer.y - centerY, pointer.x - centerX) *
-                                      (180 / Math.PI);
-                                    setDragState({
-                                      tableId: table.id,
-                                      pointerId: event.pointerId,
-                                      pointerTarget: event.currentTarget,
-                                      pointerStartClientX: event.clientX,
-                                      pointerStartClientY: event.clientY,
-                                      pointerStartFloorX: pointer.x,
-                                      pointerStartFloorY: pointer.y,
-                                      dragStartTransform: dragTransform,
-                                      dragStartRect: dragRect,
-                                      dragStartScale: safeScale(dragTransform.scale),
-                                      tableStartX: position.x,
-                                      tableStartY: position.y,
-                                      width: geometry.w,
-                                      height: geometry.h,
-                                      boundW: geometry.w,
-                                      boundH: geometry.h,
-                                      mode: 'rotate',
-                                      tableStartRot: renderRot,
-                                      rotStartAngleDeg: startAngle,
-                                      rotCenterX: centerX,
-                                      rotCenterY: centerY,
-                                      floorplanWidth: floorplanW,
-                                      floorplanHeight: floorplanH,
-                                      gridSize: editorGridSize,
-                                      snapToGrid: table.snapToGrid ?? false,
-                                    });
-                                    registerWindowTableDragListeners();
-                                    setLastSavedRot(current =>
-                                      current[table.id] !== undefined
-                                        ? current
-                                        : { ...current, [table.id]: renderRot }
-                                    );
-                                  }}
-                                  onPointerMove={handleTablePointerMove}
-                                  onPointerUp={handleTablePointerUp}
-                                  onPointerCancel={handleTablePointerCancel}
-                                  onLostPointerCapture={handleLostPointerCapture}
-                                >
-                                  <span className="h-1 w-1 rounded-full bg-gray-500" />
-                                </button>
-                              </>
-                            )}
-                            {isOverlappingObstacle && (
-                              <span className="absolute -top-2 -right-2 rounded bg-amber-200 px-1 text-[9px] text-amber-800">
-                                !
-                              </span>
-                            )}
-                            {debugSeating && isOverlappingObstacle && (
-                              <>
-                                <div
-                                  className="pointer-events-none absolute border border-dashed border-amber-500"
-                                  style={{
-                                    left: tableRect.x,
-                                    top: tableRect.y,
-                                    width: tableRect.w,
-                                    height: tableRect.h,
-                                  }}
-                                />
-                                {obstacleHits.map(hit => (
-                                  <div
-                                    key={`overlap-${table.id}-${hit.id}`}
-                                    className="pointer-events-none absolute border border-dashed border-rose-500"
-                                    style={{
-                                      left: hit.rect.x,
-                                      top: hit.rect.y,
-                                      width: hit.rect.w,
-                                      height: hit.rect.h,
-                                    }}
-                                  />
-                                ))}
-                              </>
-                            )}
-                            {table.name}
-                            <div className="flex gap-1 mt-1">
-                              {table.locked && (
-                                <span className="px-1 rounded bg-gray-200 text-[9px]">🔒</span>
-                              )}
-                              {table.canCombine && (
-                                <span className="px-1 rounded bg-amber-200 text-[9px]">COMB</span>
-                              )}
-                              {isSaving && (
-                                <span className="px-1 rounded bg-blue-100 text-[9px]">
-                                  Saving...
-                                </span>
-                              )}
-                              {isSelected && (
-                                <span className="px-1 rounded bg-gray-100 text-[9px]">
-                                  {Math.round(renderRot)}°
-                                </span>
-                              )}
-                            </div>
-                            {isSelected && !table.locked && (
-                              <div className="flex gap-1 mt-1">
-                                <button
-                                  type="button"
-                                  data-seating-no-deselect="1"
-                                  className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    const step = 5;
-                                    applyRotationDelta(table.id, renderRot, -step);
-                                    lastRotateActionRef.current = { t: Date.now() };
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
-                                >
-                                  ↺
-                                </button>
-                                <button
-                                  type="button"
-                                  data-seating-no-deselect="1"
-                                  className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    const step = 5;
-                                    applyRotationDelta(table.id, renderRot, step);
-                                    lastRotateActionRef.current = { t: Date.now() };
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
-                                >
-                                  ↻
-                                </button>
-                                <button
-                                  type="button"
-                                  data-seating-no-deselect="1"
-                                  className="px-1 rounded bg-gray-100 text-[9px]"
-                                  style={{ pointerEvents: 'auto', zIndex: 30, touchAction: 'none' }}
-                                  onPointerDown={event => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    applyRotationAbsolute(table.id, 0);
-                                    lastRotateActionRef.current = { t: Date.now() };
-                                  }}
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                  }}
-                                >
-                                  Reset
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <FloorplanWorldLayer
-                      tables={tablesForWorldLayer}
-                      obstacles={activeObstacles}
-                      floorplanDims={floorplanDims}
-                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-                      seatUI={{
-                        preview: floorplanMode === 'view',
-                        editable: floorplanMode === 'edit',
-                        onAddSeat: handleAddSeat,
-                        onRemoveSeat: handleRemoveSeat,
-                        debug: debugEnabled,
-                        debugMode: floorplanMode,
-                        debugSelectedTableId: selectedTableId,
-                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
-                        debugSelectedTableKey: selectedTableKey,
-                        uiScale: activeFloorplanTransform.scale,
-                      }}
-                      appearance={{
-                        showCapacity: false,
-                        renderTableBody: false,
-                        renderObstacles: false,
-                        isSelected: t => t.id === selectedTableKey,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-              </div>
-            ) : (
-              <div onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
-                <FloorplanViewportCanvas
-                  ref={viewportCanvasRef}
-                  floorplanDims={floorplanDims}
-                  debugEnabled={debugEnabled}
-                  viewportDeps={[resolvedActiveFloorplanId]}
-                  debugOverlay={context => (
-                    <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-                      <div>
-                        dims: {Math.round(context.floorplanDims.width)}×
-                        {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
-                      </div>
-                      <div>
-                        viewport: {Math.round(context.viewportRect.width)}×
-                        {Math.round(context.viewportRect.height)}
-                      </div>
-                      <div>
-                        scale: {context.transform.scale.toFixed(3)} | offset:{' '}
-                        {context.transform.offsetX.toFixed(1)},{' '}
-                        {context.transform.offsetY.toFixed(1)} | ready:{' '}
-                        {context.transform.ready ? 'yes' : 'no'}
-                      </div>
-                      <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-                      <div>mode: view</div>
-                      {debugRawGeometry && (
-                        <div>
-                          raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                          {debugRawGeometry.rot.toFixed(1)}
-                        </div>
-                      )}
-                      {sampleTableGeometry && (
-                        <div>
-                          floor: {sampleTableGeometry.x.toFixed(1)},
-                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
-                          {sampleTableGeometry.h.toFixed(1)} r
-                          {sampleTableGeometry.rot.toFixed(1)}
-                        </div>
-                      )}
-                      {sampleTableRender && (
-                        <div>
-                          render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                          {sampleTableRender.rot.toFixed(1)}
-                        </div>
-                      )}
-                      {debugTableRows.length > 0 && (
-                        <div className="mt-1 space-y-1">
-                          {debugTableRows.map(row => (
-                            <div key={`dbg-view-${row.id}`}>
-                              t:{' '}
-                              {row.name ? `${row.name} ` : ''}
-                              {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
-                              {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
-                              {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
-                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
-                              {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  renderOverlay={context =>
-                    selectedTableKey ? renderSelectedTablePopover(context.transform) : null
-                  }
-                  renderWorld={context => (
-                    <FloorplanWorldLayer
-                      tables={tablesForWorldLayer}
-                      obstacles={activeObstacles}
-                      floorplanDims={floorplanDims}
-                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-                      seatUI={{
-                        preview: floorplanMode === 'view',
-                        editable: floorplanMode === 'edit',
-                        onAddSeat: handleAddSeat,
-                        onRemoveSeat: handleRemoveSeat,
-                        debug: debugEnabled,
-                        debugMode: floorplanMode,
-                        debugSelectedTableId: selectedTableId,
-                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
-                        debugSelectedTableKey: selectedTableKey,
-                        uiScale: context.transform.scale,
-                      }}
-                      appearance={{
-                        showCapacity: true,
-                        isSelected: t => t.id === selectedTableKey,
-                      }}
-                    />
-                  )}
-                />
-              </div>
-            )}
-          </div>
-        )}
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="border rounded-lg p-3 text-sm space-y-3">
             <h4 className="font-semibold">Kiválasztott asztal</h4>
@@ -6791,15 +7404,46 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       footer={footerContent}
     >
       <RuntimeErrorOverlay enabled={errorOverlayEnabled} />
-      <PillPanelLayout
-        sections={tabs}
-        activeId={activeTab}
-        onChange={setActiveTab}
-        onKeyDown={handleTabsKeyDown}
-        ariaLabel="Ültetés beállítások szakaszok"
-        idPrefix="seating"
-        renderPanel={renderActivePanel}
-      />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+              onClick={handleQuickTableDraft}
+              disabled={!activeFloorplan}
+            >
+              + Asztal hozzáadása
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
+              onClick={() => setAdvancedOpen(open => !open)}
+            >
+              {advancedOpen ? 'Haladó beállítások elrejtése' : 'Haladó beállítások'}
+            </button>
+          </div>
+          {comboMode.active && (
+            <div className="text-xs text-emerald-700">
+              Összetolható mód aktív: kattints más asztalokra a kijelöléshez.
+            </div>
+          )}
+        </div>
+        {renderFloorplanEditorSection()}
+        {advancedOpen && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4">
+            <PillPanelLayout
+              sections={tabs}
+              activeId={activeTab}
+              onChange={setActiveTab}
+              onKeyDown={handleTabsKeyDown}
+              ariaLabel="Ültetés beállítások szakaszok"
+              idPrefix="seating"
+              renderPanel={renderActivePanel}
+            />
+          </div>
+        )}
+      </div>
     </ModalShell>
   );
 };
