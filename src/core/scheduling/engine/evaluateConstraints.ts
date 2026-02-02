@@ -5,6 +5,7 @@ import {
 } from '../rules/constraints/minCoverageByPosition';
 import { evaluateMaxHoursPerDay } from '../rules/constraints/maxHoursPerDay';
 import { evaluateMinRestHoursBetweenShifts } from '../rules/constraints/minRestHoursBetweenShifts';
+import { buildViolationAffectedKey } from './violationUtils';
 
 export const evaluateConstraints = (
   input: EngineInput,
@@ -55,23 +56,12 @@ export const evaluateConstraints = (
     }
   }));
 
-  const affectedKey = (violation: ConstraintViolation) => {
-    const affected = violation.affected;
-    return [
-      affected.positionId ?? '',
-      (affected.userIds || []).join(','),
-      (affected.shiftIds || []).join(','),
-      (affected.dateKeys || []).join(','),
-      (affected.slots || []).join(',')
-    ].join('|');
-  };
-
   return normalized.sort((a, b) => {
     const severityDiff =
       severityRank[b.severity] - severityRank[a.severity];
     if (severityDiff !== 0) return severityDiff;
     const constraintDiff = a.constraintId.localeCompare(b.constraintId);
     if (constraintDiff !== 0) return constraintDiff;
-    return affectedKey(a).localeCompare(affectedKey(b));
+    return buildViolationAffectedKey(a).localeCompare(buildViolationAffectedKey(b));
   });
 };
