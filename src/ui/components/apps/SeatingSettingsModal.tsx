@@ -2,6 +2,7 @@ import { FirebaseError } from 'firebase/app';
 import { collection, deleteField, doc, getDoc, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { auth, db, functions } from '../../../core/firebase/config';
 import {
   Floorplan,
@@ -210,6 +211,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const lastSavedSettingsRef = useRef<SeatingSettings | null>(null);
   const viewportCanvasRef = useRef<FloorplanViewportHandle | null>(null);
+  const floorplanContainerRef = useRef<HTMLDivElement | null>(null);
   const normalizedSettingsRef = useRef<SeatingSettings | null>(null);
   const [actionSaving, setActionSaving] = useState<Record<string, boolean>>({});
   const actionSavingRef = useRef<Record<string, boolean>>({});
@@ -542,7 +544,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     snapToGrid: true,
     locked: false,
   });
-  const [tableCreateDraft, setTableCreateDraft] = useState<Table | null>(null);
+  type TableDraft = Table & { isNewDraft?: boolean };
+  const [tableCreateDraft, setTableCreateDraft] = useState<TableDraft | null>(null);
   const [tableQuickForm, setTableQuickForm] = useState<{
     name: string;
     minCapacity: number;
@@ -2429,12 +2432,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const h = 80;
     const startX = Math.max(0, (floorplanW - w) / 2);
     const startY = Math.max(0, (floorplanH - h) / 2);
-    const draft: Table = {
+    const draft: TableDraft = {
       id,
       name: '',
       zoneId: defaultZoneId,
       minCapacity: 2,
       capacityMax: 4,
+      capacityTotal: 4,
+      sideCapacities: defaultSideCapacities(4),
       isActive: true,
       canSeatSolo: false,
       floorplanId: activeFloorplan.id,
@@ -2447,6 +2452,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       snapToGrid: false,
       locked: false,
       combinableWithIds: [],
+      isNewDraft: true,
     };
     setTableCreateDraft(draft);
     setTableQuickForm({
@@ -2460,7 +2466,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setTableQuickError(null);
     setSelectedTableId(id);
     setViewportMode('selected');
-  }, [activeFloorplan, defaultZoneId, floorplanH, floorplanW]);
+  }, [activeFloorplan, defaultSideCapacities, defaultZoneId, floorplanH, floorplanW]);
 
   const updateQuickTableDraft = useCallback(
     (patch: Partial<NonNullable<typeof tableQuickForm>>) => {
@@ -2872,6 +2878,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   const viewportRect = useViewportRect(floorplanViewportRef, {
+    retryFrames: 80,
+    deps: [resolvedActiveFloorplanId, floorplanMode],
+  });
+  const floorplanContainerRect = useViewportRect(floorplanContainerRef, {
     retryFrames: 80,
     deps: [resolvedActiveFloorplanId, floorplanMode],
   });
@@ -5553,6 +5563,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string,
     side: 'north' | 'east' | 'south' | 'west' | 'radial'
   ) => {
+    if (tableCreateDraft?.id === tableId) {
+      setTableCreateDraft(curr => {
+        if (!curr || curr.id !== tableId) return curr;
+        return applySeatAdjustmentToDraft(curr, side, 1);
+      });
+      return;
+    }
     setSelectedTableDraft(curr => {
       if (!curr || curr.id !== tableId) return curr;
 
@@ -5605,6 +5622,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     tableId: string,
     side: 'north' | 'east' | 'south' | 'west' | 'radial'
   ) => {
+    if (tableCreateDraft?.id === tableId) {
+      setTableCreateDraft(curr => {
+        if (!curr || curr.id !== tableId) return curr;
+        return applySeatAdjustmentToDraft(curr, side, -1);
+      });
+      return;
+    }
     setSelectedTableDraft(curr => {
       if (!curr || curr.id !== tableId) return curr;
 
@@ -5652,6 +5676,50 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       };
     });
   };
+
+  function applySeatAdjustmentToDraft(
+    draft: TableDraft,
+    side: 'north' | 'east' | 'south' | 'west' | 'radial',
+    delta: number
+  ) {
+    const shape = draft.shape === 'circle' ? 'circle' : 'rect';
+    const currentSeatLayout = draft.seatLayout;
+    if (shape === 'circle') {
+      const current = currentSeatLayout?.kind === 'circle' ? currentSeatLayout.count : 0;
+      const next = Math.max(0, Math.min(16, current + delta));
+      const nextSeatLayout = { kind: 'circle', count: next } as const;
+      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+        nextSeatLayout,
+        draft.sideCapacities ?? defaultSideCapacities(next)
+      );
+      return {
+        ...draft,
+        seatLayout: nextSeatLayout,
+        sideCapacities: nextSideCapacities,
+        capacityTotal: next,
+      };
+    }
+    if (side === 'radial') return draft;
+    const sides =
+      currentSeatLayout?.kind === 'rect'
+        ? { ...(currentSeatLayout.sides ?? {}) }
+        : { north: 0, east: 0, south: 0, west: 0 };
+    const current = Number((sides as any)[side] ?? 0);
+    const nextSide = Math.max(0, Math.min(3, current + delta));
+    (sides as any)[side] = nextSide;
+    const nextSeatLayout = { kind: 'rect', sides } as const;
+    const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+      nextSeatLayout,
+      draft.sideCapacities ?? defaultSideCapacities(draft.capacityTotal ?? 0)
+    );
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+    return {
+      ...draft,
+      seatLayout: nextSeatLayout,
+      sideCapacities: nextSideCapacities,
+      capacityTotal: nextCapacityTotal,
+    };
+  }
   
   const renderSelectedTablePopover = (transform: {
     scale: number;
@@ -5669,14 +5737,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const position = getRenderPosition(selectedEditorTable, geometry);
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const screenX = centerX * transform.scale + transform.offsetX + 12;
-    const screenY = centerY * transform.scale + transform.offsetY - 12;
-    return (
-      <div className="pointer-events-none absolute inset-0 z-[12]">
+    const screenX = centerX * transform.scale + transform.offsetX + 12 + floorplanContainerRect.left;
+    const screenY = centerY * transform.scale + transform.offsetY - 12 + floorplanContainerRect.top;
+    const popover = (
+      <div className="pointer-events-none fixed inset-0 z-[80]">
         <div
           className="pointer-events-auto rounded border border-gray-200 bg-white/95 px-3 py-2 text-[11px] shadow"
           data-seating-no-deselect="1"
-          style={{ position: 'absolute', left: screenX, top: screenY }}
+          style={{ position: 'fixed', left: screenX, top: screenY }}
         >
           <div className="font-semibold">
             {selectedEditorTable.name || selectedEditorTable.id}
@@ -5750,6 +5818,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </div>
     );
+    return typeof document === 'undefined' ? popover : createPortal(popover, document.body);
   };
 
   const renderQuickTablePopover = (transform: {
@@ -5767,14 +5836,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const position = getRenderPosition(tableCreateDraft, geometry);
     const centerX = position.x + geometry.w / 2;
     const centerY = position.y + geometry.h / 2;
-    const screenX = centerX * transform.scale + transform.offsetX + 12;
-    const screenY = centerY * transform.scale + transform.offsetY - 12;
-    return (
-      <div className="pointer-events-none absolute inset-0 z-[12]">
+    const screenX = centerX * transform.scale + transform.offsetX + 12 + floorplanContainerRect.left;
+    const screenY = centerY * transform.scale + transform.offsetY - 12 + floorplanContainerRect.top;
+    const popover = (
+      <div className="pointer-events-none fixed inset-0 z-[80]">
         <div
           className="pointer-events-auto w-64 rounded border border-blue-200 bg-white/95 px-3 py-2 text-[11px] shadow"
           data-seating-no-deselect="1"
-          style={{ position: 'absolute', left: screenX, top: screenY }}
+          style={{ position: 'fixed', left: screenX, top: screenY }}
         >
           <div className="font-semibold">Új asztal</div>
           <div className="mt-2 grid gap-2">
@@ -5896,6 +5965,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         </div>
       </div>
     );
+    return typeof document === 'undefined' ? popover : createPortal(popover, document.body);
   };
 
   const renderFloorplanEditorSection = () => (
@@ -6124,8 +6194,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </p>
               </div>
             )}
-          {isEditMode ? (
-            <div className="w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0">
+          <div
+            ref={floorplanContainerRef}
+            className="relative w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0 pb-14"
+          >
+            {isEditMode ? (
               <div
                 ref={floorplanViewportRef}
                 className={`relative h-full w-full min-w-0 min-h-0 border border-gray-200 rounded-xl bg-white/80 ${
@@ -6701,107 +6774,126 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
-              <FloorplanViewportCanvas
-                ref={viewportCanvasRef}
-                floorplanDims={floorplanDims}
-                debugEnabled={debugEnabled}
-                viewportDeps={[resolvedActiveFloorplanId]}
-                debugOverlay={context => (
-                  <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
-                    <div>
-                      dims: {Math.round(context.floorplanDims.width)}×
-                      {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
-                    </div>
-                    <div>
-                      viewport: {Math.round(context.viewportRect.width)}×
-                      {Math.round(context.viewportRect.height)}
-                    </div>
-                    <div>
-                      scale: {context.transform.scale.toFixed(3)} | offset:{' '}
-                      {context.transform.offsetX.toFixed(1)},{' '}
-                      {context.transform.offsetY.toFixed(1)} | ready:{' '}
-                      {context.transform.ready ? 'yes' : 'no'}
-                    </div>
-                    <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-                    <div>mode: view</div>
-                    {debugRawGeometry && (
+            ) : (
+              <div className="h-full w-full" onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
+                <FloorplanViewportCanvas
+                  ref={viewportCanvasRef}
+                  floorplanDims={floorplanDims}
+                  debugEnabled={debugEnabled}
+                  viewportDeps={[resolvedActiveFloorplanId]}
+                  debugOverlay={context => (
+                    <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                       <div>
-                        raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
-                        {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
-                        {debugRawGeometry.rot.toFixed(1)}
+                        dims: {Math.round(context.floorplanDims.width)}×
+                        {Math.round(context.floorplanDims.height)} ({context.floorplanDims.source})
                       </div>
-                    )}
-                    {sampleTableGeometry && (
                       <div>
-                        floor: {sampleTableGeometry.x.toFixed(1)},
-                        {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
-                        {sampleTableGeometry.h.toFixed(1)} r
-                        {sampleTableGeometry.rot.toFixed(1)}
+                        viewport: {Math.round(context.viewportRect.width)}×
+                        {Math.round(context.viewportRect.height)}
                       </div>
-                    )}
-                    {sampleTableRender && (
                       <div>
-                        render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
-                        {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
-                        {sampleTableRender.rot.toFixed(1)}
+                        scale: {context.transform.scale.toFixed(3)} | offset:{' '}
+                        {context.transform.offsetX.toFixed(1)},{' '}
+                        {context.transform.offsetY.toFixed(1)} | ready:{' '}
+                        {context.transform.ready ? 'yes' : 'no'}
                       </div>
-                    )}
-                    {debugTableRows.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {debugTableRows.map(row => (
-                          <div key={`dbg-view-${row.id}`}>
-                            t:{' '}
-                            {row.name ? `${row.name} ` : ''}
-                            {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
-                            {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
-                            {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
-                            {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
-                            {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                renderOverlay={context => (
-                  <>
-                    {renderQuickTablePopover(context.transform)}
-                    {selectedTableKey ? renderSelectedTablePopover(context.transform) : null}
-                  </>
-                )}
-                renderWorld={context => (
-                  <FloorplanWorldLayer
-                    tables={tablesForWorldLayer}
-                    obstacles={activeObstacles}
-                    floorplanDims={floorplanDims}
-                    tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-                    seatUI={{
-                      preview: floorplanMode === 'view',
-                      editable: floorplanMode === 'edit' && !comboMode.active,
-                      onAddSeat: handleAddSeat,
-                      onRemoveSeat: handleRemoveSeat,
-                      debug: debugEnabled,
-                      debugMode: floorplanMode,
-                      debugSelectedTableId: selectedTableId,
-                      debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
-                      debugSelectedTableKey: selectedTableKey,
-                      uiScale: context.transform.scale,
-                    }}
-                    appearance={{
-                      showCapacity: true,
-                      isSelected: t =>
-                        comboMode.active ? comboHighlightSet.has(t.id) : t.id === selectedTableKey,
-                      hasConflict: t => comboMode.active && comboConflictIds.has(t.id),
-                      selectionColor: comboMode.active ? '#16a34a' : undefined,
-                    }}
-                  />
-                )}
-              />
-            </div>
-          )}
+                      <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                      <div>mode: view</div>
+                      {debugRawGeometry && (
+                        <div>
+                          raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                          {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                          {debugRawGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableGeometry && (
+                        <div>
+                          floor: {sampleTableGeometry.x.toFixed(1)},
+                          {sampleTableGeometry.y.toFixed(1)} {sampleTableGeometry.w.toFixed(1)}×
+                          {sampleTableGeometry.h.toFixed(1)} r
+                          {sampleTableGeometry.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {sampleTableRender && (
+                        <div>
+                          render: {sampleTableRender.x.toFixed(1)},{sampleTableRender.y.toFixed(1)}{' '}
+                          {sampleTableRender.w.toFixed(1)}×{sampleTableRender.h.toFixed(1)} r
+                          {sampleTableRender.rot.toFixed(1)}
+                        </div>
+                      )}
+                      {debugTableRows.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {debugTableRows.map(row => (
+                            <div key={`dbg-view-${row.id}`}>
+                              t:{' '}
+                              {row.name ? `${row.name} ` : ''}
+                              {row.raw.x.toFixed(1)},{row.raw.y.toFixed(1)}{' '}
+                              {row.raw.w.toFixed(1)}×{row.raw.h.toFixed(1)} r
+                              {row.raw.rot.toFixed(1)} → {row.floor.x.toFixed(1)},
+                              {row.floor.y.toFixed(1)} {row.floor.w.toFixed(1)}×
+                              {row.floor.h.toFixed(1)} r{row.floor.rot.toFixed(1)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  renderOverlay={context => (
+                    <>
+                      {renderQuickTablePopover(context.transform)}
+                      {selectedTableKey ? renderSelectedTablePopover(context.transform) : null}
+                    </>
+                  )}
+                  renderWorld={context => (
+                    <FloorplanWorldLayer
+                      tables={tablesForWorldLayer}
+                      obstacles={activeObstacles}
+                      floorplanDims={floorplanDims}
+                      tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                      seatUI={{
+                        preview: floorplanMode === 'view',
+                        editable: floorplanMode === 'edit' && !comboMode.active,
+                        onAddSeat: handleAddSeat,
+                        onRemoveSeat: handleRemoveSeat,
+                        debug: debugEnabled,
+                        debugMode: floorplanMode,
+                        debugSelectedTableId: selectedTableId,
+                        debugSelectedTableDraftId: selectedTableDraft?.id ?? null,
+                        debugSelectedTableKey: selectedTableKey,
+                        uiScale: context.transform.scale,
+                      }}
+                      appearance={{
+                        showCapacity: true,
+                        isSelected: t =>
+                          comboMode.active ? comboHighlightSet.has(t.id) : t.id === selectedTableKey,
+                        hasConflict: t => comboMode.active && comboConflictIds.has(t.id),
+                        selectionColor: comboMode.active ? '#16a34a' : undefined,
+                      }}
+                    />
+                  )}
+                />
+              </div>
+            )}
+          </div>
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-xs text-gray-600 shadow-sm">
+            <span>
+              {isSaving
+                ? 'Mentés folyamatban...'
+                : isDirty
+                ? 'Nem mentett változások'
+                : 'Minden mentve'}
+            </span>
+            <button
+              type="button"
+              onClick={event => handleActionButtonClick(event, handleSettingsSave)}
+              className={`rounded-lg px-3 py-1.5 text-xs disabled:opacity-50 ${
+                canSave ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+              }`}
+              disabled={!canSave}
+            >
+              {saveLabel}
+            </button>
+          </div>
         </div>
       )}
     </section>
