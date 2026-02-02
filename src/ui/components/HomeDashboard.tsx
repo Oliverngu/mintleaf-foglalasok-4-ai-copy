@@ -51,6 +51,19 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
     { id: 'bookings', visible: true, order: 8 },
 ];
 
+const toSafeDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'number') return new Date(value);
+
+  const maybeTimestamp = value as { toDate?: () => Date };
+  if (typeof maybeTimestamp.toDate === 'function') {
+    return maybeTimestamp.toDate();
+  }
+
+  return null;
+};
+
 const HomeDashboard: React.FC<HomeDashboardProps> = ({
   currentUser,
   requests,
@@ -185,7 +198,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     tomorrow.setDate(today.getDate() + 1);
 
     return filteredSchedule.filter(s => {
-      const shiftDate = s.start.toDate();
+      const shiftDate = toSafeDate(s.start);
+      if (!shiftDate) return false;
       return shiftDate >= today && shiftDate < tomorrow;
     });
   }, [filteredSchedule]);
@@ -193,8 +207,18 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const upcomingShift = useMemo(() => {
     const now = new Date();
     return todayShifts
-      .filter(s => s.userId === currentUser.id && s.start.toDate() > now)
-      .sort((a, b) => a.start.toMillis() - b.start.toMillis())[0];
+      .filter(s => {
+        const startDate = toSafeDate(s.start);
+        return Boolean(startDate && s.userId === currentUser.id && startDate > now);
+      })
+      .sort((a, b) => {
+        const aStart = toSafeDate(a.start);
+        const bStart = toSafeDate(b.start);
+        if (!aStart && !bStart) return 0;
+        if (!aStart) return 1;
+        if (!bStart) return -1;
+        return aStart.getTime() - bStart.getTime();
+      })[0];
   }, [todayShifts, currentUser.id]);
 
   const openRequests = useMemo(() => filteredRequests.filter(r => r.status === 'pending'), [filteredRequests]);
