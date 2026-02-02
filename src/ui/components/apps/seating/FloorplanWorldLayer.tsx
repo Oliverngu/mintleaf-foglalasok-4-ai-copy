@@ -28,6 +28,7 @@ type TableAppearance = {
   isSelected?: (table: Table) => boolean;
   isRecommended?: (table: Table) => boolean;
   hasConflict?: (table: Table) => boolean;
+  selectionColor?: string;
   showCapacity?: boolean;
   renderTableBody?: boolean;
   renderObstacles?: boolean;
@@ -88,6 +89,7 @@ const FloorplanWorldLayer: React.FC<Props> = ({
   const isSelected = appearance?.isSelected ?? (() => false);
   const isRecommended = appearance?.isRecommended ?? (() => false);
   const hasConflict = appearance?.hasConflict ?? (() => false);
+  const selectionColor = appearance?.selectionColor ?? 'var(--color-primary)';
   const showCapacity = appearance?.showCapacity ?? false;
   const renderTableBody = appearance?.renderTableBody ?? true;
   const renderObstacles = appearance?.renderObstacles ?? true;
@@ -446,18 +448,18 @@ const FloorplanWorldLayer: React.FC<Props> = ({
 
               {renderTableBody && (
                 <div
-                  className={[
-                    'absolute inset-0 flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800',
-                    selected ? 'ring-2 ring-[var(--color-primary)]' : '',
-                  ].join(' ')}
+                  className="absolute inset-0 flex flex-col items-center justify-center text-[10px] font-semibold text-gray-800"
                   style={{
                     pointerEvents: seatEditable ? 'none' : 'auto',
                     borderRadius: tableRadius,
                     border: '2px solid rgba(148, 163, 184, 0.6)',
                     backgroundColor: renderStatusColor(status),
                     boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                    outline: recommended ? '2px dashed rgba(251, 191, 36, 0.9)' : undefined,
-                    outlineOffset: recommended ? 2 : undefined,
+                    outline: selected ? `2px solid ${selectionColor}` : undefined,
+                    outlineOffset: selected ? 2 : undefined,
+                    ...(recommended
+                      ? { outline: `2px dashed rgba(22, 163, 74, 0.9)`, outlineOffset: 2 }
+                      : null),
                   }}
                   data-seating-no-deselect="1"
                 >
