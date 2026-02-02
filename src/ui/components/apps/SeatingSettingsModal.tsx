@@ -1095,13 +1095,76 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
   );
+  const tableMetaDirty = useMemo(() => {
+    if (!selectedTableDraft || !selectedTable) return false;
+    const normalizeNumber = (value: number) =>
+      Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    const normalizeSeatLayout = (seatLayout?: Table['seatLayout']) =>
+      isSeatLayoutEmpty(seatLayout) ? undefined : seatLayout;
+    const normalizedDraftSeatLayout = normalizeSeatLayout(selectedTableDraft.seatLayout);
+    const normalizedTableSeatLayout = normalizeSeatLayout(selectedTable.seatLayout);
+    const seatLayoutMatches =
+      JSON.stringify(normalizedDraftSeatLayout ?? null) ===
+      JSON.stringify(normalizedTableSeatLayout ?? null);
+    const draftCapacityTotal = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? normalizeNumber(selectedTableDraft.capacityTotal)
+      : normalizeNumber(computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout));
+    const tableCapacityTotal = normalizeNumber(selectedTable.capacityTotal ?? 0);
+    const draftSideCapSource = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? selectedTableDraft.sideCapacities
+      : deriveSideCapacitiesFromSeatLayout(
+          selectedTableDraft.seatLayout,
+          selectedTableDraft.sideCapacities
+        );
+    const normalizedDraftSideCaps = {
+      north: normalizeNumber(draftSideCapSource.north),
+      east: normalizeNumber(draftSideCapSource.east),
+      south: normalizeNumber(draftSideCapSource.south),
+      west: normalizeNumber(draftSideCapSource.west),
+    };
+    const tableSideCapSource = selectedTable.sideCapacities ?? {
+      north: 0,
+      east: 0,
+      south: 0,
+      west: 0,
+    };
+    const normalizedTableSideCaps = {
+      north: normalizeNumber(tableSideCapSource.north),
+      east: normalizeNumber(tableSideCapSource.east),
+      south: normalizeNumber(tableSideCapSource.south),
+      west: normalizeNumber(tableSideCapSource.west),
+    };
+    const sideCapsMatch =
+      normalizedDraftSideCaps.north === normalizedTableSideCaps.north &&
+      normalizedDraftSideCaps.east === normalizedTableSideCaps.east &&
+      normalizedDraftSideCaps.south === normalizedTableSideCaps.south &&
+      normalizedDraftSideCaps.west === normalizedTableSideCaps.west;
+    const normalizeCombinable = (ids: string[], selfId: string) =>
+      Array.from(new Set(ids.filter(id => id !== selfId))).sort();
+    const draftCombinable = normalizeCombinable(
+      selectedTableDraft.combinableWithIds ?? [],
+      selectedTableDraft.id
+    );
+    const tableCombinable = normalizeCombinable(
+      selectedTable.combinableWithIds ?? [],
+      selectedTable.id
+    );
+    const combinableMatch =
+      draftCombinable.length === tableCombinable.length &&
+      draftCombinable.every((id, index) => id === tableCombinable[index]);
+    return !(
+      seatLayoutMatches &&
+      draftCapacityTotal === tableCapacityTotal &&
+      sideCapsMatch &&
+      combinableMatch
+    );
+  }, [selectedTable, selectedTableDraft]);
   const handleSelectTable = useCallback((tableId: string) => {
     setSelectedTableId(tableId);
   }, []);
   const handleTableClick = useCallback(
     (tableId: string) => {
       if (comboMode.active) {
-        setEditorDirty(true);
         setComboMode(current => {
           if (!current.active) return current;
           if (tableId === current.baseTableId) return current;
@@ -1115,7 +1178,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setSelectedTableId(tableId);
     },
-    [comboMode.active, setEditorDirty]
+    [comboMode.active]
   );
   const handleZoomOutFit = useCallback(() => {
     setViewportMode('fit');
@@ -1826,7 +1889,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const abortDragRef = useRef(abortDrag);
 
-  const isDirty = settingsDirty || editorDirty;
+  const isDirty = settingsDirty;
+  const hasUnsavedChanges = settingsDirty || tableMetaDirty;
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
@@ -1834,7 +1898,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const isSavingNow = Boolean(
       actionSavingRef.current['settings-save'] || actionSaving['settings-save']
     );
-    if (typeof window !== 'undefined' && isDirty && !isSavingNow) {
+    if (typeof window !== 'undefined' && hasUnsavedChanges && !isSavingNow) {
       const ok = window.confirm('Vannak nem mentett változások. Biztos bezárod?');
       if (!ok) {
         return;
@@ -1854,7 +1918,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     actionSavingRef.current = {};
     setActionSaving({});
     onClose();
-  }, [actionSaving, isDirty, onClose]);
+  }, [actionSaving, hasUnsavedChanges, onClose]);
 
   const handleResetChanges = () => {
     if (isSaving || !isDirty) {
@@ -1874,6 +1938,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
     setSettingsDirty(false);
     setEditorDirty(false);
+    setSelectedTableDraft(null);
+    setComboMode({
+      active: false,
+      baseTableId: null,
+      selectedIds: [],
+      snapshotIds: [],
+    });
     setSaveFeedback(null);
     setError(null);
     setSuccess(null);
@@ -2592,7 +2663,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('Előbb válassz ki egy asztalt az összetoláshoz.');
       return;
     }
-    setEditorDirty(true);
     setComboMode({
       active: true,
       baseTableId: selectedTable.id,
@@ -2600,7 +2670,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       snapshotIds: selectedTableDraft.combinableWithIds ?? [],
     });
     handleZoomOutFit();
-  }, [handleZoomOutFit, selectedTable, selectedTableDraft, setEditorDirty]);
+  }, [handleZoomOutFit, selectedTable, selectedTableDraft]);
 
   const exitComboMode = useCallback(
     (nextSelection?: string[], baseTableId?: string | null) => {
@@ -2636,7 +2706,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleComboSave = useCallback(async () => {
     if (!comboMode.baseTableId) return;
-    setEditorDirty(true);
     const selectedIds = comboMode.selectedIds.filter(id => id !== comboMode.baseTableId);
     await runAction({
       key: `table-combo-${comboMode.baseTableId}`,
@@ -2662,7 +2731,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     comboMode.selectedIds,
     exitComboMode,
     runAction,
-    setEditorDirty,
     unitId,
   ]);
 
@@ -2840,7 +2908,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [handleDeleteTable, handleQuickTableCancel, selectedTableKey, tableCreateDraft?.id]);
 
   function updateDraftPosition(tableId: string, x: number, y: number) {
-    setEditorDirty(true);
     if (rafPosId.current !== null) {
       cancelAnimationFrame(rafPosId.current);
     }
@@ -2854,7 +2921,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   function updateDraftRotation(tableId: string, rot: number) {
-    setEditorDirty(true);
     if (rafRotId.current !== null) {
       cancelAnimationFrame(rafRotId.current);
     }
@@ -4361,7 +4427,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     obstacleId: string,
     next: { x: number; y: number; w: number; h: number }
   ) => {
-    setEditorDirty(true);
     setDraftObstacles(current => ({
       ...current,
       [obstacleId]: next,
@@ -4551,7 +4616,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!activeFloorplan) {
       return;
     }
-    setEditorDirty(true);
     const previousObstacles = activeObstacles;
     const nextObstacles = activeObstacles.map(obstacle =>
       obstacle.id === obstacleId ? { ...obstacle, ...next } : obstacle
@@ -6077,7 +6141,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
                   onClick={() => {
                     if (!activeFloorplan) return;
-                    setEditorDirty(true);
                     const id =
                       typeof crypto !== 'undefined' && 'randomUUID' in crypto
                         ? crypto.randomUUID()
@@ -6109,7 +6172,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   disabled={!selectedObstacleId}
                   onClick={() => {
                     if (!selectedObstacleId) return;
-                    setEditorDirty(true);
                     const previousObstacles = activeObstacles;
                     const nextObstacles = activeObstacles.filter(
                       obstacle => obstacle.id !== selectedObstacleId
@@ -6920,6 +6982,25 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       strokeLinejoin="round"
                     />
                   </svg>
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 disabled:opacity-50"
+                  onClick={event =>
+                    handleActionButtonClick(event, handleSelectedTableMetadataSave)
+                  }
+                  disabled={
+                    !selectedTableDraft ||
+                    !selectedTable ||
+                    !tableMetaDirty ||
+                    actionSaving[`table-meta-${selectedTableDraft?.id ?? ''}`]
+                  }
+                  aria-label="Asztal mentése"
+                  title="Asztal mentése"
+                >
+                  {actionSaving[`table-meta-${selectedTableDraft?.id ?? ''}`]
+                    ? 'Mentés...'
+                    : 'Asztal mentése'}
                 </button>
               </div>
               {(comboMode.active || selectedTableKey) && (
