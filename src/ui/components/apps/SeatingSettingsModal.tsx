@@ -357,6 +357,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [draftObstacles, setDraftObstacles] = useState<
     Record<string, { x: number; y: number; w: number; h: number }>
   >({});
+  const lastSavedObstaclesRef = useRef<FloorplanObstacle[]>([]);
   const [savingById, setSavingById] = useState<Record<string, boolean>>({});
   const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
     {}
@@ -1080,6 +1081,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => activeFloorplan?.obstacles ?? [],
     [activeFloorplan]
   );
+  useEffect(() => {
+    if (!activeFloorplan) {
+      lastSavedObstaclesRef.current = [];
+      return;
+    }
+    lastSavedObstaclesRef.current = activeFloorplan.obstacles ?? [];
+  }, [activeFloorplan]);
 
   const floorplanDims = useMemo(
     () =>
@@ -1816,6 +1824,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             await updateFloorplan(unitId, activeFloorplan.id, {
               obstacles: nextObstacles,
             });
+            lastSavedObstaclesRef.current = nextObstacles;
           } catch (err) {
             updateActiveFloorplanObstacles(previousObstacles);
             throw err;
@@ -1899,11 +1908,47 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const abortDragRef = useRef(abortDrag);
 
+  const geometryDirty = useMemo(() => {
+    const tableById = new Map(tables.map(table => [table.id, table]));
+    return (
+      Object.entries(draftPositions).some(([tableId, pos]) => {
+        const saved = lastSavedByIdRef.current[tableId];
+        const baseline = saved ?? tableById.get(tableId);
+        if (!baseline) return true;
+        const baselinePos =
+          'x' in baseline && 'y' in baseline ? baseline : { x: baseline.x, y: baseline.y };
+        return baselinePos.x !== pos.x || baselinePos.y !== pos.y;
+      }) ||
+      Object.entries(draftRotations).some(([tableId, rot]) => {
+        const saved = lastSavedRotByIdRef.current[tableId];
+        const baseline = saved ?? tableById.get(tableId)?.rot;
+        return baseline === undefined ? true : baseline !== rot;
+      })
+    );
+  }, [draftPositions, draftRotations, tables]);
+  const obstaclesDirty = useMemo(() => {
+    if (Object.keys(draftObstacles).length > 0) {
+      return true;
+    }
+    if (!activeFloorplan) {
+      return false;
+    }
+    return (
+      JSON.stringify(activeObstacles) !==
+      JSON.stringify(lastSavedObstaclesRef.current)
+    );
+  }, [activeFloorplan, activeObstacles, draftObstacles]);
+
   const isDirty = settingsDirty;
-  const hasUnsavedChanges = settingsDirty || tableMetaDirty;
+  const hasUnsavedChanges =
+    settingsDirty || geometryDirty || tableMetaDirty || obstaclesDirty;
   const isSaving = Boolean(actionSaving['settings-save']);
-  const canSave = isDirty && !isSaving;
-  const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
+  const canSave = hasUnsavedChanges && !isSaving;
+  const saveLabel = isSaving
+    ? 'Mentés...'
+    : hasUnsavedChanges
+    ? 'Mentés'
+    : 'Nincs változás';
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
       actionSavingRef.current['settings-save'] || actionSaving['settings-save']
@@ -1948,6 +1993,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
     setSettingsDirty(false);
     setEditorDirty(false);
+    setDraftPositions({});
+    setDraftRotations({});
+    setDraftObstacles({});
     const selected = selectedTableId
       ? tables.find(table => table.id === selectedTableId) ?? null
       : null;
@@ -2140,6 +2188,157 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorMessage: 'Nem sikerült menteni a beállításokat.',
       errorContext: 'Error saving seating settings:',
       action: async () => {
+        const geometryIds = new Set<string>([
+          ...Object.keys(draftPositions),
+          ...Object.keys(draftRotations),
+        ]);
+        if (geometryIds.size > 0) {
+          const updates = Array.from(geometryIds)
+            .map(tableId => {
+              const payload: Partial<Table> = {};
+              const pos = draftPositions[tableId];
+              if (pos) {
+                payload.x = pos.x;
+                payload.y = pos.y;
+              }
+              const rot = draftRotations[tableId];
+              if (rot !== undefined) {
+                payload.rot = rot;
+              }
+              return Object.keys(payload).length > 0 ? { tableId, payload } : null;
+            })
+            .filter((item): item is { tableId: string; payload: Partial<Table> } => Boolean(item));
+          if (updates.length > 0) {
+            await Promise.all(
+              updates.map(update => updateTable(unitId, update.tableId, update.payload))
+            );
+            setTables(current =>
+              current.map(table => {
+                const update = updates.find(item => item.tableId === table.id);
+                return update ? { ...table, ...update.payload } : table;
+              })
+            );
+            updates.forEach(update => {
+              if (update.payload.x !== undefined && update.payload.y !== undefined) {
+                lastSavedByIdRef.current[update.tableId] = {
+                  x: update.payload.x,
+                  y: update.payload.y,
+                };
+              }
+              if (update.payload.rot !== undefined) {
+                lastSavedRotByIdRef.current[update.tableId] = update.payload.rot;
+              }
+            });
+            setDraftPositions(current => {
+              const next = { ...current };
+              updates.forEach(update => {
+                delete next[update.tableId];
+              });
+              return next;
+            });
+            setDraftRotations(current => {
+              const next = { ...current };
+              updates.forEach(update => {
+                delete next[update.tableId];
+              });
+              return next;
+            });
+          }
+        }
+
+        if (comboMode.active && comboMode.baseTableId) {
+          const selectedIds = comboMode.selectedIds.filter(
+            id => id !== comboMode.baseTableId
+          );
+          await updateTable(unitId, comboMode.baseTableId, {
+            combinableWithIds: selectedIds,
+          });
+          setTables(current =>
+            current.map(table =>
+              table.id === comboMode.baseTableId
+                ? { ...table, combinableWithIds: selectedIds }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== comboMode.baseTableId) return current;
+            return { ...current, combinableWithIds: selectedIds };
+          });
+          setComboMode({
+            active: false,
+            baseTableId: null,
+            selectedIds: [],
+            snapshotIds: [],
+          });
+        }
+
+        if (tableMetaDirty && selectedTableDraft) {
+          const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+          const capacityTotal = seatLayoutEmpty
+            ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
+            : sanitizeCapacityValue(
+                computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
+              );
+          const sideCapSource = seatLayoutEmpty
+            ? selectedTableDraft.sideCapacities
+            : deriveSideCapacitiesFromSeatLayout(
+                selectedTableDraft.seatLayout,
+                selectedTableDraft.sideCapacities
+              );
+          const sideCapacities = {
+            north: sanitizeCapacityValue(sideCapSource.north),
+            east: sanitizeCapacityValue(sideCapSource.east),
+            south: sanitizeCapacityValue(sideCapSource.south),
+            west: sanitizeCapacityValue(sideCapSource.west),
+          };
+          const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
+            id => id !== selectedTableDraft.id
+          );
+          const payload: Record<string, unknown> = {
+            capacityTotal,
+            sideCapacities,
+            combinableWithIds,
+          };
+          if (seatLayoutEmpty) {
+            payload.seatLayout = deleteField();
+          } else if (selectedTableDraft.seatLayout) {
+            payload.seatLayout = selectedTableDraft.seatLayout;
+          }
+          await updateTable(unitId, selectedTableDraft.id, payload);
+          const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
+          setTables(current =>
+            current.map(table =>
+              table.id === selectedTableDraft.id
+                ? {
+                    ...table,
+                    capacityTotal,
+                    sideCapacities,
+                    combinableWithIds,
+                    seatLayout: seatLayoutForState,
+                  }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== selectedTableDraft.id) return current;
+            return {
+              ...current,
+              capacityTotal,
+              sideCapacities,
+              combinableWithIds,
+              seatLayout: seatLayoutForState,
+            };
+          });
+        }
+
+        if (obstaclesDirty && activeFloorplan) {
+          await updateFloorplan(unitId, activeFloorplan.id, {
+            obstacles: activeObstacles,
+          });
+          lastSavedObstaclesRef.current = activeObstacles;
+          setDraftObstacles({});
+        }
+
         const { activeFloorplanId, ...restSettings } = settings;
         const payload: SeatingSettings = {
           ...restSettings,
@@ -2722,31 +2921,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleComboSave = useCallback(async () => {
     if (!comboMode.baseTableId) return;
     const selectedIds = comboMode.selectedIds.filter(id => id !== comboMode.baseTableId);
-    await runAction({
-      key: `table-combo-${comboMode.baseTableId}`,
-      errorMessage: 'Nem sikerült menteni az összetolható asztalokat.',
-      errorContext: 'Error saving combinable tables:',
-      successMessage: 'Összetolható asztalok mentve.',
-      action: async () => {
-        await updateTable(unitId, comboMode.baseTableId, {
-          combinableWithIds: selectedIds,
-        });
-        setTables(current =>
-          current.map(table =>
-            table.id === comboMode.baseTableId
-              ? { ...table, combinableWithIds: selectedIds }
-              : table
-          )
-        );
-      },
-    });
     exitComboMode(selectedIds, comboMode.baseTableId);
   }, [
     comboMode.baseTableId,
     comboMode.selectedIds,
     exitComboMode,
-    runAction,
-    unitId,
   ]);
 
   const handleSelectedTableMetadataSave = async () => {
@@ -6998,25 +7177,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 disabled:opacity-50"
-                  onClick={event =>
-                    handleActionButtonClick(event, handleSelectedTableMetadataSave)
-                  }
-                  disabled={
-                    !selectedTableDraft ||
-                    !selectedTable ||
-                    !tableMetaDirty ||
-                    actionSaving[`table-meta-${selectedTableDraft?.id ?? ''}`]
-                  }
-                  aria-label="Asztal mentése"
-                  title="Asztal mentése"
-                >
-                  {actionSaving[`table-meta-${selectedTableDraft?.id ?? ''}`]
-                    ? 'Mentés...'
-                    : 'Asztal mentése'}
-                </button>
               </div>
               {(comboMode.active || selectedTableKey) && (
                 <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/90 px-2 py-1 text-[11px] text-emerald-700 shadow-sm">
@@ -7372,18 +7532,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={event =>
-                    handleActionButtonClick(event, handleSelectedTableMetadataSave)
-                  }
-                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-50"
-                  disabled={actionSaving[`table-meta-${selectedTableDraft.id}`]}
-                >
-                  {actionSaving[`table-meta-${selectedTableDraft.id}`]
-                    ? 'Mentés...'
-                    : 'Kapacitás mentése'}
-                </button>
               </div>
             )}
           </div>
@@ -7493,7 +7641,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Egység: {unitId.slice(0, 8)}… •{' '}
             {isSaving
               ? 'Mentés folyamatban...'
-              : isDirty
+              : hasUnsavedChanges
               ? 'Nem mentett változások'
               : 'Minden mentve'}
           </div>
@@ -7503,7 +7651,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           onClick={handleClose}
           className="flex items-center gap-2 text-sm text-gray-500"
         >
-          {isDirty && (
+          {hasUnsavedChanges && (
             <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-blue-400" />
           )}
           Bezárás
@@ -7519,7 +7667,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
         {isSaving
           ? 'Mentés folyamatban...'
-          : isDirty
+          : hasUnsavedChanges
           ? 'Nem mentett változások'
           : 'Minden mentve'}
       </div>
@@ -7529,7 +7677,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             {saveFeedback}
           </span>
         )}
-        {isDirty && !isSaving && (
+        {hasUnsavedChanges && !isSaving && (
           <button
             type="button"
             onClick={handleResetChanges}
