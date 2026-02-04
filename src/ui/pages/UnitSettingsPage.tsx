@@ -359,7 +359,11 @@ const UnitSettingsPage: React.FC<{
         );
       case 'reservations':
         return effectiveUnitId ? (
-          <ReservationSettingsForm unitId={effectiveUnitId} layout="page" />
+          <ReservationSettingsForm
+            unitId={effectiveUnitId}
+            currentUser={currentUser}
+            layout="page"
+          />
         ) : (
           <div className="p-6 bg-white rounded-xl shadow-sm border">
             Válassz ki egy egységet a foglalási beállítások szerkesztéséhez.
