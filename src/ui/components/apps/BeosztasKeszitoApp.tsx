@@ -877,6 +877,14 @@ const createDefaultSettings = (
   )
 });
 
+const normalizeClosingOffsetMinutes = (
+  value?: number | null
+): number => {
+  if (!Number.isFinite(value)) return 0;
+  const rounded = Math.round(value as number);
+  return Math.min(240, Math.max(0, rounded));
+};
+
 // --- NEW: Default Export Settings ---
 const DEFAULT_EXPORT_SETTINGS: ExportStyleSettings = {
   id: '',
@@ -4757,13 +4765,34 @@ if (expected === 0) {
           ...updated,
           unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
         };
+        const normalizedDailySettings = Object.fromEntries(
+          Object.entries(updatedWithUnitId.dailySettings || {}).map(
+            ([dayIndex, setting]) => [
+              dayIndex,
+              {
+                ...setting,
+                // closingOffsetMinutes is applied when shifts have end=null.
+                closingOffsetMinutes: normalizeClosingOffsetMinutes(
+                  setting?.closingOffsetMinutes
+                )
+              }
+            ]
+          )
+        );
+        const normalizedSettings = {
+          ...updatedWithUnitId,
+          dailySettings: normalizedDailySettings
+        };
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
+          setDoc(
+            doc(db, 'schedule_settings', updatedWithUnitId.id),
+            normalizedSettings
+          )
             .catch(error => {
               console.error('Failed to save settings:', error);
             });
         }
-        return updatedWithUnitId;
+        return normalizedSettings;
       });
     },
     [canManage, activeUnitIds, weekStartDateStr]
@@ -5689,15 +5718,20 @@ if (expected === 0) {
                         className="p-1 border rounded"
                       />
                       <div className="flex flex-col">
+                        <label className="text-xs font-medium text-gray-600">
+                          Zárás utáni plusz idő (perc)
+                        </label>
                         <input
                           type="number"
                           min={0}
+                          max={240}
+                          step={5}
                           value={
-                            openingSettings.dailySettings[i]?.closingOffsetMinutes
-                              ?.toString() ?? ''
+                            openingSettings.dailySettings[i]
+                              ?.closingOffsetMinutes ?? 0
                           }
                           onChange={e => {
-                            const val = Number(e.target.value) || 0;
+                            const val = Number(e.target.value);
                             handleSettingsChange(prev => ({
                               ...prev,
                               dailySettings: {
@@ -5710,7 +5744,6 @@ if (expected === 0) {
                             }));
                           }}
                           className="p-1 border rounded w-28"
-                          placeholder="Offset (perc)"
                         />
                         <span className="text-xs text-gray-500 mt-1">
                           Zárás utáni munka (pl. takarítás)
