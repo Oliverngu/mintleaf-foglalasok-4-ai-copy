@@ -3673,9 +3673,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...current,
           [action.tableId]: { x: action.prev.x, y: action.prev.y },
         }));
-      } else {
-        await updateTable(unitId, action.tableId, { rot: action.prev.rot });
-        setLastSavedRot(current => ({ ...current, [action.tableId]: action.prev.rot }));
       }
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
