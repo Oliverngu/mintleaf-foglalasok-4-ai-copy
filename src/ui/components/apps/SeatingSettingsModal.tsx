@@ -565,6 +565,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     combinableWithIds: string[];
     seatLayout?: Table['seatLayout'];
   } | null>(null);
+  const buildSelectedTableDraftFromTable = (table: Table) => ({
+    id: table.id,
+    shape: table.shape,
+    capacityTotal: Number.isFinite(table.capacityTotal)
+      ? Math.max(0, Math.round(table.capacityTotal))
+      : 0,
+    sideCapacities: table.sideCapacities ?? { north: 0, east: 0, south: 0, west: 0 },
+    combinableWithIds: table.combinableWithIds ?? [],
+    seatLayout: table.seatLayout,
+  });
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
@@ -1921,7 +1931,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [actionSaving, hasUnsavedChanges, onClose]);
 
   const handleResetChanges = () => {
-    if (isSaving || !isDirty) {
+    if (isSaving || !hasUnsavedChanges) {
       return;
     }
     if (typeof window !== 'undefined') {
@@ -1938,7 +1948,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
     setSettingsDirty(false);
     setEditorDirty(false);
-    setSelectedTableDraft(null);
+    if (selectedTable) {
+      setSelectedTableDraft(buildSelectedTableDraftFromTable(selectedTable));
+    } else {
+      setSelectedTableDraft(null);
+    }
     setComboMode({
       active: false,
       baseTableId: null,
