@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { Timestamp } from 'firebase/firestore';
+import './src/ui/styles/buttons.css';
 
 // FIX: Monkey-patch the Firebase Timestamp object to make it serializable.
 // JSON.stringify will automatically call this toJSON method when it encounters a Timestamp.
