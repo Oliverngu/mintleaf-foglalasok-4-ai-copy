@@ -64,6 +64,7 @@ interface DashboardProps {
   isDemoMode: boolean;
   requests: Request[];
   shifts: Shift[];
+  scheduleShifts: Shift[];
   todos: Todo[];
   adminTodos: Todo[];
   allUnits: Unit[];
@@ -80,6 +81,7 @@ interface DashboardProps {
   onThemeBasesChange: (bases: ThemeBases) => void;
   useBrandTheme: boolean;
   onBrandChange: (enabled: boolean) => void;
+  onWeekRangeChange?: (range: { start: Date; end: Date }) => void;
 }
 
 type AppName =
@@ -119,6 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   isDemoMode,
   requests,
   shifts,
+  scheduleShifts,
   todos,
   adminTodos,
   allUnits,
@@ -135,6 +138,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   onThemeBasesChange,
   useBrandTheme,
   onBrandChange,
+  onWeekRangeChange,
 }) => {
   const [activeApp, setActiveApp] = useState<AppName>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -615,13 +619,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       case 'beosztas':
         return (
           <BeosztasApp
-            schedule={shifts}
+            schedule={scheduleShifts}
             requests={requests}
             currentUser={currentUser}
             canManage={hasPermission('canManageSchedules')}
             allUnits={allUnits}
             activeUnitIds={activeUnitIds}
             isSidebarOpen={isSidebarOpen}
+            onWeekRangeChange={onWeekRangeChange}
+            topOffsetPx={HEADER_PILL_H}
           />
         );
       case 'settings':
