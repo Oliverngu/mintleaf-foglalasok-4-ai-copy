@@ -98,10 +98,110 @@ export interface Booking {
   referenceCode?: string;
   customData?: Record<string, string>;
   reservationMode?: 'auto' | 'request';
-  adminActionToken?: string;
+  adminActionTokenHash?: string;
+  adminActionExpiresAt?: Timestamp;
+  adminActionUsedAt?: Timestamp | null;
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
+  manageTokenHash?: string;
+  zoneId?: string;
+  assignedTableIds?: string[];
+  seatingSource?: 'auto' | 'manual';
+  isVip?: boolean;
+  noShowAt?: Timestamp;
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  priority: number;
+  isActive: boolean;
+  isEmergency?: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Table {
+  id: string;
+  name: string;
+  zoneId: string;
+  capacityMax: number;
+  minCapacity: number;
+  isActive: boolean;
+  floorplanId?: string;
+  shape?: 'rect' | 'circle';
+  w?: number;
+  h?: number;
+  radius?: number;
+  snapToGrid?: boolean;
+  locked?: boolean;
+  x?: number;
+  y?: number;
+  rot?: number;
+  canSeatSolo?: boolean;
+  canCombine?: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Floorplan {
+  id: string;
+  name: string;
+  isActive: boolean;
+  width: number;
+  height: number;
+  gridSize?: number;
+  backgroundImageUrl?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface TableCombination {
+  id: string;
+  tableIds: string[];
+  isActive: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface SeatingSettings {
+  bufferMinutes?: number;
+  defaultDurationMinutes?: number;
+  allowGuestDurationEdit?: boolean;
+  holdTableMinutesOnLate?: number;
+  maxCombineCount?: number;
+  vipEnabled?: boolean;
+  activeFloorplanId?: string;
+  soloAllowedTableIds?: string[];
+  emergencyZones?: {
+    enabled?: boolean;
+    zoneIds?: string[];
+    activeRule?: 'always' | 'byWeekday';
+    weekdays?: number[];
+  };
+}
+
+export interface PublicBookingDTO {
+  id: string;
+  unitId: string;
+  unitName?: string;
+  name: string;
+  headcount: number;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  locale?: 'hu' | 'en';
+  occasion?: string;
+  source?: string;
+  referenceCode?: string;
+  contact?: {
+    phoneE164?: string;
+    email?: string;
+  };
+  adminActionTokenHash?: string | null;
+  adminActionExpiresAtMs?: number | null;
+  adminActionUsedAtMs?: number | null;
 }
 
 export interface ThemeSettings {
