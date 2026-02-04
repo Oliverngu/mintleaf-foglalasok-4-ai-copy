@@ -355,6 +355,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
   const draftPositionsRef = useRef(draftPositions);
   const draftRotationsRef = useRef(draftRotations);
+  const [geometryDirtyTick, setGeometryDirtyTick] = useState(0);
+  const bumpGeometryDirtyTick = useCallback(() => setGeometryDirtyTick(t => t + 1), []);
   const [draftObstacles, setDraftObstacles] = useState<
     Record<string, { x: number; y: number; w: number; h: number }>
   >({});
@@ -1932,7 +1934,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return baseline === undefined ? true : baseline !== rot;
       })
     );
-  }, [draftPositions, draftRotations, tables]);
+  }, [geometryDirtyTick, tables]);
   const obstaclesDirty = useMemo(() => {
     if (Object.keys(draftObstacles).length > 0) {
       return true;
@@ -2003,6 +2005,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setDraftPositions({});
     setDraftRotations({});
     setDraftObstacles({});
+    draftPositionsRef.current = {};
+    draftRotationsRef.current = {};
     const selected = selectedTableId
       ? tables.find(table => table.id === selectedTableId) ?? null
       : null;
@@ -2250,6 +2254,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               });
               return next;
             });
+            draftPositionsRef.current = Object.fromEntries(
+              Object.entries(positionsSnapshot).filter(
+                ([tableId]) => !geometryIds.has(tableId)
+              )
+            );
             setDraftRotations(current => {
               const next = { ...current };
               updates.forEach(update => {
@@ -2257,6 +2266,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
               });
               return next;
             });
+            draftRotationsRef.current = Object.fromEntries(
+              Object.entries(rotationsSnapshot).filter(
+                ([tableId]) => !geometryIds.has(tableId)
+              )
+            );
           }
         }
 
@@ -3116,6 +3130,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [handleDeleteTable, handleQuickTableCancel, selectedTableKey, tableCreateDraft?.id]);
 
   function updateDraftPosition(tableId: string, x: number, y: number) {
+    draftPositionsRef.current = { ...draftPositionsRef.current, [tableId]: { x, y } };
+    bumpGeometryDirtyTick();
     if (rafPosId.current !== null) {
       cancelAnimationFrame(rafPosId.current);
     }
@@ -3129,6 +3145,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   function updateDraftRotation(tableId: string, rot: number) {
+    draftRotationsRef.current = { ...draftRotationsRef.current, [tableId]: rot };
+    bumpGeometryDirtyTick();
     if (rafRotId.current !== null) {
       cancelAnimationFrame(rafRotId.current);
     }
