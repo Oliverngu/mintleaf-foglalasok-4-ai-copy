@@ -1922,7 +1922,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     return (
       Object.entries(positionsSnapshot).some(([tableId, pos]) => {
         const saved = lastSavedByIdRef.current[tableId];
-        const baseline = saved ?? tableById.get(tableId);
+        const baseline = tableById.get(tableId) ?? saved;
         if (!baseline) return true;
         const baselinePos =
           'x' in baseline && 'y' in baseline ? baseline : { x: baseline.x, y: baseline.y };
@@ -1930,7 +1930,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }) ||
       Object.entries(rotationsSnapshot).some(([tableId, rot]) => {
         const saved = lastSavedRotByIdRef.current[tableId];
-        const baseline = saved ?? tableById.get(tableId)?.rot;
+        const baseline = tableById.get(tableId)?.rot ?? saved;
         return baseline === undefined ? true : baseline !== rot;
       })
     );
@@ -2007,6 +2007,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setDraftObstacles({});
     draftPositionsRef.current = {};
     draftRotationsRef.current = {};
+    bumpGeometryDirtyTick();
     const selected = selectedTableId
       ? tables.find(table => table.id === selectedTableId) ?? null
       : null;
@@ -2091,6 +2092,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setLastSavedRot({});
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
+      bumpGeometryDirtyTick();
       setTableForm(current => ({
         ...current,
         floorplanId: next ?? '',
@@ -3694,6 +3696,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
+      bumpGeometryDirtyTick();
     } catch (err) {
       console.error('Error undoing last action:', err);
       setDraftPositions(current => ({
