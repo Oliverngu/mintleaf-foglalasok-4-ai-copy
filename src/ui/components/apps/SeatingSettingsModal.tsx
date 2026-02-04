@@ -353,10 +353,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     {}
   );
   const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
+  const draftPositionsRef = useRef(draftPositions);
   const draftRotationsRef = useRef(draftRotations);
+  const [geometryDirtyTick, setGeometryDirtyTick] = useState(0);
+  const bumpGeometryDirtyTick = useCallback(() => setGeometryDirtyTick(t => t + 1), []);
   const [draftObstacles, setDraftObstacles] = useState<
     Record<string, { x: number; y: number; w: number; h: number }>
   >({});
+  const lastSavedObstaclesRef = useRef<FloorplanObstacle[]>([]);
   const [savingById, setSavingById] = useState<Record<string, boolean>>({});
   const [lastSavedById, setLastSavedById] = useState<Record<string, { x: number; y: number }>>(
     {}
@@ -565,6 +569,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     combinableWithIds: string[];
     seatLayout?: Table['seatLayout'];
   } | null>(null);
+  const buildSelectedTableDraftFromTable = (table: Table) => ({
+    id: table.id,
+    shape: table.shape,
+    capacityTotal: Number.isFinite(table.capacityTotal)
+      ? Math.max(0, Math.round(table.capacityTotal))
+      : 0,
+    sideCapacities: table.sideCapacities ?? { north: 0, east: 0, south: 0, west: 0 },
+    combinableWithIds: table.combinableWithIds ?? [],
+    seatLayout: table.seatLayout,
+  });
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
@@ -721,6 +735,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     precisionEnabledRef.current = precisionEnabled;
   }, [precisionEnabled]);
+
+  useEffect(() => {
+    draftPositionsRef.current = draftPositions;
+  }, [draftPositions]);
 
   useEffect(() => {
     draftRotationsRef.current = draftRotations;
@@ -1070,6 +1088,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => activeFloorplan?.obstacles ?? [],
     [activeFloorplan]
   );
+  useEffect(() => {
+    if (!activeFloorplan) {
+      lastSavedObstaclesRef.current = [];
+      return;
+    }
+    lastSavedObstaclesRef.current = activeFloorplan.obstacles ?? [];
+  }, [activeFloorplan]);
 
   const floorplanDims = useMemo(
     () =>
@@ -1095,13 +1120,76 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     () => (selectedTableKey ? editorTables.find(table => table.id === selectedTableKey) ?? null : null),
     [editorTables, selectedTableKey]
   );
+  const tableMetaDirty = useMemo(() => {
+    if (!selectedTableDraft || !selectedTable) return false;
+    const normalizeNumber = (value: number) =>
+      Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    const normalizeSeatLayout = (seatLayout?: Table['seatLayout']) =>
+      isSeatLayoutEmpty(seatLayout) ? undefined : seatLayout;
+    const normalizedDraftSeatLayout = normalizeSeatLayout(selectedTableDraft.seatLayout);
+    const normalizedTableSeatLayout = normalizeSeatLayout(selectedTable.seatLayout);
+    const seatLayoutMatches =
+      JSON.stringify(normalizedDraftSeatLayout ?? null) ===
+      JSON.stringify(normalizedTableSeatLayout ?? null);
+    const draftCapacityTotal = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? normalizeNumber(selectedTableDraft.capacityTotal)
+      : normalizeNumber(computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout));
+    const tableCapacityTotal = normalizeNumber(selectedTable.capacityTotal ?? 0);
+    const draftSideCapSource = isSeatLayoutEmpty(selectedTableDraft.seatLayout)
+      ? selectedTableDraft.sideCapacities
+      : deriveSideCapacitiesFromSeatLayout(
+          selectedTableDraft.seatLayout,
+          selectedTableDraft.sideCapacities
+        );
+    const normalizedDraftSideCaps = {
+      north: normalizeNumber(draftSideCapSource.north),
+      east: normalizeNumber(draftSideCapSource.east),
+      south: normalizeNumber(draftSideCapSource.south),
+      west: normalizeNumber(draftSideCapSource.west),
+    };
+    const tableSideCapSource = selectedTable.sideCapacities ?? {
+      north: 0,
+      east: 0,
+      south: 0,
+      west: 0,
+    };
+    const normalizedTableSideCaps = {
+      north: normalizeNumber(tableSideCapSource.north),
+      east: normalizeNumber(tableSideCapSource.east),
+      south: normalizeNumber(tableSideCapSource.south),
+      west: normalizeNumber(tableSideCapSource.west),
+    };
+    const sideCapsMatch =
+      normalizedDraftSideCaps.north === normalizedTableSideCaps.north &&
+      normalizedDraftSideCaps.east === normalizedTableSideCaps.east &&
+      normalizedDraftSideCaps.south === normalizedTableSideCaps.south &&
+      normalizedDraftSideCaps.west === normalizedTableSideCaps.west;
+    const normalizeCombinable = (ids: string[], selfId: string) =>
+      Array.from(new Set(ids.filter(id => id !== selfId))).sort();
+    const draftCombinable = normalizeCombinable(
+      selectedTableDraft.combinableWithIds ?? [],
+      selectedTableDraft.id
+    );
+    const tableCombinable = normalizeCombinable(
+      selectedTable.combinableWithIds ?? [],
+      selectedTable.id
+    );
+    const combinableMatch =
+      draftCombinable.length === tableCombinable.length &&
+      draftCombinable.every((id, index) => id === tableCombinable[index]);
+    return !(
+      seatLayoutMatches &&
+      draftCapacityTotal === tableCapacityTotal &&
+      sideCapsMatch &&
+      combinableMatch
+    );
+  }, [selectedTable, selectedTableDraft]);
   const handleSelectTable = useCallback((tableId: string) => {
     setSelectedTableId(tableId);
   }, []);
   const handleTableClick = useCallback(
     (tableId: string) => {
       if (comboMode.active) {
-        setEditorDirty(true);
         setComboMode(current => {
           if (!current.active) return current;
           if (tableId === current.baseTableId) return current;
@@ -1115,7 +1203,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setSelectedTableId(tableId);
     },
-    [comboMode.active, setEditorDirty]
+    [comboMode.active]
   );
   const handleZoomOutFit = useCallback(() => {
     setViewportMode('fit');
@@ -1743,6 +1831,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             await updateFloorplan(unitId, activeFloorplan.id, {
               obstacles: nextObstacles,
             });
+            lastSavedObstaclesRef.current = nextObstacles;
           } catch (err) {
             updateActiveFloorplanObstacles(previousObstacles);
             throw err;
@@ -1794,8 +1883,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (drag.mode === 'rotate') {
         const fallbackRot = lastSavedRotByIdRef.current[tableId];
         if (fallbackRot !== undefined) {
+          draftRotationsRef.current = {
+            ...draftRotationsRef.current,
+            [tableId]: fallbackRot,
+          };
+          bumpGeometryDirtyTick();
           setDraftRotations(current => ({ ...current, [tableId]: fallbackRot }));
         } else {
+          if (tableId in draftRotationsRef.current) {
+            const nextRotations = { ...draftRotationsRef.current };
+            delete nextRotations[tableId];
+            draftRotationsRef.current = nextRotations;
+            bumpGeometryDirtyTick();
+          }
           setDraftRotations(current => {
             if (!(tableId in current)) {
               return current;
@@ -1808,8 +1908,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } else {
         const fallback = lastSavedByIdRef.current[tableId];
         if (fallback) {
+          draftPositionsRef.current = {
+            ...draftPositionsRef.current,
+            [tableId]: fallback,
+          };
+          bumpGeometryDirtyTick();
           setDraftPositions(current => ({ ...current, [tableId]: fallback }));
         } else {
+          if (tableId in draftPositionsRef.current) {
+            const nextPositions = { ...draftPositionsRef.current };
+            delete nextPositions[tableId];
+            draftPositionsRef.current = nextPositions;
+            bumpGeometryDirtyTick();
+          }
           setDraftPositions(current => {
             if (!(tableId in current)) {
               return current;
@@ -1822,19 +1933,58 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setDragState(null);
     },
-    []
+    [bumpGeometryDirtyTick]
   );
   const abortDragRef = useRef(abortDrag);
 
-  const isDirty = settingsDirty || editorDirty;
+  const geometryDirty = useMemo(() => {
+    const tableById = new Map(tables.map(table => [table.id, table]));
+    const positionsSnapshot = draftPositionsRef.current;
+    const rotationsSnapshot = draftRotationsRef.current;
+    return (
+      Object.entries(positionsSnapshot).some(([tableId, pos]) => {
+        const saved = lastSavedByIdRef.current[tableId];
+        const baseline = tableById.get(tableId) ?? saved;
+        if (!baseline) return true;
+        const baselinePos =
+          'x' in baseline && 'y' in baseline ? baseline : { x: baseline.x, y: baseline.y };
+        return baselinePos.x !== pos.x || baselinePos.y !== pos.y;
+      }) ||
+      Object.entries(rotationsSnapshot).some(([tableId, rot]) => {
+        const saved = lastSavedRotByIdRef.current[tableId];
+        const baseline = tableById.get(tableId)?.rot ?? saved;
+        return baseline === undefined ? true : baseline !== rot;
+      })
+    );
+  }, [geometryDirtyTick, tables]);
+  const obstaclesDirty = useMemo(() => {
+    if (Object.keys(draftObstacles).length > 0) {
+      return true;
+    }
+    if (!activeFloorplan) {
+      return false;
+    }
+    return (
+      JSON.stringify(activeObstacles) !==
+      JSON.stringify(lastSavedObstaclesRef.current)
+    );
+  }, [activeFloorplan, activeObstacles, draftObstacles]);
+
+  const isDirty = settingsDirty;
+  const hasUnsavedChanges =
+    settingsDirty || geometryDirty || tableMetaDirty || obstaclesDirty;
   const isSaving = Boolean(actionSaving['settings-save']);
-  const canSave = isDirty && !isSaving;
-  const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
+  const canSave = hasUnsavedChanges && !isSaving;
+  const saveLabel = isSaving
+    ? 'Mentés...'
+    : hasUnsavedChanges
+    ? 'Mentés'
+    : 'Nincs változás';
   const handleClose = useCallback(() => {
     const isSavingNow = Boolean(
       actionSavingRef.current['settings-save'] || actionSaving['settings-save']
     );
-    if (typeof window !== 'undefined' && isDirty && !isSavingNow) {
+    if (typeof window !== 'undefined' && hasUnsavedChanges && !isSavingNow) {
       const ok = window.confirm('Vannak nem mentett változások. Biztos bezárod?');
       if (!ok) {
         return;
@@ -1854,10 +2004,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     actionSavingRef.current = {};
     setActionSaving({});
     onClose();
-  }, [actionSaving, isDirty, onClose]);
+  }, [actionSaving, hasUnsavedChanges, onClose]);
 
   const handleResetChanges = () => {
-    if (isSaving || !isDirty) {
+    if (isSaving || !hasUnsavedChanges) {
       return;
     }
     if (typeof window !== 'undefined') {
@@ -1874,6 +2024,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
     setSettingsDirty(false);
     setEditorDirty(false);
+    setDraftPositions({});
+    setDraftRotations({});
+    setDraftObstacles({});
+    draftPositionsRef.current = {};
+    draftRotationsRef.current = {};
+    bumpGeometryDirtyTick();
+    const selected = selectedTableId
+      ? tables.find(table => table.id === selectedTableId) ?? null
+      : null;
+    setSelectedTableDraft(
+      selected ? buildSelectedTableDraftFromTable(selected) : null
+    );
+    setComboMode({
+      active: false,
+      baseTableId: null,
+      selectedIds: [],
+      snapshotIds: [],
+    });
     setSaveFeedback(null);
     setError(null);
     setSuccess(null);
@@ -1946,6 +2114,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setLastSavedRot({});
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
+      bumpGeometryDirtyTick();
       setTableForm(current => ({
         ...current,
         floorplanId: next ?? '',
@@ -2054,6 +2223,174 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorMessage: 'Nem sikerült menteni a beállításokat.',
       errorContext: 'Error saving seating settings:',
       action: async () => {
+        const positionsSnapshot = draftPositionsRef.current;
+        const rotationsSnapshot = draftRotationsRef.current;
+        const geometryIds = new Set<string>([
+          ...Object.keys(positionsSnapshot),
+          ...Object.keys(rotationsSnapshot),
+        ]);
+        if (geometryIds.size > 0) {
+          const updates = Array.from(geometryIds)
+            .map(tableId => {
+              const payload: Partial<Table> = {};
+              const pos = positionsSnapshot[tableId];
+              if (pos) {
+                payload.x = pos.x;
+                payload.y = pos.y;
+              }
+              const rot = rotationsSnapshot[tableId];
+              if (rot !== undefined) {
+                payload.rot = rot;
+              }
+              return Object.keys(payload).length > 0 ? { tableId, payload } : null;
+            })
+            .filter((item): item is { tableId: string; payload: Partial<Table> } => Boolean(item));
+          if (updates.length > 0) {
+            await Promise.all(
+              updates.map(update => updateTable(unitId, update.tableId, update.payload))
+            );
+            setTables(current =>
+              current.map(table => {
+                const update = updates.find(item => item.tableId === table.id);
+                return update ? { ...table, ...update.payload } : table;
+              })
+            );
+            const nextSavedPos: Record<string, { x: number; y: number }> = {};
+            const nextSavedRot: Record<string, number> = {};
+            updates.forEach(update => {
+              if (update.payload.x !== undefined && update.payload.y !== undefined) {
+                nextSavedPos[update.tableId] = { x: update.payload.x, y: update.payload.y };
+              }
+              if (update.payload.rot !== undefined) {
+                nextSavedRot[update.tableId] = update.payload.rot;
+              }
+            });
+            if (Object.keys(nextSavedPos).length > 0) {
+              setLastSaved(current => ({ ...current, ...nextSavedPos }));
+            }
+            if (Object.keys(nextSavedRot).length > 0) {
+              setLastSavedRot(current => ({ ...current, ...nextSavedRot }));
+            }
+            setDraftPositions(current => {
+              const next = { ...current };
+              updates.forEach(update => {
+                delete next[update.tableId];
+              });
+              return next;
+            });
+            draftPositionsRef.current = Object.fromEntries(
+              Object.entries(positionsSnapshot).filter(
+                ([tableId]) => !geometryIds.has(tableId)
+              )
+            );
+            setDraftRotations(current => {
+              const next = { ...current };
+              updates.forEach(update => {
+                delete next[update.tableId];
+              });
+              return next;
+            });
+            draftRotationsRef.current = Object.fromEntries(
+              Object.entries(rotationsSnapshot).filter(
+                ([tableId]) => !geometryIds.has(tableId)
+              )
+            );
+          }
+        }
+
+        if (comboMode.active && comboMode.baseTableId) {
+          const selectedIds = comboMode.selectedIds.filter(
+            id => id !== comboMode.baseTableId
+          );
+          await updateTable(unitId, comboMode.baseTableId, {
+            combinableWithIds: selectedIds,
+          });
+          setTables(current =>
+            current.map(table =>
+              table.id === comboMode.baseTableId
+                ? { ...table, combinableWithIds: selectedIds }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== comboMode.baseTableId) return current;
+            return { ...current, combinableWithIds: selectedIds };
+          });
+          setComboMode({
+            active: false,
+            baseTableId: null,
+            selectedIds: [],
+            snapshotIds: [],
+          });
+        }
+
+        if (tableMetaDirty && selectedTableDraft) {
+          const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+          const capacityTotal = seatLayoutEmpty
+            ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
+            : sanitizeCapacityValue(
+                computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
+              );
+          const sideCapSource = seatLayoutEmpty
+            ? selectedTableDraft.sideCapacities
+            : deriveSideCapacitiesFromSeatLayout(
+                selectedTableDraft.seatLayout,
+                selectedTableDraft.sideCapacities
+              );
+          const sideCapacities = {
+            north: sanitizeCapacityValue(sideCapSource.north),
+            east: sanitizeCapacityValue(sideCapSource.east),
+            south: sanitizeCapacityValue(sideCapSource.south),
+            west: sanitizeCapacityValue(sideCapSource.west),
+          };
+          const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
+            id => id !== selectedTableDraft.id
+          );
+          const payload: Record<string, unknown> = {
+            capacityTotal,
+            sideCapacities,
+            combinableWithIds,
+          };
+          if (seatLayoutEmpty) {
+            payload.seatLayout = deleteField();
+          } else if (selectedTableDraft.seatLayout) {
+            payload.seatLayout = selectedTableDraft.seatLayout;
+          }
+          await updateTable(unitId, selectedTableDraft.id, payload);
+          const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
+          setTables(current =>
+            current.map(table =>
+              table.id === selectedTableDraft.id
+                ? {
+                    ...table,
+                    capacityTotal,
+                    sideCapacities,
+                    combinableWithIds,
+                    seatLayout: seatLayoutForState,
+                  }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== selectedTableDraft.id) return current;
+            return {
+              ...current,
+              capacityTotal,
+              sideCapacities,
+              combinableWithIds,
+              seatLayout: seatLayoutForState,
+            };
+          });
+        }
+
+        if (obstaclesDirty && activeFloorplan) {
+          await updateFloorplan(unitId, activeFloorplan.id, {
+            obstacles: activeObstacles,
+          });
+          lastSavedObstaclesRef.current = activeObstacles;
+          setDraftObstacles({});
+        }
+
         const { activeFloorplanId, ...restSettings } = settings;
         const payload: SeatingSettings = {
           ...restSettings,
@@ -2592,7 +2929,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       setError('Előbb válassz ki egy asztalt az összetoláshoz.');
       return;
     }
-    setEditorDirty(true);
     setComboMode({
       active: true,
       baseTableId: selectedTable.id,
@@ -2600,7 +2936,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       snapshotIds: selectedTableDraft.combinableWithIds ?? [],
     });
     handleZoomOutFit();
-  }, [handleZoomOutFit, selectedTable, selectedTableDraft, setEditorDirty]);
+  }, [handleZoomOutFit, selectedTable, selectedTableDraft]);
 
   const exitComboMode = useCallback(
     (nextSelection?: string[], baseTableId?: string | null) => {
@@ -2636,34 +2972,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleComboSave = useCallback(async () => {
     if (!comboMode.baseTableId) return;
-    setEditorDirty(true);
     const selectedIds = comboMode.selectedIds.filter(id => id !== comboMode.baseTableId);
-    await runAction({
-      key: `table-combo-${comboMode.baseTableId}`,
-      errorMessage: 'Nem sikerült menteni az összetolható asztalokat.',
-      errorContext: 'Error saving combinable tables:',
-      successMessage: 'Összetolható asztalok mentve.',
-      action: async () => {
-        await updateTable(unitId, comboMode.baseTableId, {
-          combinableWithIds: selectedIds,
-        });
-        setTables(current =>
-          current.map(table =>
-            table.id === comboMode.baseTableId
-              ? { ...table, combinableWithIds: selectedIds }
-              : table
-          )
-        );
-      },
-    });
     exitComboMode(selectedIds, comboMode.baseTableId);
   }, [
     comboMode.baseTableId,
     comboMode.selectedIds,
     exitComboMode,
-    runAction,
-    setEditorDirty,
-    unitId,
   ]);
 
   const handleSelectedTableMetadataSave = async () => {
@@ -2840,7 +3154,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [handleDeleteTable, handleQuickTableCancel, selectedTableKey, tableCreateDraft?.id]);
 
   function updateDraftPosition(tableId: string, x: number, y: number) {
-    setEditorDirty(true);
+    draftPositionsRef.current = { ...draftPositionsRef.current, [tableId]: { x, y } };
+    bumpGeometryDirtyTick();
     if (rafPosId.current !== null) {
       cancelAnimationFrame(rafPosId.current);
     }
@@ -2854,7 +3169,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }
 
   function updateDraftRotation(tableId: string, rot: number) {
-    setEditorDirty(true);
+    draftRotationsRef.current = { ...draftRotationsRef.current, [tableId]: rot };
+    bumpGeometryDirtyTick();
     if (rafRotId.current !== null) {
       cancelAnimationFrame(rafRotId.current);
     }
@@ -3387,6 +3703,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!action) return;
     if (savingById[action.tableId]) return;
     setSavingById(current => ({ ...current, [action.tableId]: true }));
+    draftPositionsRef.current = {
+      ...draftPositionsRef.current,
+      [action.tableId]: { x: action.prev.x, y: action.prev.y },
+    };
+    draftRotationsRef.current = {
+      ...draftRotationsRef.current,
+      [action.tableId]: action.prev.rot,
+    };
+    bumpGeometryDirtyTick();
     setDraftPositions(current => ({
       ...current,
       [action.tableId]: { x: action.prev.x, y: action.prev.y },
@@ -3399,14 +3724,20 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           ...current,
           [action.tableId]: { x: action.prev.x, y: action.prev.y },
         }));
-      } else {
-        await updateTable(unitId, action.tableId, { rot: action.prev.rot });
-        setLastSavedRot(current => ({ ...current, [action.tableId]: action.prev.rot }));
       }
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
     } catch (err) {
       console.error('Error undoing last action:', err);
+      draftPositionsRef.current = {
+        ...draftPositionsRef.current,
+        [action.tableId]: { x: action.next.x, y: action.next.y },
+      };
+      draftRotationsRef.current = {
+        ...draftRotationsRef.current,
+        [action.tableId]: action.next.rot,
+      };
+      bumpGeometryDirtyTick();
       setDraftPositions(current => ({
         ...current,
         [action.tableId]: { x: action.next.x, y: action.next.y },
@@ -3416,7 +3747,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } finally {
       setSavingById(current => ({ ...current, [action.tableId]: false }));
     }
-  }, [savingById, unitId]);
+  }, [bumpGeometryDirtyTick, savingById, unitId]);
 
   const isUndoAvailable = useMemo(() => Boolean(lastActionRef.current), [undoTick]);
 
@@ -3510,32 +3841,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [finalizeDrag]);
 
   const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
-    setSavingById(current => ({ ...current, [tableId]: true }));
-    try {
-      await updateTable(unitId, tableId, { rot });
-      const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
-      lastActionRef.current = {
-        tableId,
-        kind: 'rotate',
-        prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
-        next: { x: prevPos.x, y: prevPos.y, rot },
-        ts: Date.now(),
-      };
-      setUndoTick(tick => tick + 1);
-      setLastSavedRot(current => ({ ...current, [tableId]: rot }));
-    } catch (err) {
-      console.error('Error updating table rotation:', err);
-      setError('Nem sikerült menteni az asztal forgatását.');
-      setDraftRotations(current => {
-        const fallback = lastSavedRotByIdRef.current[tableId];
-        if (fallback === undefined) {
-          return current;
-        }
-        return { ...current, [tableId]: fallback };
-      });
-    } finally {
-      setSavingById(current => ({ ...current, [tableId]: false }));
-    }
+    const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
+    lastActionRef.current = {
+      tableId,
+      kind: 'rotate',
+      prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
+      next: { x: prevPos.x, y: prevPos.y, rot },
+      ts: Date.now(),
+    };
+    setUndoTick(tick => tick + 1);
   };
 
   useEffect(() => {
@@ -4361,7 +4675,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     obstacleId: string,
     next: { x: number; y: number; w: number; h: number }
   ) => {
-    setEditorDirty(true);
     setDraftObstacles(current => ({
       ...current,
       [obstacleId]: next,
@@ -4551,7 +4864,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!activeFloorplan) {
       return;
     }
-    setEditorDirty(true);
     const previousObstacles = activeObstacles;
     const nextObstacles = activeObstacles.map(obstacle =>
       obstacle.id === obstacleId ? { ...obstacle, ...next } : obstacle
@@ -6077,7 +6389,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
                   onClick={() => {
                     if (!activeFloorplan) return;
-                    setEditorDirty(true);
                     const id =
                       typeof crypto !== 'undefined' && 'randomUUID' in crypto
                         ? crypto.randomUUID()
@@ -6109,7 +6420,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                   disabled={!selectedObstacleId}
                   onClick={() => {
                     if (!selectedObstacleId) return;
-                    setEditorDirty(true);
                     const previousObstacles = activeObstacles;
                     const nextObstacles = activeObstacles.filter(
                       obstacle => obstacle.id !== selectedObstacleId
@@ -7276,18 +7586,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={event =>
-                    handleActionButtonClick(event, handleSelectedTableMetadataSave)
-                  }
-                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-50"
-                  disabled={actionSaving[`table-meta-${selectedTableDraft.id}`]}
-                >
-                  {actionSaving[`table-meta-${selectedTableDraft.id}`]
-                    ? 'Mentés...'
-                    : 'Kapacitás mentése'}
-                </button>
               </div>
             )}
           </div>
@@ -7397,7 +7695,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             Egység: {unitId.slice(0, 8)}… •{' '}
             {isSaving
               ? 'Mentés folyamatban...'
-              : isDirty
+              : hasUnsavedChanges
               ? 'Nem mentett változások'
               : 'Minden mentve'}
           </div>
@@ -7407,7 +7705,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           onClick={handleClose}
           className="flex items-center gap-2 text-sm text-gray-500"
         >
-          {isDirty && (
+          {hasUnsavedChanges && (
             <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-blue-400" />
           )}
           Bezárás
@@ -7423,7 +7721,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       <div className="text-xs text-gray-500" aria-live="polite" aria-atomic="true">
         {isSaving
           ? 'Mentés folyamatban...'
-          : isDirty
+          : hasUnsavedChanges
           ? 'Nem mentett változások'
           : 'Minden mentve'}
       </div>
@@ -7433,7 +7731,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             {saveFeedback}
           </span>
         )}
-        {isDirty && !isSaving && (
+        {hasUnsavedChanges && !isSaving && (
           <button
             type="button"
             onClick={handleResetChanges}
