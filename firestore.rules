@@ -78,6 +78,22 @@ service cloud.firestore {
       return isAdmin() || hasUnit(unitId);
     }
 
+    function capacityFieldsAllowed() {
+      return request.resource.data.keys().hasOnly(['date', 'count', 'limit', 'updatedAt']);
+    }
+
+    function capacityLimitTouched() {
+      return 'limit' in request.resource.data;
+    }
+
+    function capacityLimitChanged() {
+      return capacityLimitTouched()
+        && (
+          !('limit' in resource.data)
+          || request.resource.data.limit != resource.data.limit
+        );
+    }
+
     function isSelf(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -134,14 +150,20 @@ service cloud.firestore {
 
       match /reservations/{reservationId} {
         allow read: if canViewUnit(unitId);
-        allow create: if canViewUnit(unitId);
+        allow create: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
         allow update, delete: if canManageUnit(unitId)
           || (isUnitLeader() && hasUnit(unitId));
       }
 
+      match /reservation_capacity/{dateKey} {
+        allow read: if true;
+        allow create, update, delete: if false;
+      }
+
       match /reservation_logs/{logId} {
-        allow read, create: if canViewUnit(unitId);
-        allow update, delete: if canManageUnit(unitId);
+        allow read: if canViewUnit(unitId);
+        allow create, update, delete: if false;
       }
 
       match /files/{fileId} {
