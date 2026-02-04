@@ -353,6 +353,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     {}
   );
   const [draftRotations, setDraftRotations] = useState<Record<string, number>>({});
+  const draftPositionsRef = useRef(draftPositions);
   const draftRotationsRef = useRef(draftRotations);
   const [draftObstacles, setDraftObstacles] = useState<
     Record<string, { x: number; y: number; w: number; h: number }>
@@ -732,6 +733,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     precisionEnabledRef.current = precisionEnabled;
   }, [precisionEnabled]);
+
+  useEffect(() => {
+    draftPositionsRef.current = draftPositions;
+  }, [draftPositions]);
 
   useEffect(() => {
     draftRotationsRef.current = draftRotations;
@@ -2188,20 +2193,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       errorMessage: 'Nem sikerült menteni a beállításokat.',
       errorContext: 'Error saving seating settings:',
       action: async () => {
+        const positionsSnapshot = draftPositionsRef.current;
+        const rotationsSnapshot = draftRotationsRef.current;
         const geometryIds = new Set<string>([
-          ...Object.keys(draftPositions),
-          ...Object.keys(draftRotations),
+          ...Object.keys(positionsSnapshot),
+          ...Object.keys(rotationsSnapshot),
         ]);
         if (geometryIds.size > 0) {
           const updates = Array.from(geometryIds)
             .map(tableId => {
               const payload: Partial<Table> = {};
-              const pos = draftPositions[tableId];
+              const pos = positionsSnapshot[tableId];
               if (pos) {
                 payload.x = pos.x;
                 payload.y = pos.y;
               }
-              const rot = draftRotations[tableId];
+              const rot = rotationsSnapshot[tableId];
               if (rot !== undefined) {
                 payload.rot = rot;
               }
@@ -2220,13 +2227,13 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             );
             updates.forEach(update => {
               if (update.payload.x !== undefined && update.payload.y !== undefined) {
-                lastSavedByIdRef.current[update.tableId] = {
-                  x: update.payload.x,
-                  y: update.payload.y,
-                };
+                setLastSaved(current => ({
+                  ...current,
+                  [update.tableId]: { x: update.payload.x, y: update.payload.y },
+                }));
               }
               if (update.payload.rot !== undefined) {
-                lastSavedRotByIdRef.current[update.tableId] = update.payload.rot;
+                setLastSavedRot(current => ({ ...current, [update.tableId]: update.payload.rot }));
               }
             });
             setDraftPositions(current => {
