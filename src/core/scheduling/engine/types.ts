@@ -30,8 +30,8 @@ export type EngineScheduleSettings = {
     {
       isOpen?: boolean;
       openingTime: string;
-      closingTime: string;
-      closingOffsetMinutes?: number;
+      closingTime: string | null;
+      closingOffsetMinutes: number;
     }
   >;
   defaultClosingTime?: string;

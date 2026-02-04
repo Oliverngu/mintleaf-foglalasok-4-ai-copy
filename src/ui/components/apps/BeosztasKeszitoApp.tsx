@@ -63,6 +63,7 @@ import {
   rejectSuggestion as rejectAssistantSuggestion,
 } from '../../../core/scheduling/assistant/services/assistantDecisionService';
 import { calculateShiftDurationHours } from '../../../core/scheduling/time/resolveShiftEnd';
+import { normalizeScheduleSettings } from '../../../core/scheduling/time/normalizeScheduleSettings';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -876,14 +877,6 @@ const createDefaultSettings = (
     {}
   )
 });
-
-const normalizeClosingOffsetMinutes = (
-  value?: number | null
-): number => {
-  if (!Number.isFinite(value)) return 0;
-  const rounded = Math.round(value as number);
-  return Math.min(240, Math.max(0, rounded));
-};
 
 // --- NEW: Default Export Settings ---
 const DEFAULT_EXPORT_SETTINGS: ExportStyleSettings = {
@@ -2335,7 +2328,8 @@ if (expected === 0) {
             );
             if (snap.exists()) {
               const data = snap.data() as ScheduleSettings;
-              return data.unitId ? data : { ...data, unitId };
+              const merged = data.unitId ? data : { ...data, unitId };
+              return normalizeScheduleSettings(merged);
             }
             const defaults = createDefaultSettings(
               unitId,
@@ -2945,7 +2939,9 @@ if (expected === 0) {
         if (docSnap.exists()) {
           const data = docSnap.data() as ScheduleSettings;
           setWeekSettings(
-            data.unitId ? data : { ...data, unitId, id: settingsId }
+            normalizeScheduleSettings(
+              data.unitId ? data : { ...data, unitId, id: settingsId }
+            )
           );
         } else {
           const defaults = createDefaultSettings(
@@ -4765,24 +4761,9 @@ if (expected === 0) {
           ...updated,
           unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
         };
-        const normalizedDailySettings = Object.fromEntries(
-          Object.entries(updatedWithUnitId.dailySettings || {}).map(
-            ([dayIndex, setting]) => [
-              dayIndex,
-              {
-                ...setting,
-                // closingOffsetMinutes is applied when shifts have end=null.
-                closingOffsetMinutes: normalizeClosingOffsetMinutes(
-                  setting?.closingOffsetMinutes
-                )
-              }
-            ]
-          )
+        const normalizedSettings = normalizeScheduleSettings(
+          updatedWithUnitId
         );
-        const normalizedSettings = {
-          ...updatedWithUnitId,
-          dailySettings: normalizedDailySettings
-        };
         if (canManage && activeUnitIds.length === 1) {
           setDoc(
             doc(db, 'schedule_settings', updatedWithUnitId.id),

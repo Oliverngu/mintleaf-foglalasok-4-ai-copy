@@ -3,7 +3,7 @@ type ResolveShiftEndParams = {
   end?: Date | null;
   dateKey: string;
   closingTime?: string | null;
-  closingOffsetMinutes?: number | null;
+  closingOffsetMinutes?: number;
 };
 
 type CalculateShiftDurationParams = {
@@ -12,7 +12,7 @@ type CalculateShiftDurationParams = {
   end?: Date | null;
   dateKey: string;
   closingTime?: string | null;
-  closingOffsetMinutes?: number | null;
+  closingOffsetMinutes?: number;
 };
 
 export const parseTimeToMinutes = (time: string): number | null => {
