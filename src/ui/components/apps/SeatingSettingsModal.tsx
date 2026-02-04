@@ -1883,8 +1883,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (drag.mode === 'rotate') {
         const fallbackRot = lastSavedRotByIdRef.current[tableId];
         if (fallbackRot !== undefined) {
+          draftRotationsRef.current = {
+            ...draftRotationsRef.current,
+            [tableId]: fallbackRot,
+          };
+          bumpGeometryDirtyTick();
           setDraftRotations(current => ({ ...current, [tableId]: fallbackRot }));
         } else {
+          if (tableId in draftRotationsRef.current) {
+            const nextRotations = { ...draftRotationsRef.current };
+            delete nextRotations[tableId];
+            draftRotationsRef.current = nextRotations;
+            bumpGeometryDirtyTick();
+          }
           setDraftRotations(current => {
             if (!(tableId in current)) {
               return current;
@@ -1897,8 +1908,19 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       } else {
         const fallback = lastSavedByIdRef.current[tableId];
         if (fallback) {
+          draftPositionsRef.current = {
+            ...draftPositionsRef.current,
+            [tableId]: fallback,
+          };
+          bumpGeometryDirtyTick();
           setDraftPositions(current => ({ ...current, [tableId]: fallback }));
         } else {
+          if (tableId in draftPositionsRef.current) {
+            const nextPositions = { ...draftPositionsRef.current };
+            delete nextPositions[tableId];
+            draftPositionsRef.current = nextPositions;
+            bumpGeometryDirtyTick();
+          }
           setDraftPositions(current => {
             if (!(tableId in current)) {
               return current;
@@ -3681,6 +3703,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!action) return;
     if (savingById[action.tableId]) return;
     setSavingById(current => ({ ...current, [action.tableId]: true }));
+    draftPositionsRef.current = {
+      ...draftPositionsRef.current,
+      [action.tableId]: { x: action.prev.x, y: action.prev.y },
+    };
+    draftRotationsRef.current = {
+      ...draftRotationsRef.current,
+      [action.tableId]: action.prev.rot,
+    };
+    bumpGeometryDirtyTick();
     setDraftPositions(current => ({
       ...current,
       [action.tableId]: { x: action.prev.x, y: action.prev.y },
