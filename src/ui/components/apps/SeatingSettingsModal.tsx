@@ -1915,8 +1915,10 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const geometryDirty = useMemo(() => {
     const tableById = new Map(tables.map(table => [table.id, table]));
+    const positionsSnapshot = draftPositionsRef.current;
+    const rotationsSnapshot = draftRotationsRef.current;
     return (
-      Object.entries(draftPositions).some(([tableId, pos]) => {
+      Object.entries(positionsSnapshot).some(([tableId, pos]) => {
         const saved = lastSavedByIdRef.current[tableId];
         const baseline = saved ?? tableById.get(tableId);
         if (!baseline) return true;
@@ -1924,7 +1926,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           'x' in baseline && 'y' in baseline ? baseline : { x: baseline.x, y: baseline.y };
         return baselinePos.x !== pos.x || baselinePos.y !== pos.y;
       }) ||
-      Object.entries(draftRotations).some(([tableId, rot]) => {
+      Object.entries(rotationsSnapshot).some(([tableId, rot]) => {
         const saved = lastSavedRotByIdRef.current[tableId];
         const baseline = saved ?? tableById.get(tableId)?.rot;
         return baseline === undefined ? true : baseline !== rot;
@@ -2225,17 +2227,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 return update ? { ...table, ...update.payload } : table;
               })
             );
+            const nextSavedPos: Record<string, { x: number; y: number }> = {};
+            const nextSavedRot: Record<string, number> = {};
             updates.forEach(update => {
               if (update.payload.x !== undefined && update.payload.y !== undefined) {
-                setLastSaved(current => ({
-                  ...current,
-                  [update.tableId]: { x: update.payload.x, y: update.payload.y },
-                }));
+                nextSavedPos[update.tableId] = { x: update.payload.x, y: update.payload.y };
               }
               if (update.payload.rot !== undefined) {
-                setLastSavedRot(current => ({ ...current, [update.tableId]: update.payload.rot }));
+                nextSavedRot[update.tableId] = update.payload.rot;
               }
             });
+            if (Object.keys(nextSavedPos).length > 0) {
+              setLastSaved(current => ({ ...current, ...nextSavedPos }));
+            }
+            if (Object.keys(nextSavedRot).length > 0) {
+              setLastSavedRot(current => ({ ...current, ...nextSavedRot }));
+            }
             setDraftPositions(current => {
               const next = { ...current };
               updates.forEach(update => {
@@ -3777,32 +3784,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   }, [finalizeDrag]);
 
   const finalizeRotation = async (tableId: string, rot: number, prevRot: number) => {
-    setSavingById(current => ({ ...current, [tableId]: true }));
-    try {
-      await updateTable(unitId, tableId, { rot });
-      const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
-      lastActionRef.current = {
-        tableId,
-        kind: 'rotate',
-        prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
-        next: { x: prevPos.x, y: prevPos.y, rot },
-        ts: Date.now(),
-      };
-      setUndoTick(tick => tick + 1);
-      setLastSavedRot(current => ({ ...current, [tableId]: rot }));
-    } catch (err) {
-      console.error('Error updating table rotation:', err);
-      setError('Nem sikerült menteni az asztal forgatását.');
-      setDraftRotations(current => {
-        const fallback = lastSavedRotByIdRef.current[tableId];
-        if (fallback === undefined) {
-          return current;
-        }
-        return { ...current, [tableId]: fallback };
-      });
-    } finally {
-      setSavingById(current => ({ ...current, [tableId]: false }));
-    }
+    const prevPos = lastSavedByIdRef.current[tableId] ?? { x: 0, y: 0 };
+    lastActionRef.current = {
+      tableId,
+      kind: 'rotate',
+      prev: { x: prevPos.x, y: prevPos.y, rot: prevRot },
+      next: { x: prevPos.x, y: prevPos.y, rot },
+      ts: Date.now(),
+    };
+    setUndoTick(tick => tick + 1);
   };
 
   useEffect(() => {
