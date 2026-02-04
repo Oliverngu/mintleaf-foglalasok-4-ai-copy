@@ -1933,7 +1933,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setDragState(null);
     },
-    []
+    [bumpGeometryDirtyTick]
   );
   const abortDragRef = useRef(abortDrag);
 
@@ -3727,9 +3727,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       lastActionRef.current = null;
       setUndoTick(tick => tick + 1);
-      bumpGeometryDirtyTick();
     } catch (err) {
       console.error('Error undoing last action:', err);
+      draftPositionsRef.current = {
+        ...draftPositionsRef.current,
+        [action.tableId]: { x: action.next.x, y: action.next.y },
+      };
+      draftRotationsRef.current = {
+        ...draftRotationsRef.current,
+        [action.tableId]: action.next.rot,
+      };
+      bumpGeometryDirtyTick();
       setDraftPositions(current => ({
         ...current,
         [action.tableId]: { x: action.next.x, y: action.next.y },
@@ -3739,7 +3747,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } finally {
       setSavingById(current => ({ ...current, [action.tableId]: false }));
     }
-  }, [savingById, unitId]);
+  }, [bumpGeometryDirtyTick, savingById, unitId]);
 
   const isUndoAvailable = useMemo(() => Boolean(lastActionRef.current), [undoTick]);
 
