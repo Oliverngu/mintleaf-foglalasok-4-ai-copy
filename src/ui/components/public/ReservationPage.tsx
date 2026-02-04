@@ -1314,8 +1314,6 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     );
   }, [formData, t]);
 
-  if (!selectedDate) return null;
-
   const bookingWindowText = settings.bookableWindow
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
     : null;
@@ -1355,6 +1353,9 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
       errorBannerRef.current.focus();
     }
   }, [error]);
+
+  // Keep hooks unconditional; guard rendering after hooks to preserve order.
+  if (!selectedDate) return null;
 
   return (
     <div
