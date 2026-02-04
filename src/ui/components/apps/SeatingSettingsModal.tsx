@@ -1948,11 +1948,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     lastSavedSnapshotRef.current = createSettingsSnapshot(saved);
     setSettingsDirty(false);
     setEditorDirty(false);
-    if (selectedTable) {
-      setSelectedTableDraft(buildSelectedTableDraftFromTable(selectedTable));
-    } else {
-      setSelectedTableDraft(null);
-    }
+    const selected = selectedTableId
+      ? tables.find(table => table.id === selectedTableId) ?? null
+      : null;
+    setSelectedTableDraft(
+      selected ? buildSelectedTableDraftFromTable(selected) : null
+    );
     setComboMode({
       active: false,
       baseTableId: null,
