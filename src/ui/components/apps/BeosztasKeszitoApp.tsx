@@ -62,6 +62,7 @@ import {
   acceptSuggestion as acceptAssistantSuggestion,
   rejectSuggestion as rejectAssistantSuggestion,
 } from '../../../core/scheduling/assistant/services/assistantDecisionService';
+import { calculateShiftDurationHours } from '../../../core/scheduling/time/resolveShiftEnd';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -90,33 +91,24 @@ const calculateShiftDuration = (
   options?: {
     closingTime?: string | null;
     closingOffsetMinutes?: number;
-    referenceDate?: Date;
+    dateKey?: string;
   }
 ): number => {
-  if (shift.isDayOff || !shift.start) return 0;
-
+  if (!shift.start) return 0;
   const startDate = shift.start.toDate();
-  let end = shift.end?.toDate();
-  const referenceDate = options?.referenceDate || startDate;
+  const dateKey = options?.dateKey ?? shift.dayKey ?? toDateString(startDate);
+  const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
+  const closingOffsetMinutes =
+    options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
 
-  if (!end && referenceDate) {
-    const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
-    const closingOffsetMinutes =
-      options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
-
-    const [hours, minutes] = closingTime.split(':').map(Number);
-    end = new Date(referenceDate);
-    end.setHours(hours, minutes + closingOffsetMinutes, 0, 0);
-
-    if (end < startDate) {
-      end.setDate(end.getDate() + 1);
-    }
-  }
-
-  if (!end) return 0;
-
-  const durationMs = end.getTime() - startDate.getTime();
-  return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
+  return calculateShiftDurationHours({
+    isDayOff: shift.isDayOff,
+    start: startDate,
+    end: shift.end?.toDate() ?? null,
+    dateKey,
+    closingTime,
+    closingOffsetMinutes
+  });
 };
 
 const buildDateFromDateKeyTime = (dateKey: string, time: string): Date =>
@@ -3079,13 +3071,15 @@ if (expected === 0) {
             const closingTime = daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
             const closingOffsetMinutes =
               daySetting?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
+            const dateKey =
+              shiftForDay.dayKey ?? toDateString(shiftForDay.start?.toDate() ?? day);
 
             return (
               sum +
               calculateShiftDuration(shiftForDay, {
                 closingTime,
                 closingOffsetMinutes,
-                referenceDate: week[dayIndex]
+                dateKey
               })
             );
           }, 0);
