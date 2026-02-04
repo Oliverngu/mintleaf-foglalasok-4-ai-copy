@@ -140,6 +140,6 @@ describe('assistant decision feedback', () => {
     const response = buildAssistantResponse(input, result, session);
 
     assert.equal(response.suggestions.length, 1);
-    assert.ok(response.suggestions[0].id.startsWith('assistant-suggestion:v1:'));
+    assert.ok(response.suggestions[0].id.startsWith('assistant-suggestion:v2:'));
   });
 });

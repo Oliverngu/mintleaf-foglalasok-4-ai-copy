@@ -1,5 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
-import { EmailTypeId } from '../email/emailTypes';
+import { EmailTypeId } from '../email/emailTypes.js';
 
 // NEW: Define the structure for a single widget's configuration
 export interface WidgetConfig {
@@ -358,8 +358,8 @@ export interface Position {
 export interface DailySetting {
     isOpen: boolean;
     openingTime: string;
-    closingTime: string;
-    closingOffsetMinutes?: number;
+    closingTime: string | null;
+    closingOffsetMinutes: number;
     quotas: { [position: string]: number };
 }
 

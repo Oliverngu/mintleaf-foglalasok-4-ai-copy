@@ -68,7 +68,12 @@ describe('Engine v1', () => {
       weekDays,
       scheduleSettings: buildScheduleSettings({
         dailySettings: {
-          0: { openingTime: '08:00', closingTime: '20:00', isOpen: false },
+          0: {
+            openingTime: '08:00',
+            closingTime: '20:00',
+            closingOffsetMinutes: 0,
+            isOpen: false
+          },
         },
         mergeDailySettings: false,
         defaultClosingTime: '21:00',

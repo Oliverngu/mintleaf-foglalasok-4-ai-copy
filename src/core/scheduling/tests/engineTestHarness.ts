@@ -12,13 +12,13 @@ type ScheduleSettingsOverrides = {
 };
 
 const baseDailySettings: EngineScheduleSettings['dailySettings'] = {
-  0: { openingTime: '08:00', closingTime: '22:00' },
-  1: { openingTime: '08:00', closingTime: '22:00' },
-  2: { openingTime: '08:00', closingTime: '22:00' },
-  3: { openingTime: '08:00', closingTime: '22:00' },
-  4: { openingTime: '08:00', closingTime: '22:00' },
-  5: { openingTime: '08:00', closingTime: '22:00' },
-  6: { openingTime: '08:00', closingTime: '22:00' },
+  0: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  1: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  2: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  3: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  4: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  5: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
+  6: { openingTime: '08:00', closingTime: '22:00', closingOffsetMinutes: 0 },
 };
 
 const baseRuleset: Ruleset = { bucketMinutes: 60 };

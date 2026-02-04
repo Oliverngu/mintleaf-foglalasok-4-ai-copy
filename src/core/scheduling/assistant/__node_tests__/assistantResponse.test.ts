@@ -55,7 +55,7 @@ describe('buildAssistantResponse', () => {
     assert.ok(response.suggestions.length > 0);
     response.suggestions.forEach(suggestion => {
       assert.ok(suggestion.id.length > 0);
-      assert.ok(suggestion.id.startsWith('assistant-suggestion:v1:'));
+      assert.ok(suggestion.id.startsWith('assistant-suggestion:v2:'));
     });
   });
 

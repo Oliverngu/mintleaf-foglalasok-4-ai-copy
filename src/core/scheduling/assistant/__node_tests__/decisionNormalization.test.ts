@@ -4,7 +4,7 @@ import type { DecisionRecord } from '../response/decisionTypes.js';
 import { normalizeDecisions } from '../session/decisionUtils.js';
 
 const buildDecision = (overrides: Partial<DecisionRecord>): DecisionRecord => ({
-  suggestionId: 'assistant-suggestion:v1:test',
+  suggestionId: 'assistant-suggestion:v2:test',
   decision: 'accepted',
   ...overrides,
 });

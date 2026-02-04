@@ -57,6 +57,13 @@ import {
   EngineResult,
   Suggestion
 } from '../../../core/scheduling/engine/types';
+import { buildAssistantSuggestionIdV2 } from '../../../core/scheduling/assistant/ids/suggestionId';
+import {
+  acceptSuggestion as acceptAssistantSuggestion,
+  rejectSuggestion as rejectAssistantSuggestion,
+} from '../../../core/scheduling/assistant/services/assistantDecisionService';
+import { calculateShiftDurationHours } from '../../../core/scheduling/time/resolveShiftEnd';
+import { normalizeScheduleSettings } from '../../../core/scheduling/time/normalizeScheduleSettings';
 import {
   applySuggestionToSchedule,
   computeSuggestionKey,
@@ -85,33 +92,24 @@ const calculateShiftDuration = (
   options?: {
     closingTime?: string | null;
     closingOffsetMinutes?: number;
-    referenceDate?: Date;
+    dateKey?: string;
   }
 ): number => {
-  if (shift.isDayOff || !shift.start) return 0;
-
+  if (!shift.start) return 0;
   const startDate = shift.start.toDate();
-  let end = shift.end?.toDate();
-  const referenceDate = options?.referenceDate || startDate;
+  const dateKey = options?.dateKey ?? shift.dayKey ?? toDateString(startDate);
+  const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
+  const closingOffsetMinutes =
+    options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
 
-  if (!end && referenceDate) {
-    const closingTime = options?.closingTime ?? DEFAULT_CLOSING_TIME;
-    const closingOffsetMinutes =
-      options?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
-
-    const [hours, minutes] = closingTime.split(':').map(Number);
-    end = new Date(referenceDate);
-    end.setHours(hours, minutes + closingOffsetMinutes, 0, 0);
-
-    if (end < startDate) {
-      end.setDate(end.getDate() + 1);
-    }
-  }
-
-  if (!end) return 0;
-
-  const durationMs = end.getTime() - startDate.getTime();
-  return durationMs > 0 ? durationMs / (1000 * 60 * 60) : 0;
+  return calculateShiftDurationHours({
+    isDayOff: shift.isDayOff,
+    start: startDate,
+    end: shift.end?.toDate() ?? null,
+    dateKey,
+    closingTime,
+    closingOffsetMinutes
+  });
 };
 
 const buildDateFromDateKeyTime = (dateKey: string, time: string): Date =>
@@ -2330,7 +2328,8 @@ if (expected === 0) {
             );
             if (snap.exists()) {
               const data = snap.data() as ScheduleSettings;
-              return data.unitId ? data : { ...data, unitId };
+              const merged = data.unitId ? data : { ...data, unitId };
+              return normalizeScheduleSettings(merged);
             }
             const defaults = createDefaultSettings(
               unitId,
@@ -2564,96 +2563,111 @@ if (expected === 0) {
     [activeUnitIds, allAppUsers, getSuggestionKey, isDevEnv, localSchedule, positions]
   );
 
-  const persistSuggestion = useCallback(
-    async (suggestion: Suggestion): Promise<{ createdShift?: Shift }> => {
-      const unitId = activeUnitIds[0];
-      if (!unitId) {
-        throw createAbortError('Missing unit ID for suggestion persistence.');
-      }
-      const action = suggestion.actions[0];
-      if (!action) {
-        throw createAbortError('Missing suggestion action.');
-      }
+  const applyEffectsToLocalSchedule = useCallback(
+    (effects: Array<{ type: string }>) => {
+      const unitId = activeUnitIds[0] || 'default';
+      const patches: UndoStackItem['patches'] = [];
+      setLocalSchedule(prev => {
+        let next = [...prev];
+        effects.forEach(effect => {
+          if (effect.type === 'moveShift') {
+            const move = effect as {
+              type: 'moveShift';
+              shiftId: string;
+              dateKey: string;
+              newStartTime: string;
+              newEndTime: string;
+              positionId?: string;
+            };
+            const target = next.find(shift => shift.id === move.shiftId);
+            if (!target) return;
+            const { start, end } = buildShiftDateRange(
+              move.dateKey,
+              move.newStartTime,
+              move.newEndTime
+            );
+            const updated: Shift = {
+              ...target,
+              start: Timestamp.fromDate(start),
+              end: Timestamp.fromDate(end),
+              position: move.positionId
+                ? resolvePositionName(move.positionId) || move.positionId
+                : target.position,
+              dayKey: move.dateKey,
+              unitId,
+            };
+            patches.push({
+              type: 'moveShift',
+              shiftId: target.id,
+              before: target,
+              after: updated,
+            });
+            next = next.map(shift =>
+              shift.id === target.id ? updated : shift
+            );
+            return;
+          }
+          if (effect.type === 'createShift') {
+            const create = effect as {
+              type: 'createShift';
+              shiftId: string;
+              userId: string;
+              dateKey: string;
+              startTime: string;
+              endTime: string;
+              positionId?: string;
+            };
+            const { start, end } = buildShiftDateRange(
+              create.dateKey,
+              create.startTime,
+              create.endTime
+            );
+            const user = userById.get(create.userId);
+            const positionName =
+              resolvePositionName(create.positionId) ||
+              user?.position ||
+              create.positionId ||
+              'N/A';
+            const createdShift: Shift = {
+              id: create.shiftId,
+              userId: create.userId,
+              userName: user?.fullName || create.userId,
+              unitId,
+              position: positionName,
+              start: Timestamp.fromDate(start),
+              end: Timestamp.fromDate(end),
+              status: 'draft',
+              isDayOff: false,
+              note: '',
+              isHighlighted: false,
+              dayKey: create.dateKey,
+            };
+            patches.push({
+              type: 'createShift',
+              shiftId: createdShift.id,
+              createdShift,
+            });
+            next = [...next, createdShift];
+          }
+        });
+        return next;
+      });
 
-      if (action.type === 'moveShift') {
-        const shift = localSchedule.find(item => item.id === action.shiftId);
-        if (!shift) {
-          throw createAbortError('Expected shift missing from local schedule.');
-        }
-        const shiftRef = doc(db, 'shifts', action.shiftId);
-        const currentSnap = await getDoc(shiftRef);
-        if (!currentSnap.exists()) {
-          throw createAbortError('Shift no longer exists.');
-        }
-        const currentData = currentSnap.data() as Partial<Shift>;
-        const currentStart = (currentData.start ?? null) as Timestamp | null;
-        const currentEnd = (currentData.end ?? null) as Timestamp | null;
-
-        if (
-          !isSameTimestamp(shift.start ?? null, currentStart) ||
-          !isSameTimestamp(shift.end ?? null, currentEnd)
-        ) {
-          throw createAbortError('Shift changed since suggestion was computed.');
-        }
-
-        const { start, end } = buildShiftDateRange(
-          action.dateKey,
-          action.newStartTime,
-          action.newEndTime
-        );
-        const updatePayload: Partial<Shift> = {
-          start: Timestamp.fromDate(start),
-          end: Timestamp.fromDate(end),
-          status: 'draft',
-          dayKey: action.dateKey,
-          unitId
-        };
-        if (action.positionId) {
-          updatePayload.position =
-            resolvePositionName(action.positionId) || action.positionId;
-        }
-        await updateDoc(shiftRef, updatePayload);
-        return {};
+      if (patches.length > 0) {
+        setUndoStack(prev => [
+          ...prev,
+          {
+            patches,
+            key: `assistant:${Date.now()}`,
+            appliedAt: Date.now(),
+          },
+        ]);
       }
-
-      if (action.type === 'createShift') {
-        const { start, end } = buildShiftDateRange(
-          action.dateKey,
-          action.startTime,
-          action.endTime
-        );
-        const user = userById.get(action.userId);
-        const positionName =
-          resolvePositionName(action.positionId) ||
-          user?.position ||
-          action.positionId ||
-          'N/A';
-        const payload: Omit<Shift, 'id'> = {
-          userId: action.userId,
-          userName: user?.fullName || action.userId,
-          unitId,
-          position: positionName,
-          start: Timestamp.fromDate(start),
-          end: Timestamp.fromDate(end),
-          status: 'draft',
-          isDayOff: false,
-          note: '',
-          isHighlighted: false,
-          dayKey: action.dateKey
-        };
-        const docRef = await addDoc(collection(db, 'shifts'), payload);
-        const createdShift: Shift = {
-          id: docRef.id,
-          ...payload
-        };
-        return { createdShift };
-      }
-      return {};
     },
-    [activeUnitIds, localSchedule, resolvePositionName, userById]
+    [activeUnitIds, resolvePositionName, userById]
   );
 
-  const handlePersistSuggestion = useCallback(
+  const handleAcceptSuggestion = useCallback(
     async (suggestion: Suggestion) => {
       const key = getSuggestionKey(suggestion);
       setSavingSuggestionKeys(prev => {
@@ -2663,27 +2677,34 @@ if (expected === 0) {
       });
 
       try {
-        const result = await persistSuggestion(suggestion);
-        if (result.createdShift) {
-          setLocalSchedule(prev => [...prev, result.createdShift!]);
-          setUndoStack(prev => [
-            ...prev,
-            {
-              patches: [
-                {
-                  type: 'createShift',
-                  shiftId: result.createdShift.id,
-                  createdShift: result.createdShift
-                }
-              ],
-              key,
-              appliedAt: Date.now()
-            }
-          ]);
-        } else {
-          applySuggestionToLocalSchedule(suggestion);
+        const unitId = activeUnitIds[0];
+        if (!unitId) {
+          throw createAbortError('Missing unit ID for suggestion persistence.');
         }
-        setSuccessToast('Javaslat mentve a beosztáshoz.');
+        const suggestionId = buildAssistantSuggestionIdV2(suggestion);
+        const response = await acceptAssistantSuggestion({
+          unitId,
+          suggestionId,
+          suggestion,
+          actorId: currentUser.id,
+        });
+
+        if (response.status === 'failed') {
+          setSuccessToast(
+            `Hiba történt a javaslat mentésekor. (${response.errors[0]?.code})`
+          );
+          return;
+        }
+
+        if (response.effects.length > 0) {
+          applyEffectsToLocalSchedule(response.effects);
+        }
+
+        setSuccessToast(
+          response.alreadyApplied || response.status === 'noop'
+            ? 'A javaslat már alkalmazva van.'
+            : 'Javaslat mentve a beosztáshoz.'
+        );
       } catch (error) {
         const err = error as Error;
         if (err?.name === 'AbortError') {
@@ -2704,11 +2725,51 @@ if (expected === 0) {
       }
     },
     [
-      applySuggestionToLocalSchedule,
+      activeUnitIds,
+      applyEffectsToLocalSchedule,
+      currentUser.id,
       getSuggestionKey,
-      persistSuggestion,
       setSuccessToast
     ]
+  );
+
+  const handleRejectSuggestion = useCallback(
+    async (suggestion: Suggestion) => {
+      const key = getSuggestionKey(suggestion);
+      setSavingSuggestionKeys(prev => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+      try {
+        const unitId = activeUnitIds[0];
+        if (!unitId) {
+          throw createAbortError('Missing unit ID for suggestion rejection.');
+        }
+        const suggestionId = buildAssistantSuggestionIdV2(suggestion);
+        await rejectAssistantSuggestion({
+          unitId,
+          suggestionId,
+          actorId: currentUser.id,
+        });
+        setRejectedSuggestionKeys(prev => {
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+        setSuccessToast('Javaslat elutasítva.');
+      } catch (error) {
+        console.error('Failed to reject suggestion:', error);
+        setSuccessToast('Hiba történt a javaslat elutasításakor.');
+      } finally {
+        setSavingSuggestionKeys(prev => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [activeUnitIds, currentUser.id, getSuggestionKey]
   );
 
   const handleUndoLastSuggestion = useCallback(() => {
@@ -2878,7 +2939,9 @@ if (expected === 0) {
         if (docSnap.exists()) {
           const data = docSnap.data() as ScheduleSettings;
           setWeekSettings(
-            data.unitId ? data : { ...data, unitId, id: settingsId }
+            normalizeScheduleSettings(
+              data.unitId ? data : { ...data, unitId, id: settingsId }
+            )
           );
         } else {
           const defaults = createDefaultSettings(
@@ -3012,13 +3075,15 @@ if (expected === 0) {
             const closingTime = daySetting?.closingTime ?? DEFAULT_CLOSING_TIME;
             const closingOffsetMinutes =
               daySetting?.closingOffsetMinutes ?? DEFAULT_CLOSING_OFFSET_MINUTES;
+            const dateKey =
+              shiftForDay.dayKey ?? toDateString(shiftForDay.start?.toDate() ?? day);
 
             return (
               sum +
               calculateShiftDuration(shiftForDay, {
                 closingTime,
                 closingOffsetMinutes,
-                referenceDate: week[dayIndex]
+                dateKey
               })
             );
           }, 0);
@@ -4696,13 +4761,19 @@ if (expected === 0) {
           ...updated,
           unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
         };
+        const normalizedSettings = normalizeScheduleSettings(
+          updatedWithUnitId
+        );
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
+          setDoc(
+            doc(db, 'schedule_settings', updatedWithUnitId.id),
+            normalizedSettings
+          )
             .catch(error => {
               console.error('Failed to save settings:', error);
             });
         }
-        return updatedWithUnitId;
+        return normalizedSettings;
       });
     },
     [canManage, activeUnitIds, weekStartDateStr]
@@ -5628,15 +5699,20 @@ if (expected === 0) {
                         className="p-1 border rounded"
                       />
                       <div className="flex flex-col">
+                        <label className="text-xs font-medium text-gray-600">
+                          Zárás utáni plusz idő (perc)
+                        </label>
                         <input
                           type="number"
                           min={0}
+                          max={240}
+                          step={5}
                           value={
-                            openingSettings.dailySettings[i]?.closingOffsetMinutes
-                              ?.toString() ?? ''
+                            openingSettings.dailySettings[i]
+                              ?.closingOffsetMinutes ?? 0
                           }
                           onChange={e => {
-                            const val = Number(e.target.value) || 0;
+                            const val = Number(e.target.value);
                             handleSettingsChange(prev => ({
                               ...prev,
                               dailySettings: {
@@ -5649,7 +5725,6 @@ if (expected === 0) {
                             }));
                           }}
                           className="p-1 border rounded w-28"
-                          placeholder="Offset (perc)"
                         />
                         <span className="text-xs text-gray-500 mt-1">
                           Zárás utáni munka (pl. takarítás)
@@ -5956,30 +6031,23 @@ if (expected === 0) {
                             <button
                               type="button"
                               className="rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white"
-                              onClick={() => {
-                                applySuggestionToLocalSchedule(suggestion);
-                              }}
+                              onClick={() => handleAcceptSuggestion(suggestion)}
+                              disabled={isSaving}
                             >
-                              Accept
+                              {isSaving ? 'Saving...' : 'Accept'}
                             </button>
                             <button
                               type="button"
                               className="rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
-                              onClick={() => handlePersistSuggestion(suggestion)}
-                              disabled={isSaving}
+                              onClick={() => applySuggestionToLocalSchedule(suggestion)}
                             >
-                              {isSaving ? 'Saving...' : 'Apply (save)'}
+                              Apply (local)
                             </button>
                             <button
                               type="button"
                               className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600"
-                              onClick={() =>
-                                setRejectedSuggestionKeys(prev => {
-                                  const next = new Set(prev);
-                                  next.add(suggestionKey);
-                                  return next;
-                                })
-                              }
+                              onClick={() => handleRejectSuggestion(suggestion)}
+                              disabled={isSaving}
                             >
                               Reject
                             </button>
