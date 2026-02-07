@@ -1899,7 +1899,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [seatingSettings, setSeatingSettings] = useState<SeatingSettings | null>(null);
   const [reservationSettings, setReservationSettings] =
     useState<ReservationSetting | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [detailsDate, setDetailsDate] = useState<Date | null>(null);
   const [overviewDate, setOverviewDate] = useState(new Date());
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -2309,7 +2309,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   useEffect(() => {
     setSelectedBookingId(null);
-  }, [selectedDate]);
+  }, [overviewDateKey]);
 
   if (!activeUnitId) {
     return (
@@ -2570,6 +2570,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 </span>
               </div>
               <div className="ml-auto flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDetailsDate(overviewDate)}
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
+                >
+                  Napi lista
+                </button>
                 <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
                   <input
                     type="checkbox"
@@ -2644,7 +2651,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         type="button"
                         onClick={() => {
                           setSelectedBookingId(booking.id);
-                          setSelectedDate(overviewDate);
                         }}
                         className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
                           selectedBookingId === booking.id
@@ -2660,7 +2666,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                             {timeLabel}
                           </span>
                         </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
                           {booking.allocationFinal?.locked && (
                             <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
                               ZÁROLT
@@ -2681,6 +2687,16 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               CONFLICT
                             </span>
                           )}
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              setDetailsDate(overviewDate);
+                            }}
+                            className="ml-auto rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)] hover:bg-gray-100"
+                          >
+                            Részletek
+                          </button>
                         </div>
                       </button>
                     );
@@ -2712,15 +2728,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         </>
       )}
 
-      {selectedDate && activeUnitId && (
+      {detailsDate && activeUnitId && (
         <BookingDetailsModal
-          selectedDate={selectedDate}
-          bookings={bookingsByDate.get(toLocalDateKey(selectedDate)) || []}
+          selectedDate={detailsDate}
+          bookings={bookingsByDate.get(toLocalDateKey(detailsDate)) || []}
           onClose={() => {
-            setSelectedBookingId(null);
-            setSelectedDate(null);
+            setDetailsDate(null);
           }}
-          onSelectBooking={setSelectedBookingId}
+          onSelectBooking={bookingId => {
+            if (bookingId) {
+              setSelectedBookingId(bookingId);
+            }
+          }}
           isAdmin={isAdmin}
           onDelete={setBookingToDelete}
           unitId={activeUnitId}
