@@ -976,35 +976,37 @@ const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
             }`}
           >
             <div className="flex-1 min-h-0">
-              <Step2Details
-                selectedDate={selectedDate}
-                formData={formData}
-                setFormData={setFormData}
-                onBack={() => {
-                  setStep(1);
-                  setSubmitError(null);
-                  setSubmitState('idle');
-                }}
-                onSubmit={handleSubmit}
-                isSubmitting={isSubmitting}
-                settings={settings}
-                timeWindowRemaining={timeWindowSelection.remaining}
-                timeWindowCapacity={timeWindowCapacityValue}
-                timeWindowOverLimit={timeWindowSelection.overLimit}
-                themeProps={themeClassProps}
-                t={t}
-                locale={locale}
-                error={submitError}
-                onRetry={() => {
-                  setSubmitError(null);
-                  setSubmitState('idle');
-                }}
-                buttonClasses={{
-                  primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                  secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                }}
-                unit={unit}
-              />
+              {selectedDate ? (
+                <Step2Details
+                  selectedDate={selectedDate}
+                  formData={formData}
+                  setFormData={setFormData}
+                  onBack={() => {
+                    setStep(1);
+                    setSubmitError(null);
+                    setSubmitState('idle');
+                  }}
+                  onSubmit={handleSubmit}
+                  isSubmitting={isSubmitting}
+                  settings={settings}
+                  timeWindowRemaining={timeWindowSelection.remaining}
+                  timeWindowCapacity={timeWindowCapacityValue}
+                  timeWindowOverLimit={timeWindowSelection.overLimit}
+                  themeProps={themeClassProps}
+                  t={t}
+                  locale={locale}
+                  error={submitError}
+                  onRetry={() => {
+                    setSubmitError(null);
+                    setSubmitState('idle');
+                  }}
+                  buttonClasses={{
+                    primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                    secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                  }}
+                  unit={unit}
+                />
+              ) : null}
             </div>
           </div>
           <div
@@ -1313,8 +1315,6 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
       !validateField('email', formData.email)
     );
   }, [formData, t]);
-
-  if (!selectedDate) return null;
 
   const bookingWindowText = settings.bookableWindow
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
