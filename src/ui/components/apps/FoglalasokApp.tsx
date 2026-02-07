@@ -1913,6 +1913,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     useState<AutoAllocateDayResult | null>(null);
   const [autoAllocateError, setAutoAllocateError] = useState<string | null>(null);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineRafRef = useRef<number | null>(null);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2174,6 +2176,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const mins = String(safe % 60).padStart(2, '0');
     return `${hours}:${mins}`;
   };
+  const clampDayInMonth = (year: number, month: number, day: number) => {
+    const maxDay = new Date(year, month + 1, 0).getDate();
+    return Math.min(Math.max(day, 1), maxDay);
+  };
 
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
@@ -2197,9 +2203,25 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     from: '00:00',
     to: '23:59',
   };
+  const monthLabels = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, idx) =>
+        new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' })
+      ),
+    []
+  );
+  const daysInMonth = useMemo(
+    () =>
+      new Date(overviewDate.getFullYear(), overviewDate.getMonth() + 1, 0).getDate(),
+    [overviewDate]
+  );
   const openingMinutes = parseTimeToMinutes(bookingWindow.from) ?? 0;
   const closingMinutes = parseTimeToMinutes(bookingWindow.to) ?? 24 * 60;
   const maxWindowStart = Math.max(openingMinutes, closingMinutes - 120);
+  const stepMinutes = 15;
+  const stepWidth = 12;
+  const totalSteps = Math.floor((maxWindowStart - openingMinutes) / stepMinutes) + 1;
+  const totalWidth = totalSteps * stepWidth;
 
   useEffect(() => {
     setWindowStartMinutes(openingMinutes);
@@ -2306,6 +2328,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       item.diagnostics?.noFit
     ).slice(0, 10);
   }, [autoAllocateSummary]);
+
+  useEffect(() => {
+    const container = timelineRef.current;
+    if (!container) return;
+    const startIndex = Math.round((windowStartMinutes - openingMinutes) / stepMinutes);
+    const targetLeft = Math.max(0, startIndex * stepWidth - container.clientWidth / 2);
+    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+  }, [openingMinutes, stepMinutes, stepWidth, windowStartMinutes]);
+
+  useEffect(
+    () => () => {
+      if (timelineRafRef.current !== null) {
+        cancelAnimationFrame(timelineRafRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     setSelectedBookingId(null);
@@ -2474,125 +2513,147 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {!loading && !error && (
         <>
           <div className="mt-4 space-y-6">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                  Év
-                </label>
-                <select
-                  value={overviewDate.getFullYear()}
-                  onChange={event => {
-                    const nextYear = Number(event.target.value);
-                    const nextDate = new Date(overviewDate);
-                    nextDate.setFullYear(nextYear);
-                    setOverviewDate(nextDate);
-                  }}
-                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {[-1, 0, 1].map(offset => {
-                    const year = new Date().getFullYear() + offset;
-                    return (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    );
-                  })}
-                </select>
+            <div className="space-y-4">
+              <div className="text-xl font-semibold text-[var(--color-text-main)]">
+                {overviewDate.getFullYear()}
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                  Hónap
-                </label>
-                <select
-                  value={overviewDate.getMonth()}
-                  onChange={event => {
-                    const nextMonth = Number(event.target.value);
-                    const nextDate = new Date(overviewDate);
-                    nextDate.setMonth(nextMonth);
-                    setOverviewDate(nextDate);
-                  }}
-                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {Array.from({ length: 12 }, (_, idx) => (
-                    <option key={idx} value={idx}>
-                      {new Date(2024, idx, 1).toLocaleDateString('hu-HU', {
-                        month: 'long',
+              <div className="flex flex-wrap items-center gap-2">
+                {monthLabels.map((label, idx) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      const nextDate = new Date(overviewDate);
+                      const nextDay = clampDayInMonth(
+                        nextDate.getFullYear(),
+                        idx,
+                        nextDate.getDate()
+                      );
+                      nextDate.setMonth(idx);
+                      nextDate.setDate(nextDay);
+                      setOverviewDate(nextDate);
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                      overviewDate.getMonth() === idx
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {Array.from({ length: daysInMonth }, (_, idx) => idx + 1).map(day => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => {
+                      const nextDate = new Date(overviewDate);
+                      nextDate.setDate(day);
+                      setOverviewDate(nextDate);
+                    }}
+                    className={`h-8 w-8 flex items-center justify-center rounded-full border text-xs font-semibold ${
+                      overviewDate.getDate() === day
+                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                    }`}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                    {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setDetailsDate(overviewDate)}
+                      className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
+                    >
+                      Napi lista
+                    </button>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={autoAllocateDryRun}
+                        onChange={event => setAutoAllocateDryRun(event.target.checked)}
+                      />
+                      Dry-run
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAutoAllocateDay}
+                      disabled={autoAllocateRunning}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
+                    </button>
+                  </div>
+                </div>
+                <div className="relative rounded-xl border border-gray-200 bg-white px-3 py-4">
+                  <div
+                    ref={timelineRef}
+                    className="relative overflow-x-auto"
+                    onScroll={event => {
+                      const target = event.currentTarget;
+                      if (timelineRafRef.current !== null) {
+                        cancelAnimationFrame(timelineRafRef.current);
+                      }
+                      timelineRafRef.current = requestAnimationFrame(() => {
+                        const index = Math.max(
+                          0,
+                          Math.min(
+                            totalSteps - 1,
+                            Math.round(target.scrollLeft / stepWidth)
+                          )
+                        );
+                        const nextMinutes = openingMinutes + index * stepMinutes;
+                        if (nextMinutes !== windowStartMinutes) {
+                          setWindowStartMinutes(nextMinutes);
+                        }
+                      });
+                    }}
+                  >
+                    <div className="relative h-16" style={{ width: totalWidth }}>
+                      <div
+                        className="absolute top-2 h-12 rounded-full bg-emerald-100"
+                        style={{
+                          left:
+                            ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
+                          width: (120 / stepMinutes) * stepWidth,
+                        }}
+                      />
+                      {Array.from({ length: totalSteps }, (_, idx) => {
+                        const minutes = openingMinutes + idx * stepMinutes;
+                        const isHour = minutes % 60 === 0;
+                        return (
+                          <button
+                            key={minutes}
+                            type="button"
+                            onClick={() => setWindowStartMinutes(minutes)}
+                            className="absolute top-0 h-full flex flex-col items-center justify-end"
+                            style={{ left: idx * stepWidth }}
+                          >
+                            <span
+                              className={`block w-px ${
+                                isHour ? 'h-6 bg-gray-400' : 'h-3 bg-gray-300'
+                              }`}
+                            />
+                            {isHour && (
+                              <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                                {formatMinutes(minutes)}
+                              </span>
+                            )}
+                          </button>
+                        );
                       })}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                  Nap
-                </label>
-                <select
-                  value={overviewDate.getDate()}
-                  onChange={event => {
-                    const nextDay = Number(event.target.value);
-                    const nextDate = new Date(overviewDate);
-                    nextDate.setDate(nextDay);
-                    setOverviewDate(nextDate);
-                  }}
-                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
-                >
-                  {Array.from(
-                    {
-                      length: new Date(
-                        overviewDate.getFullYear(),
-                        overviewDate.getMonth() + 1,
-                        0
-                      ).getDate(),
-                    },
-                    (_, idx) => idx + 1
-                  ).map(day => (
-                    <option key={day} value={day}>
-                      {day}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                  Idősáv
-                </label>
-                <input
-                  type="range"
-                  min={openingMinutes}
-                  max={maxWindowStart}
-                  step={15}
-                  value={windowStartMinutes}
-                  onChange={event => setWindowStartMinutes(Number(event.target.value))}
-                  className="w-48"
-                />
-                <span className="text-sm font-semibold text-[var(--color-text-main)]">
-                  {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
-                </span>
-              </div>
-              <div className="ml-auto flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDetailsDate(overviewDate)}
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
-                >
-                  Napi lista
-                </button>
-                <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-                  <input
-                    type="checkbox"
-                    checked={autoAllocateDryRun}
-                    onChange={event => setAutoAllocateDryRun(event.target.checked)}
-                  />
-                  Dry-run
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAutoAllocateDay}
-                  disabled={autoAllocateRunning}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
-                </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             {autoAllocateError && (
