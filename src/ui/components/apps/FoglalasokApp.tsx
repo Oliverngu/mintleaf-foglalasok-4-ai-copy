@@ -1915,6 +1915,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const timelineRafRef = useRef<number | null>(null);
+  const timelineProgrammaticRef = useRef(false);
+  const timelineProgrammaticTimeoutRef = useRef<number | null>(null);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2180,6 +2182,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const maxDay = new Date(year, month + 1, 0).getDate();
     return Math.min(Math.max(day, 1), maxDay);
   };
+  const clampWindowStart = (minutes: number, min: number, max: number) =>
+    Math.min(Math.max(minutes, min), max);
 
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
@@ -2332,15 +2336,26 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   useEffect(() => {
     const container = timelineRef.current;
     if (!container) return;
-    const startIndex = Math.round((windowStartMinutes - openingMinutes) / stepMinutes);
+    const clampedStart = clampWindowStart(windowStartMinutes, openingMinutes, maxWindowStart);
+    const startIndex = Math.round((clampedStart - openingMinutes) / stepMinutes);
     const targetLeft = Math.max(0, startIndex * stepWidth - container.clientWidth / 2);
+    timelineProgrammaticRef.current = true;
+    if (timelineProgrammaticTimeoutRef.current !== null) {
+      window.clearTimeout(timelineProgrammaticTimeoutRef.current);
+    }
     container.scrollTo({ left: targetLeft, behavior: 'smooth' });
-  }, [openingMinutes, stepMinutes, stepWidth, windowStartMinutes]);
+    timelineProgrammaticTimeoutRef.current = window.setTimeout(() => {
+      timelineProgrammaticRef.current = false;
+    }, 200);
+  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, windowStartMinutes]);
 
   useEffect(
     () => () => {
       if (timelineRafRef.current !== null) {
         cancelAnimationFrame(timelineRafRef.current);
+      }
+      if (timelineProgrammaticTimeoutRef.current !== null) {
+        window.clearTimeout(timelineProgrammaticTimeoutRef.current);
       }
     },
     []
@@ -2599,6 +2614,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     ref={timelineRef}
                     className="relative overflow-x-auto"
                     onScroll={event => {
+                      if (timelineProgrammaticRef.current) return;
                       const target = event.currentTarget;
                       if (timelineRafRef.current !== null) {
                         cancelAnimationFrame(timelineRafRef.current);
@@ -2611,7 +2627,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                             Math.round(target.scrollLeft / stepWidth)
                           )
                         );
-                        const nextMinutes = openingMinutes + index * stepMinutes;
+                        const nextMinutes = clampWindowStart(
+                          openingMinutes + index * stepMinutes,
+                          openingMinutes,
+                          maxWindowStart
+                        );
                         if (nextMinutes !== windowStartMinutes) {
                           setWindowStartMinutes(nextMinutes);
                         }
@@ -2634,7 +2654,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           <button
                             key={minutes}
                             type="button"
-                            onClick={() => setWindowStartMinutes(minutes)}
+                            onClick={() =>
+                              setWindowStartMinutes(
+                                clampWindowStart(minutes, openingMinutes, maxWindowStart)
+                              )
+                            }
                             className="absolute top-0 h-full flex flex-col items-center justify-end"
                             style={{ left: idx * stepWidth }}
                           >
