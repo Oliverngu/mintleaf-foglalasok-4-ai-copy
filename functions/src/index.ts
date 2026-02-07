@@ -3320,7 +3320,7 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
     allocationMode: normalizedMode,
     allocationStrategy: normalizedStrategy,
     snapshot: snapshotPayload,
-    algoVersion,
+    algoVersion: SEATING_LOG_ALGO_VERSION,
     source: SEATING_LOG_SOURCES.adminCallable,
   });
 
