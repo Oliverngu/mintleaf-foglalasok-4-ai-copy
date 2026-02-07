@@ -339,6 +339,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     () => selectedAssignedTableIds.size > 0,
     [selectedAssignedTableIds]
   );
+  const selectedBookingReason = selectedBooking?.allocated?.diagnosticsSummary ?? null;
+  const selectedBookingHasNoFit =
+    Boolean(selectedBooking) && !selectedBookingHasTables && selectedBookingReason === 'NO_FIT';
 
   const recommendedTableIds = useMemo(() => {
     const recommendations = new Set<string>();
@@ -410,6 +413,11 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
     return conflicts;
   }, [bookings]);
+
+  const selectedBookingHasConflict = useMemo(() => {
+    if (!selectedAssignedTableIds.size) return false;
+    return Array.from(selectedAssignedTableIds).some(tableId => conflictTableIds.has(tableId));
+  }, [conflictTableIds, selectedAssignedTableIds]);
 
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
@@ -519,6 +527,26 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           )}
         </div>
       </div>
+
+      {selectedBooking && (
+        <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase text-[var(--color-text-secondary)]">
+          {selectedBookingHasNoFit && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+              NO_FIT – nincs megfelelő asztal
+            </span>
+          )}
+          {selectedBookingHasConflict && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+              Konfliktus – átfedő foglalás
+            </span>
+          )}
+          {selectedBookingReason && !selectedBookingHasNoFit && !selectedBookingHasConflict && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+              {selectedBookingReason}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">

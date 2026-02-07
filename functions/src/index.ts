@@ -10,6 +10,7 @@ import {
   writeAllocationDecisionLogForBooking,
 } from "./allocation";
 import { buildAllocationRecord } from "./allocation/allocated";
+import { ALLOCATION_LOG_ALGO_VERSION, ALLOCATION_LOG_SOURCES } from "./allocation/logWriter";
 import { decideAllocation } from "./reservations/allocationEngine";
 import { writeAllocationAuditLog } from "./reservations/allocationLogService";
 import { readAllocationOverrideTx } from "./reservations/allocationOverrideService";
@@ -60,6 +61,54 @@ const EMAIL_QUEUE_MAX_ATTEMPTS = 6;
 const EMAIL_QUEUE_BASE_BACKOFF_MS = 15_000;
 const EMAIL_QUEUE_MAX_BACKOFF_MS = 10 * 60 * 1000;
 type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+const SEATING_LOG_ALGO_VERSION = ALLOCATION_LOG_ALGO_VERSION;
+const SEATING_LOG_SOURCES = ALLOCATION_LOG_SOURCES;
+
+const canRunSeatingAllocation = (startTime: Date, endTime: Date, headcount: number) =>
+  Number.isFinite(headcount) &&
+  headcount > 0 &&
+  startTime instanceof Date &&
+  endTime instanceof Date &&
+  !Number.isNaN(startTime.getTime()) &&
+  !Number.isNaN(endTime.getTime()) &&
+  endTime.getTime() > startTime.getTime();
+
+const resolveSkipReason = (startTime: Date, endTime: Date, headcount: number) => {
+  if (!Number.isFinite(headcount) || headcount <= 0) {
+    return 'INVALID_PARTY_SIZE';
+  }
+  if (
+    !(startTime instanceof Date) ||
+    !(endTime instanceof Date) ||
+    Number.isNaN(startTime.getTime()) ||
+    Number.isNaN(endTime.getTime()) ||
+    endTime.getTime() <= startTime.getTime()
+  ) {
+    return 'INVALID_TIME_RANGE';
+  }
+  return 'SKIPPED';
+};
+
+const normalizeSeatingDecision = <T extends { zoneId: string | null; tableIds: string[]; reason: string }>(
+  decision: T,
+  zones: FloorplanZone[],
+  tables: FloorplanTable[]
+) => {
+  if (!zones.length && !tables.length) {
+    return decision;
+  }
+  const zoneIds = new Set(zones.map(zone => zone.id));
+  const tableIds = new Set(tables.map(table => table.id));
+  const normalizedTableIds = Array.from(
+    new Set(decision.tableIds.filter(tableId => tableIds.has(tableId)))
+  );
+  const normalizedZoneId = decision.zoneId && zoneIds.has(decision.zoneId) ? decision.zoneId : null;
+  const hasInvalidZone = Boolean(decision.zoneId && !normalizedZoneId);
+  const hasInvalidTable = decision.tableIds.some(tableId => !tableIds.has(tableId));
+  const reason = hasInvalidZone || hasInvalidTable ? 'STALE_ENTITY' : decision.reason;
+  return { ...decision, zoneId: normalizedZoneId, tableIds: normalizedTableIds, reason };
+};
 
 interface AllocationIntent {
   zoneId?: string | null;
@@ -1371,12 +1420,17 @@ export const guestModifyReservation = onRequest(
           intentWarnings: allocationDiagnostics.warnings,
         };
 
+        const allocationOverrideEnabled = Boolean(latest.allocationOverride?.enabled);
+        const allocationFinalLocked = Boolean(latest.allocationFinal?.locked);
+
         return {
           headcount: parsedHeadcount,
           startTimeMs: startTime.getTime(),
           endTimeMs: endTime.getTime(),
           allocationDecision,
           capacityRemaining: null,
+          allocationOverrideEnabled,
+          allocationFinalLocked,
         };
       });
 
@@ -1399,42 +1453,93 @@ export const guestModifyReservation = onRequest(
         return;
       }
 
-      try {
-        const decision = {
-          zoneId: allocationDecision.decision.assignedZoneId ?? null,
-          tableIds: [],
-          reason: null,
-          reasonCode: allocationDecision.decision.reasonCode,
-          allocationMode: null,
-          allocationStrategy: null,
-        };
-        const allocationDisabled =
-          decision.reason === 'ALLOCATION_DISABLED' ||
-          decision.reasonCode === 'ALLOCATION_DISABLED';
-        const allocationRecord = buildAllocationRecord({
-          decision,
-          traceId: `alloc-${reservationId}`,
-          decidedAtMs: Date.now(),
-          enabled: !allocationDisabled,
-          computedForStartTimeMs: startTime.getTime(),
-          computedForEndTimeMs: endTime.getTime(),
-          computedForHeadcount: parsedHeadcount,
-          algoVersion: 'alloc-v1',
-        });
-        if (allocationRecord) {
-          await db
-            .collection('units')
-            .doc(unitId)
-            .collection('reservations')
-            .doc(reservationId)
-            .update({ allocated: allocationRecord });
-        }
-      } catch (err) {
-        logger.warn('guestModifyReservation allocation log failed', {
+      const shouldRunSeating = canRunSeatingAllocation(startTime, endTime, parsedHeadcount);
+      if (!shouldRunSeating) {
+        logger.warn('guestModifyReservation seating allocation skipped', {
           unitId,
           bookingId: reservationId,
-          err,
+          headcount: parsedHeadcount,
+          startTimeMs: startTime.getTime?.() ?? null,
+          endTimeMs: endTime.getTime?.() ?? null,
         });
+        try {
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId: reservationId,
+            startDate: startTime,
+            endDate: endTime,
+            partySize: parsedHeadcount,
+            selectedZoneId: null,
+            selectedTableIds: [],
+            reason: resolveSkipReason(startTime, endTime, parsedHeadcount),
+            allocationMode: null,
+            allocationStrategy: null,
+            snapshot: null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.bookingModify,
+          });
+        } catch (err) {
+          logger.warn('guestModifyReservation allocation log failed', {
+            unitId,
+            bookingId: reservationId,
+            err,
+          });
+        }
+      } else {
+        try {
+          const decision = normalizeSeatingDecision(
+            await computeAllocationDecisionForBooking({
+              unitId,
+              bookingId: reservationId,
+              startDate: startTime,
+              endDate: endTime,
+              partySize: parsedHeadcount,
+            }),
+            allocationContextReady ? allocationZones : [],
+            allocationContextReady ? allocationTables : []
+          );
+          const allocationRecord = buildAllocationRecord({
+            decision,
+            traceId: `alloc-${reservationId}`,
+            decidedAtMs: Date.now(),
+            enabled: decision.reason !== 'ALLOCATION_DISABLED',
+            computedForStartTimeMs: startTime.getTime(),
+            computedForEndTimeMs: endTime.getTime(),
+            computedForHeadcount: parsedHeadcount,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+          });
+          const shouldSkipAllocatedUpdate =
+            result.allocationOverrideEnabled || result.allocationFinalLocked;
+          if (allocationRecord && !shouldSkipAllocatedUpdate) {
+            await db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservations')
+              .doc(reservationId)
+              .update({ allocated: allocationRecord });
+          }
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId: reservationId,
+            startDate: startTime,
+            endDate: endTime,
+            partySize: parsedHeadcount,
+            selectedZoneId: decision.zoneId ?? null,
+            selectedTableIds: decision.tableIds,
+            reason: decision.reason,
+            allocationMode: decision.allocationMode ?? null,
+            allocationStrategy: decision.allocationStrategy ?? null,
+            snapshot: decision.snapshot ?? null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.bookingModify,
+          });
+        } catch (err) {
+          logger.warn('guestModifyReservation allocation log failed', {
+            unitId,
+            bookingId: reservationId,
+            err,
+          });
+        }
       }
 
       logger.info('guestModifyReservation update', {
@@ -1870,53 +1975,91 @@ export const guestCreateReservation = onRequest(
         adminActionToken: adminActionToken || undefined,
       };
 
-      try {
-        const decision = await computeAllocationDecisionForBooking({
+      const shouldRunSeating = canRunSeatingAllocation(startTime, endTime, headcount);
+      if (!shouldRunSeating) {
+        logger.warn('guestCreateReservation seating allocation skipped', {
           unitId,
           bookingId: createResult.bookingId,
-          startDate: startTime,
-          endDate: endTime,
-          partySize: headcount,
+          headcount,
+          startTimeMs: startTime.getTime?.() ?? null,
+          endTimeMs: endTime.getTime?.() ?? null,
         });
-        const allocationRecord = buildAllocationRecord({
-          decision,
-          traceId: `alloc-${createResult.bookingId}`,
-          decidedAtMs: Date.now(),
-          enabled: decision.reason !== 'ALLOCATION_DISABLED',
-          computedForStartTimeMs: startTime.getTime(),
-          computedForEndTimeMs: endTime.getTime(),
-          computedForHeadcount: headcount,
-          algoVersion: 'alloc-v1',
-        });
-        if (allocationRecord) {
-          await db
-            .collection('units')
-            .doc(unitId)
-            .collection('reservations')
-            .doc(createResult.bookingId)
-            .update({ allocated: allocationRecord });
+        try {
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId: createResult.bookingId,
+            startDate: startTime,
+            endDate: endTime,
+            partySize: headcount,
+            selectedZoneId: null,
+            selectedTableIds: [],
+            reason: resolveSkipReason(startTime, endTime, headcount),
+            allocationMode: null,
+            allocationStrategy: null,
+            snapshot: null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.bookingSubmit,
+          });
+        } catch (err) {
+          logger.warn('guestCreateReservation allocation log failed', {
+            unitId,
+            bookingId: createResult.bookingId,
+            err,
+          });
         }
-        await writeAllocationDecisionLogForBooking({
-          unitId,
-          bookingId: createResult.bookingId,
-          startDate: startTime,
-          endDate: endTime,
-          partySize: headcount,
-          selectedZoneId: decision.zoneId ?? null,
-          selectedTableIds: decision.tableIds,
-          reason: decision.reason,
-          allocationMode: decision.allocationMode ?? null,
-          allocationStrategy: decision.allocationStrategy ?? null,
-          snapshot: decision.snapshot ?? null,
-          algoVersion: 'alloc-v1',
-          source: 'bookingSubmit',
-        });
-      } catch (err) {
-        logger.warn('guestCreateReservation allocation log failed', {
-          unitId,
-          bookingId: createResult.bookingId,
-          err,
-        });
+      } else {
+        try {
+          const decision = normalizeSeatingDecision(
+            await computeAllocationDecisionForBooking({
+              unitId,
+              bookingId: createResult.bookingId,
+              startDate: startTime,
+              endDate: endTime,
+              partySize: headcount,
+            }),
+            zones,
+            tables
+          );
+          const allocationRecord = buildAllocationRecord({
+            decision,
+            traceId: `alloc-${createResult.bookingId}`,
+            decidedAtMs: Date.now(),
+            enabled: decision.reason !== 'ALLOCATION_DISABLED',
+            computedForStartTimeMs: startTime.getTime(),
+            computedForEndTimeMs: endTime.getTime(),
+            computedForHeadcount: headcount,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+          });
+          if (allocationRecord) {
+            await db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservations')
+              .doc(createResult.bookingId)
+              .update({ allocated: allocationRecord });
+          }
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId: createResult.bookingId,
+            startDate: startTime,
+            endDate: endTime,
+            partySize: headcount,
+            selectedZoneId: decision.zoneId ?? null,
+            selectedTableIds: decision.tableIds,
+            reason: decision.reason,
+            allocationMode: decision.allocationMode ?? null,
+            allocationStrategy: decision.allocationStrategy ?? null,
+            snapshot: decision.snapshot ?? null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.bookingSubmit,
+          });
+        } catch (err) {
+          logger.warn('guestCreateReservation allocation log failed', {
+            unitId,
+            bookingId: createResult.bookingId,
+            err,
+          });
+        }
       }
 
       const unitName = await getUnitName(unitId);
@@ -3020,7 +3163,8 @@ export const logAllocationEvent = onCall({ region: REGION }, async request => {
     allocationStrategy:
       typeof data.allocationStrategy === 'string' ? data.allocationStrategy : null,
     snapshot: snapshotPayload,
-    source: 'seatingSuggestionService',
+    algoVersion: SEATING_LOG_ALGO_VERSION,
+    source: SEATING_LOG_SOURCES.seatingSuggestionService,
   });
 
   logger.info('logAllocationEvent write ok', {
@@ -3164,6 +3308,10 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
         }
       : null;
 
+  const algoVersionToUse =
+    typeof algoVersion === 'string' && algoVersion.trim()
+      ? algoVersion.trim()
+      : SEATING_LOG_ALGO_VERSION;
   const { docId, eventId } = await writeAllocationDecisionLogForBooking({
     unitId,
     bookingId,
@@ -3176,8 +3324,8 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
     allocationMode: normalizedMode,
     allocationStrategy: normalizedStrategy,
     snapshot: snapshotPayload,
-    algoVersion,
-    source: 'bookingSubmit',
+    algoVersion: algoVersionToUse,
+    source: SEATING_LOG_SOURCES.adminCallable,
   });
 
   logger.info('logAllocationDecisionForBooking write ok', { unitId, bookingId, docId, eventId });
@@ -3324,6 +3472,367 @@ export const adminRecalcReservationCapacityDay = onRequest(
       res.status(200).json({ ok: true, totalCount });
     } catch (err) {
       logger.error('adminRecalcReservationCapacityDay error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminTriggerAutoAllocateDay = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const decoded = await admin.auth().verifyIdToken(token);
+      const userSnap = await db.collection('users').doc(decoded.uid).get();
+      if (!userSnap.exists) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const allowedKeys = new Set(['unitId', 'dateKey', 'mode', 'force']);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const unitId = body.unitId;
+      const dateKey = body.dateKey;
+      const mode = body.mode;
+      const force = Boolean(body.force);
+      if (typeof unitId !== 'string' || typeof dateKey !== 'string') {
+        res.status(400).json({ error: 'unitId és dateKey kötelező' });
+        return;
+      }
+      if (mode !== 'apply' && mode !== 'dryRun') {
+        res.status(400).json({ error: 'Érvénytelen mode' });
+        return;
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        res.status(400).json({ error: 'Érvénytelen dateKey' });
+        return;
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const normalizedUnits = Array.from(
+        new Set(
+          [
+            ...normalizeUnitIds(userData.unitIds),
+            ...normalizeUnitIds(userData.unitIDs),
+            ...normalizeUnitIds(userData.unitId),
+          ].filter(Boolean)
+        )
+      );
+      const canManage =
+        role === 'Admin' ||
+        ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
+      if (!canManage) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const dayStart = new Date(`${dateKey}T00:00:00`);
+      if (Number.isNaN(dayStart.getTime())) {
+        res.status(400).json({ error: 'Érvénytelen dateKey' });
+        return;
+      }
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      let allocationZones: FloorplanZone[] = [];
+      let allocationTables: FloorplanTable[] = [];
+      let allocationContextReady = false;
+      try {
+        const context = await fetchFloorplanContextCached(unitId);
+        allocationZones = context.zones;
+        allocationTables = context.tables;
+        allocationContextReady = true;
+      } catch (err) {
+        logger.warn('adminTriggerAutoAllocateDay allocation context failed', {
+          unitId,
+          error: serializeError(err),
+        });
+      }
+
+      const reservationsSnap = await db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .where('startTime', '>=', Timestamp.fromDate(dayStart))
+        .where('startTime', '<', Timestamp.fromDate(dayEnd))
+        .orderBy('startTime', 'asc')
+        .get();
+
+      const rows = reservationsSnap.docs
+        .map(docSnap => ({ id: docSnap.id, data: docSnap.data() || {} }))
+        .sort((a, b) => {
+          const aStart = a.data.startTime?.toDate?.() as Date | undefined;
+          const bStart = b.data.startTime?.toDate?.() as Date | undefined;
+          const aTime = aStart ? aStart.getTime() : 0;
+          const bTime = bStart ? bStart.getTime() : 0;
+          if (aTime !== bTime) return aTime - bTime;
+          return a.id.localeCompare(b.id);
+        });
+
+      const items: Array<{
+        bookingId: string;
+        status:
+          | 'updated'
+          | 'dryRun'
+          | 'skipped_locked'
+          | 'skipped_override'
+          | 'skipped_reservation_overrides'
+          | 'skipped_invalid'
+          | 'error';
+        reason?: string;
+        selectedZoneId?: string | null;
+        selectedTableIds?: string[];
+        diagnostics?: { conflict?: boolean; noFit?: boolean };
+        startTimeMs?: number;
+        endTimeMs?: number;
+      }> = [];
+
+      const totals = {
+        scanned: 0,
+        processed: 0,
+        updated: 0,
+        skipped: 0,
+        skippedLocked: 0,
+        skippedOverride: 0,
+        skippedReservationOverrides: 0,
+        noFit: 0,
+        conflicts: 0,
+      };
+
+      for (const row of rows) {
+        totals.scanned += 1;
+        const bookingId = row.id;
+        const booking = row.data;
+        const status = booking.status;
+        if (status === 'cancelled') {
+          totals.skipped += 1;
+          items.push({ bookingId, status: 'skipped_invalid', reason: 'cancelled' });
+          continue;
+        }
+
+        const startDate =
+          typeof booking.startTime?.toDate === 'function'
+            ? booking.startTime.toDate()
+            : booking.startTime instanceof Date
+            ? booking.startTime
+            : null;
+        const endDate =
+          typeof booking.endTime?.toDate === 'function'
+            ? booking.endTime.toDate()
+            : booking.endTime instanceof Date
+            ? booking.endTime
+            : null;
+        const partySize = Number(booking.headcount);
+
+        if (!force) {
+          if (booking.allocationFinal?.locked) {
+            totals.skipped += 1;
+            totals.skippedLocked += 1;
+            items.push({ bookingId, status: 'skipped_locked' });
+            continue;
+          }
+          if (booking.allocationOverride?.enabled) {
+            totals.skipped += 1;
+            totals.skippedOverride += 1;
+            items.push({ bookingId, status: 'skipped_override' });
+            continue;
+          }
+          const overrideSnap = await db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservation_overrides')
+            .doc(bookingId)
+            .get();
+          if (overrideSnap.exists) {
+            totals.skipped += 1;
+            totals.skippedReservationOverrides += 1;
+            items.push({ bookingId, status: 'skipped_reservation_overrides' });
+            continue;
+          }
+        }
+
+        if (!startDate || !endDate || !canRunSeatingAllocation(startDate, endDate, partySize)) {
+          totals.skipped += 1;
+          totals.processed += 1;
+          const reason = resolveSkipReason(startDate ?? new Date(0), endDate ?? new Date(0), partySize);
+          items.push({
+            bookingId,
+            status: 'skipped_invalid',
+            reason,
+            startTimeMs: startDate?.getTime(),
+            endTimeMs: endDate?.getTime(),
+          });
+          if (startDate && endDate) {
+            try {
+              await writeAllocationDecisionLogForBooking({
+                unitId,
+                bookingId,
+                startDate,
+                endDate,
+                partySize,
+                selectedZoneId: null,
+                selectedTableIds: [],
+                reason,
+                allocationMode: null,
+                allocationStrategy: null,
+                snapshot: null,
+                algoVersion: SEATING_LOG_ALGO_VERSION,
+                source: SEATING_LOG_SOURCES.adminBatch,
+              });
+            } catch (err) {
+              logger.warn('adminTriggerAutoAllocateDay invalid booking log failed', {
+                unitId,
+                bookingId,
+                err,
+              });
+            }
+          }
+          continue;
+        }
+
+        totals.processed += 1;
+        try {
+          const decision = normalizeSeatingDecision(
+            await computeAllocationDecisionForBooking({
+              unitId,
+              bookingId,
+              startDate,
+              endDate,
+              partySize,
+            }),
+            allocationContextReady ? allocationZones : [],
+            allocationContextReady ? allocationTables : []
+          );
+          const allocationRecord = buildAllocationRecord({
+            decision,
+            traceId: `alloc-${bookingId}`,
+            decidedAtMs: Date.now(),
+            enabled: decision.reason !== 'ALLOCATION_DISABLED',
+            computedForStartTimeMs: startDate.getTime(),
+            computedForEndTimeMs: endDate.getTime(),
+            computedForHeadcount: partySize,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+          });
+
+          const noFit = decision.reason === 'NO_FIT' || !allocationRecord;
+          if (noFit) {
+            totals.noFit += 1;
+          }
+
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId,
+            startDate,
+            endDate,
+            partySize,
+            selectedZoneId: decision.zoneId ?? null,
+            selectedTableIds: decision.tableIds,
+            reason: decision.reason,
+            allocationMode: decision.allocationMode ?? null,
+            allocationStrategy: decision.allocationStrategy ?? null,
+            snapshot: decision.snapshot ?? null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.adminBatch,
+          });
+
+          if (mode === 'apply' && allocationRecord) {
+            await db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservations')
+              .doc(bookingId)
+              .update({ allocated: allocationRecord });
+            totals.updated += 1;
+          }
+
+          items.push({
+            bookingId,
+            status: mode === 'apply' && allocationRecord ? 'updated' : 'dryRun',
+            reason: decision.reason,
+            selectedZoneId: decision.zoneId ?? null,
+            selectedTableIds: decision.tableIds,
+            diagnostics: { noFit },
+            startTimeMs: startDate.getTime(),
+            endTimeMs: endDate.getTime(),
+          });
+        } catch (err) {
+          totals.skipped += 1;
+          items.push({ bookingId, status: 'error', reason: 'decision_failed' });
+          logger.warn('adminTriggerAutoAllocateDay decision failed', {
+            unitId,
+            bookingId,
+            err,
+          });
+        }
+      }
+
+      const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
+      items.forEach(item => {
+        if (!item.selectedTableIds?.length || !item.startTimeMs || !item.endTimeMs) {
+          return;
+        }
+        item.selectedTableIds.forEach(tableId => {
+          const entries = tableMap.get(tableId) ?? [];
+          entries.push({ bookingId: item.bookingId, start: item.startTimeMs, end: item.endTimeMs });
+          tableMap.set(tableId, entries);
+        });
+      });
+
+      const conflictedBookings = new Set<string>();
+      tableMap.forEach(entries => {
+        if (entries.length < 2) return;
+        const sorted = [...entries].sort((a, b) => a.start - b.start);
+        let latestEnd = sorted[0].end;
+        for (let i = 1; i < sorted.length; i += 1) {
+          const entry = sorted[i];
+          if (entry.start < latestEnd) {
+            conflictedBookings.add(entry.bookingId);
+            conflictedBookings.add(sorted[i - 1].bookingId);
+          }
+          latestEnd = Math.max(latestEnd, entry.end);
+        }
+      });
+
+      items.forEach(item => {
+        if (conflictedBookings.has(item.bookingId)) {
+          item.diagnostics = { ...(item.diagnostics ?? {}), conflict: true };
+        }
+      });
+      totals.conflicts = conflictedBookings.size;
+
+      res.status(200).json({
+        ok: true,
+        unitId,
+        dateKey,
+        mode,
+        totals,
+        items,
+      });
+    } catch (err) {
+      logger.error('adminTriggerAutoAllocateDay error', err);
       res.status(500).json({ error: 'Szerverhiba' });
     }
   }

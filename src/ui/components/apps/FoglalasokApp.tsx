@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Booking,
+  ReservationSetting,
   SeatingSettings,
   Table,
   TableCombination,
@@ -33,6 +34,10 @@ import { suggestAllocation } from '../../../core/services/allocation/tableAlloca
 import { suggestSeating } from '../../../core/services/seatingSuggestionService';
 import SeatingSettingsModal from './SeatingSettingsModal';
 import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
+import {
+  triggerAutoAllocateDay,
+  type AutoAllocateDayResult,
+} from '../../../core/services/adminAllocationApiService';
 import FloorplanViewer from './seating/FloorplanViewer';
 import ReservationFloorplanPreview from './reservations/ReservationFloorplanPreview';
 import {
@@ -110,6 +115,24 @@ function formatDebugError(info: DebugErrorInfo) {
     return 'Failed to format debug error.';
   }
 }
+
+const resolveAllocationReasonLabel = (reason?: string | null) => {
+  if (!reason) return 'Nincs elérhető magyarázat.';
+  switch (reason) {
+    case 'ALLOCATION_DISABLED':
+      return 'Az automatikus asztal-kiosztás ki van kapcsolva.';
+    case 'NO_FIT':
+      return 'Nem találtunk megfelelő szabad asztalt vagy kombinációt.';
+    case 'INVALID_PARTY_SIZE':
+      return 'Érvénytelen létszám (0 vagy negatív).';
+    case 'EMERGENCY_ZONE':
+      return 'Vészhelyzeti zóna lett kiválasztva, hogy biztosítsuk a helyet.';
+    case 'STALE_ENTITY':
+      return 'A korábban kiválasztott asztal vagy zóna már nem elérhető.';
+    default:
+      return 'A rendszer automatikus döntést hozott a rendelkezésre álló adatok alapján.';
+  }
+};
 
 interface FoglalasokAppProps {
   currentUser: User;
@@ -1089,9 +1112,14 @@ const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
         {booking.status || '—'}
       </span>
+      {booking.allocationOverride?.enabled && (
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+          OVERRIDE
+        </span>
+      )}
       {booking.allocationFinal?.locked && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-          LOCKED
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
+          ZÁROLT
         </span>
       )}
     </div>
@@ -1145,6 +1173,11 @@ const AllocationDecisionChain: React.FC<{
           : '—'
       }, note=${booking.allocationOverride.note || '—'}`
     : 'Nincs override';
+  const allocationReason =
+    booking.allocated?.diagnosticsSummary ||
+    booking.allocationDiagnostics?.reasons?.[0] ||
+    null;
+  const allocationReasonLabel = resolveAllocationReasonLabel(allocationReason);
   const finalLabel = booking.allocationFinal
     ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
         booking.allocationFinal.timeSlot,
@@ -1166,6 +1199,20 @@ const AllocationDecisionChain: React.FC<{
       title="Allokáció döntési lánc"
       description="Intent → override → final → allocated"
     >
+      {(booking.allocationFinal?.locked || booking.allocationOverride?.enabled) && (
+        <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+          {booking.allocationFinal?.locked && (
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
+              Zárolt
+            </span>
+          )}
+          {booking.allocationOverride?.enabled && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+              Override aktív
+            </span>
+          )}
+        </div>
+      )}
       <div className="grid gap-2 text-xs text-[var(--color-text-secondary)]">
         <div>
           <span className="font-semibold text-[var(--color-text-main)]">
@@ -1204,6 +1251,12 @@ const AllocationDecisionChain: React.FC<{
             Nincs adat
           </div>
         )}
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Miért itt?
+          </span>{' '}
+          {allocationReason ? `${allocationReason} — ${allocationReasonLabel}` : allocationReasonLabel}
+        </div>
       </div>
       <button
         type="button"
@@ -1844,13 +1897,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [tables, setTables] = useState<Table[]>([]);
   const [tableCombinations, setTableCombinations] = useState<TableCombination[]>([]);
   const [seatingSettings, setSeatingSettings] = useState<SeatingSettings | null>(null);
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [reservationSettings, setReservationSettings] =
+    useState<ReservationSetting | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [overviewDate, setOverviewDate] = useState(new Date());
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const [windowStartMinutes, setWindowStartMinutes] = useState(0);
+  const [autoAllocateDryRun, setAutoAllocateDryRun] = useState(true);
+  const [autoAllocateRunning, setAutoAllocateRunning] = useState(false);
+  const [autoAllocateSummary, setAutoAllocateSummary] =
+    useState<AutoAllocateDayResult | null>(null);
+  const [autoAllocateError, setAutoAllocateError] = useState<string | null>(null);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -1979,18 +2040,19 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     if (!activeUnitId) {
       setBookings([]);
       setLoading(false);
+      setReservationSettings(null);
       return;
     }
     setLoading(true);
 
     const startOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
+      overviewDate.getFullYear(),
+      overviewDate.getMonth(),
       1
     );
     const endOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() + 1,
+      overviewDate.getFullYear(),
+      overviewDate.getMonth() + 1,
       0
     );
 
@@ -2018,7 +2080,28 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
 
     return () => unsubscribeBookings();
-  }, [activeUnitId, currentDate]);
+  }, [activeUnitId, overviewDate]);
+
+  useEffect(() => {
+    if (!activeUnitId) {
+      setReservationSettings(null);
+      return;
+    }
+    const settingsRef = doc(db, 'reservation_settings', activeUnitId);
+    const unsubscribe = onSnapshot(
+      settingsRef,
+      snapshot => {
+        setReservationSettings(
+          snapshot.exists() ? (snapshot.data() as ReservationSetting) : null
+        );
+      },
+      err => {
+        console.error('Error fetching reservation settings:', err);
+        setReservationSettings(null);
+      }
+    );
+    return () => unsubscribe();
+  }, [activeUnitId]);
 
   // --- LOGOK FELIRATKOZÁS ---
   useEffect(() => {
@@ -2079,6 +2162,19 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return `${year}-${month}-${day}`;
   };
 
+  const parseTimeToMinutes = (timeValue: string) => {
+    const [hours, minutes] = timeValue.split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+  };
+
+  const formatMinutes = (minutes: number) => {
+    const safe = Math.max(0, minutes);
+    const hours = String(Math.floor(safe / 60)).padStart(2, '0');
+    const mins = String(safe % 60).padStart(2, '0');
+    return `${hours}:${mins}`;
+  };
+
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
     bookings
@@ -2093,8 +2189,123 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return map;
   }, [bookings]);
 
-  const previewDate = selectedDate ?? new Date();
-  const previewBookings = bookingsByDate.get(toLocalDateKey(previewDate)) || [];
+  const overviewDateKey = toLocalDateKey(overviewDate);
+  const overviewBookings = bookingsByDate.get(overviewDateKey) || [];
+  const previewDate = overviewDate;
+
+  const bookingWindow = reservationSettings?.bookableWindow || {
+    from: '00:00',
+    to: '23:59',
+  };
+  const openingMinutes = parseTimeToMinutes(bookingWindow.from) ?? 0;
+  const closingMinutes = parseTimeToMinutes(bookingWindow.to) ?? 24 * 60;
+  const maxWindowStart = Math.max(openingMinutes, closingMinutes - 120);
+
+  useEffect(() => {
+    setWindowStartMinutes(openingMinutes);
+  }, [openingMinutes, overviewDateKey]);
+
+  const windowStart = useMemo(() => {
+    const date = new Date(overviewDate);
+    date.setHours(0, 0, 0, 0);
+    date.setMinutes(windowStartMinutes);
+    return date;
+  }, [overviewDate, windowStartMinutes]);
+
+  const windowEnd = useMemo(() => {
+    const date = new Date(windowStart);
+    date.setMinutes(windowStart.getMinutes() + 120);
+    return date;
+  }, [windowStart]);
+
+  const windowBookings = useMemo(() => {
+    return overviewBookings.filter(booking => {
+      const start = booking.startTime?.toDate?.() ?? null;
+      const end = booking.endTime?.toDate?.() ?? null;
+      if (!start || !end) return false;
+      return start < windowEnd && end > windowStart;
+    });
+  }, [overviewBookings, windowEnd, windowStart]);
+
+  const sortedWindowBookings = useMemo(() => {
+    return [...windowBookings].sort((a, b) => {
+      const aTime = a.startTime?.toDate?.()?.getTime?.() ?? 0;
+      const bTime = b.startTime?.toDate?.()?.getTime?.() ?? 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return a.id.localeCompare(b.id);
+    });
+  }, [windowBookings]);
+
+  const windowTableIds = useMemo(() => {
+    const tableIds = new Set<string>();
+    windowBookings.forEach(booking => {
+      (booking.assignedTableIds ?? []).forEach(id => tableIds.add(id));
+      (booking.allocationFinal?.tableIds ?? []).forEach(id => tableIds.add(id));
+      (booking.allocated?.tableIds ?? []).forEach(id => tableIds.add(id));
+    });
+    return tableIds;
+  }, [windowBookings]);
+
+  const windowConflictedBookingIds = useMemo(() => {
+    const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
+    windowBookings.forEach(booking => {
+      const start = booking.startTime?.toDate?.();
+      const end = booking.endTime?.toDate?.();
+      if (!start || !end) return;
+      const tableIds = new Set<string>([
+        ...(booking.assignedTableIds ?? []),
+        ...(booking.allocationFinal?.tableIds ?? []),
+        ...(booking.allocated?.tableIds ?? []),
+      ]);
+      tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ bookingId: booking.id, start: start.getTime(), end: end.getTime() });
+        tableMap.set(tableId, entries);
+      });
+    });
+    const conflicted = new Set<string>();
+    tableMap.forEach(entries => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start - b.start);
+      let latestEnd = sorted[0].end;
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start < latestEnd) {
+          conflicted.add(entry.bookingId);
+          conflicted.add(sorted[i - 1].bookingId);
+        }
+        latestEnd = Math.max(latestEnd, entry.end);
+      }
+    });
+    return conflicted;
+  }, [windowBookings]);
+
+  const windowNoFitCount = useMemo(
+    () =>
+      windowBookings.filter(
+        booking => booking.allocated?.diagnosticsSummary === 'NO_FIT'
+      ).length,
+    [windowBookings]
+  );
+
+  const windowLockedCount = useMemo(
+    () => windowBookings.filter(booking => booking.allocationFinal?.locked).length,
+    [windowBookings]
+  );
+
+  const windowOverrideCount = useMemo(
+    () => windowBookings.filter(booking => booking.allocationOverride?.enabled).length,
+    [windowBookings]
+  );
+
+  const autoAllocateProblemItems = useMemo(() => {
+    if (!autoAllocateSummary?.items) return [];
+    return autoAllocateSummary.items.filter(item =>
+      ['error', 'skipped_invalid'].includes(item.status) ||
+      item.diagnostics?.conflict ||
+      item.diagnostics?.noFit
+    ).slice(0, 10);
+  }, [autoAllocateSummary]);
 
   useEffect(() => {
     setSelectedBookingId(null);
@@ -2186,119 +2397,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     window.open(`/reserve?unit=${activeUnitId}`, '_blank');
   };
 
-  const renderCalendar = () => {
-    const startOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      1
-    );
-    const endOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() + 1,
-      0
-    );
-    const days: { date: Date; isCurrentMonth: boolean }[] = [];
-    const startDayOfWeek = (startOfMonth.getDay() + 6) % 7;
-
-    for (let i = 0; i < startDayOfWeek; i++) {
-      const day = new Date(startOfMonth);
-      day.setDate(day.getDate() - (startDayOfWeek - i));
-      days.push({ date: day, isCurrentMonth: false });
+  const handleAutoAllocateDay = async () => {
+    if (!activeUnitId) return;
+    setAutoAllocateRunning(true);
+    setAutoAllocateError(null);
+    try {
+      const result = await triggerAutoAllocateDay({
+        unitId: activeUnitId,
+        dateKey: overviewDateKey,
+        mode: autoAllocateDryRun ? 'dryRun' : 'apply',
+      });
+      setAutoAllocateSummary(result);
+    } catch (err) {
+      console.error('Auto-allocate failed', err);
+      setAutoAllocateError('Nem sikerült lefuttatni az automatikus ültetést.');
+    } finally {
+      setAutoAllocateRunning(false);
     }
-    for (let i = 1; i <= endOfMonth.getDate(); i++) {
-      const day = new Date(currentDate.getFullYear(), currentDate.getMonth(), i);
-      days.push({ date: day, isCurrentMonth: true });
-    }
-    const totalDays = days.length;
-    const remainingCells = (totalDays > 35 ? 42 : 35) - totalDays;
-    for (let i = 1; i <= remainingCells; i++) {
-      const day = new Date(endOfMonth);
-      day.setDate(day.getDate() + i);
-      days.push({ date: day, isCurrentMonth: false });
-    }
-
-    const todayKey = toLocalDateKey(new Date());
-
-    return (
-      <div
-        className="p-6 rounded-2xl shadow-lg border border-gray-100"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-      >
-        <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={() =>
-              setCurrentDate(
-                new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
-              )
-            }
-            className="p-2 rounded-full hover:bg-gray-100"
-            aria-label="Previous month"
-          >
-            &lt;
-          </button>
-          <h2 className="text-xl font-bold text-[var(--color-text-main)] capitalize">
-            {currentDate.toLocaleDateString('hu-HU', {
-              month: 'long',
-              year: 'numeric',
-            })}
-          </h2>
-          <button
-            onClick={() =>
-              setCurrentDate(
-                new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
-              )
-            }
-            className="p-2 rounded-full hover:bg-gray-100"
-            aria-label="Next month"
-          >
-            &gt;
-          </button>
-        </div>
-        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
-          {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => (
-            <div key={day}>{day}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {days.map(({ date, isCurrentMonth }, index) => {
-            const dateKey = toLocalDateKey(date);
-            const dailyBookings = bookingsByDate.get(dateKey) || [];
-            const isToday = dateKey === todayKey;
-
-            return (
-              <div
-                key={index}
-                onClick={() => isCurrentMonth && setSelectedDate(date)}
-                className={`
-                  h-24 p-2 flex flex-col items-start rounded-lg transition-colors
-                  ${
-                    isCurrentMonth
-                      ? 'cursor-pointer hover:bg-gray-100'
-                      : 'text-gray-300'
-                  }
-                  ${isToday ? 'border-2 border-green-500' : 'border border-gray-200'}
-                `}
-              >
-                <span
-                  className={`font-bold ${
-                    isToday ? 'text-green-600' : 'text-[var(--color-text-main)]'
-                  }`}
-                >
-                  {date.getDate()}
-                </span>
-                {isCurrentMonth && dailyBookings.length > 0 && (
-                  <div className="mt-auto w-full text-left">
-                    <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
-                      {dailyBookings.length} foglalás
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -2358,14 +2473,234 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
       {!loading && !error && (
         <>
-          {renderCalendar()}
-          <div className="mt-6">
-            <ReservationFloorplanPreview
-              unitId={activeUnitId}
-              selectedDate={previewDate}
-              bookings={previewBookings}
-              selectedBookingId={selectedBookingId}
-            />
+          <div className="mt-4 space-y-6">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                  Év
+                </label>
+                <select
+                  value={overviewDate.getFullYear()}
+                  onChange={event => {
+                    const nextYear = Number(event.target.value);
+                    const nextDate = new Date(overviewDate);
+                    nextDate.setFullYear(nextYear);
+                    setOverviewDate(nextDate);
+                  }}
+                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                >
+                  {[-1, 0, 1].map(offset => {
+                    const year = new Date().getFullYear() + offset;
+                    return (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                  Hónap
+                </label>
+                <select
+                  value={overviewDate.getMonth()}
+                  onChange={event => {
+                    const nextMonth = Number(event.target.value);
+                    const nextDate = new Date(overviewDate);
+                    nextDate.setMonth(nextMonth);
+                    setOverviewDate(nextDate);
+                  }}
+                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                >
+                  {Array.from({ length: 12 }, (_, idx) => (
+                    <option key={idx} value={idx}>
+                      {new Date(2024, idx, 1).toLocaleDateString('hu-HU', {
+                        month: 'long',
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                  Nap
+                </label>
+                <select
+                  value={overviewDate.getDate()}
+                  onChange={event => {
+                    const nextDay = Number(event.target.value);
+                    const nextDate = new Date(overviewDate);
+                    nextDate.setDate(nextDay);
+                    setOverviewDate(nextDate);
+                  }}
+                  className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                >
+                  {Array.from(
+                    {
+                      length: new Date(
+                        overviewDate.getFullYear(),
+                        overviewDate.getMonth() + 1,
+                        0
+                      ).getDate(),
+                    },
+                    (_, idx) => idx + 1
+                  ).map(day => (
+                    <option key={day} value={day}>
+                      {day}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+                  Idősáv
+                </label>
+                <input
+                  type="range"
+                  min={openingMinutes}
+                  max={maxWindowStart}
+                  step={15}
+                  value={windowStartMinutes}
+                  onChange={event => setWindowStartMinutes(Number(event.target.value))}
+                  className="w-48"
+                />
+                <span className="text-sm font-semibold text-[var(--color-text-main)]">
+                  {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                </span>
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                  <input
+                    type="checkbox"
+                    checked={autoAllocateDryRun}
+                    onChange={event => setAutoAllocateDryRun(event.target.checked)}
+                  />
+                  Dry-run
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAutoAllocateDay}
+                  disabled={autoAllocateRunning}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
+                </button>
+              </div>
+            </div>
+            {autoAllocateError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {autoAllocateError}
+              </div>
+            )}
+            <div className="grid gap-3 md:grid-cols-5">
+              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                <div className="text-xs text-[var(--color-text-secondary)]">Idősáv foglalások</div>
+                <div className="text-lg font-semibold">{windowBookings.length}</div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                <div className="text-xs text-[var(--color-text-secondary)]">Foglalt asztalok</div>
+                <div className="text-lg font-semibold">{windowTableIds.size}</div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                <div className="text-xs text-[var(--color-text-secondary)]">Konfliktus</div>
+                <div className="text-lg font-semibold">{windowConflictedBookingIds.size}</div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                <div className="text-xs text-[var(--color-text-secondary)]">NO_FIT</div>
+                <div className="text-lg font-semibold">{windowNoFitCount}</div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                <div className="text-xs text-[var(--color-text-secondary)]">Zárolt/Override</div>
+                <div className="text-lg font-semibold">
+                  {windowLockedCount + windowOverrideCount}
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-6 lg:grid-cols-[1fr_1.5fr]">
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-[var(--color-text-main)]">
+                  Foglalások ({formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)})
+                </h2>
+                <div className="space-y-2">
+                  {sortedWindowBookings.map(booking => {
+                    const start = booking.startTime?.toDate?.();
+                    const end = booking.endTime?.toDate?.();
+                    const timeLabel =
+                      start && end
+                        ? `${start.toLocaleTimeString('hu-HU', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}–${end.toLocaleTimeString('hu-HU', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}`
+                        : '—';
+                    const isConflict = windowConflictedBookingIds.has(booking.id);
+                    const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                    return (
+                      <button
+                        key={booking.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBookingId(booking.id);
+                          setSelectedDate(overviewDate);
+                        }}
+                        className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
+                          selectedBookingId === booking.id
+                            ? 'border-emerald-500 bg-emerald-50'
+                            : 'border-gray-200 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold text-[var(--color-text-main)]">
+                            {booking.name} · {booking.headcount} fő
+                          </div>
+                          <span className="text-xs text-[var(--color-text-secondary)]">
+                            {timeLabel}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+                          {booking.allocationFinal?.locked && (
+                            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
+                              ZÁROLT
+                            </span>
+                          )}
+                          {booking.allocationOverride?.enabled && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                              OVERRIDE
+                            </span>
+                          )}
+                          {isNoFit && (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+                              NO_FIT
+                            </span>
+                          )}
+                          {isConflict && (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+                              CONFLICT
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {!sortedWindowBookings.length && (
+                    <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+                      Nincs foglalás ebben az idősávban.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <ReservationFloorplanPreview
+                  unitId={activeUnitId}
+                  selectedDate={previewDate}
+                  bookings={windowBookings}
+                  selectedBookingId={selectedBookingId}
+                />
+              </div>
+            </div>
           </div>
           {logsLoading ? (
             <div className="mt-6">
@@ -2437,6 +2772,69 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             onClose={() => setIsSeatingSettingsOpen(false)}
           />
         </SeatingSettingsErrorBoundary>
+      )}
+      {autoAllocateSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-main)]">
+                  Auto-allocate összegzés
+                </h2>
+                <p className="text-sm text-[var(--color-text-secondary)]">
+                  {autoAllocateSummary.dateKey} · {autoAllocateSummary.mode === 'apply' ? 'Apply' : 'Dry-run'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoAllocateSummary(null)}
+                className="rounded-lg border border-gray-200 px-3 py-1 text-sm"
+              >
+                Bezárás
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3 text-sm">
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Feldolgozott</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.processed}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Frissített</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.updated}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Skip</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.skipped}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">NO_FIT</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.noFit}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Konfliktus</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.conflicts}</div>
+              </div>
+            </div>
+            {autoAllocateProblemItems.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-[var(--color-text-main)]">
+                  Problémás foglalások (top 10)
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs">
+                  {autoAllocateProblemItems.map(item => (
+                    <li key={item.bookingId} className="rounded-lg border border-gray-200 p-2">
+                      <div className="font-semibold">{item.bookingId}</div>
+                      <div className="text-[var(--color-text-secondary)]">
+                        {item.status}
+                        {item.reason ? ` · ${item.reason}` : ''}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
       )}
       {bookingToDelete && (
         <DeleteConfirmationModal
