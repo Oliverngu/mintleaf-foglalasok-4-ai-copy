@@ -65,6 +65,28 @@ const debugSeating =
 export const suggestSeating = async (
   input: SuggestSeatingInput
 ): Promise<SuggestSeatingResult> => {
+  if (
+    !Number.isFinite(input.headcount) ||
+    input.headcount <= 0 ||
+    !(input.startTime instanceof Date) ||
+    !(input.endTime instanceof Date) ||
+    Number.isNaN(input.startTime.getTime()) ||
+    Number.isNaN(input.endTime.getTime()) ||
+    input.endTime.getTime() <= input.startTime.getTime()
+  ) {
+    return {
+      zoneId: null,
+      tableIds: [],
+      reason: 'INVALID_PARTY_SIZE',
+      allocationMode: defaultSettings.allocationMode,
+      allocationStrategy: defaultSettings.allocationStrategy,
+      snapshot: {
+        overflowZonesCount: 0,
+        zonePriorityCount: 0,
+        emergencyZonesCount: 0,
+      },
+    };
+  }
   const settings = {
     ...defaultSettings,
     ...(await fetchSeatingSettings(input.unitId, { createIfMissing: false })),

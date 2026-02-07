@@ -43,8 +43,20 @@ export const buildAllocationRecord = ({
     return null;
   }
 
-  const zoneId = decision.zoneId ?? null;
-  const tableIds = decision.tableIds ?? [];
+  const zoneId =
+    typeof decision.zoneId === 'string' && decision.zoneId.trim()
+      ? decision.zoneId.trim()
+      : null;
+  const tableIds = Array.isArray(decision.tableIds)
+    ? Array.from(
+        new Set(
+          decision.tableIds
+            .filter((tableId): tableId is string => typeof tableId === 'string')
+            .map(tableId => tableId.trim())
+            .filter(Boolean)
+        )
+      )
+    : [];
   const diagnosticsSummary = decision.reason ?? decision.reasonCode ?? 'UNKNOWN';
 
   if (!zoneId && tableIds.length === 0) {

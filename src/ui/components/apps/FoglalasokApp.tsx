@@ -111,6 +111,24 @@ function formatDebugError(info: DebugErrorInfo) {
   }
 }
 
+const resolveAllocationReasonLabel = (reason?: string | null) => {
+  if (!reason) return 'Nincs elérhető magyarázat.';
+  switch (reason) {
+    case 'ALLOCATION_DISABLED':
+      return 'Az automatikus asztal-kiosztás ki van kapcsolva.';
+    case 'NO_FIT':
+      return 'Nem találtunk megfelelő szabad asztalt vagy kombinációt.';
+    case 'INVALID_PARTY_SIZE':
+      return 'Érvénytelen létszám (0 vagy negatív).';
+    case 'EMERGENCY_ZONE':
+      return 'Vészhelyzeti zóna lett kiválasztva, hogy biztosítsuk a helyet.';
+    case 'STALE_ENTITY':
+      return 'A korábban kiválasztott asztal vagy zóna már nem elérhető.';
+    default:
+      return 'A rendszer automatikus döntést hozott a rendelkezésre álló adatok alapján.';
+  }
+};
+
 interface FoglalasokAppProps {
   currentUser: User;
   canAddBookings: boolean;
@@ -1089,9 +1107,14 @@ const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
         {booking.status || '—'}
       </span>
+      {booking.allocationOverride?.enabled && (
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+          OVERRIDE
+        </span>
+      )}
       {booking.allocationFinal?.locked && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-          LOCKED
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
+          ZÁROLT
         </span>
       )}
     </div>
@@ -1145,6 +1168,11 @@ const AllocationDecisionChain: React.FC<{
           : '—'
       }, note=${booking.allocationOverride.note || '—'}`
     : 'Nincs override';
+  const allocationReason =
+    booking.allocated?.diagnosticsSummary ||
+    booking.allocationDiagnostics?.reasons?.[0] ||
+    null;
+  const allocationReasonLabel = resolveAllocationReasonLabel(allocationReason);
   const finalLabel = booking.allocationFinal
     ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
         booking.allocationFinal.timeSlot,
@@ -1166,6 +1194,20 @@ const AllocationDecisionChain: React.FC<{
       title="Allokáció döntési lánc"
       description="Intent → override → final → allocated"
     >
+      {(booking.allocationFinal?.locked || booking.allocationOverride?.enabled) && (
+        <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+          {booking.allocationFinal?.locked && (
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
+              Zárolt
+            </span>
+          )}
+          {booking.allocationOverride?.enabled && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+              Override aktív
+            </span>
+          )}
+        </div>
+      )}
       <div className="grid gap-2 text-xs text-[var(--color-text-secondary)]">
         <div>
           <span className="font-semibold text-[var(--color-text-main)]">
@@ -1204,6 +1246,12 @@ const AllocationDecisionChain: React.FC<{
             Nincs adat
           </div>
         )}
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Miért itt?
+          </span>{' '}
+          {allocationReason ? `${allocationReason} — ${allocationReasonLabel}` : allocationReasonLabel}
+        </div>
       </div>
       <button
         type="button"
