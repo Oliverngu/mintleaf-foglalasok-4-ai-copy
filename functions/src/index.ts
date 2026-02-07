@@ -3308,6 +3308,10 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
         }
       : null;
 
+  const algoVersionToUse =
+    typeof algoVersion === 'string' && algoVersion.trim()
+      ? algoVersion.trim()
+      : SEATING_LOG_ALGO_VERSION;
   const { docId, eventId } = await writeAllocationDecisionLogForBooking({
     unitId,
     bookingId,
@@ -3320,7 +3324,7 @@ export const logAllocationDecisionForBooking = onCall({ region: REGION }, async 
     allocationMode: normalizedMode,
     allocationStrategy: normalizedStrategy,
     snapshot: snapshotPayload,
-    algoVersion: SEATING_LOG_ALGO_VERSION,
+    algoVersion: algoVersionToUse,
     source: SEATING_LOG_SOURCES.adminCallable,
   });
 
