@@ -2381,24 +2381,25 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return conflicted;
   }, [overviewBookings]);
 
-  const manualBooking = useMemo(
-    () =>
-      manualMode.bookingId
-        ? bookings.find(booking => booking.id === manualMode.bookingId) ?? null
-        : null,
-    [bookings, manualMode.bookingId]
-  );
+  const manualBooking = useMemo(() => {
+    if (!manualMode.bookingId) return null;
+    return (
+      overviewBookings.find(booking => booking.id === manualMode.bookingId) ??
+      bookings.find(booking => booking.id === manualMode.bookingId) ??
+      null
+    );
+  }, [bookings, manualMode.bookingId, overviewBookings]);
 
   const manualSelectionConflicts = useMemo(() => {
     if (!manualBooking || manualMode.stagedTableIds.length === 0) return [];
-    const bufferMinutes = seatingSettings?.bufferMinutes ?? 15;
+    const bufferMinutes = reservationSettings?.bufferMinutes ?? 15;
     return computeAllocationConflicts(
       manualBooking,
       manualMode.stagedTableIds,
       overviewBookings,
       bufferMinutes
     );
-  }, [manualBooking, manualMode.stagedTableIds, overviewBookings, seatingSettings?.bufferMinutes]);
+  }, [manualBooking, manualMode.stagedTableIds, overviewBookings, reservationSettings?.bufferMinutes]);
 
   const resolveManualZoneId = useCallback(
     (tableIds: string[]) => {
@@ -2461,7 +2462,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     timelineProgrammaticTimeoutRef.current = window.setTimeout(() => {
       timelineProgrammaticRef.current = false;
     }, 200);
-  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, windowStartMinutes]);
+  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, timelinePadding, windowStartMinutes]);
 
   useEffect(
     () => () => {
@@ -2585,12 +2586,30 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   };
 
   const handleManualStart = (bookingId: string) => {
+    const targetBooking =
+      overviewBookings.find(booking => booking.id === bookingId) ??
+      bookings.find(booking => booking.id === bookingId);
+    if (targetBooking) {
+      const start = targetBooking.startTime?.toDate?.() ?? null;
+      const end = targetBooking.endTime?.toDate?.() ?? null;
+      if (start && end) {
+        const dayStart = new Date(overviewDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        const midpointMinutes = Math.round((startMinutes + endMinutes) / 2);
+        const desiredStart = midpointMinutes - 60;
+        const snappedStart = Math.round(desiredStart / stepMinutes) * stepMinutes;
+        const clampedStart = clampWindowStart(snappedStart, openingMinutes, maxWindowStart);
+        setWindowStartMinutes(clampedStart);
+      }
+    }
+    setSelectedBookingId(bookingId);
     setManualMode({
       active: true,
       bookingId,
       stagedTableIds: [],
     });
-    setSelectedBookingId(bookingId);
   };
 
   const handleManualCancel = () => {
@@ -2613,10 +2632,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const handleManualConfirm = async () => {
     if (!manualMode.active || !activeUnitId || !manualMode.bookingId) return;
+    if (manualMode.stagedTableIds.length === 0) return;
     try {
       const zoneId = resolveManualZoneId(manualMode.stagedTableIds);
       await setOverride(activeUnitId, manualMode.bookingId, {
-        forcedZoneId: zoneId,
+        forcedZoneId: zoneId ?? null,
         forcedTableIds: manualMode.stagedTableIds,
       });
       handleManualCancel();
