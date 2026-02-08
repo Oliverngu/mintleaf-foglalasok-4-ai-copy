@@ -1930,8 +1930,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const timelineRafRef = useRef<number | null>(null);
   const timelineProgrammaticRef = useRef(false);
   const timelineProgrammaticTimeoutRef = useRef<number | null>(null);
-  const monthStripRef = useRef<HTMLDivElement | null>(null);
   const monthButtonRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const dayStripRef = useRef<HTMLDivElement | null>(null);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2222,33 +2222,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     from: '00:00',
     to: '23:59',
   };
-  const monthLabels = useMemo(
+  const monthItems = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, idx) =>
-        new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' })
-      ),
+      Array.from({ length: 12 }, (_, idx) => ({
+        monthIndex: idx,
+        labelShort: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' }),
+        labelLong: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'long' }),
+      })),
     []
   );
-  const selectedMonthLongLabel = useMemo(
-    () =>
-      new Date(overviewDate.getFullYear(), overviewDate.getMonth(), 1).toLocaleDateString(
-        'hu-HU',
-        { month: 'long' }
-      ),
-    [overviewDate]
-  );
-  const rollingMonths = useMemo(() => {
-    const baseYear = overviewDate.getFullYear();
-    const years = [baseYear - 1, baseYear, baseYear + 1];
-    return years.flatMap(year =>
-      monthLabels.map((label, monthIndex) => ({
-        key: `${year}-${monthIndex}`,
-        year,
-        monthIndex,
-        label,
-      }))
-    );
-  }, [monthLabels, overviewDate]);
   const daysInMonth = useMemo(
     () =>
       new Date(overviewDate.getFullYear(), overviewDate.getMonth() + 1, 0).getDate(),
@@ -2272,6 +2254,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const selectedButton = monthButtonRefs.current.get(selectedKey);
     if (!selectedButton) return;
     selectedButton.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [overviewDate]);
+
+  useEffect(() => {
+    const container = dayStripRef.current;
+    if (!container) return;
+    const middleBlock = 2;
+    const selectedDay = overviewDate.getDate();
+    const target = container.querySelector<HTMLButtonElement>(
+      `[data-day="${selectedDay}"][data-block="${middleBlock}"]`
+    );
+    if (!target) return;
+    target.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
   }, [overviewDate]);
 
   const windowStart = useMemo(() => {
@@ -2818,77 +2812,78 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="flex items-center justify-center">
-                <span className="rounded-full border border-emerald-200 bg-white px-6 py-2 text-sm font-semibold text-[var(--color-text-main)] shadow-md capitalize">
-                  {selectedMonthLongLabel}
-                </span>
-              </div>
-              <div
-                ref={monthStripRef}
-                className="flex items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap"
-              >
-                {rollingMonths.map(item => {
-                  const isSelected =
-                    overviewDate.getFullYear() === item.year &&
-                    overviewDate.getMonth() === item.monthIndex;
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap">
+                {monthItems.map(item => {
+                  const isSelected = overviewDate.getMonth() === item.monthIndex;
+                  const label = isSelected ? item.labelLong : item.labelShort;
                   return (
                     <button
-                      key={item.key}
+                      key={item.monthIndex}
                       ref={node => {
-                        monthButtonRefs.current.set(item.key, node);
+                        monthButtonRefs.current.set(
+                          `${overviewDate.getFullYear()}-${item.monthIndex}`,
+                          node
+                        );
                       }}
                       type="button"
                       disabled={isNavLocked}
                       onClick={() => {
                         const nextDate = new Date(overviewDate);
                         const nextDay = clampDayInMonth(
-                          item.year,
+                          nextDate.getFullYear(),
                           item.monthIndex,
                           nextDate.getDate()
                         );
-                        nextDate.setFullYear(item.year);
                         nextDate.setMonth(item.monthIndex);
                         nextDate.setDate(nextDay);
                         setOverviewDate(nextDate);
                       }}
-                      className={`rounded-full border px-4 py-2 text-xs font-semibold transition min-h-[38px] ${
+                      className={`rounded-full border text-xs font-semibold transition ${
                         isSelected
-                          ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-md scale-[1.06]'
-                          : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-md scale-[1.06] px-5 py-2.5'
+                          : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50 px-4 py-2'
                       }`}
                     >
-                      {item.label}
+                      {label}
                     </button>
                   );
                 })}
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {Array.from({ length: 31 }, (_, idx) => idx + 1).map(day => {
-                  const isDisabled = day > daysInMonth || isNavLocked;
-                  const isSelected = overviewDate.getDate() === day && day <= daysInMonth;
-                  return (
-                    <button
-                      key={day}
-                      type="button"
-                      disabled={isDisabled}
-                      onClick={() => {
-                        if (day > daysInMonth) return;
-                        const nextDate = new Date(overviewDate);
-                        nextDate.setDate(day);
-                        setOverviewDate(nextDate);
-                      }}
-                      className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
-                        isSelected
-                          ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
-                          : isDisabled
-                            ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                            : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
+              <div
+                ref={dayStripRef}
+                className="flex items-center gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                {Array.from({ length: 5 }, (_, blockIndex) =>
+                  Array.from({ length: 31 }, (_, idx) => idx + 1).map(day => {
+                    const isDisabled = day > daysInMonth || isNavLocked;
+                    const isSelected = overviewDate.getDate() === day && day <= daysInMonth;
+                    return (
+                      <button
+                        key={`${blockIndex}-${day}`}
+                        type="button"
+                        data-day={day}
+                        data-block={blockIndex}
+                        disabled={isDisabled}
+                        onClick={() => {
+                          if (day > daysInMonth) return;
+                          const nextDate = new Date(overviewDate);
+                          nextDate.setDate(day);
+                          setOverviewDate(nextDate);
+                        }}
+                        className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                          isSelected
+                            ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
+                            : isDisabled
+                              ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                              : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })
+                )}
               </div>
               <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
                 <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
