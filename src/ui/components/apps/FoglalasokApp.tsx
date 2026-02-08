@@ -1932,6 +1932,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const timelineProgrammaticTimeoutRef = useRef<number | null>(null);
   const monthButtonRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const dayStripRef = useRef<HTMLDivElement | null>(null);
+  const dayBlockWidthRef = useRef<number | null>(null);
+  const dayScrollRafRef = useRef<number | null>(null);
+  const dayProgrammaticRef = useRef(false);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2244,6 +2247,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const timelinePadding = 24;
   const totalSteps = Math.floor((maxWindowStart - openingMinutes) / stepMinutes) + 1;
   const totalWidth = totalSteps * stepWidth;
+  const getDayButton = useCallback((day: number, block: number) => {
+    const container = dayStripRef.current;
+    if (!container) return null;
+    return container.querySelector<HTMLButtonElement>(
+      `[data-day="${day}"][data-block="${block}"]`
+    );
+  }, []);
+  const computeDayBlockWidth = useCallback(() => {
+    const anchor2 = getDayButton(1, 2);
+    const anchor3 = getDayButton(1, 3);
+    if (!anchor2 || !anchor3) return null;
+    const width = anchor3.offsetLeft - anchor2.offsetLeft;
+    if (width > 0) {
+      dayBlockWidthRef.current = width;
+    }
+    return dayBlockWidthRef.current;
+  }, [getDayButton]);
+  const centerSelectedDay = useCallback(
+    (behavior: ScrollBehavior) => {
+      const target = getDayButton(overviewDate.getDate(), 2);
+      if (!target) return;
+      target.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
+    },
+    [getDayButton, overviewDate]
+  );
 
   useEffect(() => {
     setWindowStartMinutes(openingMinutes);
@@ -2257,16 +2285,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   }, [overviewDate]);
 
   useEffect(() => {
-    const container = dayStripRef.current;
-    if (!container) return;
-    const middleBlock = 2;
-    const selectedDay = overviewDate.getDate();
-    const target = container.querySelector<HTMLButtonElement>(
-      `[data-day="${selectedDay}"][data-block="${middleBlock}"]`
-    );
-    if (!target) return;
-    target.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [overviewDate]);
+    dayBlockWidthRef.current = null;
+    computeDayBlockWidth();
+  }, [computeDayBlockWidth, daysInMonth, overviewDateKey]);
+
+  useEffect(() => {
+    centerSelectedDay('smooth');
+  }, [centerSelectedDay, overviewDate]);
 
   const windowStart = useMemo(() => {
     const date = new Date(overviewDate);
@@ -2569,6 +2594,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       if (timelineProgrammaticTimeoutRef.current !== null) {
         window.clearTimeout(timelineProgrammaticTimeoutRef.current);
       }
+      if (dayScrollRafRef.current !== null) {
+        cancelAnimationFrame(dayScrollRafRef.current);
+      }
     },
     []
   );
@@ -2853,6 +2881,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 ref={dayStripRef}
                 className="flex items-center gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                onScroll={() => {
+                  if (dayProgrammaticRef.current) return;
+                  if (dayScrollRafRef.current !== null) {
+                    cancelAnimationFrame(dayScrollRafRef.current);
+                  }
+                  dayScrollRafRef.current = requestAnimationFrame(() => {
+                    const container = dayStripRef.current;
+                    if (!container) return;
+                    const blockWidth = dayBlockWidthRef.current ?? computeDayBlockWidth();
+                    if (!blockWidth) return;
+                    const threshold = blockWidth * 0.35;
+                    const maxScroll = container.scrollWidth - container.clientWidth;
+                    if (container.scrollLeft < threshold) {
+                      dayProgrammaticRef.current = true;
+                      container.scrollLeft = container.scrollLeft + blockWidth;
+                      dayProgrammaticRef.current = false;
+                      centerSelectedDay('auto');
+                    } else if (container.scrollLeft > maxScroll - threshold) {
+                      dayProgrammaticRef.current = true;
+                      container.scrollLeft = container.scrollLeft - blockWidth;
+                      dayProgrammaticRef.current = false;
+                      centerSelectedDay('auto');
+                    }
+                  });
+                }}
               >
                 {Array.from({ length: 5 }, (_, blockIndex) =>
                   Array.from({ length: 31 }, (_, idx) => idx + 1).map(day => {
