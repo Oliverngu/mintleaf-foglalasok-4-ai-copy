@@ -2779,11 +2779,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         <>
           <div className="mt-4 space-y-6">
             <div className="space-y-4 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm">
-              <div className="text-xs font-semibold tracking-wide text-[var(--color-text-secondary)] uppercase">
-                Időszak
-              </div>
-              <div className="text-xl font-semibold text-[var(--color-text-main)]">
-                {overviewDate.getFullYear()}
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-wrap items-baseline gap-3">
+                  <div className="text-4xl md:text-5xl font-semibold text-[var(--color-text-main)] leading-none">
+                    {overviewDate.getFullYear()}
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-secondary)]">
+                    Admin Central · Reservation & Allocation Portal
+                  </div>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {monthLabels.map((label, idx) => (
@@ -2802,9 +2806,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       nextDate.setDate(nextDay);
                       setOverviewDate(nextDate);
                     }}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition min-h-[28px] ${
                       overviewDate.getMonth() === idx
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm scale-[1.03]'
+                        ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-sm scale-[1.03]'
                         : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
                     }`}
                   >
@@ -2823,9 +2827,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       nextDate.setDate(day);
                       setOverviewDate(nextDate);
                     }}
-                    className={`h-8 w-8 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                    className={`h-9 w-9 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
                       overviewDate.getDate() === day
-                        ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm scale-[1.05]'
+                        ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm scale-[1.05] -translate-y-[1px]'
                         : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
                     }`}
                   >
@@ -2836,7 +2840,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
                 <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase">
+                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
                       Mai foglalások
                     </div>
                     {manualMode.active && (
@@ -2861,7 +2865,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       return (
                         <div
                           key={booking.id}
-                          className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs transition ${
+                          className={`rounded-lg border px-3 py-2 text-xs transition ${
                             isFocused
                               ? 'border-emerald-500 bg-emerald-50'
                               : 'border-gray-200 bg-white'
@@ -2871,9 +2875,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                             type="button"
                             disabled={isNavLocked}
                             onClick={() => handleBookingFocus(booking)}
-                            className="flex w-full items-center gap-2 text-left"
+                            className="grid w-full items-center gap-2 text-left md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_1fr]"
                           >
-                            <span className="min-w-[80px] font-semibold text-[var(--color-text-main)]">
+                            <span className="font-semibold text-[var(--color-text-main)]">
+                              {booking.name}
+                            </span>
+                            <span className="text-[var(--color-text-secondary)]">
                               {start && end
                                 ? `${start.toLocaleTimeString('hu-HU', {
                                     hour: '2-digit',
@@ -2884,14 +2891,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                                   })}`
                                 : '—'}
                             </span>
-                            <span className="flex-1 text-[var(--color-text-main)]">
-                              {booking.name}
-                            </span>
                             <span className="text-[var(--color-text-secondary)]">
                               {booking.headcount} fő
                             </span>
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              className={`inline-flex justify-start rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                 booking.status === 'confirmed'
                                   ? 'bg-emerald-100 text-emerald-700'
                                   : 'bg-amber-100 text-amber-700'
@@ -2900,7 +2904,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               {booking.status}
                             </span>
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              className={`inline-flex justify-start rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                 hasAllocation
                                   ? 'bg-blue-100 text-blue-700'
                                   : 'bg-gray-100 text-gray-600'
@@ -2909,7 +2913,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
                             </span>
                           </button>
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
                             {isLocked && (
                               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                 LOCKED
@@ -3022,7 +3026,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         });
                       }}
                     >
-                      <div className="relative h-10" style={{ width: totalWidth }}>
+                      <div className="relative h-9" style={{ width: totalWidth }}>
                         <div className="absolute inset-0 z-0">
                           {timelineBucketMetrics.map((bucket, idx) => {
                             if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
@@ -3042,7 +3046,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           })}
                         </div>
                         <div
-                          className="absolute top-1.5 z-10 h-7 rounded-full border border-emerald-300 bg-emerald-50"
+                          className="absolute top-1 z-10 h-6 rounded-full border border-emerald-300 bg-emerald-50"
                           style={{
                             left:
                               ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
@@ -3066,21 +3070,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
                               style={{ left: idx * stepWidth }}
                             >
-                              {isHour && bucketData && (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
-                                <span className="absolute -top-0.5 flex items-center gap-1">
-                                  <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                    {bucketData.bookingCount}
-                                  </span>
-                                  {bucketData.conflictCount > 0 && (
-                                    <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                      !
+                              {isHour &&
+                                bucketData &&
+                                (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
+                                  <span className="absolute -top-1 flex items-center gap-1">
+                                    <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                      {bucketData.bookingCount}
                                     </span>
-                                  )}
-                                </span>
-                              )}
+                                    {bucketData.conflictCount > 0 && (
+                                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                        !
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
                               <span
                                 className={`block w-px ${
-                                  isHour ? 'h-4 bg-gray-400' : 'h-2 bg-gray-300'
+                                  isHour ? 'h-3.5 bg-gray-400' : 'h-2 bg-gray-300'
                                 }`}
                               />
                               {isHour && (
