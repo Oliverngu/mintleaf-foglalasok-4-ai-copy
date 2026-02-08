@@ -2229,6 +2229,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       ),
     []
   );
+  const selectedMonthLongLabel = useMemo(
+    () =>
+      new Date(overviewDate.getFullYear(), overviewDate.getMonth(), 1).toLocaleDateString(
+        'hu-HU',
+        { month: 'long' }
+      ),
+    [overviewDate]
+  );
   const rollingMonths = useMemo(() => {
     const baseYear = overviewDate.getFullYear();
     const years = [baseYear - 1, baseYear, baseYear + 1];
@@ -2810,6 +2818,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </div>
                 </div>
               </div>
+              <div className="flex items-center justify-center">
+                <span className="rounded-full border border-emerald-200 bg-white px-6 py-2 text-sm font-semibold text-[var(--color-text-main)] shadow-md capitalize">
+                  {selectedMonthLongLabel}
+                </span>
+              </div>
               <div
                 ref={monthStripRef}
                 className="flex items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap"
@@ -2864,7 +2877,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         nextDate.setDate(day);
                         setOverviewDate(nextDate);
                       }}
-                      className={`h-10 w-10 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                      className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
                         isSelected
                           ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
                           : isDisabled
