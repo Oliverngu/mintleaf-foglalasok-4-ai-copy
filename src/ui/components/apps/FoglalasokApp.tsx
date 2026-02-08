@@ -2858,6 +2858,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       const isOverride = Boolean(booking.allocationOverride?.enabled);
                       const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
                       const isConflict = dayConflictedBookingIds.has(booking.id);
+                      const isRowLocked = isNavLocked || manualMode.active;
                       const hasAllocation =
                         (booking.assignedTableIds?.length ?? 0) > 0 ||
                         (booking.allocationFinal?.tableIds?.length ?? 0) > 0 ||
@@ -2871,19 +2872,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               : 'border-gray-200 bg-white'
                           }`}
                         >
-                          <div className="flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
+                          <div className="flex flex-col gap-2">
                             <button
                               type="button"
-                              disabled={isNavLocked}
+                              disabled={isRowLocked}
                               onClick={() => handleBookingFocus(booking)}
-                              className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-left md:items-center md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_0.8fr] rounded-md px-2 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
-                                manualMode.active ? '' : 'hover:bg-gray-50'
+                              className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-left md:items-center md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_0.8fr] rounded-md px-1.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
+                                isRowLocked
+                                  ? 'cursor-default opacity-80'
+                                  : 'hover:bg-gray-50'
                               }`}
                             >
-                              <span className="text-sm font-semibold text-[var(--color-text-main)]">
+                              <span className="truncate text-sm font-semibold text-[var(--color-text-main)]">
                                 {booking.name}
                               </span>
-                              <span className="text-[var(--color-text-secondary)]">
+                              <span className="text-right text-[var(--color-text-secondary)]">
                                 {start && end
                                   ? `${start.toLocaleTimeString('hu-HU', {
                                       hour: '2-digit',
@@ -2918,28 +2921,30 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                                 </span>
                               </div>
                             </button>
-                            <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                              {isLocked && (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                  LOCKED
-                                </span>
-                              )}
-                              {isOverride && (
-                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                                  OVERRIDE
-                                </span>
-                              )}
-                              {isNoFit && (
-                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                                  NO_FIT
-                                </span>
-                              )}
-                              {isConflict && (
-                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                                  CONFLICT
-                                </span>
-                              )}
-                              <div className="flex items-center gap-2 md:ml-auto">
+                            <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:justify-between">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {isLocked && (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                    LOCKED
+                                  </span>
+                                )}
+                                {isOverride && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                    OVERRIDE
+                                  </span>
+                                )}
+                                {isNoFit && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                    NO_FIT
+                                  </span>
+                                )}
+                                {isConflict && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                    CONFLICT
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 md:ml-auto md:flex-nowrap">
                                 <button
                                   type="button"
                                   className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
