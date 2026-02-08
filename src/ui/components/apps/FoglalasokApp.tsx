@@ -2414,20 +2414,24 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       });
     });
 
-    const conflictRanges: Array<{ start: number; end: number }> = [];
-    tableMap.forEach(entries => {
+    const conflictRangesByTable = new Map<string, Array<{ start: number; end: number }>>();
+    tableMap.forEach((entries, tableId) => {
       if (entries.length < 2) return;
       const sorted = [...entries].sort((a, b) => a.start - b.start);
       let latestEnd = sorted[0].end;
+      const ranges: Array<{ start: number; end: number }> = [];
       for (let i = 1; i < sorted.length; i += 1) {
         const entry = sorted[i];
         if (entry.start < latestEnd) {
-          conflictRanges.push({
+          ranges.push({
             start: entry.start,
             end: Math.min(entry.end, latestEnd),
           });
         }
         latestEnd = Math.max(latestEnd, entry.end);
+      }
+      if (ranges.length > 0) {
+        conflictRangesByTable.set(tableId, ranges);
       }
     });
 
@@ -2440,12 +2444,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         }
         return count;
       }, 0);
-      const conflictCount = conflictRanges.reduce((count, range) => {
-        if (range.start < bucketEnd && range.end > bucketStart) {
-          return count + 1;
+      let conflictCount = 0;
+      conflictRangesByTable.forEach(ranges => {
+        const hasConflict = ranges.some(range => range.start < bucketEnd && range.end > bucketStart);
+        if (hasConflict) {
+          conflictCount += 1;
         }
-        return count;
-      }, 0);
+      });
       return { bucketStart, bookingCount, conflictCount };
     });
   }, [openingMinutes, overviewBookings, overviewDate, stepMinutes, totalSteps]);
