@@ -2381,6 +2381,75 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return conflicted;
   }, [overviewBookings]);
 
+  const timelineBucketMetrics = useMemo(() => {
+    const dayStart = new Date(overviewDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const bookingSpans = overviewBookings
+      .map(booking => {
+        const start = booking.startTime?.toDate?.() ?? null;
+        const end = booking.endTime?.toDate?.() ?? null;
+        if (!start || !end) return null;
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
+        const tableIds = new Set<string>([
+          ...(booking.assignedTableIds ?? []),
+          ...(booking.allocationFinal?.tableIds ?? []),
+          ...(booking.allocated?.tableIds ?? []),
+        ]);
+        return { startMinutes, endMinutes, tableIds };
+      })
+      .filter(Boolean) as Array<{
+      startMinutes: number;
+      endMinutes: number;
+      tableIds: Set<string>;
+    }>;
+
+    const tableMap = new Map<string, Array<{ start: number; end: number }>>();
+    bookingSpans.forEach(span => {
+      span.tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ start: span.startMinutes, end: span.endMinutes });
+        tableMap.set(tableId, entries);
+      });
+    });
+
+    const conflictRanges: Array<{ start: number; end: number }> = [];
+    tableMap.forEach(entries => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start - b.start);
+      let latestEnd = sorted[0].end;
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start < latestEnd) {
+          conflictRanges.push({
+            start: entry.start,
+            end: Math.min(entry.end, latestEnd),
+          });
+        }
+        latestEnd = Math.max(latestEnd, entry.end);
+      }
+    });
+
+    return Array.from({ length: totalSteps }, (_, idx) => {
+      const bucketStart = openingMinutes + idx * stepMinutes;
+      const bucketEnd = bucketStart + stepMinutes;
+      const bookingCount = bookingSpans.reduce((count, span) => {
+        if (span.startMinutes < bucketEnd && span.endMinutes > bucketStart) {
+          return count + 1;
+        }
+        return count;
+      }, 0);
+      const conflictCount = conflictRanges.reduce((count, range) => {
+        if (range.start < bucketEnd && range.end > bucketStart) {
+          return count + 1;
+        }
+        return count;
+      }, 0);
+      return { bucketStart, bookingCount, conflictCount };
+    });
+  }, [openingMinutes, overviewBookings, overviewDate, stepMinutes, totalSteps]);
+
   const manualBooking = useMemo(() => {
     if (!manualMode.bookingId) return null;
     return (
@@ -2945,8 +3014,26 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     }}
                   >
                     <div className="relative h-12" style={{ width: totalWidth }}>
+                      <div className="absolute inset-0 z-0">
+                        {timelineBucketMetrics.map((bucket, idx) => {
+                          if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
+                            return null;
+                          }
+                          const tintClass =
+                            bucket.conflictCount > 0
+                              ? 'bg-amber-200/70'
+                              : 'bg-emerald-100/70';
+                          return (
+                            <div
+                              key={bucket.bucketStart}
+                              className={`absolute top-0 h-full ${tintClass}`}
+                              style={{ left: idx * stepWidth, width: stepWidth }}
+                            />
+                          );
+                        })}
+                      </div>
                       <div
-                        className="absolute top-2 h-8 rounded-full border border-emerald-300 bg-emerald-50"
+                        className="absolute top-2 z-10 h-8 rounded-full border border-emerald-300 bg-emerald-50"
                         style={{
                           left:
                             ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
@@ -2956,6 +3043,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       {Array.from({ length: totalSteps }, (_, idx) => {
                         const minutes = openingMinutes + idx * stepMinutes;
                         const isHour = minutes % 60 === 0;
+                        const bucketData = timelineBucketMetrics[idx];
                         return (
                           <button
                             key={minutes}
@@ -2966,9 +3054,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                                 clampWindowStart(minutes, openingMinutes, maxWindowStart)
                               )
                             }
-                            className="absolute top-0 h-full flex flex-col items-center justify-end"
+                            className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
                             style={{ left: idx * stepWidth }}
                           >
+                            {isHour && bucketData && (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
+                              <span className="absolute top-0 flex items-center gap-1">
+                                <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                  {bucketData.bookingCount}
+                                </span>
+                                {bucketData.conflictCount > 0 && (
+                                  <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                    !
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             <span
                               className={`block w-px ${
                                 isHour ? 'h-5 bg-gray-400' : 'h-2 bg-gray-300'

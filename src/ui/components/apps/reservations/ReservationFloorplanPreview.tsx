@@ -419,6 +419,14 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     return Array.from(selectedAssignedTableIds).some(tableId => conflictTableIds.has(tableId));
   }, [conflictTableIds, selectedAssignedTableIds]);
 
+  const occupiedTableIds = useMemo(() => {
+    const occupied = new Set<string>();
+    bookings.forEach(booking => {
+      resolveBookingTableIds(booking).forEach(tableId => occupied.add(tableId));
+    });
+    return occupied;
+  }, [bookings]);
+
   const capacityMode = settings?.capacityMode ?? 'daily';
   const timeWindowCapacity =
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
@@ -486,14 +494,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
       case 'occupied':
-        return 'color-mix(in srgb, var(--color-danger) 22%, transparent)';
+        return 'color-mix(in srgb, var(--color-success) 26%, transparent)';
       case 'upcoming':
-        return 'color-mix(in srgb, #f59e0b 22%, transparent)';
+        return 'color-mix(in srgb, #f59e0b 35%, transparent)';
       case 'free':
       default:
-        return 'color-mix(in srgb, var(--color-success) 18%, transparent)';
+        return 'transparent';
     }
   };
+
+  const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
 
   return (
     <div className="rounded-2xl border border-gray-200 p-4 space-y-4">
@@ -617,12 +627,23 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               floorplanDims={floorplanDims}
               tableDefaults={TABLE_GEOMETRY_DEFAULTS}
               appearance={{
-                getStatus: table => tableStatusById.get(table.id) ?? 'free',
+                getStatus: table => {
+                  const isFocused = hasSelectedBooking && selectedAssignedTableIds.has(table.id);
+                  const isConflict = conflictTableIds.has(table.id);
+                  const isOccupied = occupiedTableIds.has(table.id);
+                  if (isFocused) {
+                    return isConflict ? 'upcoming' : 'occupied';
+                  }
+                  if (isConflict) return 'upcoming';
+                  if (isOccupied) return 'occupied';
+                  return 'free';
+                },
                 renderStatusColor,
-                isSelected: table => selectedAssignedTableIds.has(table.id),
+                isSelected: table => hasSelectedBooking && selectedAssignedTableIds.has(table.id),
                 isRecommended: table =>
                   !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
                 hasConflict: table => conflictTableIds.has(table.id),
+                selectionColor: 'var(--color-success)',
                 showCapacity: true,
               }}
             />
