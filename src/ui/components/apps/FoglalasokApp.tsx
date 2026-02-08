@@ -40,6 +40,7 @@ import {
 } from '../../../core/services/adminAllocationApiService';
 import FloorplanViewer from './seating/FloorplanViewer';
 import ReservationFloorplanPreview from './reservations/ReservationFloorplanPreview';
+import HorizontalWheelPicker from '../common/HorizontalWheelPicker';
 import {
   clearOverride,
   getOverride,
@@ -498,6 +499,7 @@ const computeAllocationConflicts = (
     .map(({ sortTime, ...rest }) => rest);
 };
 
+const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const AllocationPanel: React.FC<{
   booking: Booking;
@@ -1888,6 +1890,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   allUnits,
   activeUnitIds,
 }) => {
+  // Manual allocation state machine & booking focus flow:
+  // - Booking click focuses selection + programmatic timeline jump.
+  // - Manual mode locks navigation, stages table selection, confirms via override API.
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [logs, setLogs] = useState<BookingLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1912,6 +1917,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [autoAllocateSummary, setAutoAllocateSummary] =
     useState<AutoAllocateDayResult | null>(null);
   const [autoAllocateError, setAutoAllocateError] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState<{
+    active: boolean;
+    bookingId: string | null;
+    stagedTableIds: string[];
+  }>({
+    active: false,
+    bookingId: null,
+    stagedTableIds: [],
+  });
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const timelineRafRef = useRef<number | null>(null);
@@ -2207,11 +2221,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     from: '00:00',
     to: '23:59',
   };
-  const monthLabels = useMemo(
+  const monthItems = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, idx) =>
-        new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' })
-      ),
+      Array.from({ length: 12 }, (_, idx) => ({
+        monthIndex: idx,
+        labelShort: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' }),
+        labelLong: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'long' }),
+      })),
     []
   );
   const daysInMonth = useMemo(
@@ -2224,12 +2240,14 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const maxWindowStart = Math.max(openingMinutes, closingMinutes - 120);
   const stepMinutes = 15;
   const stepWidth = 12;
+  const timelinePadding = 24;
   const totalSteps = Math.floor((maxWindowStart - openingMinutes) / stepMinutes) + 1;
   const totalWidth = totalSteps * stepWidth;
 
   useEffect(() => {
     setWindowStartMinutes(openingMinutes);
   }, [openingMinutes, overviewDateKey]);
+
 
   const windowStart = useMemo(() => {
     const date = new Date(overviewDate);
@@ -2324,6 +2342,178 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     [windowBookings]
   );
 
+  const sortedOverviewBookings = useMemo(() => {
+    return [...overviewBookings].sort((a, b) => {
+      const aTime = a.startTime?.toDate?.()?.getTime?.() ?? 0;
+      const bTime = b.startTime?.toDate?.()?.getTime?.() ?? 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return a.id.localeCompare(b.id);
+    });
+  }, [overviewBookings]);
+
+  const dayConflictedBookingIds = useMemo(() => {
+    const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
+    overviewBookings.forEach(booking => {
+      const start = booking.startTime?.toDate?.();
+      const end = booking.endTime?.toDate?.();
+      if (!start || !end) return;
+      const tableIds = new Set<string>([
+        ...(booking.assignedTableIds ?? []),
+        ...(booking.allocationFinal?.tableIds ?? []),
+        ...(booking.allocated?.tableIds ?? []),
+      ]);
+      tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ bookingId: booking.id, start: start.getTime(), end: end.getTime() });
+        tableMap.set(tableId, entries);
+      });
+    });
+    const conflicted = new Set<string>();
+    tableMap.forEach(entries => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start - b.start);
+      let latestEnd = sorted[0].end;
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start < latestEnd) {
+          conflicted.add(entry.bookingId);
+          conflicted.add(sorted[i - 1].bookingId);
+        }
+        latestEnd = Math.max(latestEnd, entry.end);
+      }
+    });
+    return conflicted;
+  }, [overviewBookings]);
+
+  const timelineBucketMetrics = useMemo(() => {
+    const dayStart = new Date(overviewDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const bookingSpans = overviewBookings
+      .map(booking => {
+        const start = booking.startTime?.toDate?.() ?? null;
+        const end = booking.endTime?.toDate?.() ?? null;
+        if (!start || !end) return null;
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
+        const tableIds = new Set<string>([
+          ...(booking.assignedTableIds ?? []),
+          ...(booking.allocationFinal?.tableIds ?? []),
+          ...(booking.allocated?.tableIds ?? []),
+        ]);
+        return { startMinutes, endMinutes, tableIds };
+      })
+      .filter(Boolean) as Array<{
+      startMinutes: number;
+      endMinutes: number;
+      tableIds: Set<string>;
+    }>;
+
+    const tableMap = new Map<string, Array<{ start: number; end: number }>>();
+    bookingSpans.forEach(span => {
+      span.tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ start: span.startMinutes, end: span.endMinutes });
+        tableMap.set(tableId, entries);
+      });
+    });
+
+    const conflictRangesByTable = new Map<string, Array<{ start: number; end: number }>>();
+    tableMap.forEach((entries, tableId) => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start - b.start);
+      let latestEnd = sorted[0].end;
+      const ranges: Array<{ start: number; end: number }> = [];
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start < latestEnd) {
+          ranges.push({
+            start: entry.start,
+            end: Math.min(entry.end, latestEnd),
+          });
+        }
+        latestEnd = Math.max(latestEnd, entry.end);
+      }
+      if (ranges.length > 0) {
+        conflictRangesByTable.set(tableId, ranges);
+      }
+    });
+
+    return Array.from({ length: totalSteps }, (_, idx) => {
+      const bucketStart = openingMinutes + idx * stepMinutes;
+      const bucketEnd = bucketStart + stepMinutes;
+      const bookingCount = bookingSpans.reduce((count, span) => {
+        if (span.startMinutes < bucketEnd && span.endMinutes > bucketStart) {
+          return count + 1;
+        }
+        return count;
+      }, 0);
+      let conflictCount = 0;
+      conflictRangesByTable.forEach(ranges => {
+        const hasConflict = ranges.some(range => range.start < bucketEnd && range.end > bucketStart);
+        if (hasConflict) {
+          conflictCount += 1;
+        }
+      });
+      return { bucketStart, bookingCount, conflictCount };
+    });
+  }, [openingMinutes, overviewBookings, overviewDate, stepMinutes, totalSteps]);
+
+  const manualBooking = useMemo(() => {
+    if (!manualMode.bookingId) return null;
+    return (
+      overviewBookings.find(booking => booking.id === manualMode.bookingId) ??
+      bookings.find(booking => booking.id === manualMode.bookingId) ??
+      null
+    );
+  }, [bookings, manualMode.bookingId, overviewBookings]);
+
+  const manualSelectionConflicts = useMemo(() => {
+    if (!manualBooking || manualMode.stagedTableIds.length === 0) return [];
+    const bufferMinutes = reservationSettings?.bufferMinutes ?? 15;
+    return computeAllocationConflicts(
+      manualBooking,
+      manualMode.stagedTableIds,
+      overviewBookings,
+      bufferMinutes
+    );
+  }, [manualBooking, manualMode.stagedTableIds, overviewBookings, reservationSettings?.bufferMinutes]);
+
+  const resolveManualZoneId = useCallback(
+    (tableIds: string[]) => {
+      if (!tableIds.length) return null;
+      const tableById = new Map(tables.map(table => [table.id, table]));
+      const firstTable = tableById.get(tableIds[0]);
+      return firstTable?.zoneId ?? null;
+    },
+    [tables]
+  );
+
+  const isNavLocked = manualMode.active;
+
+  const handleBookingFocus = useCallback(
+    (booking: Booking) => {
+      if (manualMode.active) return;
+      const start = booking.startTime?.toDate?.() ?? null;
+      const end = booking.endTime?.toDate?.() ?? null;
+      if (!start || !end) {
+        setSelectedBookingId(booking.id);
+        return;
+      }
+      const dayStart = new Date(overviewDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+      const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+      const midpointMinutes = Math.round((startMinutes + endMinutes) / 2);
+      const desiredStart = midpointMinutes - 60;
+      const snappedStart = Math.round(desiredStart / stepMinutes) * stepMinutes;
+      const clampedStart = clampValue(snappedStart, openingMinutes, maxWindowStart);
+      setSelectedBookingId(booking.id);
+      setWindowStartMinutes(clampedStart);
+    },
+    [manualMode.active, maxWindowStart, openingMinutes, overviewDate, stepMinutes]
+  );
+
   const autoAllocateProblemItems = useMemo(() => {
     if (!autoAllocateSummary?.items) return [];
     return autoAllocateSummary.items.filter(item =>
@@ -2338,7 +2528,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     if (!container) return;
     const clampedStart = clampWindowStart(windowStartMinutes, openingMinutes, maxWindowStart);
     const startIndex = Math.round((clampedStart - openingMinutes) / stepMinutes);
-    const targetLeft = Math.max(0, startIndex * stepWidth - container.clientWidth / 2);
+    const targetLeft = Math.max(
+      0,
+      startIndex * stepWidth - container.clientWidth / 2 + timelinePadding
+    );
     timelineProgrammaticRef.current = true;
     if (timelineProgrammaticTimeoutRef.current !== null) {
       window.clearTimeout(timelineProgrammaticTimeoutRef.current);
@@ -2347,7 +2540,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     timelineProgrammaticTimeoutRef.current = window.setTimeout(() => {
       timelineProgrammaticRef.current = false;
     }, 200);
-  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, windowStartMinutes]);
+  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, timelinePadding, windowStartMinutes]);
 
   useEffect(
     () => () => {
@@ -2470,6 +2663,67 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   };
 
+  const handleManualStart = (bookingId: string) => {
+    const targetBooking =
+      overviewBookings.find(booking => booking.id === bookingId) ??
+      bookings.find(booking => booking.id === bookingId);
+    if (targetBooking) {
+      const start = targetBooking.startTime?.toDate?.() ?? null;
+      const end = targetBooking.endTime?.toDate?.() ?? null;
+      if (start && end) {
+        const dayStart = new Date(overviewDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        const midpointMinutes = Math.round((startMinutes + endMinutes) / 2);
+        const desiredStart = midpointMinutes - 60;
+        const snappedStart = Math.round(desiredStart / stepMinutes) * stepMinutes;
+        const clampedStart = clampWindowStart(snappedStart, openingMinutes, maxWindowStart);
+        setWindowStartMinutes(clampedStart);
+      }
+    }
+    setSelectedBookingId(bookingId);
+    setManualMode({
+      active: true,
+      bookingId,
+      stagedTableIds: [],
+    });
+  };
+
+  const handleManualCancel = () => {
+    setManualMode({
+      active: false,
+      bookingId: null,
+      stagedTableIds: [],
+    });
+  };
+
+  const handleManualToggleTable = (table: Table) => {
+    if (!manualMode.active) return;
+    setManualMode(current => ({
+      ...current,
+      stagedTableIds: current.stagedTableIds.includes(table.id)
+        ? current.stagedTableIds.filter(id => id !== table.id)
+        : [...current.stagedTableIds, table.id],
+    }));
+  };
+
+  const handleManualConfirm = async () => {
+    if (!manualMode.active || !activeUnitId || !manualMode.bookingId) return;
+    if (manualMode.stagedTableIds.length === 0) return;
+    try {
+      const zoneId = resolveManualZoneId(manualMode.stagedTableIds);
+      await setOverride(activeUnitId, manualMode.bookingId, {
+        forcedZoneId: zoneId ?? null,
+        forcedTableIds: manualMode.stagedTableIds,
+      });
+      handleManualCancel();
+    } catch (err) {
+      console.error('Error saving manual allocation override:', err);
+      alert('Nem sikerült menteni a manuális ültetést.');
+    }
+  };
+
   return (
     <div className="p-4 md:p-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -2528,158 +2782,337 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {!loading && !error && (
         <>
           <div className="mt-4 space-y-6">
-            <div className="space-y-4">
-              <div className="text-xl font-semibold text-[var(--color-text-main)]">
-                {overviewDate.getFullYear()}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {monthLabels.map((label, idx) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => {
-                      const nextDate = new Date(overviewDate);
-                      const nextDay = clampDayInMonth(
-                        nextDate.getFullYear(),
-                        idx,
-                        nextDate.getDate()
-                      );
-                      nextDate.setMonth(idx);
-                      nextDate.setDate(nextDay);
-                      setOverviewDate(nextDate);
-                    }}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                      overviewDate.getMonth() === idx
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {Array.from({ length: daysInMonth }, (_, idx) => idx + 1).map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => {
-                      const nextDate = new Date(overviewDate);
-                      nextDate.setDate(day);
-                      setOverviewDate(nextDate);
-                    }}
-                    className={`h-8 w-8 flex items-center justify-center rounded-full border text-xs font-semibold ${
-                      overviewDate.getDate() === day
-                        ? 'border-emerald-500 bg-emerald-500 text-white'
-                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ))}
-              </div>
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="text-sm font-semibold text-[var(--color-text-main)]">
-                    {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+            <div className="space-y-4 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-wrap items-baseline gap-3">
+                  <div className="text-4xl md:text-5xl font-semibold text-[var(--color-text-main)] leading-none">
+                    {overviewDate.getFullYear()}
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setDetailsDate(overviewDate)}
-                      className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
-                    >
-                      Napi lista
-                    </button>
-                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={autoAllocateDryRun}
-                        onChange={event => setAutoAllocateDryRun(event.target.checked)}
-                      />
-                      Dry-run
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleAutoAllocateDay}
-                      disabled={autoAllocateRunning}
-                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                    >
-                      {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
-                    </button>
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-secondary)]">
+                    Admin Central · Reservation & Allocation Portal
                   </div>
                 </div>
-                <div className="relative rounded-xl border border-gray-200 bg-white px-3 py-4">
-                  <div
-                    ref={timelineRef}
-                    className="relative overflow-x-auto"
-                    onScroll={event => {
-                      if (timelineProgrammaticRef.current) return;
-                      const target = event.currentTarget;
-                      if (timelineRafRef.current !== null) {
-                        cancelAnimationFrame(timelineRafRef.current);
-                      }
-                      timelineRafRef.current = requestAnimationFrame(() => {
-                        const index = Math.max(
-                          0,
-                          Math.min(
-                            totalSteps - 1,
-                            Math.round(target.scrollLeft / stepWidth)
-                          )
-                        );
-                        const nextMinutes = clampWindowStart(
-                          openingMinutes + index * stepMinutes,
-                          openingMinutes,
-                          maxWindowStart
-                        );
-                        if (nextMinutes !== windowStartMinutes) {
-                          setWindowStartMinutes(nextMinutes);
-                        }
-                      });
-                    }}
-                  >
-                    <div className="relative h-16" style={{ width: totalWidth }}>
-                      <div
-                        className="absolute top-2 h-12 rounded-full bg-emerald-100"
-                        style={{
-                          left:
-                            ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
-                          width: (120 / stepMinutes) * stepWidth,
-                        }}
-                      />
-                      {Array.from({ length: totalSteps }, (_, idx) => {
-                        const minutes = openingMinutes + idx * stepMinutes;
-                        const isHour = minutes % 60 === 0;
-                        return (
-                          <button
-                            key={minutes}
-                            type="button"
-                            onClick={() =>
-                              setWindowStartMinutes(
-                                clampWindowStart(minutes, openingMinutes, maxWindowStart)
-                              )
-                            }
-                            className="absolute top-0 h-full flex flex-col items-center justify-end"
-                            style={{ left: idx * stepWidth }}
-                          >
-                            <span
-                              className={`block w-px ${
-                                isHour ? 'h-6 bg-gray-400' : 'h-3 bg-gray-300'
+              </div>
+              <HorizontalWheelPicker
+                items={monthItems}
+                getKey={item => String(item.monthIndex)}
+                selectedKey={String(overviewDate.getMonth())}
+                onSelect={key => {
+                  const nextMonth = Number(key);
+                  if (!Number.isFinite(nextMonth)) return;
+                  const nextDate = new Date(overviewDate);
+                  const nextDay = clampDayInMonth(
+                    nextDate.getFullYear(),
+                    nextMonth,
+                    nextDate.getDate()
+                  );
+                  nextDate.setMonth(nextMonth);
+                  nextDate.setDate(nextDay);
+                  setOverviewDate(nextDate);
+                }}
+                itemClassName={(item, state) =>
+                  `rounded-full border text-xs font-semibold transition ${
+                    state.isSelected
+                      ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-md scale-[1.06] px-5 py-2.5'
+                      : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50 px-4 py-2'
+                  }`
+                }
+                renderLabel={(item, state) => (
+                  <span className={state.isSelected ? 'capitalize' : undefined}>
+                    {state.isSelected ? item.labelLong : item.labelShort}
+                  </span>
+                )}
+                className="whitespace-nowrap"
+              />
+              <HorizontalWheelPicker
+                items={Array.from({ length: 31 }, (_, idx) => idx + 1)}
+                getKey={day => String(day)}
+                selectedKey={String(overviewDate.getDate())}
+                onSelect={key => {
+                  const day = Number(key);
+                  if (!Number.isFinite(day) || day > daysInMonth) return;
+                  const nextDate = new Date(overviewDate);
+                  nextDate.setDate(day);
+                  setOverviewDate(nextDate);
+                }}
+                isDisabled={day => day > daysInMonth || isNavLocked}
+                infinite
+                repeatCount={5}
+                itemClassName={(day, state) =>
+                  `h-10 w-10 shrink-0 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                    state.isSelected
+                      ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
+                      : day > daysInMonth || isNavLocked
+                        ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                  }`
+                }
+                renderLabel={day => day}
+              />
+              <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+                <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
+                      Mai foglalások
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {manualMode.active && (
+                        <span className="text-[10px] font-semibold uppercase text-amber-700">
+                          Manual mód aktív
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleAutoAllocateDay}
+                        disabled={autoAllocateRunning || isNavLocked || manualMode.active}
+                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {sortedOverviewBookings.map(booking => {
+                      const start = booking.startTime?.toDate?.();
+                      const end = booking.endTime?.toDate?.();
+                      const isFocused = selectedBookingId === booking.id;
+                      const isLocked = Boolean(booking.allocationFinal?.locked);
+                      const isOverride = Boolean(booking.allocationOverride?.enabled);
+                      const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                      const isConflict = dayConflictedBookingIds.has(booking.id);
+                      const isRowLocked = isNavLocked || manualMode.active;
+                      const hasAllocation =
+                        (booking.assignedTableIds?.length ?? 0) > 0 ||
+                        (booking.allocationFinal?.tableIds?.length ?? 0) > 0 ||
+                        (booking.allocated?.tableIds?.length ?? 0) > 0;
+                      return (
+                        <div
+                          key={booking.id}
+                          className={`rounded-lg border px-3 py-2 text-xs transition ${
+                            isFocused
+                              ? 'border-emerald-500 bg-emerald-50'
+                              : 'border-gray-200 bg-white'
+                          }`}
+                        >
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              disabled={isRowLocked}
+                              onClick={() => handleBookingFocus(booking)}
+                              className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-left md:items-center md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_0.8fr] rounded-md px-1.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
+                                isRowLocked
+                                  ? 'cursor-default opacity-80'
+                                  : 'hover:bg-gray-50'
                               }`}
-                            />
-                            {isHour && (
-                              <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
-                                {formatMinutes(minutes)}
+                            >
+                              <span className="truncate text-sm font-semibold text-[var(--color-text-main)]">
+                                {booking.name}
                               </span>
-                            )}
-                          </button>
-                        );
-                      })}
+                              <span className="text-right text-[var(--color-text-secondary)]">
+                                {start && end
+                                  ? `${start.toLocaleTimeString('hu-HU', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}–${end.toLocaleTimeString('hu-HU', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  : '—'}
+                              </span>
+                              <div className="col-span-2 flex flex-wrap items-center gap-2 md:col-span-1 md:contents">
+                                <span className="text-[var(--color-text-secondary)]">
+                                  {booking.headcount} fő
+                                </span>
+                                <span
+                                  className={`inline-flex min-w-[72px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    booking.status === 'confirmed'
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-amber-100 text-amber-700'
+                                  }`}
+                                >
+                                  {booking.status}
+                                </span>
+                                <span
+                                  className={`inline-flex min-w-[80px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    hasAllocation
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-600'
+                                  }`}
+                                >
+                                  {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
+                                </span>
+                              </div>
+                            </button>
+                            <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:justify-between">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {isLocked && (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                    LOCKED
+                                  </span>
+                                )}
+                                {isOverride && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                    OVERRIDE
+                                  </span>
+                                )}
+                                {isNoFit && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                    NO_FIT
+                                  </span>
+                                )}
+                                {isConflict && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                    CONFLICT
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 md:ml-auto md:flex-nowrap">
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
+                                  disabled
+                                >
+                                  Auto
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 disabled:opacity-50"
+                                  onClick={() => handleManualStart(booking.id)}
+                                  disabled={manualMode.active}
+                                >
+                                  Manual
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!sortedOverviewBookings.length && (
+                      <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
+                        Nincs foglalás erre a napra.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                      {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                    </div>
+                  </div>
+                  <div className="relative rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
+                    <div
+                      ref={timelineRef}
+                      className="relative overflow-x-auto"
+                      style={{ paddingLeft: timelinePadding, paddingRight: timelinePadding }}
+                      onScroll={event => {
+                        if (manualMode.active) return;
+                        if (timelineProgrammaticRef.current) return;
+                        const target = event.currentTarget;
+                        if (timelineRafRef.current !== null) {
+                          cancelAnimationFrame(timelineRafRef.current);
+                        }
+                        timelineRafRef.current = requestAnimationFrame(() => {
+                          const paddedScrollLeft = Math.max(0, target.scrollLeft - timelinePadding);
+                          const index = Math.max(
+                            0,
+                            Math.min(
+                              totalSteps - 1,
+                              Math.round(paddedScrollLeft / stepWidth)
+                            )
+                          );
+                          const nextMinutes = clampWindowStart(
+                            openingMinutes + index * stepMinutes,
+                            openingMinutes,
+                            maxWindowStart
+                          );
+                          if (nextMinutes !== windowStartMinutes) {
+                            setWindowStartMinutes(nextMinutes);
+                          }
+                        });
+                      }}
+                    >
+                      <div className="relative h-9" style={{ width: totalWidth }}>
+                        <div className="absolute inset-0 z-0">
+                          {timelineBucketMetrics.map((bucket, idx) => {
+                            if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
+                              return null;
+                            }
+                            const tintClass =
+                              bucket.conflictCount > 0
+                                ? 'bg-amber-200/70'
+                                : 'bg-emerald-100/70';
+                            return (
+                              <div
+                                key={bucket.bucketStart}
+                                className={`absolute top-0 h-full ${tintClass}`}
+                                style={{ left: idx * stepWidth, width: stepWidth }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div
+                          className="absolute top-1 z-10 h-6 rounded-full border border-emerald-300 bg-emerald-50"
+                          style={{
+                            left:
+                              ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
+                            width: (120 / stepMinutes) * stepWidth,
+                          }}
+                        />
+                        {Array.from({ length: totalSteps }, (_, idx) => {
+                          const minutes = openingMinutes + idx * stepMinutes;
+                          const isHour = minutes % 60 === 0;
+                          const bucketData = timelineBucketMetrics[idx];
+                          return (
+                            <button
+                              key={minutes}
+                              type="button"
+                              disabled={manualMode.active}
+                              onClick={() =>
+                                setWindowStartMinutes(
+                                  clampWindowStart(minutes, openingMinutes, maxWindowStart)
+                                )
+                              }
+                              className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
+                              style={{ left: idx * stepWidth }}
+                            >
+                              {isHour &&
+                                bucketData &&
+                                (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
+                                  <span className="absolute -top-1 flex items-center gap-1">
+                                    <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                      {bucketData.bookingCount}
+                                    </span>
+                                    {bucketData.conflictCount > 0 && (
+                                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                        !
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              <span
+                                className={`block w-px ${
+                                  isHour ? 'h-3.5 bg-gray-400' : 'h-2 bg-gray-300'
+                                }`}
+                              />
+                              {isHour && (
+                                <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                                  {formatMinutes(minutes)}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+            {manualMode.active && (
+              <div className="fixed inset-0 pointer-events-none bg-black/10 backdrop-blur-[1px] z-20" />
+            )}
             {autoAllocateError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {autoAllocateError}
@@ -2794,12 +3227,57 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 </div>
               </div>
               <div>
-                <ReservationFloorplanPreview
-                  unitId={activeUnitId}
-                  selectedDate={previewDate}
-                  bookings={windowBookings}
-                  selectedBookingId={selectedBookingId}
-                />
+                {manualMode.active && manualBooking ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                      Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
+                    </div>
+                    <FloorplanViewer
+                      unitId={activeUnitId}
+                      highlightTableIds={manualMode.stagedTableIds}
+                      highlightZoneId={manualBooking.zoneId ?? null}
+                      onTableClick={handleManualToggleTable}
+                    />
+                    <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-[var(--color-text-main)]">
+                            Kijelölt asztalok: {manualMode.stagedTableIds.length}
+                          </div>
+                          {manualSelectionConflicts.length > 0 && (
+                            <div className="text-amber-700">
+                              ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleManualCancel}
+                            className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+                          >
+                            Mégse
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleManualConfirm()}
+                            className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
+                            disabled={manualMode.stagedTableIds.length === 0}
+                          >
+                            Jóváhagyás
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <ReservationFloorplanPreview
+                    unitId={activeUnitId}
+                    selectedDate={previewDate}
+                    bookings={windowBookings}
+                    selectedBookingId={selectedBookingId}
+                  />
+                )}
               </div>
             </div>
           </div>

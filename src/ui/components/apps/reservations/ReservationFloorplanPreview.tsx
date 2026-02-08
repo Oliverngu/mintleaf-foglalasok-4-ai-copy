@@ -495,6 +495,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     }
   };
 
+  const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
+
   return (
     <div className="rounded-2xl border border-gray-200 p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -619,7 +621,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
               appearance={{
                 getStatus: table => tableStatusById.get(table.id) ?? 'free',
                 renderStatusColor,
-                isSelected: table => selectedAssignedTableIds.has(table.id),
+                isSelected: table => hasSelectedBooking && selectedAssignedTableIds.has(table.id),
                 isRecommended: table =>
                   !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
                 hasConflict: table => conflictTableIds.has(table.id),
