@@ -1930,6 +1930,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const timelineRafRef = useRef<number | null>(null);
   const timelineProgrammaticRef = useRef(false);
   const timelineProgrammaticTimeoutRef = useRef<number | null>(null);
+  const monthStripRef = useRef<HTMLDivElement | null>(null);
+  const monthButtonRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2227,6 +2229,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       ),
     []
   );
+  const rollingMonths = useMemo(() => {
+    const baseYear = overviewDate.getFullYear();
+    const years = [baseYear - 1, baseYear, baseYear + 1];
+    return years.flatMap(year =>
+      monthLabels.map((label, monthIndex) => ({
+        key: `${year}-${monthIndex}`,
+        year,
+        monthIndex,
+        label,
+      }))
+    );
+  }, [monthLabels, overviewDate]);
   const daysInMonth = useMemo(
     () =>
       new Date(overviewDate.getFullYear(), overviewDate.getMonth() + 1, 0).getDate(),
@@ -2244,6 +2258,13 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   useEffect(() => {
     setWindowStartMinutes(openingMinutes);
   }, [openingMinutes, overviewDateKey]);
+
+  useEffect(() => {
+    const selectedKey = `${overviewDate.getFullYear()}-${overviewDate.getMonth()}`;
+    const selectedButton = monthButtonRefs.current.get(selectedKey);
+    if (!selectedButton) return;
+    selectedButton.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [overviewDate]);
 
   const windowStart = useMemo(() => {
     const date = new Date(overviewDate);
@@ -2789,65 +2810,94 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {monthLabels.map((label, idx) => (
-                  <button
-                    key={label}
-                    type="button"
-                    disabled={isNavLocked}
-                    onClick={() => {
-                      const nextDate = new Date(overviewDate);
-                      const nextDay = clampDayInMonth(
-                        nextDate.getFullYear(),
-                        idx,
-                        nextDate.getDate()
-                      );
-                      nextDate.setMonth(idx);
-                      nextDate.setDate(nextDay);
-                      setOverviewDate(nextDate);
-                    }}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition min-h-[28px] ${
-                      overviewDate.getMonth() === idx
-                        ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-sm scale-[1.03]'
-                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div
+                ref={monthStripRef}
+                className="flex items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap"
+              >
+                {rollingMonths.map(item => {
+                  const isSelected =
+                    overviewDate.getFullYear() === item.year &&
+                    overviewDate.getMonth() === item.monthIndex;
+                  return (
+                    <button
+                      key={item.key}
+                      ref={node => {
+                        monthButtonRefs.current.set(item.key, node);
+                      }}
+                      type="button"
+                      disabled={isNavLocked}
+                      onClick={() => {
+                        const nextDate = new Date(overviewDate);
+                        const nextDay = clampDayInMonth(
+                          item.year,
+                          item.monthIndex,
+                          nextDate.getDate()
+                        );
+                        nextDate.setFullYear(item.year);
+                        nextDate.setMonth(item.monthIndex);
+                        nextDate.setDate(nextDay);
+                        setOverviewDate(nextDate);
+                      }}
+                      className={`rounded-full border px-4 py-2 text-xs font-semibold transition min-h-[38px] ${
+                        isSelected
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-md scale-[1.06]'
+                          : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {Array.from({ length: daysInMonth }, (_, idx) => idx + 1).map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    disabled={isNavLocked}
-                    onClick={() => {
-                      const nextDate = new Date(overviewDate);
-                      nextDate.setDate(day);
-                      setOverviewDate(nextDate);
-                    }}
-                    className={`h-9 w-9 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
-                      overviewDate.getDate() === day
-                        ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm scale-[1.05] -translate-y-[1px]'
-                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ))}
+                {Array.from({ length: 31 }, (_, idx) => idx + 1).map(day => {
+                  const isDisabled = day > daysInMonth || isNavLocked;
+                  const isSelected = overviewDate.getDate() === day && day <= daysInMonth;
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (day > daysInMonth) return;
+                        const nextDate = new Date(overviewDate);
+                        nextDate.setDate(day);
+                        setOverviewDate(nextDate);
+                      }}
+                      className={`h-10 w-10 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
+                          : isDisabled
+                            ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                            : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
               </div>
               <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
                 <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
                       Mai foglalások
                     </div>
-                    {manualMode.active && (
-                      <span className="text-[10px] font-semibold uppercase text-amber-700">
-                        Manual mód aktív
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {manualMode.active && (
+                        <span className="text-[10px] font-semibold uppercase text-amber-700">
+                          Manual mód aktív
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleAutoAllocateDay}
+                        disabled={autoAllocateRunning || isNavLocked || manualMode.active}
+                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate'}
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 space-y-2">
                     {sortedOverviewBookings.map(booking => {
@@ -2977,32 +3027,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="text-sm font-semibold text-[var(--color-text-main)]">
                       {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setDetailsDate(overviewDate)}
-                        disabled={isNavLocked}
-                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
-                      >
-                        Napi lista
-                      </button>
-                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-                        <input
-                          type="checkbox"
-                          checked={autoAllocateDryRun}
-                          onChange={event => setAutoAllocateDryRun(event.target.checked)}
-                        />
-                        Dry-run
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleAutoAllocateDay}
-                        disabled={autoAllocateRunning || isNavLocked}
-                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                      >
-                        {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
-                      </button>
                     </div>
                   </div>
                   <div className="relative rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
