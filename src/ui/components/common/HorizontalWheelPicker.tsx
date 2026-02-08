@@ -43,6 +43,7 @@ const HorizontalWheelPicker = <T,>({
   const isUserScrollingRef = useRef(false);
   const scrollEndDebounceMs = 140;
   const lastRecenterAtRef = useRef(0);
+  const programmaticTimeoutRef = useRef<number | null>(null);
 
   const safeRepeatCount = infinite ? Math.max(3, repeatCount) : 1;
   const middleBlock = Math.floor(safeRepeatCount / 2);
@@ -82,6 +83,16 @@ const HorizontalWheelPicker = <T,>({
     }
     return blockWidthRef.current;
   }, [getItemElement, getKey, infinite, items, middleBlock]);
+
+  const setProgrammaticFor = useCallback((ms: number) => {
+    programmaticRef.current = true;
+    if (programmaticTimeoutRef.current !== null) {
+      window.clearTimeout(programmaticTimeoutRef.current);
+    }
+    programmaticTimeoutRef.current = window.setTimeout(() => {
+      programmaticRef.current = false;
+    }, ms);
+  }, []);
 
   const centerSelected = useCallback(
     (behavior: ScrollBehavior) => {
@@ -163,11 +174,13 @@ const HorizontalWheelPicker = <T,>({
     []
   );
 
-  const snapToNode = useCallback((node: HTMLButtonElement, behavior: ScrollBehavior) => {
-    programmaticRef.current = true;
-    node.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
-    programmaticRef.current = false;
-  }, []);
+  const snapToNode = useCallback(
+    (node: HTMLButtonElement, behavior: ScrollBehavior) => {
+      setProgrammaticFor(220);
+      node.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
+    },
+    [setProgrammaticFor]
+  );
 
   const handleScroll = useCallback(() => {
     isUserScrollingRef.current = true;
@@ -185,14 +198,12 @@ const HorizontalWheelPicker = <T,>({
       const threshold = blockWidth * 0.35;
       const maxScroll = container.scrollWidth - container.clientWidth;
       if (container.scrollLeft < threshold) {
-        programmaticRef.current = true;
+        setProgrammaticFor(60);
         container.scrollLeft = container.scrollLeft + blockWidth;
-        programmaticRef.current = false;
         lastRecenterAtRef.current = Date.now();
       } else if (container.scrollLeft > maxScroll - threshold) {
-        programmaticRef.current = true;
+        setProgrammaticFor(60);
         container.scrollLeft = container.scrollLeft - blockWidth;
-        programmaticRef.current = false;
         lastRecenterAtRef.current = Date.now();
       }
     });
@@ -214,10 +225,9 @@ const HorizontalWheelPicker = <T,>({
       if (!enabledNode) return;
       const key = enabledNode.getAttribute('data-wheel-key');
       if (!key) return;
+      snapToNode(enabledNode, 'smooth');
       if (key !== selectedKey) {
         onSelect(key);
-      } else {
-        snapToNode(enabledNode, 'smooth');
       }
       applyWheelEffect();
     }, scrollEndDebounceMs);
@@ -232,6 +242,7 @@ const HorizontalWheelPicker = <T,>({
     onSelect,
     scrollEndDebounceMs,
     selectedKey,
+    setProgrammaticFor,
     snapToNode,
   ]);
 
@@ -253,12 +264,11 @@ const HorizontalWheelPicker = <T,>({
     if (!container) return;
     const blockWidth = blockWidthRef.current ?? computeBlockWidth();
     if (infinite && !blockWidth) return;
-    programmaticRef.current = true;
+    setProgrammaticFor(120);
     centerSelected('auto');
-    programmaticRef.current = false;
     initialCenteredRef.current = true;
     applyWheelEffect();
-  }, [applyWheelEffect, centerSelected, computeBlockWidth, infinite]);
+  }, [applyWheelEffect, centerSelected, computeBlockWidth, infinite, setProgrammaticFor]);
 
   useEffect(() => {
     const handleResize = () => applyWheelEffect();
@@ -271,6 +281,9 @@ const HorizontalWheelPicker = <T,>({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       if (scrollEndTimeoutRef.current !== null) {
         window.clearTimeout(scrollEndTimeoutRef.current);
+      }
+      if (programmaticTimeoutRef.current !== null) {
+        window.clearTimeout(programmaticTimeoutRef.current);
       }
     },
     []
@@ -300,6 +313,22 @@ const HorizontalWheelPicker = <T,>({
             disabled={disabled}
             onClick={() => {
               if (disabled) return;
+              if (infinite) {
+                const container = containerRef.current;
+                const blockWidth = blockWidthRef.current ?? computeBlockWidth();
+                if (container && blockWidth) {
+                  const deltaBlocks = blockIndex - middleBlock;
+                  if (deltaBlocks !== 0) {
+                    setProgrammaticFor(120);
+                    container.scrollLeft -= deltaBlocks * blockWidth;
+                    lastRecenterAtRef.current = Date.now();
+                  }
+                  const target = getItemElement(itemKey, middleBlock);
+                  if (target) {
+                    snapToNode(target, 'smooth');
+                  }
+                }
+              }
               onSelect(itemKey);
             }}
             className={`shrink-0 transition ${extraClass ?? ''}`}
