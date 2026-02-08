@@ -42,6 +42,7 @@ const HorizontalWheelPicker = <T,>({
   const initialCenteredRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const scrollEndDebounceMs = 140;
+  const lastRecenterAtRef = useRef(0);
 
   const safeRepeatCount = infinite ? Math.max(3, repeatCount) : 1;
   const middleBlock = Math.floor(safeRepeatCount / 2);
@@ -108,12 +109,14 @@ const HorizontalWheelPicker = <T,>({
     });
   }, []);
 
-  const getAllItemNodes = useCallback(() => {
+  const getAllItemNodes = useCallback((blockIndex?: number) => {
     const container = containerRef.current;
     if (!container) return [];
-    return Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[data-wheel-item="true"]')
-    );
+    const selector =
+      blockIndex === undefined
+        ? '[data-wheel-item="true"]'
+        : `[data-wheel-item="true"][data-wheel-block="${blockIndex}"]`;
+    return Array.from(container.querySelectorAll<HTMLButtonElement>(selector));
   }, []);
 
   const getCenterX = useCallback((container: HTMLDivElement) => {
@@ -185,10 +188,12 @@ const HorizontalWheelPicker = <T,>({
         programmaticRef.current = true;
         container.scrollLeft = container.scrollLeft + blockWidth;
         programmaticRef.current = false;
+        lastRecenterAtRef.current = Date.now();
       } else if (container.scrollLeft > maxScroll - threshold) {
         programmaticRef.current = true;
         container.scrollLeft = container.scrollLeft - blockWidth;
         programmaticRef.current = false;
+        lastRecenterAtRef.current = Date.now();
       }
     });
 
@@ -199,7 +204,10 @@ const HorizontalWheelPicker = <T,>({
       isUserScrollingRef.current = false;
       const container = containerRef.current;
       if (!container) return;
-      const nodes = getAllItemNodes();
+      if (Date.now() - lastRecenterAtRef.current < scrollEndDebounceMs) {
+        return;
+      }
+      const nodes = getAllItemNodes(middleBlock);
       const center = getCenterX(container);
       const closest = findClosestNodeToCenter(nodes, center);
       const enabledNode = findClosestEnabledNode(nodes, closest);
@@ -234,9 +242,10 @@ const HorizontalWheelPicker = <T,>({
   }, [computeBlockWidth, items, selectedKey]);
 
   useEffect(() => {
-    if (isUserScrollingRef.current) return;
+    if (infinite && isUserScrollingRef.current) return;
+    if (infinite && !initialCenteredRef.current) return;
     centerSelected('smooth');
-  }, [centerSelected, selectedKey]);
+  }, [centerSelected, infinite, selectedKey]);
 
   useEffect(() => {
     if (initialCenteredRef.current) return;
