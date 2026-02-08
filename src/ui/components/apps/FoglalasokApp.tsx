@@ -2778,7 +2778,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {!loading && !error && (
         <>
           <div className="mt-4 space-y-6">
-            <div className="space-y-4">
+            <div className="space-y-4 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm">
+              <div className="text-xs font-semibold tracking-wide text-[var(--color-text-secondary)] uppercase">
+                Időszak
+              </div>
               <div className="text-xl font-semibold text-[var(--color-text-main)]">
                 {overviewDate.getFullYear()}
               </div>
@@ -2830,268 +2833,273 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                    Mai foglalások
+              <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+                <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase">
+                      Mai foglalások
+                    </div>
+                    {manualMode.active && (
+                      <span className="text-[10px] font-semibold uppercase text-amber-700">
+                        Manual mód aktív
+                      </span>
+                    )}
                   </div>
-                  {manualMode.active && (
-                    <span className="text-[10px] font-semibold uppercase text-amber-700">
-                      Manual mód aktív
-                    </span>
-                  )}
-                </div>
-                <div className="mt-2 space-y-2">
-                  {sortedOverviewBookings.map(booking => {
-                    const start = booking.startTime?.toDate?.();
-                    const end = booking.endTime?.toDate?.();
-                    const isFocused = selectedBookingId === booking.id;
-                    const isLocked = Boolean(booking.allocationFinal?.locked);
-                    const isOverride = Boolean(booking.allocationOverride?.enabled);
-                    const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
-                    const isConflict = dayConflictedBookingIds.has(booking.id);
-                    const hasAllocation =
-                      (booking.assignedTableIds?.length ?? 0) > 0 ||
-                      (booking.allocationFinal?.tableIds?.length ?? 0) > 0 ||
-                      (booking.allocated?.tableIds?.length ?? 0) > 0;
-                    return (
-                      <div
-                        key={booking.id}
-                        className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs transition ${
-                          isFocused
-                            ? 'border-emerald-500 bg-emerald-50'
-                            : 'border-gray-200 bg-white'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          disabled={isNavLocked}
-                          onClick={() => handleBookingFocus(booking)}
-                          className="flex w-full items-center gap-2 text-left"
+                  <div className="mt-2 space-y-2">
+                    {sortedOverviewBookings.map(booking => {
+                      const start = booking.startTime?.toDate?.();
+                      const end = booking.endTime?.toDate?.();
+                      const isFocused = selectedBookingId === booking.id;
+                      const isLocked = Boolean(booking.allocationFinal?.locked);
+                      const isOverride = Boolean(booking.allocationOverride?.enabled);
+                      const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                      const isConflict = dayConflictedBookingIds.has(booking.id);
+                      const hasAllocation =
+                        (booking.assignedTableIds?.length ?? 0) > 0 ||
+                        (booking.allocationFinal?.tableIds?.length ?? 0) > 0 ||
+                        (booking.allocated?.tableIds?.length ?? 0) > 0;
+                      return (
+                        <div
+                          key={booking.id}
+                          className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs transition ${
+                            isFocused
+                              ? 'border-emerald-500 bg-emerald-50'
+                              : 'border-gray-200 bg-white'
+                          }`}
                         >
-                          <span className="min-w-[80px] font-semibold text-[var(--color-text-main)]">
-                            {start && end
-                              ? `${start.toLocaleTimeString('hu-HU', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}–${end.toLocaleTimeString('hu-HU', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}`
-                              : '—'}
-                          </span>
-                          <span className="flex-1 text-[var(--color-text-main)]">
-                            {booking.name}
-                          </span>
-                          <span className="text-[var(--color-text-secondary)]">
-                            {booking.headcount} fő
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              booking.status === 'confirmed'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
+                          <button
+                            type="button"
+                            disabled={isNavLocked}
+                            onClick={() => handleBookingFocus(booking)}
+                            className="flex w-full items-center gap-2 text-left"
                           >
-                            {booking.status}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              hasAllocation
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
-                          </span>
-                        </button>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {isLocked && (
-                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              LOCKED
+                            <span className="min-w-[80px] font-semibold text-[var(--color-text-main)]">
+                              {start && end
+                                ? `${start.toLocaleTimeString('hu-HU', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}–${end.toLocaleTimeString('hu-HU', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}`
+                                : '—'}
                             </span>
-                          )}
-                          {isOverride && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                              OVERRIDE
+                            <span className="flex-1 text-[var(--color-text-main)]">
+                              {booking.name}
                             </span>
-                          )}
-                          {isNoFit && (
-                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                              NO_FIT
+                            <span className="text-[var(--color-text-secondary)]">
+                              {booking.headcount} fő
                             </span>
-                          )}
-                          {isConflict && (
-                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                              CONFLICT
-                            </span>
-                          )}
-                          <div className="ml-auto flex items-center gap-2">
-                            <button
-                              type="button"
-                              className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
-                              disabled
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                booking.status === 'confirmed'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}
                             >
-                              Auto
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 disabled:opacity-50"
-                              onClick={() => handleManualStart(booking.id)}
-                              disabled={manualMode.active}
+                              {booking.status}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                hasAllocation
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}
                             >
-                              Manual
-                            </button>
+                              {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
+                            </span>
+                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isLocked && (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                LOCKED
+                              </span>
+                            )}
+                            {isOverride && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                OVERRIDE
+                              </span>
+                            )}
+                            {isNoFit && (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                NO_FIT
+                              </span>
+                            )}
+                            {isConflict && (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                CONFLICT
+                              </span>
+                            )}
+                            <div className="ml-auto flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
+                                disabled
+                              >
+                                Auto
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 disabled:opacity-50"
+                                onClick={() => handleManualStart(booking.id)}
+                                disabled={manualMode.active}
+                              >
+                                Manual
+                              </button>
+                            </div>
                           </div>
                         </div>
+                      );
+                    })}
+                    {!sortedOverviewBookings.length && (
+                      <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
+                        Nincs foglalás erre a napra.
                       </div>
-                    );
-                  })}
-                  {!sortedOverviewBookings.length && (
-                    <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
-                      Nincs foglalás erre a napra.
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                      {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
                     </div>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="text-sm font-semibold text-[var(--color-text-main)]">
-                    {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setDetailsDate(overviewDate)}
+                        disabled={isNavLocked}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
+                      >
+                        Napi lista
+                      </button>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                        <input
+                          type="checkbox"
+                          checked={autoAllocateDryRun}
+                          onChange={event => setAutoAllocateDryRun(event.target.checked)}
+                        />
+                        Dry-run
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAutoAllocateDay}
+                        disabled={autoAllocateRunning || isNavLocked}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setDetailsDate(overviewDate)}
-                      disabled={isNavLocked}
-                      className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-[var(--color-text-main)]"
-                    >
-                      Napi lista
-                    </button>
-                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={autoAllocateDryRun}
-                        onChange={event => setAutoAllocateDryRun(event.target.checked)}
-                      />
-                      Dry-run
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleAutoAllocateDay}
-                      disabled={autoAllocateRunning || isNavLocked}
-                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                    >
-                      {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate nap'}
-                    </button>
-                  </div>
-                </div>
-                <div className="relative rounded-xl border border-gray-200 bg-white px-3 py-4">
-                  <div
-                    ref={timelineRef}
-                    className="relative overflow-x-auto"
-                    style={{ paddingLeft: timelinePadding, paddingRight: timelinePadding }}
-                    onScroll={event => {
-                      if (manualMode.active) return;
-                      if (timelineProgrammaticRef.current) return;
-                      const target = event.currentTarget;
-                      if (timelineRafRef.current !== null) {
-                        cancelAnimationFrame(timelineRafRef.current);
-                      }
-                      timelineRafRef.current = requestAnimationFrame(() => {
-                        const paddedScrollLeft = Math.max(0, target.scrollLeft - timelinePadding);
-                        const index = Math.max(
-                          0,
-                          Math.min(
-                            totalSteps - 1,
-                            Math.round(paddedScrollLeft / stepWidth)
-                          )
-                        );
-                        const nextMinutes = clampWindowStart(
-                          openingMinutes + index * stepMinutes,
-                          openingMinutes,
-                          maxWindowStart
-                        );
-                        if (nextMinutes !== windowStartMinutes) {
-                          setWindowStartMinutes(nextMinutes);
+                  <div className="relative rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
+                    <div
+                      ref={timelineRef}
+                      className="relative overflow-x-auto"
+                      style={{ paddingLeft: timelinePadding, paddingRight: timelinePadding }}
+                      onScroll={event => {
+                        if (manualMode.active) return;
+                        if (timelineProgrammaticRef.current) return;
+                        const target = event.currentTarget;
+                        if (timelineRafRef.current !== null) {
+                          cancelAnimationFrame(timelineRafRef.current);
                         }
-                      });
-                    }}
-                  >
-                    <div className="relative h-12" style={{ width: totalWidth }}>
-                      <div className="absolute inset-0 z-0">
-                        {timelineBucketMetrics.map((bucket, idx) => {
-                          if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
-                            return null;
+                        timelineRafRef.current = requestAnimationFrame(() => {
+                          const paddedScrollLeft = Math.max(0, target.scrollLeft - timelinePadding);
+                          const index = Math.max(
+                            0,
+                            Math.min(
+                              totalSteps - 1,
+                              Math.round(paddedScrollLeft / stepWidth)
+                            )
+                          );
+                          const nextMinutes = clampWindowStart(
+                            openingMinutes + index * stepMinutes,
+                            openingMinutes,
+                            maxWindowStart
+                          );
+                          if (nextMinutes !== windowStartMinutes) {
+                            setWindowStartMinutes(nextMinutes);
                           }
-                          const tintClass =
-                            bucket.conflictCount > 0
-                              ? 'bg-amber-200/70'
-                              : 'bg-emerald-100/70';
+                        });
+                      }}
+                    >
+                      <div className="relative h-10" style={{ width: totalWidth }}>
+                        <div className="absolute inset-0 z-0">
+                          {timelineBucketMetrics.map((bucket, idx) => {
+                            if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
+                              return null;
+                            }
+                            const tintClass =
+                              bucket.conflictCount > 0
+                                ? 'bg-amber-200/70'
+                                : 'bg-emerald-100/70';
+                            return (
+                              <div
+                                key={bucket.bucketStart}
+                                className={`absolute top-0 h-full ${tintClass}`}
+                                style={{ left: idx * stepWidth, width: stepWidth }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div
+                          className="absolute top-1.5 z-10 h-7 rounded-full border border-emerald-300 bg-emerald-50"
+                          style={{
+                            left:
+                              ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
+                            width: (120 / stepMinutes) * stepWidth,
+                          }}
+                        />
+                        {Array.from({ length: totalSteps }, (_, idx) => {
+                          const minutes = openingMinutes + idx * stepMinutes;
+                          const isHour = minutes % 60 === 0;
+                          const bucketData = timelineBucketMetrics[idx];
                           return (
-                            <div
-                              key={bucket.bucketStart}
-                              className={`absolute top-0 h-full ${tintClass}`}
-                              style={{ left: idx * stepWidth, width: stepWidth }}
-                            />
+                            <button
+                              key={minutes}
+                              type="button"
+                              disabled={manualMode.active}
+                              onClick={() =>
+                                setWindowStartMinutes(
+                                  clampWindowStart(minutes, openingMinutes, maxWindowStart)
+                                )
+                              }
+                              className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
+                              style={{ left: idx * stepWidth }}
+                            >
+                              {isHour && bucketData && (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
+                                <span className="absolute -top-0.5 flex items-center gap-1">
+                                  <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                    {bucketData.bookingCount}
+                                  </span>
+                                  {bucketData.conflictCount > 0 && (
+                                    <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                      !
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                              <span
+                                className={`block w-px ${
+                                  isHour ? 'h-4 bg-gray-400' : 'h-2 bg-gray-300'
+                                }`}
+                              />
+                              {isHour && (
+                                <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                                  {formatMinutes(minutes)}
+                                </span>
+                              )}
+                            </button>
                           );
                         })}
                       </div>
-                      <div
-                        className="absolute top-2 z-10 h-8 rounded-full border border-emerald-300 bg-emerald-50"
-                        style={{
-                          left:
-                            ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
-                          width: (120 / stepMinutes) * stepWidth,
-                        }}
-                      />
-                      {Array.from({ length: totalSteps }, (_, idx) => {
-                        const minutes = openingMinutes + idx * stepMinutes;
-                        const isHour = minutes % 60 === 0;
-                        const bucketData = timelineBucketMetrics[idx];
-                        return (
-                          <button
-                            key={minutes}
-                            type="button"
-                            disabled={manualMode.active}
-                            onClick={() =>
-                              setWindowStartMinutes(
-                                clampWindowStart(minutes, openingMinutes, maxWindowStart)
-                              )
-                            }
-                            className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
-                            style={{ left: idx * stepWidth }}
-                          >
-                            {isHour && bucketData && (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
-                              <span className="absolute top-0 flex items-center gap-1">
-                                <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                  {bucketData.bookingCount}
-                                </span>
-                                {bucketData.conflictCount > 0 && (
-                                  <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                    !
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                            <span
-                              className={`block w-px ${
-                                isHour ? 'h-5 bg-gray-400' : 'h-2 bg-gray-300'
-                              }`}
-                            />
-                            {isHour && (
-                              <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
-                                {formatMinutes(minutes)}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+            {manualMode.active && (
+              <div className="fixed inset-0 pointer-events-none bg-black/10 backdrop-blur-[1px] z-20" />
+            )}
             {autoAllocateError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {autoAllocateError}
