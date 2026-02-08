@@ -42,7 +42,6 @@ const HorizontalWheelPicker = <T,>({
   const initialCenteredRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const scrollEndDebounceMs = 140;
-  const lastRecenterAtRef = useRef(0);
   const programmaticTimeoutRef = useRef<number | null>(null);
 
   const safeRepeatCount = infinite ? Math.max(3, repeatCount) : 1;
@@ -120,68 +119,6 @@ const HorizontalWheelPicker = <T,>({
     });
   }, []);
 
-  const getAllItemNodes = useCallback((blockIndex?: number) => {
-    const container = containerRef.current;
-    if (!container) return [];
-    const selector =
-      blockIndex === undefined
-        ? '[data-wheel-item="true"]'
-        : `[data-wheel-item="true"][data-wheel-block="${blockIndex}"]`;
-    return Array.from(container.querySelectorAll<HTMLButtonElement>(selector));
-  }, []);
-
-  const getCenterX = useCallback((container: HTMLDivElement) => {
-    return container.scrollLeft + container.clientWidth / 2;
-  }, []);
-
-  const findClosestNodeToCenter = useCallback(
-    (nodes: HTMLButtonElement[], center: number) => {
-      let closest: HTMLButtonElement | null = null;
-      let minDistance = Number.POSITIVE_INFINITY;
-      nodes.forEach(node => {
-        const nodeCenter = node.offsetLeft + node.offsetWidth / 2;
-        const distance = Math.abs(nodeCenter - center);
-        if (distance < minDistance) {
-          minDistance = distance;
-          closest = node;
-        }
-      });
-      return closest;
-    },
-    []
-  );
-
-  const findClosestEnabledNode = useCallback(
-    (nodes: HTMLButtonElement[], startNode: HTMLButtonElement | null) => {
-      if (!startNode) return null;
-      const startIndex = nodes.indexOf(startNode);
-      if (startIndex < 0) return null;
-      const isDisabled = (node: HTMLButtonElement) =>
-        node.getAttribute('data-wheel-disabled') === 'true';
-      if (!isDisabled(startNode)) return startNode;
-      for (let offset = 1; offset < nodes.length; offset += 1) {
-        const leftIndex = startIndex - offset;
-        const rightIndex = startIndex + offset;
-        if (leftIndex >= 0 && !isDisabled(nodes[leftIndex])) {
-          return nodes[leftIndex];
-        }
-        if (rightIndex < nodes.length && !isDisabled(nodes[rightIndex])) {
-          return nodes[rightIndex];
-        }
-      }
-      return null;
-    },
-    []
-  );
-
-  const snapToNode = useCallback(
-    (node: HTMLButtonElement, behavior: ScrollBehavior) => {
-      setProgrammaticFor(220);
-      node.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
-    },
-    [setProgrammaticFor]
-  );
-
   const handleScroll = useCallback(() => {
     isUserScrollingRef.current = true;
     if (rafRef.current !== null) {
@@ -200,11 +137,9 @@ const HorizontalWheelPicker = <T,>({
       if (container.scrollLeft < threshold) {
         setProgrammaticFor(60);
         container.scrollLeft = container.scrollLeft + blockWidth;
-        lastRecenterAtRef.current = Date.now();
       } else if (container.scrollLeft > maxScroll - threshold) {
         setProgrammaticFor(60);
         container.scrollLeft = container.scrollLeft - blockWidth;
-        lastRecenterAtRef.current = Date.now();
       }
     });
 
@@ -213,37 +148,13 @@ const HorizontalWheelPicker = <T,>({
     }
     scrollEndTimeoutRef.current = window.setTimeout(() => {
       isUserScrollingRef.current = false;
-      const container = containerRef.current;
-      if (!container) return;
-      if (Date.now() - lastRecenterAtRef.current < scrollEndDebounceMs) {
-        return;
-      }
-      const nodes = getAllItemNodes(middleBlock);
-      const center = getCenterX(container);
-      const closest = findClosestNodeToCenter(nodes, center);
-      const enabledNode = findClosestEnabledNode(nodes, closest);
-      if (!enabledNode) return;
-      const key = enabledNode.getAttribute('data-wheel-key');
-      if (!key) return;
-      snapToNode(enabledNode, 'smooth');
-      if (key !== selectedKey) {
-        onSelect(key);
-      }
-      applyWheelEffect();
     }, scrollEndDebounceMs);
   }, [
     applyWheelEffect,
     computeBlockWidth,
-    findClosestEnabledNode,
-    findClosestNodeToCenter,
-    getAllItemNodes,
-    getCenterX,
     infinite,
-    onSelect,
     scrollEndDebounceMs,
-    selectedKey,
     setProgrammaticFor,
-    snapToNode,
   ]);
 
   useEffect(() => {
@@ -255,8 +166,9 @@ const HorizontalWheelPicker = <T,>({
   useEffect(() => {
     if (infinite && isUserScrollingRef.current) return;
     if (infinite && !initialCenteredRef.current) return;
+    setProgrammaticFor(200);
     centerSelected('smooth');
-  }, [centerSelected, infinite, selectedKey]);
+  }, [centerSelected, infinite, selectedKey, setProgrammaticFor]);
 
   useEffect(() => {
     if (initialCenteredRef.current) return;
@@ -321,11 +233,15 @@ const HorizontalWheelPicker = <T,>({
                   if (deltaBlocks !== 0) {
                     setProgrammaticFor(120);
                     container.scrollLeft -= deltaBlocks * blockWidth;
-                    lastRecenterAtRef.current = Date.now();
                   }
                   const target = getItemElement(itemKey, middleBlock);
                   if (target) {
-                    snapToNode(target, 'smooth');
+                    setProgrammaticFor(220);
+                    target.scrollIntoView({
+                      inline: 'center',
+                      block: 'nearest',
+                      behavior: 'smooth',
+                    });
                   }
                 }
               }
