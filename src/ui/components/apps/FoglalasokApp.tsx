@@ -1935,6 +1935,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const dayBlockWidthRef = useRef<number | null>(null);
   const dayScrollRafRef = useRef<number | null>(null);
   const dayProgrammaticRef = useRef(false);
+  const dayInitialCenteredRef = useRef(false);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2286,12 +2287,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   useEffect(() => {
     dayBlockWidthRef.current = null;
+    dayInitialCenteredRef.current = false;
     computeDayBlockWidth();
   }, [computeDayBlockWidth, daysInMonth, overviewDateKey]);
 
   useEffect(() => {
     centerSelectedDay('smooth');
   }, [centerSelectedDay, overviewDate]);
+
+  useEffect(() => {
+    if (dayInitialCenteredRef.current) return;
+    const blockWidth = dayBlockWidthRef.current ?? computeDayBlockWidth();
+    if (!blockWidth || !dayStripRef.current) return;
+    dayProgrammaticRef.current = true;
+    centerSelectedDay('auto');
+    dayProgrammaticRef.current = false;
+    dayInitialCenteredRef.current = true;
+  }, [centerSelectedDay, computeDayBlockWidth, overviewDateKey]);
 
   const windowStart = useMemo(() => {
     const date = new Date(overviewDate);
@@ -2897,12 +2909,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       dayProgrammaticRef.current = true;
                       container.scrollLeft = container.scrollLeft + blockWidth;
                       dayProgrammaticRef.current = false;
-                      centerSelectedDay('auto');
                     } else if (container.scrollLeft > maxScroll - threshold) {
                       dayProgrammaticRef.current = true;
                       container.scrollLeft = container.scrollLeft - blockWidth;
                       dayProgrammaticRef.current = false;
-                      centerSelectedDay('auto');
                     }
                   });
                 }}
