@@ -2871,85 +2871,91 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               : 'border-gray-200 bg-white'
                           }`}
                         >
-                          <button
-                            type="button"
-                            disabled={isNavLocked}
-                            onClick={() => handleBookingFocus(booking)}
-                            className="grid w-full items-center gap-2 text-left md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_1fr]"
-                          >
-                            <span className="font-semibold text-[var(--color-text-main)]">
-                              {booking.name}
-                            </span>
-                            <span className="text-[var(--color-text-secondary)]">
-                              {start && end
-                                ? `${start.toLocaleTimeString('hu-HU', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}–${end.toLocaleTimeString('hu-HU', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}`
-                                : '—'}
-                            </span>
-                            <span className="text-[var(--color-text-secondary)]">
-                              {booking.headcount} fő
-                            </span>
-                            <span
-                              className={`inline-flex justify-start rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                booking.status === 'confirmed'
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-amber-100 text-amber-700'
+                          <div className="flex flex-col gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4">
+                            <button
+                              type="button"
+                              disabled={isNavLocked}
+                              onClick={() => handleBookingFocus(booking)}
+                              className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-left md:items-center md:grid-cols-[1.4fr_0.9fr_0.6fr_0.8fr_0.8fr] rounded-md px-2 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
+                                manualMode.active ? '' : 'hover:bg-gray-50'
                               }`}
                             >
-                              {booking.status}
-                            </span>
-                            <span
-                              className={`inline-flex justify-start rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                hasAllocation
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}
-                            >
-                              {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
-                            </span>
-                          </button>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {isLocked && (
-                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                LOCKED
+                              <span className="text-sm font-semibold text-[var(--color-text-main)]">
+                                {booking.name}
                               </span>
-                            )}
-                            {isOverride && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                                OVERRIDE
+                              <span className="text-[var(--color-text-secondary)]">
+                                {start && end
+                                  ? `${start.toLocaleTimeString('hu-HU', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}–${end.toLocaleTimeString('hu-HU', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  : '—'}
                               </span>
-                            )}
-                            {isNoFit && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                                NO_FIT
-                              </span>
-                            )}
-                            {isConflict && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                                CONFLICT
-                              </span>
-                            )}
-                            <div className="ml-auto flex items-center gap-2">
-                              <button
-                                type="button"
-                                className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
-                                disabled
-                              >
-                                Auto
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 disabled:opacity-50"
-                                onClick={() => handleManualStart(booking.id)}
-                                disabled={manualMode.active}
-                              >
-                                Manual
-                              </button>
+                              <div className="col-span-2 flex flex-wrap items-center gap-2 md:col-span-1 md:contents">
+                                <span className="text-[var(--color-text-secondary)]">
+                                  {booking.headcount} fő
+                                </span>
+                                <span
+                                  className={`inline-flex min-w-[72px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    booking.status === 'confirmed'
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-amber-100 text-amber-700'
+                                  }`}
+                                >
+                                  {booking.status}
+                                </span>
+                                <span
+                                  className={`inline-flex min-w-[80px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    hasAllocation
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-600'
+                                  }`}
+                                >
+                                  {hasAllocation ? 'ALLOCATED' : 'NO_ALLOC'}
+                                </span>
+                              </div>
+                            </button>
+                            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                              {isLocked && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                  LOCKED
+                                </span>
+                              )}
+                              {isOverride && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                  OVERRIDE
+                                </span>
+                              )}
+                              {isNoFit && (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                  NO_FIT
+                                </span>
+                              )}
+                              {isConflict && (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                  CONFLICT
+                                </span>
+                              )}
+                              <div className="flex items-center gap-2 md:ml-auto">
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]"
+                                  disabled
+                                >
+                                  Auto
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 disabled:opacity-50"
+                                  onClick={() => handleManualStart(booking.id)}
+                                  disabled={manualMode.active}
+                                >
+                                  Manual
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
