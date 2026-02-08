@@ -40,6 +40,8 @@ const HorizontalWheelPicker = <T,>({
   const rafRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
   const initialCenteredRef = useRef(false);
+  const isUserScrollingRef = useRef(false);
+  const scrollEndDebounceMs = 140;
 
   const safeRepeatCount = infinite ? Math.max(3, repeatCount) : 1;
   const middleBlock = Math.floor(safeRepeatCount / 2);
@@ -106,7 +108,66 @@ const HorizontalWheelPicker = <T,>({
     });
   }, []);
 
+  const getAllItemNodes = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return [];
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-wheel-item="true"]')
+    );
+  }, []);
+
+  const getCenterX = useCallback((container: HTMLDivElement) => {
+    return container.scrollLeft + container.clientWidth / 2;
+  }, []);
+
+  const findClosestNodeToCenter = useCallback(
+    (nodes: HTMLButtonElement[], center: number) => {
+      let closest: HTMLButtonElement | null = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      nodes.forEach(node => {
+        const nodeCenter = node.offsetLeft + node.offsetWidth / 2;
+        const distance = Math.abs(nodeCenter - center);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = node;
+        }
+      });
+      return closest;
+    },
+    []
+  );
+
+  const findClosestEnabledNode = useCallback(
+    (nodes: HTMLButtonElement[], startNode: HTMLButtonElement | null) => {
+      if (!startNode) return null;
+      const startIndex = nodes.indexOf(startNode);
+      if (startIndex < 0) return null;
+      const isDisabled = (node: HTMLButtonElement) =>
+        node.getAttribute('data-wheel-disabled') === 'true';
+      if (!isDisabled(startNode)) return startNode;
+      for (let offset = 1; offset < nodes.length; offset += 1) {
+        const leftIndex = startIndex - offset;
+        const rightIndex = startIndex + offset;
+        if (leftIndex >= 0 && !isDisabled(nodes[leftIndex])) {
+          return nodes[leftIndex];
+        }
+        if (rightIndex < nodes.length && !isDisabled(nodes[rightIndex])) {
+          return nodes[rightIndex];
+        }
+      }
+      return null;
+    },
+    []
+  );
+
+  const snapToNode = useCallback((node: HTMLButtonElement, behavior: ScrollBehavior) => {
+    programmaticRef.current = true;
+    node.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
+    programmaticRef.current = false;
+  }, []);
+
   const handleScroll = useCallback(() => {
+    isUserScrollingRef.current = true;
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
     }
@@ -135,29 +196,36 @@ const HorizontalWheelPicker = <T,>({
       window.clearTimeout(scrollEndTimeoutRef.current);
     }
     scrollEndTimeoutRef.current = window.setTimeout(() => {
+      isUserScrollingRef.current = false;
       const container = containerRef.current;
       if (!container) return;
-      const center = container.scrollLeft + container.clientWidth / 2;
-      const nodes = Array.from(
-        container.querySelectorAll<HTMLButtonElement>('[data-wheel-item="true"]')
-      );
-      let closest: HTMLButtonElement | null = null;
-      let minDistance = Number.POSITIVE_INFINITY;
-      nodes.forEach(node => {
-        const nodeCenter = node.offsetLeft + node.offsetWidth / 2;
-        const distance = Math.abs(nodeCenter - center);
-        if (distance < minDistance) {
-          minDistance = distance;
-          closest = node;
-        }
-      });
-      if (!closest) return;
-      const key = closest.getAttribute('data-wheel-key');
-      const disabled = closest.getAttribute('data-wheel-disabled') === 'true';
-      if (!key || disabled || key === selectedKey) return;
-      onSelect(key);
-    }, 100);
-  }, [applyWheelEffect, computeBlockWidth, infinite, onSelect, selectedKey]);
+      const nodes = getAllItemNodes();
+      const center = getCenterX(container);
+      const closest = findClosestNodeToCenter(nodes, center);
+      const enabledNode = findClosestEnabledNode(nodes, closest);
+      if (!enabledNode) return;
+      const key = enabledNode.getAttribute('data-wheel-key');
+      if (!key) return;
+      if (key !== selectedKey) {
+        onSelect(key);
+      } else {
+        snapToNode(enabledNode, 'smooth');
+      }
+      applyWheelEffect();
+    }, scrollEndDebounceMs);
+  }, [
+    applyWheelEffect,
+    computeBlockWidth,
+    findClosestEnabledNode,
+    findClosestNodeToCenter,
+    getAllItemNodes,
+    getCenterX,
+    infinite,
+    onSelect,
+    scrollEndDebounceMs,
+    selectedKey,
+    snapToNode,
+  ]);
 
   useEffect(() => {
     blockWidthRef.current = null;
@@ -166,6 +234,7 @@ const HorizontalWheelPicker = <T,>({
   }, [computeBlockWidth, items, selectedKey]);
 
   useEffect(() => {
+    if (isUserScrollingRef.current) return;
     centerSelected('smooth');
   }, [centerSelected, selectedKey]);
 
