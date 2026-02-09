@@ -39,6 +39,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [dragValue, setDragValue] = useState(valueStartMinutes);
   const [trackWidth, setTrackWidth] = useState(0);
 
   useLayoutEffect(() => {
@@ -56,7 +57,8 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   const totalDuration = (maxWindowStartMinutes - openingMinutes) + WINDOW_DURATION;
   const pxPerMin = trackWidth > 0 && totalDuration > 0 ? trackWidth / totalDuration : 0;
   const frameWidthPx = WINDOW_DURATION * pxPerMin;
-  const idealLeftPx = (valueStartMinutes - openingMinutes) * pxPerMin;
+  const displayValue = isDragging ? dragValue : valueStartMinutes;
+  const idealLeftPx = (displayValue - openingMinutes) * pxPerMin;
   const maxLeft = Math.max(0, trackWidth - frameWidthPx);
   const clampedLeftPx = clampValue(idealLeftPx, 0, maxLeft);
   const contentOffsetPx = idealLeftPx - clampedLeftPx;
@@ -124,23 +126,22 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
       pointerIdRef.current = event.pointerId;
       event.currentTarget.setPointerCapture(event.pointerId);
       setIsDragging(true);
-      const nextMinutes = handlePointerToMinutes(event.clientX);
-      if (nextMinutes !== valueStartMinutes) {
-        onChangeStartMinutes(nextMinutes);
-      }
+      setDragValue(valueStartMinutes);
     },
-    [handlePointerToMinutes, onChangeStartMinutes, valueStartMinutes]
+    [valueStartMinutes]
   );
 
   const handleDragPointerMove = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       if (!isDragging || pointerIdRef.current !== event.pointerId) return;
-      const nextMinutes = handlePointerToMinutes(event.clientX);
-      if (nextMinutes !== valueStartMinutes) {
-        onChangeStartMinutes(nextMinutes);
-      }
+      if (!trackRef.current || pxPerMin <= 0) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const offsetX = event.clientX - rect.left;
+      const rawMinutes = openingMinutes + offsetX / pxPerMin;
+      const clamped = clampValue(rawMinutes, openingMinutes, maxWindowStartMinutes);
+      setDragValue(clamped);
     },
-    [handlePointerToMinutes, isDragging, onChangeStartMinutes, valueStartMinutes]
+    [isDragging, maxWindowStartMinutes, openingMinutes, pxPerMin]
   );
 
   const stopDragging = useCallback(() => {
@@ -151,9 +152,22 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   const handleDragPointerUp = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       if (pointerIdRef.current !== event.pointerId) return;
+      const snapped = Math.round(dragValue / stepMinutes) * stepMinutes;
+      const nextMinutes = clampValue(snapped, openingMinutes, maxWindowStartMinutes);
+      if (nextMinutes !== valueStartMinutes) {
+        onChangeStartMinutes(nextMinutes);
+      }
       stopDragging();
     },
-    [stopDragging]
+    [
+      dragValue,
+      maxWindowStartMinutes,
+      onChangeStartMinutes,
+      openingMinutes,
+      stepMinutes,
+      stopDragging,
+      valueStartMinutes,
+    ]
   );
 
   const handleDragPointerCancel = useCallback(
@@ -171,39 +185,32 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
     return { minutes, left, isHour: minutes % 60 === 0 };
   });
 
-  const renderTicks = (tone: 'base' | 'loupe', topOffset: string) => {
-    const tickClass = tone === 'loupe' ? 'bg-slate-500/70' : 'bg-slate-200/50';
+  const renderContent = (tone: 'base' | 'loupe') => {
+    const tickClass = tone === 'loupe' ? 'border-slate-500/70' : 'border-slate-300/40';
     const labelClass = tone === 'loupe' ? 'text-slate-900' : 'text-slate-300/70';
     return (
-      <div className={`absolute left-0 right-0 h-[18px] ${topOffset}`}>
+      <div className="relative w-full h-full">
         {ticks.map(tick => (
           <div
-            key={`tick-${tone}-${tick.minutes}`}
-            className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
-            style={{ left: tick.left }}
+            key={`grid-${tone}-${tick.minutes}`}
+            className={`absolute bottom-0 -translate-x-1/2 border-l ${tickClass}`}
+            style={{
+              left: tick.left,
+              height: tick.isHour ? '100%' : '30%',
+            }}
           >
-            <span
-              className={`block w-px ${tickClass}`}
-              style={{ height: tick.isHour ? 14 : 8 }}
-            />
-            {tick.isHour && (
-              <span className={`mt-1 text-[9px] font-semibold leading-none ${labelClass}`}>
+            {tick.isHour && tone === 'loupe' && (
+              <span className={`absolute top-5 left-1 text-[10px] font-semibold ${labelClass}`}>
+                {minutesToTime(tick.minutes)}
+              </span>
+            )}
+            {tick.isHour && tone === 'base' && (
+              <span className={`absolute bottom-1 left-1 text-[9px] ${labelClass}`}>
                 {minutesToTime(tick.minutes)}
               </span>
             )}
           </div>
         ))}
-      </div>
-    );
-  };
-
-  return (
-    <div
-      ref={trackRef}
-      className="relative h-[64px] w-full min-w-0 select-none touch-none overflow-hidden"
-      onPointerDown={handleTrackPointerDown}
-    >
-      <div className="absolute left-0 right-0 top-[36px] h-[4px] relative overflow-hidden rounded-full bg-slate-100">
         {slotMetrics.map((slot, index) => {
           const left = index * stepMinutes * pxPerMin;
           const width = stepMinutes * pxPerMin;
@@ -217,17 +224,26 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           }
           return (
             <div
-              key={slot.slotStart}
-              className={`absolute top-0 h-full ${tintClass}`}
+              key={`slot-${tone}-${slot.slotStart}`}
+              className={`absolute top-1/2 -translate-y-1/2 h-3 rounded-sm ${tintClass}`}
               style={{ left, width }}
             />
           );
         })}
       </div>
-      {renderTicks('base', 'top-[36px]')}
+    );
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      className="relative w-full h-16 min-w-0 select-none touch-none overflow-hidden rounded-lg bg-slate-100"
+      onPointerDown={handleTrackPointerDown}
+    >
+      <div className="absolute inset-0 opacity-40">{renderContent('base')}</div>
 
       <div
-        className="absolute top-[8px] h-[48px] border-2 border-slate-800 bg-white shadow-lg overflow-hidden cursor-grab active:cursor-grabbing rounded-lg z-10"
+        className="absolute top-0 bottom-0 rounded-lg border-2 bg-white shadow-xl overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ left: clampedLeftPx, width: frameWidthPx }}
       >
         <button
@@ -241,36 +257,15 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           onPointerUp={handleDragPointerUp}
           onPointerCancel={handleDragPointerCancel}
           onLostPointerCapture={handleDragPointerCancel}
-          className="absolute top-0 inset-x-0 h-4 bg-slate-50 border-b border-slate-200 flex justify-center items-center z-20 touch-none"
+          className="absolute top-0 inset-x-0 h-4 bg-slate-100 border-b border-slate-200 flex justify-center items-center z-20 touch-none"
         >
           <span className="w-8 h-1 bg-slate-300 rounded-full" />
         </button>
         <div
-          className="absolute inset-0"
+          className="absolute top-0 bottom-0 left-0"
           style={{ width: trackWidth, transform: `translateX(${innerTranslateX}px)` }}
         >
-          <div className="absolute left-0 right-0 top-[28px] h-[4px] relative overflow-hidden rounded-full bg-slate-100">
-            {slotMetrics.map((slot, index) => {
-              const left = index * stepMinutes * pxPerMin;
-              const width = stepMinutes * pxPerMin;
-              let tintClass = 'bg-emerald-200/60';
-              if (slot.occupancyPct === 1) {
-                tintClass = 'bg-red-500';
-              } else if (slot.occupancyPct > 0.75) {
-                tintClass = 'bg-orange-400';
-              } else if (slot.occupancyPct > 0.6) {
-                tintClass = 'bg-yellow-400';
-              }
-              return (
-                <div
-                  key={`loupe-slot-${slot.slotStart}`}
-                  className={`absolute top-0 h-full ${tintClass}`}
-                  style={{ left, width }}
-                />
-              );
-            })}
-          </div>
-          {renderTicks('loupe', 'top-[28px]')}
+          {renderContent('loupe')}
         </div>
         <div className="absolute left-2 top-6">
           <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
