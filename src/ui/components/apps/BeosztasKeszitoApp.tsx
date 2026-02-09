@@ -2060,7 +2060,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return onSnapshot(
         queryRef,
         snapshot => {
-          console.log('[staff]', key, 'docs=', snapshot.size);
+          console.log('[staff]', {
+            source: key,
+            activeUnitIds,
+            count: snapshot.size
+          });
           map.clear();
           snapshot.docs.forEach(docSnap => {
             map.set(docSnap.id, toUser(docSnap));

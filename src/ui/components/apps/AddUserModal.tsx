@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Unit, Position, User } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { initializeApp, getApp, getApps, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import EyeIcon from '../../../../components/icons/EyeIcon';
@@ -113,7 +113,15 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ units, positions, onClose }
             unitIds: formData.unitIds,
             position: formData.position,
         };
-        await setDoc(doc(db, 'users', newUser.uid), userData);
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', newUser.uid), userData);
+        formData.unitIds.forEach(unitId => {
+            batch.set(doc(db, 'unit_staff', unitId, 'users', newUser.uid), {
+                ...userData,
+                unitId,
+            });
+        });
+        await batch.commit();
 
         // Clean up: sign out from secondary app and delete it
         await signOut(secondaryAuth);
