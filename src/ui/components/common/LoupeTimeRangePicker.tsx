@@ -193,7 +193,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
     return (
       <div className="relative w-full h-full">
         <div
-          className={`absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 ${railClass}`}
+          className={`absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 shadow-[0_0_0_1px_rgba(0,0,0,0.03)] ${railClass}`}
         />
         <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 overflow-hidden rounded-full">
           {slotMetrics.map((slot, index) => {
@@ -272,13 +272,15 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   return (
     <div
       ref={trackRef}
-      className="relative w-full h-14 min-w-0 select-none touch-none overflow-hidden rounded-lg bg-white"
+      className="relative w-full h-12 min-w-0 select-none touch-none overflow-visible bg-transparent"
       onPointerDown={handleTrackPointerDown}
     >
-      <div className="absolute inset-0 opacity-40">{renderContent('base')}</div>
+      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-8 opacity-40 overflow-visible">
+        {renderContent('base')}
+      </div>
 
       <div
-        className="absolute top-1 bottom-1 rounded-lg border-2 border-slate-900 bg-white shadow-xl overflow-hidden cursor-grab active:cursor-grabbing"
+        className="absolute top-1/2 -translate-y-1/2 h-11 rounded-lg border-2 border-slate-900 bg-white shadow-xl overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ left: clampedLeftPx, width: frameWidthPx }}
       >
         <button
