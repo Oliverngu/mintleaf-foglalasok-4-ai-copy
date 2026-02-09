@@ -18,7 +18,7 @@ type LoupeTimeRangePickerProps = {
 };
 
 const WINDOW_DURATION = 120;
-const RAIL_HEIGHT_PX = 8;
+const RAIL_HEIGHT_PX = 16;
 
 const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const minutesToTime = (minutes: number) => {

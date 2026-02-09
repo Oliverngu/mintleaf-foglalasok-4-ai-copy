@@ -2923,7 +2923,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         </div>
                       </div>
                       <div
-                        className={`relative w-full min-w-0 py-1 ${
+                        className={`relative w-full min-w-0 py-1 lg:px-4 ${
                           manualMode.active ? 'pointer-events-none opacity-70' : ''
                         }`}
                       >
