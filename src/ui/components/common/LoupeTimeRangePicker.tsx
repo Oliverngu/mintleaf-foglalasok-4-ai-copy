@@ -188,10 +188,14 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
 
   const renderContent = (tone: 'base' | 'loupe') => {
     const tickClass = tone === 'loupe' ? 'border-slate-600/80' : 'border-slate-300/60';
+    const railClass =
+      tone === 'loupe'
+        ? 'bg-slate-300/90 shadow-[0_1px_0_rgba(0,0,0,0.06)]'
+        : 'bg-slate-300/60 shadow-[0_1px_0_rgba(0,0,0,0.06)]';
     return (
       <div className="relative w-full h-full">
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[2px] bg-slate-300" />
-        <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 overflow-hidden rounded-full">
+        <div className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[4px] rounded-full ${railClass}`} />
+        <div className="absolute left-0 right-0 top-1/2 h-[4px] -translate-y-1/2 overflow-hidden rounded-full">
           {slotMetrics.map((slot, index) => {
             const left = index * stepMinutes * pxPerMin;
             const width = stepMinutes * pxPerMin;
@@ -199,7 +203,9 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
               return (
                 <div
                   key={index}
-                  className="absolute top-0 h-full bg-slate-400/70"
+                  className={`absolute top-0 h-full ${
+                    tone === 'loupe' ? 'bg-emerald-400/80' : 'bg-emerald-400/35'
+                  }`}
                   style={{ left, width }}
                 />
               );
@@ -208,7 +214,9 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
               return (
                 <div
                   key={index}
-                  className="absolute top-0 h-full bg-red-500"
+                  className={`absolute top-0 h-full ${
+                    tone === 'loupe' ? 'bg-red-500' : 'bg-red-500/45'
+                  }`}
                   style={{ left, width }}
                 />
               );
@@ -217,7 +225,9 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
               return (
                 <div
                   key={index}
-                  className="absolute top-0 h-full bg-orange-400"
+                  className={`absolute top-0 h-full ${
+                    tone === 'loupe' ? 'bg-orange-400/90' : 'bg-orange-400/40'
+                  }`}
                   style={{ left, width }}
                 />
               );
@@ -226,7 +236,9 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
               return (
                 <div
                   key={index}
-                  className="absolute top-0 h-full bg-yellow-400"
+                  className={`absolute top-0 h-full ${
+                    tone === 'loupe' ? 'bg-yellow-400/90' : 'bg-yellow-400/40'
+                  }`}
                   style={{ left, width }}
                 />
               );
