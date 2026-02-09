@@ -2434,6 +2434,18 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     setSelectedBookingId(null);
   }, [overviewDateKey]);
 
+  useEffect(() => {
+    const element = leftColumnActionsRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   if (!activeUnitId) {
     return (
       <div className="flex items-center justify-center h-full p-8 text-center">
@@ -2599,18 +2611,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       alert('Nem sikerült menteni a manuális ültetést.');
     }
   };
-
-  useEffect(() => {
-    const element = leftColumnActionsRef.current;
-    if (!element) return;
-    const updateHeight = () => {
-      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
 
   return (
     <div className="p-4 md:p-8">

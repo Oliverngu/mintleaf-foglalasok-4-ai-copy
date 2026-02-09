@@ -57,6 +57,14 @@ type ReservationFloorplanPreviewInnerProps = {
   zones: Zone[];
 };
 
+type ReservationFloorplanPreviewGuardProps = {
+  floorplanError: string | null;
+  floorplanLoading: boolean;
+  hasCapacitySettings: boolean;
+  floorplan: Floorplan | null;
+  innerProps: ReservationFloorplanPreviewInnerProps;
+};
+
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -283,6 +291,40 @@ const ReservationFloorplanPreviewInner: React.FC<ReservationFloorplanPreviewInne
       </div>
     </div>
   );
+};
+
+const ReservationFloorplanPreviewGuard: React.FC<ReservationFloorplanPreviewGuardProps> = ({
+  floorplanError,
+  floorplanLoading,
+  hasCapacitySettings,
+  floorplan,
+  innerProps,
+}) => {
+  if (floorplanLoading) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Betöltés...
+      </div>
+    );
+  }
+
+  if (floorplanError) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {floorplanError}
+      </div>
+    );
+  }
+
+  if (!floorplan || !hasCapacitySettings) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
+      </div>
+    );
+  }
+
+  return <ReservationFloorplanPreviewInner {...innerProps} />;
 };
 
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
@@ -700,30 +742,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
 
-  if (floorplanLoading) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Betöltés...
-      </div>
-    );
-  }
-
-  if (floorplanError) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        {floorplanError}
-      </div>
-    );
-  }
-
-  if (!floorplan || !hasCapacitySettings) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
-      </div>
-    );
-  }
-
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
       case 'occupied':
@@ -739,33 +757,39 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
 
   return (
-    <ReservationFloorplanPreviewInner
-      activeZoneId={activeZoneId}
-      capacityLimit={capacityLimit}
-      capacityMode={capacityMode}
-      capacityUsed={capacityUsed}
-      conflictTableIds={conflictTableIds}
-      debugEnabled={debugEnabled}
-      debugRawGeometry={debugRawGeometry}
+    <ReservationFloorplanPreviewGuard
+      floorplanError={floorplanError}
+      floorplanLoading={floorplanLoading}
+      hasCapacitySettings={hasCapacitySettings}
       floorplan={floorplan}
-      floorplanDims={floorplanDims}
-      hasSelectedBooking={hasSelectedBooking}
-      normalizedDetected={normalizedDetected}
-      onOpenFloorplanEditor={onOpenFloorplanEditor}
-      onViewportTopOffsetPx={onViewportTopOffsetPx}
-      recommendedTableIds={recommendedTableIds}
-      renderStatusColor={renderStatusColor}
-      selectedAssignedTableIds={selectedAssignedTableIds}
-      selectedBookingHasConflict={selectedBookingHasConflict}
-      selectedBookingHasNoFit={selectedBookingHasNoFit}
-      selectedBookingReason={selectedBookingReason}
-      selectedDate={selectedDate}
-      setActiveZoneId={setActiveZoneId}
-      showFloorplanEditorButton={showFloorplanEditorButton}
-      tableStatusById={tableStatusById}
-      upcomingWarningLabel={upcomingWarningLabel}
-      visibleTables={visibleTables}
-      zones={zones}
+      innerProps={{
+        activeZoneId,
+        capacityLimit,
+        capacityMode,
+        capacityUsed,
+        conflictTableIds,
+        debugEnabled,
+        debugRawGeometry,
+        floorplan,
+        floorplanDims,
+        hasSelectedBooking,
+        normalizedDetected,
+        onOpenFloorplanEditor,
+        onViewportTopOffsetPx,
+        recommendedTableIds,
+        renderStatusColor,
+        selectedAssignedTableIds,
+        selectedBookingHasConflict,
+        selectedBookingHasNoFit,
+        selectedBookingReason,
+        selectedDate,
+        setActiveZoneId,
+        showFloorplanEditorButton,
+        tableStatusById,
+        upcomingWarningLabel,
+        visibleTables,
+        zones,
+      }}
     />
   );
 };
