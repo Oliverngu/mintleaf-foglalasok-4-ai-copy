@@ -2743,7 +2743,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </button>
                     </div>
                   </div>
-                  <div className="mt-2 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="mt-2 grid min-w-0 auto-rows-min grid-cols-2 justify-items-start gap-2 sm:grid-cols-3">
                     {sortedTodayBookings.map(booking => {
                       const start = booking.startTime?.toDate?.();
                       const end = booking.endTime?.toDate?.();
@@ -2767,20 +2767,20 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           type="button"
                           disabled={isRowLocked}
                           onClick={() => handleBookingFocus(booking)}
-                          className={`flex aspect-square flex-col justify-between rounded-xl border p-2 text-left text-xs transition ${
+                          className={`flex h-16 w-16 flex-col justify-between rounded-xl border p-1.5 text-left text-[11px] transition ${
                             isFocused
                               ? 'border-emerald-500 bg-emerald-50'
                               : 'border-gray-200 bg-white'
                           } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
                         >
                           <div className="space-y-1">
-                            <div className="truncate text-sm font-semibold text-[var(--color-text-main)]">
+                            <div className="truncate text-xs font-semibold text-[var(--color-text-main)]">
                               {booking.name}
                             </div>
-                            <div className="text-[11px] text-[var(--color-text-secondary)]">
+                            <div className="text-[10px] text-[var(--color-text-secondary)]">
                               {timeLabel}
                             </div>
-                            <div className="text-[11px] text-[var(--color-text-secondary)]">
+                            <div className="text-[10px] text-[var(--color-text-secondary)]">
                               {booking.headcount} fő
                             </div>
                           </div>
@@ -2806,7 +2806,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     )}
                   </div>
                 </div>
-                <div className="min-w-0 space-y-3">
+                <div className="min-w-0 space-y-3 lg:hidden">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="text-sm font-semibold text-[var(--color-text-main)]">
                       {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
@@ -2915,7 +2915,32 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </div>
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 space-y-3">
+                    <div className="hidden min-w-0 space-y-3 lg:block">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                          {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                        </div>
+                      </div>
+                      <div
+                        className={`relative w-full max-w-full py-1 ${
+                          manualMode.active ? 'pointer-events-none opacity-70' : ''
+                        }`}
+                      >
+                        <LoupeTimeRangePicker
+                          openingMinutes={openingMinutes}
+                          maxWindowStartMinutes={maxWindowStart}
+                          stepMinutes={stepMinutes}
+                          valueStartMinutes={windowStartMinutes}
+                          onChangeStartMinutes={nextMinutes => {
+                            if (manualMode.active) return;
+                            setWindowStartMinutes(nextMinutes);
+                          }}
+                          capacity={loupeCapacity}
+                          bookings={loupeBookings}
+                        />
+                      </div>
+                    </div>
                     {manualMode.active && manualBooking ? (
                       <div className="space-y-3">
                         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
