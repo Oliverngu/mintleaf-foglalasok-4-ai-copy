@@ -2927,7 +2927,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     </div>
                   </div>
                   <div
-                    className={`relative w-full max-w-full overflow-hidden rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm ${
+                    className={`relative w-full max-w-full ${
                       manualMode.active ? 'pointer-events-none opacity-70' : ''
                     }`}
                   >
