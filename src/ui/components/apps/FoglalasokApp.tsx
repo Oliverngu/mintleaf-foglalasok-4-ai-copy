@@ -1929,6 +1929,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     bookingId: null,
     stagedTableIds: [],
   });
+  const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
+  const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -2597,9 +2599,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       alert('Nem sikerült menteni a manuális ültetést.');
     }
   };
-
-  const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
-  const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
 
   useEffect(() => {
     const element = leftColumnActionsRef.current;
