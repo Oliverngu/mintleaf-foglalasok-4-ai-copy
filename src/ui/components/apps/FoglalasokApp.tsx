@@ -41,6 +41,7 @@ import {
 import FloorplanViewer from './seating/FloorplanViewer';
 import ReservationFloorplanPreview from './reservations/ReservationFloorplanPreview';
 import HorizontalWheelPicker from '../common/HorizontalWheelPicker';
+import LoupeTimeRangePicker from '../common/LoupeTimeRangePicker';
 import {
   clearOverride,
   getOverride,
@@ -1927,10 +1928,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     stagedTableIds: [],
   });
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const timelineRafRef = useRef<number | null>(null);
-  const timelineProgrammaticRef = useRef(false);
-  const timelineProgrammaticTimeoutRef = useRef<number | null>(null);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -2239,10 +2236,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const closingMinutes = parseTimeToMinutes(bookingWindow.to) ?? 24 * 60;
   const maxWindowStart = Math.max(openingMinutes, closingMinutes - 120);
   const stepMinutes = 15;
-  const stepWidth = 12;
-  const timelinePadding = 24;
-  const totalSteps = Math.floor((maxWindowStart - openingMinutes) / stepMinutes) + 1;
-  const totalWidth = totalSteps * stepWidth;
 
   useEffect(() => {
     setWindowStartMinutes(openingMinutes);
@@ -2385,10 +2378,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return conflicted;
   }, [overviewBookings]);
 
-  const timelineBucketMetrics = useMemo(() => {
+  const loupeBookings = useMemo(() => {
     const dayStart = new Date(overviewDate);
     dayStart.setHours(0, 0, 0, 0);
-    const bookingSpans = overviewBookings
+    return overviewBookings
       .map(booking => {
         const start = booking.startTime?.toDate?.() ?? null;
         const end = booking.endTime?.toDate?.() ?? null;
@@ -2396,68 +2389,28 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
         const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
         if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
-        const tableIds = new Set<string>([
-          ...(booking.assignedTableIds ?? []),
-          ...(booking.allocationFinal?.tableIds ?? []),
-          ...(booking.allocated?.tableIds ?? []),
-        ]);
-        return { startMinutes, endMinutes, tableIds };
+        return {
+          id: booking.id,
+          startMinutes,
+          endMinutes,
+          partySize: booking.headcount ?? 1,
+        };
       })
       .filter(Boolean) as Array<{
+      id: string;
       startMinutes: number;
       endMinutes: number;
-      tableIds: Set<string>;
+      partySize: number;
     }>;
+  }, [overviewBookings, overviewDate]);
 
-    const tableMap = new Map<string, Array<{ start: number; end: number }>>();
-    bookingSpans.forEach(span => {
-      span.tableIds.forEach(tableId => {
-        const entries = tableMap.get(tableId) ?? [];
-        entries.push({ start: span.startMinutes, end: span.endMinutes });
-        tableMap.set(tableId, entries);
-      });
-    });
-
-    const conflictRangesByTable = new Map<string, Array<{ start: number; end: number }>>();
-    tableMap.forEach((entries, tableId) => {
-      if (entries.length < 2) return;
-      const sorted = [...entries].sort((a, b) => a.start - b.start);
-      let latestEnd = sorted[0].end;
-      const ranges: Array<{ start: number; end: number }> = [];
-      for (let i = 1; i < sorted.length; i += 1) {
-        const entry = sorted[i];
-        if (entry.start < latestEnd) {
-          ranges.push({
-            start: entry.start,
-            end: Math.min(entry.end, latestEnd),
-          });
-        }
-        latestEnd = Math.max(latestEnd, entry.end);
-      }
-      if (ranges.length > 0) {
-        conflictRangesByTable.set(tableId, ranges);
-      }
-    });
-
-    return Array.from({ length: totalSteps }, (_, idx) => {
-      const bucketStart = openingMinutes + idx * stepMinutes;
-      const bucketEnd = bucketStart + stepMinutes;
-      const bookingCount = bookingSpans.reduce((count, span) => {
-        if (span.startMinutes < bucketEnd && span.endMinutes > bucketStart) {
-          return count + 1;
-        }
-        return count;
-      }, 0);
-      let conflictCount = 0;
-      conflictRangesByTable.forEach(ranges => {
-        const hasConflict = ranges.some(range => range.start < bucketEnd && range.end > bucketStart);
-        if (hasConflict) {
-          conflictCount += 1;
-        }
-      });
-      return { bucketStart, bookingCount, conflictCount };
-    });
-  }, [openingMinutes, overviewBookings, overviewDate, stepMinutes, totalSteps]);
+  const loupeCapacity = useMemo(() => {
+    const derived = tables.reduce((sum, table) => {
+      const maxCapacity = table.capacityMax ?? table.minCapacity ?? 0;
+      return sum + maxCapacity;
+    }, 0);
+    return derived > 0 ? derived : 1;
+  }, [tables]);
 
   const manualBooking = useMemo(() => {
     if (!manualMode.bookingId) return null;
@@ -2522,37 +2475,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       item.diagnostics?.noFit
     ).slice(0, 10);
   }, [autoAllocateSummary]);
-
-  useEffect(() => {
-    const container = timelineRef.current;
-    if (!container) return;
-    const clampedStart = clampWindowStart(windowStartMinutes, openingMinutes, maxWindowStart);
-    const startIndex = Math.round((clampedStart - openingMinutes) / stepMinutes);
-    const targetLeft = Math.max(
-      0,
-      startIndex * stepWidth - container.clientWidth / 2 + timelinePadding
-    );
-    timelineProgrammaticRef.current = true;
-    if (timelineProgrammaticTimeoutRef.current !== null) {
-      window.clearTimeout(timelineProgrammaticTimeoutRef.current);
-    }
-    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
-    timelineProgrammaticTimeoutRef.current = window.setTimeout(() => {
-      timelineProgrammaticRef.current = false;
-    }, 200);
-  }, [openingMinutes, maxWindowStart, stepMinutes, stepWidth, timelinePadding, windowStartMinutes]);
-
-  useEffect(
-    () => () => {
-      if (timelineRafRef.current !== null) {
-        cancelAnimationFrame(timelineRafRef.current);
-      }
-      if (timelineProgrammaticTimeoutRef.current !== null) {
-        window.clearTimeout(timelineProgrammaticTimeoutRef.current);
-      }
-    },
-    []
-  );
 
   useEffect(() => {
     setSelectedBookingId(null);
@@ -3004,116 +2926,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
                     </div>
                   </div>
-                  <div className="relative w-full max-w-full overflow-hidden rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
-                    <div
-                      ref={timelineRef}
-                      className="relative overflow-x-auto [&::-webkit-scrollbar]:hidden"
-                      style={{
-                        paddingLeft: timelinePadding,
-                        paddingRight: timelinePadding,
-                        scrollbarWidth: 'none',
-                        msOverflowStyle: 'none',
-                      }}
-                      onScroll={event => {
+                  <div
+                    className={`relative w-full max-w-full overflow-hidden rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm ${
+                      manualMode.active ? 'pointer-events-none opacity-70' : ''
+                    }`}
+                  >
+                    <LoupeTimeRangePicker
+                      openingMinutes={openingMinutes}
+                      maxWindowStartMinutes={maxWindowStart}
+                      stepMinutes={stepMinutes}
+                      valueStartMinutes={windowStartMinutes}
+                      onChangeStartMinutes={nextMinutes => {
                         if (manualMode.active) return;
-                        if (timelineProgrammaticRef.current) return;
-                        const target = event.currentTarget;
-                        if (timelineRafRef.current !== null) {
-                          cancelAnimationFrame(timelineRafRef.current);
-                        }
-                        timelineRafRef.current = requestAnimationFrame(() => {
-                          const paddedScrollLeft = Math.max(0, target.scrollLeft - timelinePadding);
-                          const index = Math.max(
-                            0,
-                            Math.min(
-                              totalSteps - 1,
-                              Math.round(paddedScrollLeft / stepWidth)
-                            )
-                          );
-                          const nextMinutes = clampWindowStart(
-                            openingMinutes + index * stepMinutes,
-                            openingMinutes,
-                            maxWindowStart
-                          );
-                          if (nextMinutes !== windowStartMinutes) {
-                            setWindowStartMinutes(nextMinutes);
-                          }
-                        });
+                        setWindowStartMinutes(nextMinutes);
                       }}
-                    >
-                      <div className="relative h-9" style={{ width: totalWidth }}>
-                        <div className="absolute inset-0 z-0">
-                          {timelineBucketMetrics.map((bucket, idx) => {
-                            if (bucket.bookingCount === 0 && bucket.conflictCount === 0) {
-                              return null;
-                            }
-                            const tintClass =
-                              bucket.conflictCount > 0
-                                ? 'bg-amber-200/70'
-                                : 'bg-emerald-100/70';
-                            return (
-                              <div
-                                key={bucket.bucketStart}
-                                className={`absolute top-0 h-full ${tintClass}`}
-                                style={{ left: idx * stepWidth, width: stepWidth }}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div
-                          className="absolute top-1 z-10 h-6 rounded-full border border-emerald-300 bg-emerald-50"
-                          style={{
-                            left:
-                              ((windowStartMinutes - openingMinutes) / stepMinutes) * stepWidth,
-                            width: (120 / stepMinutes) * stepWidth,
-                          }}
-                        />
-                        {Array.from({ length: totalSteps }, (_, idx) => {
-                          const minutes = openingMinutes + idx * stepMinutes;
-                          const isHour = minutes % 60 === 0;
-                          const bucketData = timelineBucketMetrics[idx];
-                          return (
-                            <button
-                              key={minutes}
-                              type="button"
-                              disabled={manualMode.active}
-                              onClick={() =>
-                                setWindowStartMinutes(
-                                  clampWindowStart(minutes, openingMinutes, maxWindowStart)
-                                )
-                              }
-                              className="absolute top-0 z-20 h-full flex flex-col items-center justify-end"
-                              style={{ left: idx * stepWidth }}
-                            >
-                              {isHour &&
-                                bucketData &&
-                                (bucketData.bookingCount > 0 || bucketData.conflictCount > 0) && (
-                                  <span className="absolute -top-1 flex items-center gap-1">
-                                    <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                      {bucketData.bookingCount}
-                                    </span>
-                                    {bucketData.conflictCount > 0 && (
-                                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                                        !
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
-                              <span
-                                className={`block w-px ${
-                                  isHour ? 'h-3.5 bg-gray-400' : 'h-2 bg-gray-300'
-                                }`}
-                              />
-                              {isHour && (
-                                <span className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
-                                  {formatMinutes(minutes)}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                      capacity={loupeCapacity}
+                      bookings={loupeBookings}
+                    />
                   </div>
                 </div>
               </div>
