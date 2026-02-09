@@ -161,35 +161,33 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   return (
     <div
       ref={trackRef}
-      className="relative h-20 w-full min-w-0 select-none touch-none overflow-hidden rounded-xl border border-slate-200 bg-white"
+      className="relative h-[64px] w-full min-w-0 select-none touch-none overflow-hidden"
       onPointerDown={handleTrackPointerDown}
     >
-      <div className="absolute inset-0 opacity-50">
-        <div className="absolute left-4 right-4 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-100">
-          {slotMetrics.map((slot, index) => {
-            const left = index * stepMinutes * pxPerMin;
-            const width = stepMinutes * pxPerMin;
-            let tintClass = 'bg-emerald-200/60';
-            if (slot.occupancyPct === 1) {
-              tintClass = 'bg-red-500';
-            } else if (slot.occupancyPct > 0.75) {
-              tintClass = 'bg-orange-400';
-            } else if (slot.occupancyPct > 0.6) {
-              tintClass = 'bg-yellow-400';
-            }
-            return (
-              <div
-                key={slot.slotStart}
-                className={`absolute top-0 h-full ${tintClass}`}
-                style={{ left, width }}
-              />
-            );
-          })}
-        </div>
+      <div className="absolute left-0 right-0 top-[36px] h-[4px] rounded-full bg-slate-100">
+        {slotMetrics.map((slot, index) => {
+          const left = index * stepMinutes * pxPerMin;
+          const width = stepMinutes * pxPerMin;
+          let tintClass = 'bg-emerald-200/60';
+          if (slot.occupancyPct === 1) {
+            tintClass = 'bg-red-500';
+          } else if (slot.occupancyPct > 0.75) {
+            tintClass = 'bg-orange-400';
+          } else if (slot.occupancyPct > 0.6) {
+            tintClass = 'bg-yellow-400';
+          }
+          return (
+            <div
+              key={slot.slotStart}
+              className={`absolute top-0 h-full ${tintClass}`}
+              style={{ left, width }}
+            />
+          );
+        })}
       </div>
 
       <div
-        className="absolute inset-y-0 border-2 border-slate-800 bg-white shadow-lg overflow-hidden cursor-grab active:cursor-grabbing rounded-lg z-10"
+        className="absolute top-[8px] h-[48px] border-2 border-slate-800 bg-white shadow-lg overflow-hidden cursor-grab active:cursor-grabbing rounded-lg z-10"
         style={{ left: clampedLeftPx, width: frameWidthPx }}
       >
         <button
@@ -207,15 +205,15 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         >
           <span className="w-8 h-1 bg-slate-300 rounded-full" />
         </button>
-        <div className="absolute inset-0" style={{ width: trackWidth, transform: `translateX(${innerTranslateX}px)` }}>
+        <div
+          className="absolute inset-0"
+          style={{ width: trackWidth, transform: `translateX(${innerTranslateX}px)` }}
+        >
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/40 to-white/70" />
         </div>
-        <div className="absolute left-2 top-5 flex items-center gap-2">
+        <div className="absolute left-2 top-6">
           <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
             {overlappingBookingCount}
-          </span>
-          <span className="text-[10px] font-semibold uppercase text-emerald-700">
-            Foglalás
           </span>
         </div>
       </div>
