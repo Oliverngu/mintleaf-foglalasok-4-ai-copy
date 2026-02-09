@@ -253,7 +253,8 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           .filter(tick => tick.isHour)
           .map(tick => {
             const pad = 12;
-            const clampedLeft = clampValue(tick.left, pad, trackWidth - pad);
+            const maxX = Math.max(pad, trackWidth - pad);
+            const clampedLeft = clampValue(tick.left, pad, maxX);
             return (
               <span
                 key={`label-${tone}-${tick.minutes}`}
