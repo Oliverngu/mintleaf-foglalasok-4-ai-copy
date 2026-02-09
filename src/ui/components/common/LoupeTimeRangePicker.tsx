@@ -136,12 +136,13 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
       if (!isDragging || pointerIdRef.current !== event.pointerId) return;
       if (!trackRef.current || pxPerMin <= 0) return;
       const rect = trackRef.current.getBoundingClientRect();
-      const offsetX = event.clientX - rect.left;
-      const rawMinutes = openingMinutes + offsetX / pxPerMin;
+      const relativeX = event.clientX - rect.left;
+      const rawX = relativeX - frameWidthPx / 2;
+      const rawMinutes = openingMinutes + rawX / pxPerMin;
       const clamped = clampValue(rawMinutes, openingMinutes, maxWindowStartMinutes);
       setDragValue(clamped);
     },
-    [isDragging, maxWindowStartMinutes, openingMinutes, pxPerMin]
+    [frameWidthPx, isDragging, maxWindowStartMinutes, openingMinutes, pxPerMin]
   );
 
   const stopDragging = useCallback(() => {
@@ -188,8 +189,12 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   const renderContent = (tone: 'base' | 'loupe') => {
     const tickClass = tone === 'loupe' ? 'border-slate-500/70' : 'border-slate-300/40';
     const labelClass = tone === 'loupe' ? 'text-slate-900' : 'text-slate-300/70';
+    const railClass = tone === 'loupe' ? 'bg-slate-300/80' : 'bg-slate-200/60';
     return (
       <div className="relative w-full h-full">
+        <div
+          className={`absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 ${railClass}`}
+        />
         {ticks.map(tick => (
           <div
             key={`grid-${tone}-${tick.minutes}`}
@@ -237,13 +242,13 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   return (
     <div
       ref={trackRef}
-      className="relative w-full h-16 min-w-0 select-none touch-none overflow-hidden rounded-lg bg-slate-100"
+      className="relative w-full h-16 min-w-0 select-none touch-none overflow-hidden rounded-lg bg-white"
       onPointerDown={handleTrackPointerDown}
     >
       <div className="absolute inset-0 opacity-40">{renderContent('base')}</div>
 
       <div
-        className="absolute top-0 bottom-0 rounded-lg border-2 bg-white shadow-xl overflow-hidden cursor-grab active:cursor-grabbing"
+        className="absolute top-0 bottom-0 rounded-lg border-2 border-slate-900 bg-white shadow-xl overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ left: clampedLeftPx, width: frameWidthPx }}
       >
         <button
