@@ -2915,15 +2915,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </div>
                     </div>
                   </div>
-                  <div className="min-w-0 space-y-3">
-                    <div className="hidden min-w-0 space-y-3 lg:block">
+                  <div className="min-w-0 w-full space-y-3">
+                    <div className="hidden min-w-0 w-full space-y-3 lg:block">
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="text-sm font-semibold text-[var(--color-text-main)]">
                           {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
                         </div>
                       </div>
                       <div
-                        className={`relative w-full max-w-full py-1 ${
+                        className={`relative w-full min-w-0 px-4 py-1 ${
                           manualMode.active ? 'pointer-events-none opacity-70' : ''
                         }`}
                       >
