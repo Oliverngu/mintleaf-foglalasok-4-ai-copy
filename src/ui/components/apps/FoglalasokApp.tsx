@@ -2721,7 +2721,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 }
                 renderLabel={day => day}
               />
-              <div className="grid min-w-0 gap-6 lg:grid-cols-[1.4fr_1fr]">
+              <div className="space-y-3">
                 <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm lg:hidden">
                   <div className="flex min-w-0 flex-wrap items-center gap-3 md:justify-between">
                     <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
@@ -2786,12 +2786,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           </div>
                           <div className="flex items-center gap-1">
                             {isConflict && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-semibold text-red-700">
+                              <span className="rounded-full bg-red-200 px-2 py-0.5 text-[9px] font-semibold text-red-800">
                                 CONFLICT
                               </span>
                             )}
                             {isNoFit && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-semibold text-red-700">
+                              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-semibold text-slate-700">
                                 NO_FIT
                               </span>
                             )}
@@ -2831,6 +2831,144 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     />
                   </div>
                 </div>
+                <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+                  <div className="hidden lg:block space-y-3">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
+                          Mai foglalások
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          {manualMode.active && (
+                            <span className="text-[10px] font-semibold uppercase text-amber-700">
+                              Manual mód aktív
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleAutoAllocateDay}
+                            disabled={autoAllocateRunning || isNavLocked || manualMode.active}
+                            className="rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                          >
+                            {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 min-w-0 space-y-2">
+                        {sortedTodayBookings.map(booking => {
+                          const start = booking.startTime?.toDate?.();
+                          const end = booking.endTime?.toDate?.();
+                          const isFocused = selectedBookingId === booking.id;
+                          const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                          const isConflict = dayConflictedBookingIds.has(booking.id);
+                          const isRowLocked = isNavLocked || manualMode.active;
+                          const timeLabel =
+                            start && end
+                              ? `${start.toLocaleTimeString('hu-HU', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}–${end.toLocaleTimeString('hu-HU', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}`
+                              : '—';
+                          return (
+                            <button
+                              key={booking.id}
+                              type="button"
+                              disabled={isRowLocked}
+                              onClick={() => handleBookingFocus(booking)}
+                              className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition ${
+                                isFocused
+                                  ? 'border-emerald-500 bg-emerald-50'
+                                  : 'border-gray-200 bg-white'
+                              } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-semibold text-[var(--color-text-main)]">
+                                  {booking.name}
+                                </span>
+                                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                                  {timeLabel}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+                                {isConflict && (
+                                  <span className="rounded-full bg-red-200 px-2 py-0.5 text-red-800">
+                                    CONFLICT
+                                  </span>
+                                )}
+                                {isNoFit && (
+                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">
+                                    NO_FIT
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                        {!sortedTodayBookings.length && (
+                          <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
+                            Nincs foglalás erre a napra.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    {manualMode.active && manualBooking ? (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                          Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
+                        </div>
+                        <FloorplanViewer
+                          unitId={activeUnitId}
+                          highlightTableIds={manualMode.stagedTableIds}
+                          highlightZoneId={manualBooking.zoneId ?? null}
+                          onTableClick={handleManualToggleTable}
+                        />
+                        <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="font-semibold text-[var(--color-text-main)]">
+                                Kijelölt asztalok: {manualMode.stagedTableIds.length}
+                              </div>
+                              {manualSelectionConflicts.length > 0 && (
+                                <div className="text-amber-700">
+                                  ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleManualCancel}
+                                className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+                              >
+                                Mégse
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleManualConfirm()}
+                                className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
+                                disabled={manualMode.stagedTableIds.length === 0}
+                              >
+                                Jóváhagyás
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <ReservationFloorplanPreview
+                        unitId={activeUnitId}
+                        selectedDate={previewDate}
+                        bookings={windowBookings}
+                        selectedBookingId={selectedBookingId}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             {manualMode.active && (
@@ -2841,134 +2979,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 {autoAllocateError}
               </div>
             )}
-            <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-              <div className="hidden lg:block space-y-3">
-                <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
-                      Mai foglalások
-                    </div>
-                    {manualMode.active && (
-                      <span className="text-[10px] font-semibold uppercase text-amber-700">
-                        Manual mód aktív
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 min-w-0 space-y-2">
-                    {sortedTodayBookings.map(booking => {
-                      const start = booking.startTime?.toDate?.();
-                      const end = booking.endTime?.toDate?.();
-                      const isFocused = selectedBookingId === booking.id;
-                      const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
-                      const isConflict = dayConflictedBookingIds.has(booking.id);
-                      const isRowLocked = isNavLocked || manualMode.active;
-                      const timeLabel =
-                        start && end
-                          ? `${start.toLocaleTimeString('hu-HU', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}–${end.toLocaleTimeString('hu-HU', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}`
-                          : '—';
-                      return (
-                        <button
-                          key={booking.id}
-                          type="button"
-                          disabled={isRowLocked}
-                          onClick={() => handleBookingFocus(booking)}
-                          className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition ${
-                            isFocused
-                              ? 'border-emerald-500 bg-emerald-50'
-                              : 'border-gray-200 bg-white'
-                          } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-semibold text-[var(--color-text-main)]">
-                              {booking.name}
-                            </span>
-                            <span className="text-[11px] text-[var(--color-text-secondary)]">
-                              {timeLabel}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
-                            {isNoFit && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
-                                NO_FIT
-                              </span>
-                            )}
-                            {isConflict && (
-                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
-                                CONFLICT
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {!sortedTodayBookings.length && (
-                      <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
-                        Nincs foglalás erre a napra.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div>
-                {manualMode.active && manualBooking ? (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                      Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
-                    </div>
-                    <FloorplanViewer
-                      unitId={activeUnitId}
-                      highlightTableIds={manualMode.stagedTableIds}
-                      highlightZoneId={manualBooking.zoneId ?? null}
-                      onTableClick={handleManualToggleTable}
-                    />
-                    <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="font-semibold text-[var(--color-text-main)]">
-                            Kijelölt asztalok: {manualMode.stagedTableIds.length}
-                          </div>
-                          {manualSelectionConflicts.length > 0 && (
-                            <div className="text-amber-700">
-                              ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleManualCancel}
-                            className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
-                          >
-                            Mégse
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleManualConfirm()}
-                            className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
-                            disabled={manualMode.stagedTableIds.length === 0}
-                          >
-                            Jóváhagyás
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <ReservationFloorplanPreview
-                    unitId={activeUnitId}
-                    selectedDate={previewDate}
-                    bookings={windowBookings}
-                    selectedBookingId={selectedBookingId}
-                  />
-                )}
-              </div>
-            </div>
           </div>
           {logsLoading ? (
             <div className="mt-6">
