@@ -162,7 +162,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
     <div className="w-full min-w-0 space-y-3">
       <div
         ref={trackRef}
-        className="relative h-3 w-full min-w-0 overflow-hidden rounded-full bg-gray-100"
+        className="relative h-1 w-full min-w-0 overflow-hidden rounded-full bg-gray-100"
         onPointerDown={handleTrackPointerDown}
       >
         {slotMetrics.map((slot, index) => {
@@ -196,22 +196,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
               className="absolute inset-0"
               style={{ width: trackWidth, transform: `translateX(${innerTranslateX}px)` }}
             >
-              {slotMetrics.map((slot, index) => {
-                const left = index * stepMinutes * pxPerMin;
-                const width = stepMinutes * pxPerMin;
-                const isHour = slot.slotStart % 60 === 0;
-                return (
-                  <div
-                    key={`tick-${slot.slotStart}`}
-                    className="absolute bottom-1 flex flex-col items-center"
-                    style={{ left, width }}
-                  >
-                    <span
-                      className={`block w-px ${isHour ? 'h-4 bg-gray-500' : 'h-2 bg-gray-300'}`}
-                    />
-                  </div>
-                );
-              })}
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/40 to-white/70" />
             </div>
             <div className="absolute left-2 top-2 flex items-center gap-2">
               <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
@@ -233,9 +218,13 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
             onPointerUp={handleDragPointerUp}
             onPointerCancel={handleDragPointerCancel}
             onLostPointerCapture={handleDragPointerCancel}
-            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm touch-none"
+            className="absolute left-1/2 top-1 flex h-6 w-10 -translate-x-1/2 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm touch-none"
           >
-            <span className="h-4 w-1 rounded-full bg-white" />
+            <span className="flex items-center gap-1">
+              <span className="h-3 w-0.5 rounded-full bg-white" />
+              <span className="h-3 w-0.5 rounded-full bg-white" />
+              <span className="h-3 w-0.5 rounded-full bg-white" />
+            </span>
           </button>
         </div>
       </div>
