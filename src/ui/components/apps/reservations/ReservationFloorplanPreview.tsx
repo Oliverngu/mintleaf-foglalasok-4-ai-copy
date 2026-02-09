@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -21,9 +21,41 @@ type ReservationFloorplanPreviewProps = {
   selectedDate: Date;
   bookings: Booking[];
   selectedBookingId?: string | null;
+  onViewportTopOffsetPx?: (px: number) => void;
+  onOpenFloorplanEditor?: () => void;
+  showFloorplanEditorButton?: boolean;
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
+
+type ReservationFloorplanPreviewInnerProps = {
+  activeZoneId: string | null;
+  capacityLimit: number | null;
+  capacityMode: ReservationSetting['capacityMode'];
+  capacityUsed: number;
+  conflictTableIds: Set<string>;
+  debugEnabled: boolean;
+  debugRawGeometry: { x: number; y: number; w: number; h: number; rot: number } | null;
+  floorplan: Floorplan;
+  floorplanDims: { width: number; height: number; source?: string };
+  hasSelectedBooking: boolean;
+  normalizedDetected: boolean;
+  onOpenFloorplanEditor?: () => void;
+  onViewportTopOffsetPx?: (px: number) => void;
+  recommendedTableIds: Set<string>;
+  renderStatusColor: (status: TableStatus) => string;
+  selectedAssignedTableIds: Set<string>;
+  selectedBookingHasConflict: boolean;
+  selectedBookingHasNoFit: boolean;
+  selectedBookingReason: string | null;
+  selectedDate: Date;
+  setActiveZoneId: (zoneId: string | null) => void;
+  showFloorplanEditorButton: boolean;
+  tableStatusById: Map<string, TableStatus>;
+  upcomingWarningLabel: string | null;
+  visibleTables: Table[];
+  zones: Zone[];
+};
 
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -48,11 +80,219 @@ const TABLE_GEOMETRY_DEFAULTS = {
   circleRadius: 40,
 };
 
+const ReservationFloorplanPreviewInner: React.FC<ReservationFloorplanPreviewInnerProps> = ({
+  activeZoneId,
+  capacityLimit,
+  capacityMode,
+  capacityUsed,
+  conflictTableIds,
+  debugEnabled,
+  debugRawGeometry,
+  floorplan,
+  floorplanDims,
+  hasSelectedBooking,
+  normalizedDetected,
+  onOpenFloorplanEditor,
+  onViewportTopOffsetPx,
+  recommendedTableIds,
+  renderStatusColor,
+  selectedAssignedTableIds,
+  selectedBookingHasConflict,
+  selectedBookingHasNoFit,
+  selectedBookingReason,
+  selectedDate,
+  setActiveZoneId,
+  showFloorplanEditorButton,
+  tableStatusById,
+  upcomingWarningLabel,
+  visibleTables,
+  zones,
+}) => {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!onViewportTopOffsetPx) return;
+    const root = rootRef.current;
+    const viewport = viewportRef.current;
+    if (!root || !viewport) return;
+    const updateOffset = () => {
+      const rootRect = root.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      const offset = Math.max(0, viewportRect.top - rootRect.top);
+      onViewportTopOffsetPx(offset);
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    observer.observe(root);
+    observer.observe(viewport);
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, [onViewportTopOffsetPx, activeZoneId, capacityMode, upcomingWarningLabel, zones.length]);
+
+  return (
+    <div ref={rootRef} className="rounded-2xl border border-gray-200 space-y-4">
+      <div className="w-full max-w-[min(90vh,100%)] mx-auto space-y-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Élő asztaltérkép</h2>
+              {showFloorplanEditorButton && onOpenFloorplanEditor && (
+                <button
+                  type="button"
+                  onClick={onOpenFloorplanEditor}
+                  className="hidden lg:inline-flex items-center rounded-full border border-gray-200 bg-white/70 px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-gray-50"
+                >
+                  Asztaltérkép szerkesztő
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              {selectedDate.toLocaleDateString('hu-HU', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </p>
+          </div>
+
+          <div className="text-sm font-semibold text-[var(--color-text-main)]">
+            {capacityLimit !== null ? (
+              <>
+                {capacityUsed} / {capacityLimit}{' '}
+                <span className="text-xs text-[var(--color-text-secondary)]">
+                  {capacityMode === 'timeWindow' ? 'aktuális idősáv' : 'napi kapacitás'}
+                </span>
+                {recommendedTableIds.size > 0 && (
+                  <div className="text-[11px] text-[var(--color-text-secondary)]">
+                    Ajánlott asztalok: szaggatott keret
+                  </div>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-[var(--color-text-secondary)]">Kapacitás nincs megadva.</span>
+            )}
+          </div>
+        </div>
+
+        {hasSelectedBooking && (
+          <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase text-[var(--color-text-secondary)]">
+            {selectedBookingHasNoFit && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+                NO_FIT – nincs megfelelő asztal
+              </span>
+            )}
+            {selectedBookingHasConflict && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+                Konfliktus – átfedő foglalás
+              </span>
+            )}
+            {selectedBookingReason && !selectedBookingHasNoFit && !selectedBookingHasConflict && (
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                {selectedBookingReason}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveZoneId(null)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                activeZoneId === null
+                  ? 'bg-[var(--color-primary)] text-white border-transparent'
+                  : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
+              }`}
+            >
+              Összes
+            </button>
+
+            {zones.map(zone => (
+              <button
+                key={zone.id}
+                type="button"
+                onClick={() => setActiveZoneId(zone.id)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                  activeZoneId === zone.id
+                    ? 'bg-[var(--color-primary)] text-white border-transparent'
+                    : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
+                }`}
+              >
+                {zone.name}
+              </button>
+            ))}
+          </div>
+
+          {upcomingWarningLabel && (
+            <span className="text-[11px] text-[var(--color-text-secondary)]">{upcomingWarningLabel}</span>
+          )}
+        </div>
+
+        <div ref={viewportRef} className="w-full relative" data-ml="floorplan-viewport">
+          <FloorplanViewportCanvas
+            floorplanDims={floorplanDims}
+            debugEnabled={debugEnabled}
+            viewportDeps={[floorplan.id]}
+            debugOverlay={context => (
+              <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[260px]">
+                <div>
+                  dims: {Math.round(context.floorplanDims.width)}×{Math.round(context.floorplanDims.height)} (
+                  {context.floorplanDims.source})
+                </div>
+                <div>
+                  viewport: {Math.round(context.viewportRect.width)}×{Math.round(context.viewportRect.height)}
+                </div>
+                <div>
+                  scale: {context.transform.scale.toFixed(3)} | offset: {context.transform.offsetX.toFixed(1)},
+                  {context.transform.offsetY.toFixed(1)} | ready: {context.transform.ready ? 'yes' : 'no'}
+                </div>
+                <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
+                {debugRawGeometry && (
+                  <div>
+                    raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)}{' '}
+                    {debugRawGeometry.w.toFixed(1)}×{debugRawGeometry.h.toFixed(1)} r
+                    {debugRawGeometry.rot.toFixed(1)}
+                  </div>
+                )}
+              </div>
+            )}
+            renderWorld={() => (
+              <FloorplanWorldLayer
+                tables={visibleTables}
+                obstacles={floorplan.obstacles ?? []}
+                floorplanDims={floorplanDims}
+                tableDefaults={TABLE_GEOMETRY_DEFAULTS}
+                appearance={{
+                  getStatus: table => tableStatusById.get(table.id) ?? 'free',
+                  renderStatusColor,
+                  isSelected: table => hasSelectedBooking && selectedAssignedTableIds.has(table.id),
+                  isRecommended: table =>
+                    !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
+                  hasConflict: table => conflictTableIds.has(table.id),
+                  showCapacity: true,
+                }}
+              />
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
   bookings,
   selectedBookingId,
+  onViewportTopOffsetPx,
+  onOpenFloorplanEditor,
+  showFloorplanEditorButton = false,
 }) => {
   const [floorplan, setFloorplan] = useState<Floorplan | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
@@ -420,6 +660,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [conflictTableIds, selectedAssignedTableIds]);
 
   const capacityMode = settings?.capacityMode ?? 'daily';
+
   const timeWindowCapacity =
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
       ? settings.timeWindowCapacity
@@ -498,140 +739,34 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
 
   return (
-    <div className="rounded-2xl border border-gray-200 p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Élő asztaltérkép</h2>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            {selectedDate.toLocaleDateString('hu-HU', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </p>
-        </div>
-
-        <div className="text-sm font-semibold text-[var(--color-text-main)]">
-          {capacityLimit !== null ? (
-            <>
-              {capacityUsed} / {capacityLimit}{' '}
-              <span className="text-xs text-[var(--color-text-secondary)]">
-                {capacityMode === 'timeWindow' ? 'aktuális idősáv' : 'napi kapacitás'}
-              </span>
-              {recommendedTableIds.size > 0 && (
-                <div className="text-[11px] text-[var(--color-text-secondary)]">
-                  Ajánlott asztalok: szaggatott keret
-                </div>
-              )}
-            </>
-          ) : (
-            <span className="text-xs text-[var(--color-text-secondary)]">Kapacitás nincs megadva.</span>
-          )}
-        </div>
-      </div>
-
-      {selectedBooking && (
-        <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase text-[var(--color-text-secondary)]">
-          {selectedBookingHasNoFit && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
-              NO_FIT – nincs megfelelő asztal
-            </span>
-          )}
-          {selectedBookingHasConflict && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
-              Konfliktus – átfedő foglalás
-            </span>
-          )}
-          {selectedBookingReason && !selectedBookingHasNoFit && !selectedBookingHasConflict && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
-              {selectedBookingReason}
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveZoneId(null)}
-            className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-              activeZoneId === null
-                ? 'bg-[var(--color-primary)] text-white border-transparent'
-                : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
-            }`}
-          >
-            Összes
-          </button>
-
-          {zones.map(zone => (
-            <button
-              key={zone.id}
-              type="button"
-              onClick={() => setActiveZoneId(zone.id)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                activeZoneId === zone.id
-                  ? 'bg-[var(--color-primary)] text-white border-transparent'
-                  : 'bg-white/70 text-[var(--color-text-secondary)] border-gray-200'
-              }`}
-            >
-              {zone.name}
-            </button>
-          ))}
-        </div>
-
-        {upcomingWarningLabel && (
-          <span className="text-[11px] text-[var(--color-text-secondary)]">{upcomingWarningLabel}</span>
-        )}
-      </div>
-
-      <div className="w-full mx-auto relative">
-        <FloorplanViewportCanvas
-          floorplanDims={floorplanDims}
-          debugEnabled={debugEnabled}
-          viewportDeps={[floorplan.id]}
-          debugOverlay={context => (
-            <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[260px]">
-              <div>
-                dims: {Math.round(context.floorplanDims.width)}×{Math.round(context.floorplanDims.height)} (
-                {context.floorplanDims.source})
-              </div>
-              <div>
-                viewport: {Math.round(context.viewportRect.width)}×{Math.round(context.viewportRect.height)}
-              </div>
-              <div>
-                scale: {context.transform.scale.toFixed(3)} | offset: {context.transform.offsetX.toFixed(1)},
-                {context.transform.offsetY.toFixed(1)} | ready: {context.transform.ready ? 'yes' : 'no'}
-              </div>
-              <div>normalizedDetected: {normalizedDetected ? 'yes' : 'no'}</div>
-              {debugRawGeometry && (
-                <div>
-                  raw: {debugRawGeometry.x.toFixed(1)},{debugRawGeometry.y.toFixed(1)} {debugRawGeometry.w.toFixed(1)}×
-                  {debugRawGeometry.h.toFixed(1)} r{debugRawGeometry.rot.toFixed(1)}
-                </div>
-              )}
-            </div>
-          )}
-          renderWorld={() => (
-            <FloorplanWorldLayer
-              tables={visibleTables}
-              obstacles={floorplan.obstacles ?? []}
-              floorplanDims={floorplanDims}
-              tableDefaults={TABLE_GEOMETRY_DEFAULTS}
-              appearance={{
-                getStatus: table => tableStatusById.get(table.id) ?? 'free',
-                renderStatusColor,
-                isSelected: table => hasSelectedBooking && selectedAssignedTableIds.has(table.id),
-                isRecommended: table =>
-                  !selectedAssignedTableIds.has(table.id) && recommendedTableIds.has(table.id),
-                hasConflict: table => conflictTableIds.has(table.id),
-                showCapacity: true,
-              }}
-            />
-          )}
-        />
-      </div>
-    </div>
+    <ReservationFloorplanPreviewInner
+      activeZoneId={activeZoneId}
+      capacityLimit={capacityLimit}
+      capacityMode={capacityMode}
+      capacityUsed={capacityUsed}
+      conflictTableIds={conflictTableIds}
+      debugEnabled={debugEnabled}
+      debugRawGeometry={debugRawGeometry}
+      floorplan={floorplan}
+      floorplanDims={floorplanDims}
+      hasSelectedBooking={hasSelectedBooking}
+      normalizedDetected={normalizedDetected}
+      onOpenFloorplanEditor={onOpenFloorplanEditor}
+      onViewportTopOffsetPx={onViewportTopOffsetPx}
+      recommendedTableIds={recommendedTableIds}
+      renderStatusColor={renderStatusColor}
+      selectedAssignedTableIds={selectedAssignedTableIds}
+      selectedBookingHasConflict={selectedBookingHasConflict}
+      selectedBookingHasNoFit={selectedBookingHasNoFit}
+      selectedBookingReason={selectedBookingReason}
+      selectedDate={selectedDate}
+      setActiveZoneId={setActiveZoneId}
+      showFloorplanEditorButton={showFloorplanEditorButton}
+      tableStatusById={tableStatusById}
+      upcomingWarningLabel={upcomingWarningLabel}
+      visibleTables={visibleTables}
+      zones={zones}
+    />
   );
 };
 
