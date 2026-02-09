@@ -2915,7 +2915,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </div>
                     </div>
                   </div>
-                  <div className="min-w-0 w-full space-y-3">
+                  <div className="min-w-0 w-full space-y-3 lg:px-4">
                     <div className="hidden min-w-0 w-full space-y-3 lg:block">
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="text-sm font-semibold text-[var(--color-text-main)]">
@@ -2923,7 +2923,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         </div>
                       </div>
                       <div
-                        className={`relative w-full min-w-0 px-4 py-1 ${
+                        className={`relative w-full min-w-0 py-1 ${
                           manualMode.active ? 'pointer-events-none opacity-70' : ''
                         }`}
                       >
@@ -2941,57 +2941,59 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         />
                       </div>
                     </div>
-                    {manualMode.active && manualBooking ? (
-                      <div className="space-y-3">
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                          Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
-                        </div>
-                        <FloorplanViewer
-                          unitId={activeUnitId}
-                          highlightTableIds={manualMode.stagedTableIds}
-                          highlightZoneId={manualBooking.zoneId ?? null}
-                          onTableClick={handleManualToggleTable}
-                        />
-                        <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <div className="font-semibold text-[var(--color-text-main)]">
-                                Kijelölt asztalok: {manualMode.stagedTableIds.length}
-                              </div>
-                              {manualSelectionConflicts.length > 0 && (
-                                <div className="text-amber-700">
-                                  ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
+                    <div className="lg:-mx-4">
+                      {manualMode.active && manualBooking ? (
+                        <div className="space-y-3">
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                            Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
+                          </div>
+                          <FloorplanViewer
+                            unitId={activeUnitId}
+                            highlightTableIds={manualMode.stagedTableIds}
+                            highlightZoneId={manualBooking.zoneId ?? null}
+                            onTableClick={handleManualToggleTable}
+                          />
+                          <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="font-semibold text-[var(--color-text-main)]">
+                                  Kijelölt asztalok: {manualMode.stagedTableIds.length}
                                 </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={handleManualCancel}
-                                className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
-                              >
-                                Mégse
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleManualConfirm()}
-                                className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
-                                disabled={manualMode.stagedTableIds.length === 0}
-                              >
-                                Jóváhagyás
-                              </button>
+                                {manualSelectionConflicts.length > 0 && (
+                                  <div className="text-amber-700">
+                                    ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleManualCancel}
+                                  className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+                                >
+                                  Mégse
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleManualConfirm()}
+                                  className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
+                                  disabled={manualMode.stagedTableIds.length === 0}
+                                >
+                                  Jóváhagyás
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ) : (
-                      <ReservationFloorplanPreview
-                        unitId={activeUnitId}
-                        selectedDate={previewDate}
-                        bookings={windowBookings}
-                        selectedBookingId={selectedBookingId}
-                      />
-                    )}
+                      ) : (
+                        <ReservationFloorplanPreview
+                          unitId={activeUnitId}
+                          selectedDate={previewDate}
+                          bookings={windowBookings}
+                          selectedBookingId={selectedBookingId}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
