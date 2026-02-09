@@ -195,13 +195,48 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         <div
           className={`absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 ${railClass}`}
         />
+        <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 overflow-hidden rounded-full">
+          {slotMetrics.map((slot, index) => {
+            const left = index * stepMinutes * pxPerMin;
+            const width = stepMinutes * pxPerMin;
+            if (slot.occupancyPct === 1) {
+              return (
+                <div
+                  key={`slot-${tone}-${slot.slotStart}`}
+                  className="absolute top-0 h-full bg-red-500"
+                  style={{ left, width }}
+                />
+              );
+            }
+            if (slot.occupancyPct > 0.75) {
+              return (
+                <div
+                  key={`slot-${tone}-${slot.slotStart}`}
+                  className="absolute top-0 h-full bg-orange-400"
+                  style={{ left, width }}
+                />
+              );
+            }
+            if (slot.occupancyPct > 0.6) {
+              return (
+                <div
+                  key={`slot-${tone}-${slot.slotStart}`}
+                  className="absolute top-0 h-full bg-yellow-400"
+                  style={{ left, width }}
+                />
+              );
+            }
+            return null;
+          })}
+        </div>
         {ticks.map(tick => (
           <div
             key={`grid-${tone}-${tick.minutes}`}
-            className={`absolute bottom-0 -translate-x-1/2 border-l ${tickClass}`}
+            className={`absolute top-1/2 -translate-x-1/2 border-l ${tickClass}`}
             style={{
               left: tick.left,
-              height: tick.isHour ? '100%' : '30%',
+              height: tick.isHour ? 14 : 8,
+              transform: 'translate(-50%, 1px)',
             }}
           >
             {tick.isHour && (
@@ -211,25 +246,6 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
             )}
           </div>
         ))}
-        {slotMetrics.map((slot, index) => {
-          const left = index * stepMinutes * pxPerMin;
-          const width = stepMinutes * pxPerMin;
-          let tintClass = 'bg-slate-200/70';
-          if (slot.occupancyPct === 1) {
-            tintClass = 'bg-red-500';
-          } else if (slot.occupancyPct > 0.75) {
-            tintClass = 'bg-orange-400';
-          } else if (slot.occupancyPct > 0.6) {
-            tintClass = 'bg-yellow-400';
-          }
-          return (
-            <div
-              key={`slot-${tone}-${slot.slotStart}`}
-              className={`absolute top-1/2 -translate-y-1/2 h-2 rounded-sm ${tintClass}`}
-              style={{ left, width }}
-            />
-          );
-        })}
       </div>
     );
   };
@@ -267,11 +283,13 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         >
           {renderContent('loupe')}
         </div>
-        <div className="absolute left-2 top-6">
-          <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-            {overlappingBookingCount}
-          </span>
-        </div>
+        {overlappingBookingCount > 0 && (
+          <div className="absolute left-2 top-6">
+            <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+              {overlappingBookingCount}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
