@@ -1911,6 +1911,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
+  const [floorplanViewportTopOffsetPx, setFloorplanViewportTopOffsetPx] = useState(0);
+  const [leftColumnActionsHeight, setLeftColumnActionsHeight] = useState(0);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
   const [windowStartMinutes, setWindowStartMinutes] = useState(0);
   const [autoAllocateDryRun, setAutoAllocateDryRun] = useState(true);
@@ -2596,11 +2598,26 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   };
 
+  const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
+  const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
+
+  useEffect(() => {
+    const element = leftColumnActionsRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="p-4 md:p-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-bold text-[var(--color-text-main)]">Foglalások</h1>
-        <div className="flex items-center gap-3">
+        <h1 className="text-3xl font-bold text-[var(--color-text-main)] lg:hidden">Foglalások</h1>
+        <div className="flex items-center gap-3 lg:hidden">
           <button
             onClick={openGuestPage}
             className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
@@ -2661,7 +2678,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     {overviewDate.getFullYear()}
                   </div>
                   <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-secondary)]">
-                    Admin Central · Reservation & Allocation Portal
+                    {activeUnitId ? `${activeUnitId} - Asztalfoglalási rendszer` : 'Asztalfoglalási rendszer'}
                   </div>
                 </div>
               </div>
@@ -2694,6 +2711,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     {state.isSelected ? item.labelLong : item.labelShort}
                   </span>
                 )}
+                infinite
+                repeatCount={5}
                 className="whitespace-nowrap"
               />
               <HorizontalWheelPicker
@@ -2833,6 +2852,33 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 </div>
                 <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
                   <div className="hidden lg:block space-y-3">
+                    <div ref={leftColumnActionsRef} className="hidden flex-wrap gap-2 lg:flex">
+                      <button
+                        onClick={openGuestPage}
+                        className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                      >
+                        Vendégoldal megnyitása
+                      </button>
+                      {canAddBookings && (
+                        <button
+                          onClick={() => setIsAddModalOpen(true)}
+                          className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
+                        >
+                          <PlusIcon className="h-5 w-5" />
+                          Új foglalás
+                        </button>
+                      )}
+                      {isAdmin && activeUnitId && (
+                        <button
+                          onClick={() => setIsSettingsOpen(true)}
+                          className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
+                          title="Foglalási beállítások"
+                        >
+                          <SettingsIcon className="h-6 w-6" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="hidden lg:block" style={{ height: leftColumnSpacerHeight }} />
                     <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
@@ -2988,12 +3034,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           </div>
                         </div>
                       ) : (
-                        <ReservationFloorplanPreview
-                          unitId={activeUnitId}
-                          selectedDate={previewDate}
-                          bookings={windowBookings}
-                          selectedBookingId={selectedBookingId}
-                        />
+                      <ReservationFloorplanPreview
+                        unitId={activeUnitId}
+                        selectedDate={previewDate}
+                        bookings={windowBookings}
+                        selectedBookingId={selectedBookingId}
+                        onViewportTopOffsetPx={setFloorplanViewportTopOffsetPx}
+                        onOpenFloorplanEditor={() => setIsSeatingSettingsOpen(true)}
+                        showFloorplanEditorButton
+                      />
                       )}
                     </div>
                   </div>

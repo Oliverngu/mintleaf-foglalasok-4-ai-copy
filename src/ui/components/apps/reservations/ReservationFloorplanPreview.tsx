@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Booking,
   Floorplan,
@@ -21,6 +21,9 @@ type ReservationFloorplanPreviewProps = {
   selectedDate: Date;
   bookings: Booking[];
   selectedBookingId?: string | null;
+  onViewportTopOffsetPx?: (px: number) => void;
+  onOpenFloorplanEditor?: () => void;
+  showFloorplanEditorButton?: boolean;
 };
 
 type TableStatus = 'occupied' | 'upcoming' | 'free';
@@ -53,6 +56,9 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   selectedDate,
   bookings,
   selectedBookingId,
+  onViewportTopOffsetPx,
+  onOpenFloorplanEditor,
+  showFloorplanEditorButton = false,
 }) => {
   const [floorplan, setFloorplan] = useState<Floorplan | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
@@ -63,6 +69,8 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [capacity, setCapacity] = useState<ReservationCapacity | null>(null);
   const [now, setNow] = useState(new Date());
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const debugEnabled = useMemo(() => {
     const isDev =
@@ -420,6 +428,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   }, [conflictTableIds, selectedAssignedTableIds]);
 
   const capacityMode = settings?.capacityMode ?? 'daily';
+
   const timeWindowCapacity =
     typeof settings?.timeWindowCapacity === 'number' && settings.timeWindowCapacity > 0
       ? settings.timeWindowCapacity
@@ -458,6 +467,34 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
     typeof settings?.upcomingWarningMinutes === 'number' && Number.isFinite(settings.upcomingWarningMinutes)
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
+
+  useLayoutEffect(() => {
+    if (!onViewportTopOffsetPx) return;
+    const root = rootRef.current;
+    const viewport = viewportRef.current;
+    if (!root || !viewport) return;
+    const updateOffset = () => {
+      const rootRect = root.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      const offset = Math.max(0, viewportRect.top - rootRect.top);
+      onViewportTopOffsetPx(offset);
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    observer.observe(root);
+    observer.observe(viewport);
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, [
+    onViewportTopOffsetPx,
+    selectedBookingId,
+    zones.length,
+    capacityMode,
+    upcomingWarningLabel,
+  ]);
 
   if (floorplanLoading) {
     return (
@@ -498,11 +535,22 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
 
   return (
-    <div className="rounded-2xl border border-gray-200 space-y-4">
+    <div ref={rootRef} className="rounded-2xl border border-gray-200 space-y-4">
       <div className="w-full max-w-[min(90vh,100%)] mx-auto space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Élő asztaltérkép</h2>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-[var(--color-text-main)]">Élő asztaltérkép</h2>
+              {showFloorplanEditorButton && onOpenFloorplanEditor && (
+                <button
+                  type="button"
+                  onClick={onOpenFloorplanEditor}
+                  className="hidden lg:inline-flex items-center rounded-full border border-gray-200 bg-white/70 px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-gray-50"
+                >
+                  Asztaltérkép szerkesztő
+                </button>
+              )}
+            </div>
             <p className="text-xs text-[var(--color-text-secondary)]">
               {selectedDate.toLocaleDateString('hu-HU', {
                 year: 'numeric',
@@ -586,7 +634,7 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
           )}
         </div>
 
-        <div className="w-full relative" data-ml="floorplan-viewport">
+        <div ref={viewportRef} className="w-full relative" data-ml="floorplan-viewport">
           <FloorplanViewportCanvas
             floorplanDims={floorplanDims}
             debugEnabled={debugEnabled}
