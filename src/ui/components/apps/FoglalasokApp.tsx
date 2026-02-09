@@ -2767,31 +2767,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           type="button"
                           disabled={isRowLocked}
                           onClick={() => handleBookingFocus(booking)}
-                          className={`flex h-16 w-16 flex-col justify-between rounded-xl border p-1.5 text-left text-[11px] transition ${
+                          className={`flex h-14 w-14 flex-col justify-between rounded-xl border p-1 text-left text-[10px] transition ${
                             isFocused
                               ? 'border-emerald-500 bg-emerald-50'
                               : 'border-gray-200 bg-white'
                           } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
                         >
                           <div className="space-y-1">
-                            <div className="truncate text-xs font-semibold text-[var(--color-text-main)]">
+                            <div className="truncate text-[11px] font-semibold text-[var(--color-text-main)]">
                               {booking.name}
                             </div>
-                            <div className="text-[10px] text-[var(--color-text-secondary)]">
+                            <div className="text-[9px] text-[var(--color-text-secondary)]">
                               {timeLabel}
                             </div>
-                            <div className="text-[10px] text-[var(--color-text-secondary)]">
+                            <div className="text-[9px] text-[var(--color-text-secondary)]">
                               {booking.headcount} fő
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
                             {isConflict && (
-                              <span className="rounded-full bg-red-200 px-2 py-0.5 text-[9px] font-semibold text-red-800">
+                              <span className="rounded-full bg-red-200 px-1.5 py-0.5 text-[8px] font-semibold text-red-800">
                                 CONFLICT
                               </span>
                             )}
                             {isNoFit && (
-                              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-semibold text-slate-700">
+                              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[8px] font-semibold text-slate-700">
                                 NO_FIT
                               </span>
                             )}
