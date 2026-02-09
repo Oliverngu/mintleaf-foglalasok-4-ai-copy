@@ -20,6 +20,12 @@ type LoupeTimeRangePickerProps = {
 const WINDOW_DURATION = 120;
 
 const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const minutesToTime = (minutes: number) => {
+  const safeMinutes = Math.max(0, minutes);
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+};
 
 const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
   openingMinutes,
@@ -173,7 +179,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         {ticks.map(tick => (
           <div
             key={`tick-${tone}-${tick.minutes}`}
-            className="absolute bottom-0 flex flex-col items-center"
+            className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
             style={{ left: tick.left }}
           >
             <span
@@ -182,7 +188,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
             />
             {tick.isHour && (
               <span className={`mt-1 text-[9px] font-semibold leading-none ${labelClass}`}>
-                {String(Math.floor(tick.minutes / 60)).padStart(2, '0')}:00
+                {minutesToTime(tick.minutes)}
               </span>
             )}
           </div>
@@ -197,7 +203,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
       className="relative h-[64px] w-full min-w-0 select-none touch-none overflow-hidden"
       onPointerDown={handleTrackPointerDown}
     >
-      <div className="absolute left-0 right-0 top-[36px] h-[4px] rounded-full bg-slate-100">
+      <div className="absolute left-0 right-0 top-[36px] h-[4px] relative overflow-hidden rounded-full bg-slate-100">
         {slotMetrics.map((slot, index) => {
           const left = index * stepMinutes * pxPerMin;
           const width = stepMinutes * pxPerMin;
@@ -243,7 +249,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           className="absolute inset-0"
           style={{ width: trackWidth, transform: `translateX(${innerTranslateX}px)` }}
         >
-          <div className="absolute left-0 right-0 top-[28px] h-[4px] rounded-full bg-slate-100">
+          <div className="absolute left-0 right-0 top-[28px] h-[4px] relative overflow-hidden rounded-full bg-slate-100">
             {slotMetrics.map((slot, index) => {
               const left = index * stepMinutes * pxPerMin;
               const width = stepMinutes * pxPerMin;
