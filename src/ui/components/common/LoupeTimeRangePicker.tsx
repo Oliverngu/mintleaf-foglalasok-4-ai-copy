@@ -191,7 +191,7 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
     const railClass =
       tone === 'loupe'
         ? 'bg-slate-300/90 shadow-[0_1px_0_rgba(0,0,0,0.06)]'
-        : 'bg-slate-300/60 shadow-[0_1px_0_rgba(0,0,0,0.06)]';
+        : 'bg-slate-300/40 shadow-[0_1px_0_rgba(0,0,0,0.06)]';
     return (
       <div className="relative w-full h-full">
         <div className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[4px] rounded-full ${railClass}`} />
@@ -199,17 +199,6 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           {slotMetrics.map((slot, index) => {
             const left = index * stepMinutes * pxPerMin;
             const width = stepMinutes * pxPerMin;
-            if (slot.occupancyPct > 0 && slot.occupancyPct <= 0.6) {
-              return (
-                <div
-                  key={index}
-                  className={`absolute top-0 h-full ${
-                    tone === 'loupe' ? 'bg-emerald-400/80' : 'bg-emerald-400/35'
-                  }`}
-                  style={{ left, width }}
-                />
-              );
-            }
             if (slot.occupancyPct === 1) {
               return (
                 <div
@@ -238,6 +227,17 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
                   key={index}
                   className={`absolute top-0 h-full ${
                     tone === 'loupe' ? 'bg-yellow-400/90' : 'bg-yellow-400/40'
+                  }`}
+                  style={{ left, width }}
+                />
+              );
+            }
+            if (slot.occupancyPct > 0) {
+              return (
+                <div
+                  key={index}
+                  className={`absolute top-0 h-full ${
+                    tone === 'loupe' ? 'bg-emerald-400/80' : 'bg-emerald-400/35'
                   }`}
                   style={{ left, width }}
                 />
