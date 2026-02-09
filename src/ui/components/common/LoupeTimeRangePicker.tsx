@@ -199,6 +199,15 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
           {slotMetrics.map((slot, index) => {
             const left = index * stepMinutes * pxPerMin;
             const width = stepMinutes * pxPerMin;
+            if (slot.occupancyPct > 0 && slot.occupancyPct <= 0.6) {
+              return (
+                <div
+                  key={`slot-${tone}-${slot.slotStart}`}
+                  className="absolute top-0 h-full bg-slate-300/40"
+                  style={{ left, width }}
+                />
+              );
+            }
             if (slot.occupancyPct === 1) {
               return (
                 <div
@@ -232,20 +241,25 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         {ticks.map(tick => (
           <div
             key={`grid-${tone}-${tick.minutes}`}
-            className={`absolute top-1/2 -translate-x-1/2 border-l ${tickClass}`}
+            className={`absolute -translate-x-1/2 border-l pointer-events-none ${tickClass}`}
             style={{
               left: tick.left,
+              top: 'calc(50% + 1px)',
               height: tick.isHour ? 14 : 8,
-              transform: 'translate(-50%, 1px)',
             }}
-          >
-            {tick.isHour && (
-              <span className={`absolute bottom-1 left-1 text-[9px] ${labelClass}`}>
-                {minutesToTime(tick.minutes)}
-              </span>
-            )}
-          </div>
+          />
         ))}
+        {ticks
+          .filter(tick => tick.isHour)
+          .map(tick => (
+            <span
+              key={`label-${tone}-${tick.minutes}`}
+              className={`absolute bottom-1 -translate-x-1/2 text-[9px] ${labelClass}`}
+              style={{ left: tick.left }}
+            >
+              {minutesToTime(tick.minutes)}
+            </span>
+          ))}
       </div>
     );
   };
