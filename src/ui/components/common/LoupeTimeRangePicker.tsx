@@ -194,8 +194,8 @@ const LoupeTimeRangePicker: React.FC<LoupeTimeRangePickerProps> = ({
         : 'bg-slate-300/40 shadow-[0_1px_0_rgba(0,0,0,0.06)]';
     return (
       <div className="relative w-full h-full">
-        <div className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[4px] rounded-full ${railClass}`} />
-        <div className="absolute left-0 right-0 top-1/2 h-[4px] -translate-y-1/2 overflow-hidden rounded-full">
+        <div className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[16px] rounded-full ${railClass}`} />
+        <div className="absolute left-0 right-0 top-1/2 h-[16px] -translate-y-1/2 overflow-hidden rounded-full">
           {slotMetrics.map((slot, index) => {
             const left = index * stepMinutes * pxPerMin;
             const width = stepMinutes * pxPerMin;
