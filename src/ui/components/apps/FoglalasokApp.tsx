@@ -2066,8 +2066,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, [debugEnabled]);
-
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
+  useEffect(() => {
+    if (!isFpDebug) return;
+    console.debug('[fpdebug] FoglalasokApp render mode', {
+      hasActiveUnit: Boolean(activeUnitId),
+      loading,
+      hasError: Boolean(error),
+    });
+  }, [activeUnitId, error, isFpDebug, loading]);
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
 
@@ -2495,23 +2502,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  if (!activeUnitId) {
-    return (
-      <div className="flex items-center justify-center h-full p-8 text-center">
-        <div>
-          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
-            A funkció használatához válassz egy egységet
-          </h2>
-          <p className="mt-2 text-[var(--color-text-secondary)]">
-            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
-            pontosan egy egységet a fejlécben.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const writeLog = async (
     unitId: string,
     booking: { id: string; name: string; headcount?: number; startTime?: Timestamp },
@@ -2800,6 +2790,24 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       alert('Nem sikerült menteni a manuális ültetést.');
     }
   };
+
+
+  if (!activeUnitId) {
+    return (
+      <div className="flex items-center justify-center h-full p-8 text-center">
+        <div>
+          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
+            A funkció használatához válassz egy egységet
+          </h2>
+          <p className="mt-2 text-[var(--color-text-secondary)]">
+            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
+            pontosan egy egységet a fejlécben.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8">
