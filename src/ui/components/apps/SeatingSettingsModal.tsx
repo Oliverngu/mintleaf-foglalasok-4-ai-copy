@@ -705,6 +705,78 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return 0;
   };
+  const deriveSeatLayoutFromTableData = useCallback(
+    (params: {
+      shape?: Table['shape'];
+      seatLayout?: Table['seatLayout'];
+      sideCapacities?: Table['sideCapacities'];
+      capacityTotal?: number;
+    }): Table['seatLayout'] | undefined => {
+      const { shape, seatLayout, sideCapacities, capacityTotal } = params;
+      if (seatLayout && !isSeatLayoutEmpty(seatLayout)) {
+        return seatLayout;
+      }
+      const normalizedCapacityTotal =
+        typeof capacityTotal === 'number' && Number.isFinite(capacityTotal)
+          ? Math.max(0, Math.floor(capacityTotal))
+          : 0;
+      if (shape === 'circle') {
+        if (normalizedCapacityTotal > 0) {
+          return { kind: 'circle', count: normalizedCapacityTotal };
+        }
+        return undefined;
+      }
+      if (sideCapacities) {
+        const sides = {
+          north: Math.max(
+            0,
+            Math.min(
+              3,
+              typeof sideCapacities.north === 'number' && Number.isFinite(sideCapacities.north)
+                ? Math.floor(sideCapacities.north)
+                : 0
+            )
+          ),
+          east: Math.max(
+            0,
+            Math.min(
+              3,
+              typeof sideCapacities.east === 'number' && Number.isFinite(sideCapacities.east)
+                ? Math.floor(sideCapacities.east)
+                : 0
+            )
+          ),
+          south: Math.max(
+            0,
+            Math.min(
+              3,
+              typeof sideCapacities.south === 'number' && Number.isFinite(sideCapacities.south)
+                ? Math.floor(sideCapacities.south)
+                : 0
+            )
+          ),
+          west: Math.max(
+            0,
+            Math.min(
+              3,
+              typeof sideCapacities.west === 'number' && Number.isFinite(sideCapacities.west)
+                ? Math.floor(sideCapacities.west)
+                : 0
+            )
+          ),
+        };
+        const sideTotal = sides.north + sides.east + sides.south + sides.west;
+        if (sideTotal > 0) {
+          return { kind: 'rect', sides };
+        }
+      }
+      if (normalizedCapacityTotal > 0) {
+        return { kind: 'circle', count: normalizedCapacityTotal };
+      }
+      return undefined;
+    },
+    []
+  );
   const formatSeatLayoutSummary = (seatLayout?: Table['seatLayout']) => {
     if (!seatLayout) return 'Seat layout: n/a';
     if (seatLayout.kind === 'circle') {
@@ -1239,7 +1311,12 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       sideCapacities:
         selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
       combinableWithIds: selectedTable.combinableWithIds ?? [],
-      seatLayout: selectedTable.seatLayout,
+      seatLayout: deriveSeatLayoutFromTableData({
+        shape: selectedTable.shape,
+        seatLayout: selectedTable.seatLayout,
+        sideCapacities: selectedTable.sideCapacities,
+        capacityTotal,
+      }),
     });
   }, [
     selectedTable?.id,
@@ -1259,41 +1336,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.seatLayout?.sides?.west,
     selectedTable?.shape,
     defaultSideCapacities,
+    deriveSeatLayoutFromTableData,
   ]);
-
-  useEffect(() => {
-    if (!selectedTable || !selectedTableDraft) {
-      return;
-    }
-    const baseCapacityTotal =
-      typeof selectedTable.capacityTotal === 'number' && Number.isFinite(selectedTable.capacityTotal)
-        ? selectedTable.capacityTotal
-        : selectedTable.capacityMax > 0
-        ? selectedTable.capacityMax
-        : selectedTable.minCapacity > 0
-        ? selectedTable.minCapacity
-        : 2;
-    const base = {
-      minCapacity: selectedTable.minCapacity ?? 1,
-      capacityMax: selectedTable.capacityMax ?? Math.max(1, baseCapacityTotal),
-      capacityTotal: baseCapacityTotal,
-      sideCapacities:
-        selectedTable.sideCapacities ?? defaultSideCapacities(baseCapacityTotal),
-      combinableWithIds: selectedTable.combinableWithIds ?? [],
-      seatLayout: selectedTable.seatLayout,
-    };
-    const draft = {
-      minCapacity: selectedTableDraft.minCapacity,
-      capacityMax: selectedTableDraft.capacityMax,
-      capacityTotal: selectedTableDraft.capacityTotal,
-      sideCapacities: selectedTableDraft.sideCapacities,
-      combinableWithIds: selectedTableDraft.combinableWithIds,
-      seatLayout: selectedTableDraft.seatLayout,
-    };
-    if (JSON.stringify(base) !== JSON.stringify(draft)) {
-      setEditorDirty(true);
-    }
-  }, [defaultSideCapacities, selectedTable, selectedTableDraft]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
     return editorTables.filter(
@@ -1352,19 +1396,41 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanDims,
     getRenderPosition,
   ]);
+  const effectiveSelectedSeatLayout = useMemo(() => {
+    if (!selectedTableDraft) return undefined;
+    return deriveSeatLayoutFromTableData({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+  }, [
+    deriveSeatLayoutFromTableData,
+    selectedTableDraft?.shape,
+    selectedTableDraft?.seatLayout?.kind,
+    selectedTableDraft?.seatLayout?.count,
+    selectedTableDraft?.seatLayout?.sides?.north,
+    selectedTableDraft?.seatLayout?.sides?.east,
+    selectedTableDraft?.seatLayout?.sides?.south,
+    selectedTableDraft?.seatLayout?.sides?.west,
+    selectedTableDraft?.sideCapacities.north,
+    selectedTableDraft?.sideCapacities.east,
+    selectedTableDraft?.sideCapacities.south,
+    selectedTableDraft?.sideCapacities.west,
+    selectedTableDraft?.capacityTotal,
+  ]);
   const seatLayoutCapacityTotal = useMemo(() => {
-    if (!selectedTableDraft) return null;
-    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
-    return computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
-  }, [selectedTableDraft?.seatLayout]);
+    if (isSeatLayoutEmpty(effectiveSelectedSeatLayout)) return null;
+    return computeSeatCountFromSeatLayout(effectiveSelectedSeatLayout);
+  }, [effectiveSelectedSeatLayout]);
   const seatLayoutSummary = useMemo(
-    () => formatSeatLayoutSummary(selectedTableDraft?.seatLayout),
-    [selectedTableDraft?.seatLayout]
+    () => formatSeatLayoutSummary(effectiveSelectedSeatLayout),
+    [effectiveSelectedSeatLayout]
   );
   useEffect(() => {
     if (!selectedTableDraft) return;
-    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
-    const nextCapacityTotal = computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+    if (isSeatLayoutEmpty(effectiveSelectedSeatLayout)) return;
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(effectiveSelectedSeatLayout);
     if (nextCapacityTotal === selectedTableDraft.capacityTotal) return;
     setSelectedTableDraft(current =>
       current
@@ -1382,6 +1448,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTableDraft?.seatLayout?.sides?.east,
     selectedTableDraft?.seatLayout?.sides?.south,
     selectedTableDraft?.seatLayout?.sides?.west,
+    effectiveSelectedSeatLayout,
   ]);
   useEffect(() => {
     if (!selectedTableDraft) return;
@@ -2830,11 +2897,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSelectedTableMetadataSave = async () => {
     if (!selectedTableDraft) return;
-    const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+    const effectiveSeatLayout = deriveSeatLayoutFromTableData({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+    const seatLayoutEmpty = isSeatLayoutEmpty(effectiveSeatLayout);
     const capacityTotal = seatLayoutEmpty
       ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
       : sanitizeCapacityValue(
-          computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
+          computeSeatCountFromSeatLayout(effectiveSeatLayout)
         );
     if (seatLayoutEmpty && capacityTotal < 1) {
       setError('A kapacitás megadása kötelező, ha nincs seat layout.');
@@ -2844,7 +2917,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const sideCapSource = seatLayoutEmpty
       ? selectedTableDraft.sideCapacities
       : deriveSideCapacitiesFromSeatLayout(
-          selectedTableDraft.seatLayout,
+          effectiveSeatLayout,
           selectedTableDraft.sideCapacities
         );
     const sideCapacities = {
@@ -2869,8 +2942,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     };
     if (seatLayoutEmpty) {
       payload.seatLayout = deleteField();
-    } else if (selectedTableDraft.seatLayout) {
-      payload.seatLayout = selectedTableDraft.seatLayout;
+    } else if (effectiveSeatLayout) {
+      payload.seatLayout = effectiveSeatLayout;
     }
     await runAction({
       key: `table-meta-${selectedTableDraft.id}`,
@@ -2887,7 +2960,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           });
         }
         await updateTable(unitId, selectedTableDraft.id, payload);
-        const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
+        const seatLayoutForState = seatLayoutEmpty ? undefined : effectiveSeatLayout;
         setTables(current =>
           current.map(table =>
             table.id === selectedTableDraft.id
