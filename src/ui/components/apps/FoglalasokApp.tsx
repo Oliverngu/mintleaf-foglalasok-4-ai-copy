@@ -1954,6 +1954,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
   const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
+  const isFpDebug = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('fpdebug') === '1';
+  }, []);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -1964,6 +1969,19 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       return false;
     }
   }, []);
+  const showDevSeed = isFpDebug;
+  const [seedDate, setSeedDate] = useState(() => toLocalDateKey(new Date()));
+  const [seedCount, setSeedCount] = useState(10);
+  const [seedPartyMin, setSeedPartyMin] = useState(2);
+  const [seedPartyMax, setSeedPartyMax] = useState(4);
+  const [seedStartTime, setSeedStartTime] = useState('18:00');
+  const [seedEndTime, setSeedEndTime] = useState('22:00');
+  const [seedDurationMinutes, setSeedDurationMinutes] = useState(90);
+  const [seedSpacingMinutes, setSeedSpacingMinutes] = useState(15);
+  const [seedRunAllocationAfter, setSeedRunAllocationAfter] = useState(false);
+  const [seedRunning, setSeedRunning] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
+  const [seedSuccess, setSeedSuccess] = useState<string | null>(null);
   const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
   useEffect(() => {
     if (!debugEnabled) return;
@@ -2238,6 +2256,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const overviewDateKey = toLocalDateKey(overviewDate);
   const overviewBookings = bookingsByDate.get(overviewDateKey) || [];
+  useEffect(() => {
+    if (!showDevSeed) return;
+    setSeedDate(overviewDateKey);
+  }, [overviewDateKey, showDevSeed]);
   const previewDate = overviewDate;
 
   const bookingWindow = reservationSettings?.bookableWindow || {
@@ -2516,6 +2538,127 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
     setIsAddModalOpen(false);
   };
+
+  const parseLocalDateTime = useCallback((dateIso: string, hhmm: string) => {
+    const [hRaw, mRaw] = hhmm.split(':');
+    const hours = Number(hRaw);
+    const minutes = Number(mRaw);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    const parsed = new Date(`${dateIso}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    parsed.setHours(Math.max(0, Math.min(23, Math.floor(hours))), Math.max(0, Math.min(59, Math.floor(minutes))), 0, 0);
+    return parsed;
+  }, []);
+
+  const handleSeedBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    if (manualMode.active || isNavLocked) {
+      setSeedError('Seed futtatás közben a manuális mód nem lehet aktív.');
+      return;
+    }
+    const start = parseLocalDateTime(seedDate, seedStartTime);
+    const end = parseLocalDateTime(seedDate, seedEndTime);
+    if (!start || !end || end <= start) {
+      setSeedError('Érvénytelen időablak.');
+      return;
+    }
+    const safeCount = Math.max(1, Math.min(300, Math.floor(seedCount)));
+    const minParty = Math.max(1, Math.floor(Math.min(seedPartyMin, seedPartyMax)));
+    const maxParty = Math.max(minParty, Math.floor(Math.max(seedPartyMin, seedPartyMax)));
+    const duration = Math.max(15, Math.floor(seedDurationMinutes));
+    const spacing = Math.max(5, Math.floor(seedSpacingMinutes));
+    const targetZone =
+      zones.find(zone => zone.isActive !== false && !zone.isEmergency) ??
+      zones.find(zone => zone.isActive !== false) ??
+      zones[0];
+
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      let created = 0;
+      for (let i = 0; i < safeCount; i += 1) {
+        const bookingStart = new Date(start.getTime() + i * spacing * 60000);
+        const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
+        if (bookingEnd > end) break;
+        const partySize =
+          minParty + Math.floor(Math.random() * (Math.max(1, maxParty - minParty + 1)));
+        const payload: Omit<Booking, 'id'> = {
+          unitId: activeUnitId,
+          name: `DEV Seed ${i + 1}`,
+          headcount: partySize,
+          occasion: 'DEV_SEED',
+          source: 'admin',
+          startTime: Timestamp.fromDate(bookingStart),
+          endTime: Timestamp.fromDate(bookingEnd),
+          status: 'confirmed',
+          createdAt: Timestamp.now(),
+          notes: '[DEV_SEED] fpdebug quick seed',
+          ...(targetZone?.id ? { zoneId: targetZone.id } : {}),
+        };
+        await addDoc(collection(db, 'units', activeUnitId, 'reservations'), payload);
+        created += 1;
+      }
+      if (seedRunAllocationAfter && created > 0) {
+        try {
+          await triggerAutoAllocateDay({ unitId: activeUnitId, dateKey: seedDate, mode: 'apply' });
+        } catch (allocErr) {
+          console.error('DEV seed auto-allocate failed', allocErr);
+        }
+      }
+      setSeedSuccess(`${created} db DEV seed foglalás létrehozva (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed failed', err);
+      setSeedError('Nem sikerült seed foglalásokat létrehozni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [
+    activeUnitId,
+    isNavLocked,
+    manualMode.active,
+    parseLocalDateTime,
+    seedCount,
+    seedDate,
+    seedDurationMinutes,
+    seedEndTime,
+    seedPartyMax,
+    seedPartyMin,
+    seedRunAllocationAfter,
+    seedSpacingMinutes,
+    seedStartTime,
+    showDevSeed,
+    zones,
+  ]);
+
+  const handleClearSeededBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      const seeded = bookings.filter(
+        booking =>
+          toLocalDateKey(booking.startTime.toDate()) === seedDate &&
+          booking.notes?.includes('[DEV_SEED]') &&
+          booking.status !== 'cancelled'
+      );
+      for (const booking of seeded) {
+        await updateDoc(doc(db, 'units', activeUnitId, 'reservations', booking.id), {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelReason: 'DEV_SEED_CLEAR',
+          cancelledBy: 'admin',
+        });
+      }
+      setSeedSuccess(`${seeded.length} db DEV seed foglalás törölve (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed clear failed', err);
+      setSeedError('Nem sikerült a DEV seed foglalásokat törölni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [activeUnitId, bookings, seedDate, showDevSeed]);
 
   const handleConfirmDelete = async (reason: string) => {
     if (!bookingToDelete || !activeUnitId) return;
@@ -2899,6 +3042,46 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         </button>
                       )}
                     </div>
+                    {showDevSeed && (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-3 text-xs text-amber-900 space-y-2">
+                        {/* DEV: fpdebug seed tool (local testing only) */}
+                        <div className="font-semibold uppercase tracking-wide">DEV Seed bookings (fpdebug=1)</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">Dátum<input type="date" value={seedDate} onChange={e => setSeedDate(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Db<input type="number" min={1} max={300} value={seedCount} onChange={e => setSeedCount(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party min<input type="number" min={1} value={seedPartyMin} onChange={e => setSeedPartyMin(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party max<input type="number" min={1} value={seedPartyMax} onChange={e => setSeedPartyMax(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Kezdés<input type="time" value={seedStartTime} onChange={e => setSeedStartTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Vége<input type="time" value={seedEndTime} onChange={e => setSeedEndTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Időtartam (perc)<input type="number" min={15} value={seedDurationMinutes} onChange={e => setSeedDurationMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Lépésköz (perc)<input type="number" min={5} value={seedSpacingMinutes} onChange={e => setSeedSpacingMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                        </div>
+                        <label className="inline-flex items-center gap-2">
+                          <input type="checkbox" checked={seedRunAllocationAfter} onChange={e => setSeedRunAllocationAfter(e.target.checked)} />
+                          Seed után auto-allocate (apply)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSeedBookings}
+                            disabled={seedRunning || manualMode.active || isNavLocked}
+                            className="rounded-full bg-amber-600 px-3 py-1.5 text-white font-semibold disabled:opacity-60"
+                          >
+                            {seedRunning ? 'Futtatás...' : 'Seed bookings'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearSeededBookings}
+                            disabled={seedRunning}
+                            className="rounded-full border border-amber-400 px-3 py-1.5 font-semibold text-amber-900 disabled:opacity-60"
+                          >
+                            Clear seeded ({seedDate})
+                          </button>
+                        </div>
+                        {seedError && <div className="text-red-700">{seedError}</div>}
+                        {seedSuccess && <div className="text-emerald-700">{seedSuccess}</div>}
+                      </div>
+                    )}
                     <div className="hidden lg:block" style={{ height: leftColumnSpacerHeight }} />
                     <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
