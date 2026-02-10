@@ -41,6 +41,8 @@ const HorizontalWheelPicker = <T,>({
   const scrollEndTimeoutRef = useRef<number | null>(null);
   const initialCenteredRef = useRef(false);
   const isUserScrollingRef = useRef(false);
+  const lastClickSelectKeyRef = useRef<string | null>(null);
+  const lastClickSelectAtRef = useRef<number>(0);
   const scrollEndDebounceMs = 140;
   const programmaticTimeoutRef = useRef<number | null>(null);
 
@@ -130,15 +132,16 @@ const HorizontalWheelPicker = <T,>({
       applyWheelEffect();
       if (!infinite) return;
       if (programmaticRef.current) return;
+      if (!isUserScrollingRef.current) return;
       const blockWidth = blockWidthRef.current ?? computeBlockWidth();
       if (!blockWidth) return;
       const threshold = blockWidth * 0.35;
       const maxScroll = container.scrollWidth - container.clientWidth;
       if (container.scrollLeft < threshold) {
-        setProgrammaticFor(60);
+        setProgrammaticFor(140);
         container.scrollLeft = container.scrollLeft + blockWidth;
       } else if (container.scrollLeft > maxScroll - threshold) {
-        setProgrammaticFor(60);
+        setProgrammaticFor(140);
         container.scrollLeft = container.scrollLeft - blockWidth;
       }
     });
@@ -165,10 +168,18 @@ const HorizontalWheelPicker = <T,>({
 
   useEffect(() => {
     if (infinite && isUserScrollingRef.current) return;
+    if (
+      infinite &&
+      lastClickSelectKeyRef.current === selectedKey &&
+      Date.now() - lastClickSelectAtRef.current < 650
+    ) {
+      return;
+    }
     if (infinite && !initialCenteredRef.current) return;
-    setProgrammaticFor(200);
+    setProgrammaticFor(600);
     centerSelected('smooth');
-  }, [centerSelected, infinite, selectedKey, setProgrammaticFor]);
+    applyWheelEffect();
+  }, [applyWheelEffect, centerSelected, infinite, selectedKey, setProgrammaticFor]);
 
   useEffect(() => {
     if (initialCenteredRef.current) return;
@@ -231,20 +242,22 @@ const HorizontalWheelPicker = <T,>({
                 if (container && blockWidth) {
                   const deltaBlocks = blockIndex - middleBlock;
                   if (deltaBlocks !== 0) {
-                    setProgrammaticFor(120);
+                    setProgrammaticFor(180);
                     container.scrollLeft -= deltaBlocks * blockWidth;
                   }
-                  const target = getItemElement(itemKey, middleBlock);
-                  if (target) {
-                    setProgrammaticFor(220);
-                    target.scrollIntoView({
-                      inline: 'center',
-                      block: 'nearest',
-                      behavior: 'smooth',
-                    });
-                  }
+                }
+                const target = getItemElement(itemKey, middleBlock);
+                if (target) {
+                  setProgrammaticFor(600);
+                  target.scrollIntoView({
+                    inline: 'center',
+                    block: 'nearest',
+                    behavior: 'smooth',
+                  });
                 }
               }
+              lastClickSelectKeyRef.current = itemKey;
+              lastClickSelectAtRef.current = Date.now();
               onSelect(itemKey);
             }}
             className={`shrink-0 transition ${extraClass ?? ''}`}

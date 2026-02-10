@@ -2849,9 +2849,9 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                 }
                 renderLabel={day => day}
               />
-              <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-                <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="grid min-w-0 gap-6 lg:grid-cols-[1.4fr_1fr]">
+                <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3 md:justify-between">
                     <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
                       Mai foglalások
                     </div>
@@ -2871,7 +2871,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </button>
                     </div>
                   </div>
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 min-w-0 space-y-2">
                     {sortedOverviewBookings.map(booking => {
                       const start = booking.startTime?.toDate?.();
                       const end = booking.endTime?.toDate?.();
@@ -2944,7 +2944,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                               </div>
                             </button>
                             <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:justify-between">
-                              <div className="flex flex-wrap items-center gap-2">
+                              <div
+                                className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden md:flex-wrap md:whitespace-normal"
+                                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                              >
                                 {isLocked && (
                                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                     LOCKED
@@ -2995,17 +2998,22 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                     )}
                   </div>
                 </div>
-                <div className="space-y-3">
+                <div className="min-w-0 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="text-sm font-semibold text-[var(--color-text-main)]">
                       {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
                     </div>
                   </div>
-                  <div className="relative rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
+                  <div className="relative w-full max-w-full overflow-hidden rounded-2xl border border-emerald-200 bg-white px-3 py-3 shadow-sm">
                     <div
                       ref={timelineRef}
-                      className="relative overflow-x-auto"
-                      style={{ paddingLeft: timelinePadding, paddingRight: timelinePadding }}
+                      className="relative overflow-x-auto [&::-webkit-scrollbar]:hidden"
+                      style={{
+                        paddingLeft: timelinePadding,
+                        paddingRight: timelinePadding,
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                      }}
                       onScroll={event => {
                         if (manualMode.active) return;
                         if (timelineProgrammaticRef.current) return;
