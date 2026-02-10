@@ -2005,7 +2005,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const abortDragRef = useRef(abortDrag);
 
-  const isDirty = settingsDirty || editorDirty;
+  const selectedTableSourceForMeta = useMemo(() => {
+    if (!selectedTableDraft) return null;
+    return tables.find(table => table.id === selectedTableDraft.id) ?? null;
+  }, [selectedTableDraft, tables]);
+
+  const isSelectedTableMetaDirty = useMemo(() => {
+    if (!selectedTableDraft || !selectedTableSourceForMeta) return false;
+    const normalizeCombos = (ids: string[] | undefined) => [...(ids ?? [])].sort();
+    const normalizedDraftSeatLayout = normalizeSeatLayoutFromTable({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+    const normalizedSourceSeatLayout = normalizeSeatLayoutFromTable({
+      shape: selectedTableSourceForMeta.shape,
+      seatLayout: selectedTableSourceForMeta.seatLayout,
+      sideCapacities: selectedTableSourceForMeta.sideCapacities,
+      capacityTotal: selectedTableSourceForMeta.capacityTotal,
+    });
+    return (
+      selectedTableDraft.minCapacity !== (selectedTableSourceForMeta.minCapacity ?? 1) ||
+      selectedTableDraft.capacityMax !== (selectedTableSourceForMeta.capacityMax ?? 1) ||
+      selectedTableDraft.capacityTotal !== (selectedTableSourceForMeta.capacityTotal ?? 0) ||
+      selectedTableDraft.sideCapacities.north !== (selectedTableSourceForMeta.sideCapacities?.north ?? 0) ||
+      selectedTableDraft.sideCapacities.east !== (selectedTableSourceForMeta.sideCapacities?.east ?? 0) ||
+      selectedTableDraft.sideCapacities.south !== (selectedTableSourceForMeta.sideCapacities?.south ?? 0) ||
+      selectedTableDraft.sideCapacities.west !== (selectedTableSourceForMeta.sideCapacities?.west ?? 0) ||
+      JSON.stringify(normalizedDraftSeatLayout ?? null) !==
+        JSON.stringify(normalizedSourceSeatLayout ?? null) ||
+      JSON.stringify(normalizeCombos(selectedTableDraft.combinableWithIds)) !==
+        JSON.stringify(normalizeCombos(selectedTableSourceForMeta.combinableWithIds))
+    );
+  }, [normalizeSeatLayoutFromTable, selectedTableDraft, selectedTableSourceForMeta]);
+
+  const isDirty = settingsDirty || editorDirty || isSelectedTableMetaDirty;
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
@@ -2210,6 +2245,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!settings || actionSavingRef.current['settings-save'] || actionSaving['settings-save']) {
       return;
     }
+
+    let savedMetaInSaveAll = false;
+    if (isSelectedTableMetaDirty) {
+      const saveData = buildSelectedTableMetaSaveData();
+      if (!saveData) {
+        return;
+      }
+      savedMetaInSaveAll = await persistSelectedTableMetaData(saveData, {
+        actionKey: `table-meta-save-all-${saveData.tableId}`,
+      });
+      if (!savedMetaInSaveAll) {
+        return;
+      }
+    }
+
+    if (debugEnabled) {
+      console.debug('[seating] save-all flow', {
+        savedMetaInSaveAll,
+        settingsDirty,
+        editorDirty,
+      });
+    }
+
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
     normalizedSettingsRef.current = null;
@@ -2908,8 +2966,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     unitId,
   ]);
 
-  const handleSelectedTableMetadataSave = async () => {
-    if (!selectedTableDraft) return;
+  const buildSelectedTableMetaSaveData = useCallback(() => {
+    if (!selectedTableDraft) return null;
     const effectiveSeatLayout = normalizeSeatLayoutFromTable({
       shape: selectedTableDraft.shape,
       seatLayout: selectedTableDraft.seatLayout,
@@ -2919,29 +2977,22 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const seatLayoutEmpty = isSeatLayoutEmpty(effectiveSeatLayout);
     const capacityTotal = seatLayoutEmpty
       ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
-      : sanitizeCapacityValue(
-          computeSeatCountFromSeatLayout(effectiveSeatLayout)
-        );
+      : sanitizeCapacityValue(computeSeatCountFromSeatLayout(effectiveSeatLayout));
     if (seatLayoutEmpty && capacityTotal < 1) {
       setError('A kapacitás megadása kötelező, ha nincs seat layout.');
       setSuccess(null);
-      return;
+      return null;
     }
     const sideCapSource = seatLayoutEmpty
       ? selectedTableDraft.sideCapacities
-      : deriveSideCapacitiesFromSeatLayout(
-          effectiveSeatLayout,
-          selectedTableDraft.sideCapacities
-        );
+      : deriveSideCapacitiesFromSeatLayout(effectiveSeatLayout, selectedTableDraft.sideCapacities);
     const sideCapacities = {
       north: sanitizeCapacityValue(sideCapSource.north),
       east: sanitizeCapacityValue(sideCapSource.east),
       south: sanitizeCapacityValue(sideCapSource.south),
       west: sanitizeCapacityValue(sideCapSource.west),
     };
-    const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
-      id => id !== selectedTableDraft.id
-    );
+    const combinableWithIds = selectedTableDraft.combinableWithIds.filter(id => id !== selectedTableDraft.id);
     const requestedMax = sanitizeCapacityValue(selectedTableDraft.capacityMax);
     const requestedMin = sanitizeCapacityValue(selectedTableDraft.minCapacity);
     const capacityMax = Math.max(requestedMax, capacityTotal, 1);
@@ -2958,59 +3009,86 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     } else if (effectiveSeatLayout) {
       payload.seatLayout = effectiveSeatLayout;
     }
-    await runAction({
-      key: `table-meta-${selectedTableDraft.id}`,
-      errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
-      errorContext: 'Error saving table capacity metadata:',
+    return {
+      tableId: selectedTableDraft.id,
+      payload,
+      minCapacity,
+      capacityMax,
+      capacityTotal,
+      sideCapacities,
+      combinableWithIds,
+      seatLayoutForState: seatLayoutEmpty ? undefined : effectiveSeatLayout,
+      seatLayoutEmpty,
+    };
+  }, [
+    computeSeatCountFromSeatLayout,
+    deriveSideCapacitiesFromSeatLayout,
+    normalizeSeatLayoutFromTable,
+    selectedTableDraft,
+  ]);
+
+  const persistSelectedTableMetaData = useCallback(
+    async (
+      data: NonNullable<ReturnType<typeof buildSelectedTableMetaSaveData>>,
+      options?: { actionKey?: string; successMessage?: string }
+    ) => {
+      let didSave = false;
+      await runAction({
+        key: options?.actionKey ?? `table-meta-${data.tableId}`,
+        errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
+        errorContext: 'Error saving table capacity metadata:',
+        successMessage: options?.successMessage,
+        action: async () => {
+          if (debugEnabled) {
+            console.debug('[seating] saving table meta payload', {
+              tableId: data.tableId,
+              payloadKeys: Object.keys(data.payload),
+              seatLayoutEmpty: data.seatLayoutEmpty,
+              context: options?.actionKey ?? 'table-meta',
+            });
+          }
+          await updateTable(unitId, data.tableId, data.payload);
+          setTables(current =>
+            current.map(table =>
+              table.id === data.tableId
+                ? {
+                    ...table,
+                    minCapacity: data.minCapacity,
+                    capacityMax: data.capacityMax,
+                    capacityTotal: data.capacityTotal,
+                    sideCapacities: data.sideCapacities,
+                    combinableWithIds: data.combinableWithIds,
+                    seatLayout: data.seatLayoutForState,
+                  }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== data.tableId) return current;
+            return {
+              ...current,
+              minCapacity: data.minCapacity,
+              capacityMax: data.capacityMax,
+              capacityTotal: data.capacityTotal,
+              sideCapacities: data.sideCapacities,
+              combinableWithIds: data.combinableWithIds,
+              seatLayout: data.seatLayoutForState,
+            };
+          });
+          didSave = true;
+        },
+      });
+      return didSave;
+    },
+    [debugEnabled, runAction, unitId, buildSelectedTableMetaSaveData]
+  );
+
+  const handleSelectedTableMetadataSave = async () => {
+    const saveData = buildSelectedTableMetaSaveData();
+    if (!saveData) return;
+    await persistSelectedTableMetaData(saveData, {
+      actionKey: `table-meta-${saveData.tableId}`,
       successMessage: 'Asztal kapacitás mentve.',
-      action: async () => {
-        if (debugEnabled) {
-          console.debug('[seating] saving table meta payload', {
-            tableId: selectedTableDraft.id,
-            seatLayout: payload.seatLayout,
-            capacityTotal,
-            sideCapacities,
-          });
-        }
-        await updateTable(unitId, selectedTableDraft.id, payload);
-        const seatLayoutForState = seatLayoutEmpty ? undefined : effectiveSeatLayout;
-        setTables(current =>
-          current.map(table =>
-            table.id === selectedTableDraft.id
-              ? {
-                  ...table,
-                  minCapacity,
-                  capacityMax,
-                  capacityTotal,
-                  sideCapacities,
-                  combinableWithIds,
-                  seatLayout: seatLayoutForState,
-                }
-              : table
-          )
-        );
-        setSelectedTableDraft(current => {
-          if (!current || current.id !== selectedTableDraft.id) return current;
-          return {
-            ...current,
-            minCapacity,
-            capacityMax,
-            capacityTotal,
-            sideCapacities,
-            combinableWithIds,
-            seatLayout: seatLayoutForState,
-          };
-        });
-        if (debugEnabled) {
-          console.debug('[seating] table meta saved', {
-            tableId: selectedTableDraft.id,
-            payloadKeys: Object.keys(payload),
-            seatLayoutEmpty,
-            capacityTotal,
-            seatLayoutAction: seatLayoutEmpty ? 'deleted' : 'set',
-          });
-        }
-      },
     });
   };
 
