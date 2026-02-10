@@ -560,6 +560,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedTableDraft, setSelectedTableDraft] = useState<{
     id: string;
     shape?: Table['shape'];
+    minCapacity: number;
+    capacityMax: number;
     capacityTotal: number;
     sideCapacities: { north: number; east: number; south: number; west: number };
     combinableWithIds: string[];
@@ -1116,6 +1118,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table.id === selectedTableDraft.id
         ? {
             ...table,
+            minCapacity: selectedTableDraft.minCapacity,
+            capacityMax: selectedTableDraft.capacityMax,
             capacityTotal: selectedTableDraft.capacityTotal,
             sideCapacities: selectedTableDraft.sideCapacities,
             combinableWithIds: selectedTableDraft.combinableWithIds,
@@ -1229,6 +1233,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedTableDraft({
       id: selectedTable.id,
       shape: selectedTable.shape ?? 'rect',
+      minCapacity: selectedTable.minCapacity ?? 1,
+      capacityMax: selectedTable.capacityMax ?? Math.max(1, capacityTotal),
       capacityTotal,
       sideCapacities:
         selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
@@ -2681,6 +2687,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           minCapacity: nextMin > 0 ? nextMin : normalizedMax,
         };
       });
+      setSelectedTableDraft(current => {
+        if (!current || current.id !== tableId) return current;
+        const minCapacity = sanitizeCapacityValue(current.minCapacity ?? 0);
+        const nextMin = minCapacity > normalizedMax ? normalizedMax : minCapacity;
+        return {
+          ...current,
+          capacityMax: normalizedMax,
+          minCapacity: nextMin > 0 ? nextMin : normalizedMax,
+        };
+      });
     },
     [sanitizeCapacityValue, tableCreateDraft?.id]
   );
@@ -2806,17 +2822,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
       id => id !== selectedTableDraft.id
     );
+    const requestedMax = sanitizeCapacityValue(selectedTableDraft.capacityMax);
+    const requestedMin = sanitizeCapacityValue(selectedTableDraft.minCapacity);
+    const capacityMax = Math.max(requestedMax, capacityTotal, 1);
+    const minCapacity = Math.max(1, Math.min(requestedMin || 1, capacityMax));
     const payload: Record<string, unknown> = {
+      minCapacity,
+      capacityMax,
       capacityTotal,
       sideCapacities,
       combinableWithIds,
     };
-    if (selectedTable?.capacityMax) {
-      payload.capacityMax = selectedTable.capacityMax;
-    }
-    if (selectedTable?.minCapacity) {
-      payload.minCapacity = selectedTable.minCapacity;
-    }
     if (seatLayoutEmpty) {
       payload.seatLayout = deleteField();
     } else if (selectedTableDraft.seatLayout) {
@@ -2843,6 +2859,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             table.id === selectedTableDraft.id
               ? {
                   ...table,
+                  minCapacity,
+                  capacityMax,
                   capacityTotal,
                   sideCapacities,
                   combinableWithIds,
@@ -2855,6 +2873,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
           if (!current || current.id !== selectedTableDraft.id) return current;
           return {
             ...current,
+            minCapacity,
+            capacityMax,
             capacityTotal,
             sideCapacities,
             combinableWithIds,
@@ -5753,6 +5773,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setTableCreateDraft({
         ...tableCreateDraft,
+        capacityMax:
+          nextDraft.capacityTotal > tableCreateDraft.capacityMax
+            ? nextDraft.capacityTotal
+            : tableCreateDraft.capacityMax,
+        minCapacity:
+          tableCreateDraft.minCapacity > tableCreateDraft.capacityMax
+            ? tableCreateDraft.capacityMax
+            : tableCreateDraft.minCapacity,
         seatLayout: nextDraft.seatLayout,
         sideCapacities: nextDraft.sideCapacities,
         capacityTotal: nextDraft.capacityTotal,
@@ -5762,7 +5790,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!selectedTableDraft || selectedTableDraft.id !== tableId) return;
     const nextDraft = computeSeatAdjustment(selectedTableDraft, side, 1);
     if (!nextDraft) return;
-    const maxCapacity = sanitizeCapacityValue(selectedTable?.capacityMax ?? 0);
+    const maxCapacity = sanitizeCapacityValue(selectedTableDraft.capacityMax ?? 0);
     if (maxCapacity > 0 && nextDraft.capacityTotal > maxCapacity) {
       queueSeatIncreaseConfirm({
         tableId,
@@ -5859,6 +5887,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         if (!current || current.id !== tableId) return current;
         return {
           ...current,
+          capacityMax: newMax,
+          minCapacity:
+            (current.minCapacity ?? 1) > newMax ? newMax : current.minCapacity ?? 1,
           seatLayout: nextSeatLayout,
           sideCapacities: nextSideCapacities,
           capacityTotal: nextCapacityTotal,
@@ -5869,6 +5900,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         if (!current || current.id !== tableId) return current;
         return {
           ...current,
+          capacityMax: newMax,
+          minCapacity: current.minCapacity > newMax ? newMax : current.minCapacity,
           seatLayout: nextSeatLayout,
           sideCapacities: nextSideCapacities,
           capacityTotal: nextCapacityTotal,
@@ -5892,6 +5925,37 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       capacityTotal: next.capacityTotal,
     };
   }
+
+  const refitEditViewport = useCallback(() => {
+    if (!isEditMode) return;
+    if (dragStateRef.current || obstacleDragRef.current) return;
+    setViewportMode('fit');
+    applyTransformOverride('edit-refit', null);
+  }, [applyTransformOverride, isEditMode]);
+
+  useLayoutEffect(() => {
+    refitEditViewport();
+  }, [advancedOpen, refitEditViewport, resolvedActiveFloorplanId, floorplanW, floorplanH]);
+
+  useLayoutEffect(() => {
+    if (!isEditMode) return;
+    const viewport = floorplanViewportRef.current;
+    const container = floorplanContainerRef.current;
+    const onResize = () => {
+      refitEditViewport();
+    };
+    window.addEventListener('resize', onResize);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(onResize);
+      if (viewport) observer.observe(viewport);
+      if (container) observer.observe(container);
+    }
+    return () => {
+      window.removeEventListener('resize', onResize);
+      observer?.disconnect();
+    };
+  }, [isEditMode, refitEditViewport]);
   
   const renderSelectedTablePopover = (transform: {
     scale: number;
