@@ -103,13 +103,24 @@ export const triggerAutoAllocateDay = async ({
     { unitId: string; dateKey: string; mode: AutoAllocateDayMode; force?: boolean },
     AutoAllocateDayResult
   >(functions, 'adminTriggerAutoAllocateDayCallable');
+  try {
+    const result = await callable({
+      unitId,
+      dateKey,
+      mode,
+      force,
+    });
 
-  const result = await callable({
-    unitId,
-    dateKey,
-    mode,
-    force,
-  });
-
-  return result.data;
+    return result.data;
+  } catch (error) {
+    const maybeError = error as { message?: string; details?: unknown };
+    const detailsText =
+      typeof maybeError?.details === 'string'
+        ? maybeError.details
+        : maybeError?.details
+        ? JSON.stringify(maybeError.details)
+        : '';
+    const message = [maybeError?.message, detailsText].filter(Boolean).join(' | ');
+    throw new Error(message || 'AUTO_ALLOCATE_FAILED');
+  }
 };

@@ -3614,7 +3614,7 @@ async function runAdminAutoAllocateDay({
     const overrideRefs = rows.map(row => overrideCollection.doc(row.id));
     for (let i = 0; i < overrideRefs.length; i += 300) {
       const chunk = overrideRefs.slice(i, i + 300);
-      const overrideDocs = await db.getAll(...chunk);
+      const overrideDocs = await Promise.all(chunk.map(ref => ref.get()));
       overrideDocs.forEach(overrideDoc => {
         if (overrideDoc.exists) {
           overrideBookingIds.add(overrideDoc.id);
@@ -3938,8 +3938,12 @@ export const adminTriggerAutoAllocateDay = onRequest(
         res.status(status).json({ error: err.message || 'Szerverhiba' });
         return;
       }
-      logger.error('adminTriggerAutoAllocateDay error', err);
-      res.status(500).json({ error: 'Szerverhiba' });
+      const correlationId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      logger.error('adminTriggerAutoAllocateDay error', {
+        correlationId,
+        error: serializeError(err),
+      });
+      res.status(500).json({ error: 'Szerverhiba', correlationId });
     }
   }
 );
@@ -3982,8 +3986,17 @@ export const adminTriggerAutoAllocateDayCallable = onCall(
       if (err instanceof HttpsError) {
         throw err;
       }
-      logger.error('adminTriggerAutoAllocateDayCallable error', err);
-      throw new HttpsError('internal', 'Szerverhiba');
+      const serializedError = serializeError(err);
+      const serializedText =
+        typeof serializedError === 'string' ? serializedError : JSON.stringify(serializedError);
+      const safeDebug =
+        serializedText.length > 800 ? `${serializedText.slice(0, 799)}…` : serializedText;
+      logger.error('adminTriggerAutoAllocateDayCallable error', {
+        error: safeDebug,
+      });
+      throw new HttpsError('internal', 'Auto-allocate internal error', {
+        debug: safeDebug,
+      });
     }
   }
 );
