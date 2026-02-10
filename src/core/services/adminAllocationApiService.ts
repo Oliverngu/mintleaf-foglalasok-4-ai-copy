@@ -1,4 +1,5 @@
-import { auth } from '../firebase/config';
+import { auth, functions } from '../firebase/config';
+import { httpsCallable } from 'firebase/functions';
 
 export type AllocationOverridePayload = {
   enabled: boolean;
@@ -98,26 +99,17 @@ export const triggerAutoAllocateDay = async ({
     throw new Error('UNAUTHENTICATED');
   }
 
-  const idToken = await user.getIdToken();
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/adminTriggerAutoAllocateDay`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({
-      unitId,
-      dateKey,
-      mode,
-      force,
-    }),
+  const callable = httpsCallable<
+    { unitId: string; dateKey: string; mode: AutoAllocateDayMode; force?: boolean },
+    AutoAllocateDayResult
+  >(functions, 'adminTriggerAutoAllocateDayCallable');
+
+  const result = await callable({
+    unitId,
+    dateKey,
+    mode,
+    force,
   });
 
-  if (!response.ok) {
-    const error = new Error('AUTO_ALLOCATE_FAILED');
-    (error as any).status = response.status;
-    throw error;
-  }
-
-  return response.json();
+  return result.data;
 };

@@ -3838,6 +3838,54 @@ export const adminTriggerAutoAllocateDay = onRequest(
   }
 );
 
+
+export const adminTriggerAutoAllocateDayCallable = onCall(
+  { region: REGION },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Unauthorized');
+    }
+
+    const authHeader = request.rawRequest.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new HttpsError('unauthenticated', 'Unauthorized');
+    }
+
+    const payload = request.data || {};
+    const projectId = process.env.GCLOUD_PROJECT || process.env.PROJECT_ID;
+    if (!projectId) {
+      throw new HttpsError('internal', 'Missing project configuration');
+    }
+
+    const endpoint = `https://${REGION}-${projectId}.cloudfunctions.net/adminTriggerAutoAllocateDay`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const bodyText = await response.text();
+      const message = bodyText || 'Auto allocate failed';
+      if (response.status === 400) {
+        throw new HttpsError('invalid-argument', message);
+      }
+      if (response.status === 401) {
+        throw new HttpsError('unauthenticated', message);
+      }
+      if (response.status === 403) {
+        throw new HttpsError('permission-denied', message);
+      }
+      throw new HttpsError('internal', message);
+    }
+
+    return response.json();
+  }
+);
+
 interface BookingRecord {
   unitId?: string;
   name?: string;
