@@ -1236,8 +1236,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       setSelectedTableId(tableId);
+      if (!isEditMode) {
+        return;
+      }
+      if (isManualZoomLocked()) {
+        return;
+      }
+      if (dragStateRef.current || obstacleDragRef.current) {
+        return;
+      }
+      setViewportMode('selected');
+      requestAnimationFrame(() => {
+        const scale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
+        scheduleRecenterSelectedTableRef.current?.(scale);
+      });
     },
-    [comboMode.active, setEditorDirty]
+    [
+      activeFloorplanTransform.scale,
+      comboMode.active,
+      getSelectedTableScale,
+      isEditMode,
+      isManualZoomLocked,
+      setEditorDirty,
+    ]
   );
   const handleZoomOutFit = useCallback(() => {
     lockManualZoom();
@@ -1250,8 +1271,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!selectedEditorTable) return;
     lockManualZoom();
     setViewportMode('selected');
-    scheduleRecenterSelectedTableRef.current?.();
-  }, [lockManualZoom, selectedEditorTable]);
+    const scale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
+    scheduleRecenterSelectedTableRef.current?.(scale);
+  }, [activeFloorplanTransform.scale, getSelectedTableScale, lockManualZoom, selectedEditorTable]);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (comboMode.active) {
