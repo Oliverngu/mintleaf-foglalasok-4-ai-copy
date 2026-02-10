@@ -118,6 +118,14 @@ function formatDebugError(info: DebugErrorInfo) {
   }
 }
 
+
+function toLocalDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 const resolveAllocationReasonLabel = (reason?: string | null) => {
   if (!reason) return 'Nincs elérhető magyarázat.';
   switch (reason) {
@@ -2214,32 +2222,6 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
     return () => unsubLogs();
   }, [activeUnitId]);
-
-  const toLocalDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const parseTimeToMinutes = (timeValue: string) => {
-    const [hours, minutes] = timeValue.split(':').map(Number);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-    return hours * 60 + minutes;
-  };
-
-  const formatMinutes = (minutes: number) => {
-    const safe = Math.max(0, minutes);
-    const hours = String(Math.floor(safe / 60)).padStart(2, '0');
-    const mins = String(safe % 60).padStart(2, '0');
-    return `${hours}:${mins}`;
-  };
-  const clampDayInMonth = (year: number, month: number, day: number) => {
-    const maxDay = new Date(year, month + 1, 0).getDate();
-    return Math.min(Math.max(day, 1), maxDay);
-  };
-  const clampWindowStart = (minutes: number, min: number, max: number) =>
-    Math.min(Math.max(minutes, min), max);
 
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
