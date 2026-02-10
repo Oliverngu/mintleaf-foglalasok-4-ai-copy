@@ -2711,6 +2711,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     window.open(`/reserve?unit=${activeUnitId}`, '_blank');
   };
 
+  const normalizeUnknownError = (err: unknown) => {
+    const trimTo = (value: string, max: number) =>
+      value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+    if (err instanceof Error) {
+      const summary = trimTo(`${err.name || 'Error'}: ${err.message || 'Ismeretlen hiba'}`, 280);
+      const detailParts = [err.stack, err.cause ? `cause: ${safeStringify(err.cause)}` : ''].filter(Boolean);
+      const details = trimTo(detailParts.join('\n\n') || 'Nincs további részlet.', 700);
+      return { summary, details };
+    }
+
+    if (typeof err === 'string') {
+      return {
+        summary: trimTo(err || 'Ismeretlen hiba', 280),
+        details: trimTo(err || 'Nincs további részlet.', 700),
+      };
+    }
+
+    const serialized = safeStringify(err);
+    return {
+      summary: 'Ismeretlen hiba történt az automatikus ültetés során.',
+      details: trimTo(serialized || 'Nincs további részlet.', 700),
+    };
+  };
+
   const handleAutoAllocateDay = async () => {
     if (!activeUnitId) return;
     setAutoAllocateRunning(true);
@@ -2723,8 +2748,28 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       });
       setAutoAllocateSummary(result);
     } catch (err) {
-      console.error('Auto-allocate failed', err);
-      setAutoAllocateError('Nem sikerült lefuttatni az automatikus ültetést.');
+      const normalizedError = normalizeUnknownError(err);
+      const errorMessage = `Auto-allocate failed: ${normalizedError.summary}\n${normalizedError.details}`.slice(
+        0,
+        1000
+      );
+      console.error('[autoAllocate] failed', {
+        summary: normalizedError.summary,
+        details: normalizedError.details,
+        err,
+      });
+      if (isFpDebug) {
+        console.debug('[autoAllocate] context', {
+          unitId: activeUnitId,
+          dateKey: overviewDateKey,
+          mode: autoAllocateDryRun ? 'dryRun' : 'apply',
+          bookingCountForDay: overviewBookings.length,
+          hasZones: zones.length > 0,
+          hasTables: tables.length > 0,
+          hasSeatingSettings: Boolean(reservationSettings),
+        });
+      }
+      setAutoAllocateError(errorMessage);
     } finally {
       setAutoAllocateRunning(false);
     }
