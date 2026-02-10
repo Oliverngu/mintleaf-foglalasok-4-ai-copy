@@ -1970,6 +1970,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   }, []);
   const showDevSeed = isFpDebug;
+  const canRunSeedAutoAllocate = typeof triggerAutoAllocateDay === 'function';
   const [seedDate, setSeedDate] = useState(() => toLocalDateKey(new Date()));
   const [seedCount, setSeedCount] = useState(10);
   const [seedPartyMin, setSeedPartyMin] = useState(2);
@@ -2540,14 +2541,32 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   };
 
   const parseLocalDateTime = useCallback((dateIso: string, hhmm: string) => {
-    const [hRaw, mRaw] = hhmm.split(':');
+    const [yRaw, mRaw, dRaw] = dateIso.split('-');
+    const [hRaw, minRaw] = hhmm.split(':');
+    const year = Number(yRaw);
+    const month = Number(mRaw);
+    const day = Number(dRaw);
     const hours = Number(hRaw);
-    const minutes = Number(mRaw);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-    const parsed = new Date(`${dateIso}T00:00:00`);
-    if (Number.isNaN(parsed.getTime())) return null;
-    parsed.setHours(Math.max(0, Math.min(23, Math.floor(hours))), Math.max(0, Math.min(59, Math.floor(minutes))), 0, 0);
-    return parsed;
+    const minutes = Number(minRaw);
+    if (
+      !Number.isFinite(year) ||
+      !Number.isFinite(month) ||
+      !Number.isFinite(day) ||
+      !Number.isFinite(hours) ||
+      !Number.isFinite(minutes)
+    ) {
+      return null;
+    }
+    const parsed = new Date(
+      year,
+      Math.max(0, Math.min(11, Math.floor(month - 1))),
+      Math.max(1, Math.min(31, Math.floor(day))),
+      Math.max(0, Math.min(23, Math.floor(hours))),
+      Math.max(0, Math.min(59, Math.floor(minutes))),
+      0,
+      0
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, []);
 
   const handleSeedBookings = useCallback(async () => {
@@ -2599,7 +2618,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         await addDoc(collection(db, 'units', activeUnitId, 'reservations'), payload);
         created += 1;
       }
-      if (seedRunAllocationAfter && created > 0) {
+      if (seedRunAllocationAfter && canRunSeedAutoAllocate && created > 0) {
         try {
           await triggerAutoAllocateDay({ unitId: activeUnitId, dateKey: seedDate, mode: 'apply' });
         } catch (allocErr) {
@@ -2615,6 +2634,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   }, [
     activeUnitId,
+    canRunSeedAutoAllocate,
     isNavLocked,
     manualMode.active,
     parseLocalDateTime,
@@ -2640,7 +2660,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       const seeded = bookings.filter(
         booking =>
           toLocalDateKey(booking.startTime.toDate()) === seedDate &&
-          booking.notes?.includes('[DEV_SEED]') &&
+          (booking.notes?.includes('[DEV_SEED]') || booking.name.startsWith('DEV Seed ')) &&
           booking.status !== 'cancelled'
       );
       for (const booking of seeded) {
@@ -3057,7 +3077,12 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                           <label className="space-y-1">Lépésköz (perc)<input type="number" min={5} value={seedSpacingMinutes} onChange={e => setSeedSpacingMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
                         </div>
                         <label className="inline-flex items-center gap-2">
-                          <input type="checkbox" checked={seedRunAllocationAfter} onChange={e => setSeedRunAllocationAfter(e.target.checked)} />
+                          <input
+                            type="checkbox"
+                            checked={seedRunAllocationAfter}
+                            onChange={e => setSeedRunAllocationAfter(e.target.checked)}
+                            disabled={!canRunSeedAutoAllocate}
+                          />
                           Seed után auto-allocate (apply)
                         </label>
                         <div className="flex flex-wrap gap-2">
