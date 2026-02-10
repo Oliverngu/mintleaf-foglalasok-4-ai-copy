@@ -126,6 +126,28 @@ function toLocalDateKey(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
+function parseTimeToMinutes(timeValue: string) {
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutes(minutes: number) {
+  const safe = Math.max(0, minutes);
+  const h = String(Math.floor(safe / 60)).padStart(2, '0');
+  const m = String(safe % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function clampDayInMonth(year: number, month: number, day: number) {
+  const maxDay = new Date(year, month + 1, 0).getDate();
+  return Math.min(Math.max(day, 1), maxDay);
+}
+
+function clampWindowStart(minutes: number, min: number, max: number) {
+  return Math.min(Math.max(minutes, min), max);
+}
+
 const resolveAllocationReasonLabel = (reason?: string | null) => {
   if (!reason) return 'Nincs elérhető magyarázat.';
   switch (reason) {
