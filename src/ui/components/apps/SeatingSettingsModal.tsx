@@ -6375,7 +6375,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             )}
           <div
             ref={floorplanContainerRef}
-            className="relative w-full max-w-[min(90vh,100%)] mx-auto flex-1 min-h-0 overflow-hidden"
+            className="relative w-full max-w-[min(90vh,100%)] mx-auto flex-1 min-h-[420px] overflow-hidden"
           >
             {isEditMode ? (
               <div
