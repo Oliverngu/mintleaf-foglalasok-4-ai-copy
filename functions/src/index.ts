@@ -3514,6 +3514,8 @@ type AutoAllocateDayResult = {
   }>;
 };
 
+const DEFAULT_AUTO_ALLOCATE_DURATION_MINUTES = 90;
+
 const getReservationOverrideFromBooking = (booking: any): { enabled: boolean; note?: string } | null => {
   const raw = booking?.reservationAllocationOverride;
   if (!raw || typeof raw !== 'object') {
@@ -3606,6 +3608,21 @@ async function runAdminAutoAllocateDay({
       return a.id.localeCompare(b.id);
     });
 
+  const overrideBookingIds = new Set<string>();
+  if (rows.length > 0) {
+    const overrideCollection = db.collection('units').doc(unitId).collection('reservation_overrides');
+    const overrideRefs = rows.map(row => overrideCollection.doc(row.id));
+    for (let i = 0; i < overrideRefs.length; i += 300) {
+      const chunk = overrideRefs.slice(i, i + 300);
+      const overrideDocs = await db.getAll(...chunk);
+      overrideDocs.forEach(overrideDoc => {
+        if (overrideDoc.exists) {
+          overrideBookingIds.add(overrideDoc.id);
+        }
+      });
+    }
+  }
+
   const items: AutoAllocateDayResult['items'] = [];
 
   const totals = {
@@ -3637,12 +3654,22 @@ async function runAdminAutoAllocateDay({
         : booking.startTime instanceof Date
         ? booking.startTime
         : null;
-    const endDate =
+    const rawEndDate =
       typeof booking.endTime?.toDate === 'function'
         ? booking.endTime.toDate()
         : booking.endTime instanceof Date
         ? booking.endTime
         : null;
+    const rawDurationMinutes = Number(booking.durationMinutes);
+    const fallbackDurationMinutes = Number.isFinite(rawDurationMinutes) && rawDurationMinutes > 0
+      ? Math.round(rawDurationMinutes)
+      : DEFAULT_AUTO_ALLOCATE_DURATION_MINUTES;
+    const endDate =
+      startDate instanceof Date
+        ? rawEndDate instanceof Date && rawEndDate.getTime() > startDate.getTime()
+          ? rawEndDate
+          : new Date(startDate.getTime() + fallbackDurationMinutes * 60000)
+        : rawEndDate;
     const partySize = Number(booking.headcount);
 
     if (!force) {
@@ -3656,6 +3683,17 @@ async function runAdminAutoAllocateDay({
         totals.skipped += 1;
         totals.skippedOverride += 1;
         items.push({ bookingId, status: 'skipped_override' });
+        continue;
+      }
+
+      if (overrideBookingIds.has(bookingId)) {
+        totals.skipped += 1;
+        totals.skippedReservationOverrides += 1;
+        items.push({
+          bookingId,
+          status: 'skipped_reservation_overrides',
+          reason: 'reservation_override_document',
+        });
         continue;
       }
 
