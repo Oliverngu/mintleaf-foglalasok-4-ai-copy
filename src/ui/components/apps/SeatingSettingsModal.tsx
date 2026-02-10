@@ -705,7 +705,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return 0;
   };
-  const deriveSeatLayoutFromTableData = useCallback(
+  const normalizeSeatLayoutFromTable = useCallback(
     (params: {
       shape?: Table['shape'];
       seatLayout?: Table['seatLayout'];
@@ -713,6 +713,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       capacityTotal?: number;
     }): Table['seatLayout'] | undefined => {
       const { shape, seatLayout, sideCapacities, capacityTotal } = params;
+      // Single source of truth: if seatLayout exists, keep it as-is.
       if (seatLayout && !isSeatLayoutEmpty(seatLayout)) {
         return seatLayout;
       }
@@ -726,54 +727,35 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         }
         return undefined;
       }
-      if (sideCapacities) {
-        const sides = {
-          north: Math.max(
-            0,
-            Math.min(
-              3,
-              typeof sideCapacities.north === 'number' && Number.isFinite(sideCapacities.north)
-                ? Math.floor(sideCapacities.north)
-                : 0
-            )
-          ),
-          east: Math.max(
-            0,
-            Math.min(
-              3,
-              typeof sideCapacities.east === 'number' && Number.isFinite(sideCapacities.east)
-                ? Math.floor(sideCapacities.east)
-                : 0
-            )
-          ),
-          south: Math.max(
-            0,
-            Math.min(
-              3,
-              typeof sideCapacities.south === 'number' && Number.isFinite(sideCapacities.south)
-                ? Math.floor(sideCapacities.south)
-                : 0
-            )
-          ),
-          west: Math.max(
-            0,
-            Math.min(
-              3,
-              typeof sideCapacities.west === 'number' && Number.isFinite(sideCapacities.west)
-                ? Math.floor(sideCapacities.west)
-                : 0
-            )
-          ),
-        };
-        const sideTotal = sides.north + sides.east + sides.south + sides.west;
-        if (sideTotal > 0) {
-          return { kind: 'rect', sides };
-        }
+      if (!sideCapacities) {
+        return undefined;
       }
-      if (normalizedCapacityTotal > 0) {
-        return { kind: 'circle', count: normalizedCapacityTotal };
+      const rawSides = [
+        sideCapacities.north,
+        sideCapacities.east,
+        sideCapacities.south,
+        sideCapacities.west,
+      ];
+      const hasValidLegacySides = rawSides.every(
+        value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 3
+      );
+      if (!hasValidLegacySides) {
+        return undefined;
       }
-      return undefined;
+      const sides = {
+        north: Math.floor(sideCapacities.north),
+        east: Math.floor(sideCapacities.east),
+        south: Math.floor(sideCapacities.south),
+        west: Math.floor(sideCapacities.west),
+      };
+      const sideTotal = sides.north + sides.east + sides.south + sides.west;
+      if (sideTotal <= 0) {
+        return undefined;
+      }
+      if (normalizedCapacityTotal > 0 && normalizedCapacityTotal !== sideTotal) {
+        return undefined;
+      }
+      return { kind: 'rect', sides };
     },
     []
   );
@@ -1311,7 +1293,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       sideCapacities:
         selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
       combinableWithIds: selectedTable.combinableWithIds ?? [],
-      seatLayout: deriveSeatLayoutFromTableData({
+      seatLayout: normalizeSeatLayoutFromTable({
         shape: selectedTable.shape,
         seatLayout: selectedTable.seatLayout,
         sideCapacities: selectedTable.sideCapacities,
@@ -1336,7 +1318,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.seatLayout?.sides?.west,
     selectedTable?.shape,
     defaultSideCapacities,
-    deriveSeatLayoutFromTableData,
+    normalizeSeatLayoutFromTable,
   ]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
@@ -1398,14 +1380,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ]);
   const effectiveSelectedSeatLayout = useMemo(() => {
     if (!selectedTableDraft) return undefined;
-    return deriveSeatLayoutFromTableData({
+    return normalizeSeatLayoutFromTable({
       shape: selectedTableDraft.shape,
       seatLayout: selectedTableDraft.seatLayout,
       sideCapacities: selectedTableDraft.sideCapacities,
       capacityTotal: selectedTableDraft.capacityTotal,
     });
   }, [
-    deriveSeatLayoutFromTableData,
+    normalizeSeatLayoutFromTable,
     selectedTableDraft?.shape,
     selectedTableDraft?.seatLayout?.kind,
     selectedTableDraft?.seatLayout?.count,
@@ -2897,7 +2879,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const handleSelectedTableMetadataSave = async () => {
     if (!selectedTableDraft) return;
-    const effectiveSeatLayout = deriveSeatLayoutFromTableData({
+    const effectiveSeatLayout = normalizeSeatLayoutFromTable({
       shape: selectedTableDraft.shape,
       seatLayout: selectedTableDraft.seatLayout,
       sideCapacities: selectedTableDraft.sideCapacities,
