@@ -1486,11 +1486,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       return;
     }
+    if (isManualZoomLocked()) {
+      return;
+    }
     if (viewportMode === 'fit') {
       viewportCanvasRef.current?.resetToFit();
       return;
     }
-    if (viewportMode === 'auto' && prevSelectedTableIdRef.current === selectedId) {
+    if (prevSelectedTableIdRef.current === selectedId && viewportMode === 'selected') {
       return;
     }
     const geometry = resolveTableGeometryInFloorplanSpace(
@@ -1499,14 +1502,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       TABLE_GEOMETRY_DEFAULTS
     );
     const position = getRenderPosition(selectedEditorTable, geometry);
-    viewportCanvasRef.current?.centerOnRect({
-      x: position.x,
-      y: position.y,
-      w: geometry.w,
-      h: geometry.h,
+    const renderRot = draftRotations[selectedEditorTable.id] ?? geometry.rot;
+    const rect = getTableAabbForCollision(position.x, position.y, geometry.w, geometry.h, renderRot);
+    viewportCanvasRef.current?.centerOnRect(rect, {
+      targetScale: 1.4,
+      padding: 0.2,
     });
+    setViewportMode('selected');
     prevSelectedTableIdRef.current = selectedId;
-  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable, viewportMode]);
+  }, [
+    draftRotations,
+    floorplanDims,
+    getRenderPosition,
+    isEditMode,
+    isManualZoomLocked,
+    selectedEditorTable,
+    viewportMode,
+  ]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -6057,50 +6069,6 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     refitEditViewport();
   }, [advancedOpen, refitEditViewport, resolvedActiveFloorplanId, floorplanW, floorplanH]);
 
-
-  const previousAutoCenteredTableRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!selectedEditorTable) {
-      previousAutoCenteredTableRef.current = null;
-      return;
-    }
-    if (isManualZoomLocked()) {
-      return;
-    }
-    if (previousAutoCenteredTableRef.current === selectedEditorTable.id) {
-      return;
-    }
-    const geometry = resolveTableGeometryInFloorplanSpace(
-      selectedEditorTable,
-      floorplanDims,
-      TABLE_GEOMETRY_DEFAULTS
-    );
-    const position = getRenderPosition(selectedEditorTable, geometry);
-    const renderRot = draftRotations[selectedEditorTable.id] ?? geometry.rot;
-    const rect = getTableAabbForCollision(position.x, position.y, geometry.w, geometry.h, renderRot);
-    if (isEditMode) {
-      const targetScale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
-      setViewportMode('selected');
-      recenterSelectedTable(targetScale);
-    } else {
-      viewportCanvasRef.current?.centerOnRect(rect, {
-        targetScale: 1.4,
-        padding: 0.2,
-      });
-    }
-    previousAutoCenteredTableRef.current = selectedEditorTable.id;
-  }, [
-    activeFloorplanTransform.scale,
-    draftRotations,
-    floorplanDims,
-    getRenderPosition,
-    getSelectedTableScale,
-    isEditMode,
-    isManualZoomLocked,
-    recenterSelectedTable,
-    selectedEditorTable,
-    selectedTableKey,
-  ]);
 
   useLayoutEffect(() => {
     if (!isEditMode) return;

@@ -565,6 +565,26 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       }));
   }, [activeZoneId, floorplan, tables]);
 
+  useEffect(() => {
+    if (!debugEnabled) return;
+    visibleTables.forEach(table => {
+      if (!table.seatLayout) return;
+      const seatCount =
+        table.seatLayout.kind === 'circle'
+          ? Math.max(0, table.seatLayout.count ?? 0)
+          : Math.max(0, table.seatLayout.sides?.north ?? 0) +
+            Math.max(0, table.seatLayout.sides?.east ?? 0) +
+            Math.max(0, table.seatLayout.sides?.south ?? 0) +
+            Math.max(0, table.seatLayout.sides?.west ?? 0);
+      if (seatCount === 0) {
+        console.debug('[reservation-preview] normalized seatLayout has zero seats', {
+          tableId: table.id,
+          seatLayout: table.seatLayout,
+        });
+      }
+    });
+  }, [debugEnabled, visibleTables]);
+
   const debugRawGeometry = useMemo(() => {
     const table = visibleTables[0];
     if (!table) return null;
