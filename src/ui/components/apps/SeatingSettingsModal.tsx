@@ -1260,6 +1260,40 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.shape,
     defaultSideCapacities,
   ]);
+
+  useEffect(() => {
+    if (!selectedTable || !selectedTableDraft) {
+      return;
+    }
+    const baseCapacityTotal =
+      typeof selectedTable.capacityTotal === 'number' && Number.isFinite(selectedTable.capacityTotal)
+        ? selectedTable.capacityTotal
+        : selectedTable.capacityMax > 0
+        ? selectedTable.capacityMax
+        : selectedTable.minCapacity > 0
+        ? selectedTable.minCapacity
+        : 2;
+    const base = {
+      minCapacity: selectedTable.minCapacity ?? 1,
+      capacityMax: selectedTable.capacityMax ?? Math.max(1, baseCapacityTotal),
+      capacityTotal: baseCapacityTotal,
+      sideCapacities:
+        selectedTable.sideCapacities ?? defaultSideCapacities(baseCapacityTotal),
+      combinableWithIds: selectedTable.combinableWithIds ?? [],
+      seatLayout: selectedTable.seatLayout,
+    };
+    const draft = {
+      minCapacity: selectedTableDraft.minCapacity,
+      capacityMax: selectedTableDraft.capacityMax,
+      capacityTotal: selectedTableDraft.capacityTotal,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      combinableWithIds: selectedTableDraft.combinableWithIds,
+      seatLayout: selectedTableDraft.seatLayout,
+    };
+    if (JSON.stringify(base) !== JSON.stringify(draft)) {
+      setEditorDirty(true);
+    }
+  }, [defaultSideCapacities, selectedTable, selectedTableDraft]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
     return editorTables.filter(
