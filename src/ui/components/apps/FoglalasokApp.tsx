@@ -144,16 +144,17 @@ interface FoglalasokAppProps {
 }
 
 class SeatingSettingsErrorBoundary extends React.Component<
-  { onError: (info: DebugErrorInfo) => void; children: React.ReactNode },
-  { hasError: boolean }
+  { onError: (info: DebugErrorInfo) => void; onClose: () => void; children: React.ReactNode },
+  { hasError: boolean; message: string; stack?: string }
 > {
-  state = { hasError: false };
+  state = { hasError: false, message: '', stack: undefined as string | undefined };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message || 'Ismeretlen hiba', stack: error.stack };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('SeatingSettingsModal render error:', error, info);
     try {
       this.props.onError({
         name: error.name || 'Error',
@@ -171,7 +172,28 @@ class SeatingSettingsErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      return null;
+      return (
+        <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl border border-red-200 p-5 space-y-3">
+            <h2 className="text-lg font-bold text-red-700">Hiba történt az asztaltérkép szerkesztő megnyitásakor</h2>
+            <p className="text-sm text-[var(--color-text-main)]">{this.state.message || 'Ismeretlen hiba.'}</p>
+            {this.state.stack && (
+              <pre className="max-h-64 overflow-auto rounded-lg bg-red-50 p-3 text-[11px] text-red-800 whitespace-pre-wrap">
+                {this.state.stack}
+              </pre>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={this.props.onClose}
+                className="rounded-lg bg-[var(--color-primary)] text-white px-4 py-2 text-sm font-semibold"
+              >
+                Bezárás
+              </button>
+            </div>
+          </div>
+        </div>
+      );
     }
     return this.props.children;
   }
@@ -3124,6 +3146,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               setDebugError(info);
             }
           }}
+          onClose={() => setIsSeatingSettingsOpen(false)}
         >
           <SeatingSettingsModal
             unitId={activeUnitId}

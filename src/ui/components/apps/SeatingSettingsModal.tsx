@@ -488,6 +488,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const recenterRafIdRef = useRef<number | null>(null);
   const dragRecenterRafIdRef = useRef<number | null>(null);
   const scheduleRecenterSelectedTableRef = useRef<(scaleOverride?: number) => void>(() => {});
+  const zoomToSelectedTableRef = useRef<(opts?: { forceScale?: number; reason?: string }) => void>(() => {});
   const pendingDragRecenterRef = useRef<{
     position: { x: number; y: number };
     size: { w: number; h: number };
@@ -1245,20 +1246,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       if (dragStateRef.current || obstacleDragRef.current) {
         return;
       }
-      setViewportMode('selected');
       requestAnimationFrame(() => {
-        const scale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
-        scheduleRecenterSelectedTableRef.current?.(scale);
+        zoomToSelectedTableRef.current({ reason: 'table-select' });
       });
     },
-    [
-      activeFloorplanTransform.scale,
-      comboMode.active,
-      getSelectedTableScale,
-      isEditMode,
-      isManualZoomLocked,
-      setEditorDirty,
-    ]
+    [comboMode.active, isEditMode, isManualZoomLocked, setEditorDirty]
   );
   const handleZoomOutFit = useCallback(() => {
     lockManualZoom();
@@ -1270,10 +1262,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const handleZoomInSelected = useCallback(() => {
     if (!selectedEditorTable) return;
     lockManualZoom();
-    setViewportMode('selected');
-    const scale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
-    scheduleRecenterSelectedTableRef.current?.(scale);
-  }, [activeFloorplanTransform.scale, getSelectedTableScale, lockManualZoom, selectedEditorTable]);
+    zoomToSelectedTableRef.current({ reason: 'zoom-button' });
+  }, [lockManualZoom, selectedEditorTable]);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (comboMode.active) {
@@ -3325,6 +3315,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ]
   );
 
+  const zoomToSelectedTable = useCallback(
+    (opts?: { forceScale?: number; reason?: string }) => {
+      if (!selectedEditorTable) return;
+      if (dragStateRef.current || obstacleDragRef.current) return;
+      const targetScale =
+        opts?.forceScale ?? getSelectedTableScale() ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale;
+      setViewportMode('selected');
+      recenterSelectedTable(targetScale);
+    },
+    [
+      activeFloorplanTransform.scale,
+      floorplanTransformOverride?.scale,
+      getSelectedTableScale,
+      recenterSelectedTable,
+      selectedEditorTable,
+    ]
+  );
+
   const shouldKeepSelectedTableCenteredDuringDrag = useCallback(
   (tableId: string) => {
     // “zoom in active” = van transform override
@@ -3415,6 +3423,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   useEffect(() => {
     scheduleRecenterSelectedTableRef.current = scheduleRecenterSelectedTable;
   }, [scheduleRecenterSelectedTable]);
+  useEffect(() => {
+    zoomToSelectedTableRef.current = zoomToSelectedTable;
+  }, [zoomToSelectedTable]);
   useEffect(() => {
     if (!isEditMode) {
       applyTransformOverride('mode-exit-edit', null);
