@@ -328,6 +328,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const isEditMode = floorplanMode === 'edit';
   const [viewportMode, setViewportMode] = useState<'auto' | 'selected' | 'fit'>('auto');
+  const manualZoomLockRef = useRef(0);
+  const lockManualZoom = useCallback(() => {
+    manualZoomLockRef.current = Date.now();
+  }, []);
+  const isManualZoomLocked = useCallback(() => Date.now() - manualZoomLockRef.current < 1200, []);
   const prevSelectedTableIdRef = useRef<string | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
@@ -1235,16 +1240,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     [comboMode.active, setEditorDirty]
   );
   const handleZoomOutFit = useCallback(() => {
+    lockManualZoom();
     setViewportMode('fit');
     prevSelectedTableIdRef.current = null;
     setFloorplanTransformOverride(null);
     viewportCanvasRef.current?.resetToFit();
-  }, []);
+  }, [lockManualZoom]);
   const handleZoomInSelected = useCallback(() => {
     if (!selectedEditorTable) return;
+    lockManualZoom();
     setViewportMode('selected');
     scheduleRecenterSelectedTableRef.current?.();
-  }, [selectedEditorTable]);
+  }, [lockManualZoom, selectedEditorTable]);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (comboMode.active) {
@@ -3382,6 +3389,9 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (dragStateRef.current) {
       return;
     }
+    if (isManualZoomLocked()) {
+      return;
+    }
     if (viewportMode === 'fit') {
       applyTransformOverride('fit-mode', null);
       return;
@@ -3418,6 +3428,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     recenterSelectedTable,
     selectedEditorTable,
     viewportMode,
+    isManualZoomLocked,
   ]);
 
   const isSelectedDragActive =
@@ -6014,6 +6025,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const refitEditViewport = useCallback(() => {
     if (!isEditMode) return;
+    if (viewportMode === 'selected') return;
+    if (isManualZoomLocked()) return;
     if (dragStateRef.current || obstacleDragRef.current) return;
     const viewport = floorplanViewportRef.current;
     const fallback = floorplanContainerRef.current;
@@ -6038,11 +6051,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       rectWidth: rectWidth,
       rectHeight: rectHeight,
     });
-  }, [applyTransformOverride, floorplanH, floorplanW, isEditMode]);
+  }, [applyTransformOverride, floorplanH, floorplanW, isEditMode, isManualZoomLocked, viewportMode]);
 
   useLayoutEffect(() => {
     refitEditViewport();
   }, [advancedOpen, refitEditViewport, resolvedActiveFloorplanId, floorplanW, floorplanH]);
+
+
+  const previousAutoCenteredTableRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedEditorTable) {
+      previousAutoCenteredTableRef.current = null;
+      return;
+    }
+    if (isManualZoomLocked()) {
+      return;
+    }
+    if (previousAutoCenteredTableRef.current === selectedEditorTable.id) {
+      return;
+    }
+    const geometry = resolveTableGeometryInFloorplanSpace(
+      selectedEditorTable,
+      floorplanDims,
+      TABLE_GEOMETRY_DEFAULTS
+    );
+    const position = getRenderPosition(selectedEditorTable, geometry);
+    const renderRot = draftRotations[selectedEditorTable.id] ?? geometry.rot;
+    const rect = getTableAabbForCollision(position.x, position.y, geometry.w, geometry.h, renderRot);
+    if (isEditMode) {
+      const targetScale = getSelectedTableScale() ?? activeFloorplanTransform.scale;
+      setViewportMode('selected');
+      recenterSelectedTable(targetScale);
+    } else {
+      viewportCanvasRef.current?.centerOnRect(rect, {
+        targetScale: 1.4,
+        padding: 0.2,
+      });
+    }
+    previousAutoCenteredTableRef.current = selectedEditorTable.id;
+  }, [
+    activeFloorplanTransform.scale,
+    draftRotations,
+    floorplanDims,
+    getRenderPosition,
+    getSelectedTableScale,
+    isEditMode,
+    isManualZoomLocked,
+    recenterSelectedTable,
+    selectedEditorTable,
+    selectedTableKey,
+  ]);
 
   useLayoutEffect(() => {
     if (!isEditMode) return;
@@ -6299,7 +6357,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       ? 'border-blue-200 bg-blue-50 text-blue-700'
                       : 'border-gray-200 bg-white text-gray-600'
                   }`}
-                  onClick={() => setViewportMode('selected')}
+                  onClick={handleZoomInSelected}
                 >
                   Zoom in (asztal)
                 </button>

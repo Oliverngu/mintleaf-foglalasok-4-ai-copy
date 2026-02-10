@@ -88,6 +88,57 @@ const TABLE_GEOMETRY_DEFAULTS = {
   circleRadius: 40,
 };
 
+const isSeatLayoutEmpty = (seatLayout?: Table['seatLayout']) => {
+  if (!seatLayout) return true;
+  if (seatLayout.kind === 'circle') {
+    return (seatLayout.count ?? 0) <= 0;
+  }
+  if (seatLayout.kind === 'rect') {
+    const sides = seatLayout.sides ?? {};
+    return (
+      (sides.north ?? 0) <= 0 &&
+      (sides.east ?? 0) <= 0 &&
+      (sides.south ?? 0) <= 0 &&
+      (sides.west ?? 0) <= 0
+    );
+  }
+  return true;
+};
+
+const normalizeSeatLayoutFromTable = (table: Table): Table['seatLayout'] | undefined => {
+  if (table.seatLayout && !isSeatLayoutEmpty(table.seatLayout)) {
+    return table.seatLayout;
+  }
+  const capacityTotal =
+    typeof table.capacityTotal === 'number' && Number.isFinite(table.capacityTotal)
+      ? Math.max(0, Math.floor(table.capacityTotal))
+      : 0;
+  if (table.shape === 'circle') {
+    return capacityTotal > 0 ? { kind: 'circle', count: capacityTotal } : undefined;
+  }
+  if (!table.sideCapacities) return undefined;
+  const sideValues = [
+    table.sideCapacities.north,
+    table.sideCapacities.east,
+    table.sideCapacities.south,
+    table.sideCapacities.west,
+  ];
+  const hasSeatLikeSides = sideValues.every(
+    value => typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= 3
+  );
+  if (!hasSeatLikeSides) return undefined;
+  const sides = {
+    north: table.sideCapacities.north,
+    east: table.sideCapacities.east,
+    south: table.sideCapacities.south,
+    west: table.sideCapacities.west,
+  };
+  const sideTotal = sides.north + sides.east + sides.south + sides.west;
+  if (sideTotal <= 0) return undefined;
+  if (capacityTotal > 0 && capacityTotal !== sideTotal) return undefined;
+  return { kind: 'rect', sides };
+};
+
 const ReservationFloorplanPreviewInner: React.FC<ReservationFloorplanPreviewInnerProps> = ({
   activeZoneId,
   capacityLimit,
@@ -502,11 +553,16 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
-    return tables.filter(table => {
-      const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
-      const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
-      return matchesFloorplan && matchesZone && table.isActive !== false;
-    });
+    return tables
+      .filter(table => {
+        const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
+        const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
+        return matchesFloorplan && matchesZone && table.isActive !== false;
+      })
+      .map(table => ({
+        ...table,
+        seatLayout: normalizeSeatLayoutFromTable(table),
+      }));
   }, [activeZoneId, floorplan, tables]);
 
   const debugRawGeometry = useMemo(() => {
