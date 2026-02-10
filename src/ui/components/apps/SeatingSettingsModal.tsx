@@ -5773,14 +5773,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       setTableCreateDraft({
         ...tableCreateDraft,
-        capacityMax:
-          nextDraft.capacityTotal > tableCreateDraft.capacityMax
-            ? nextDraft.capacityTotal
-            : tableCreateDraft.capacityMax,
-        minCapacity:
-          tableCreateDraft.minCapacity > tableCreateDraft.capacityMax
-            ? tableCreateDraft.capacityMax
-            : tableCreateDraft.minCapacity,
+        capacityMax: Math.max(tableCreateDraft.capacityMax, nextDraft.capacityTotal),
+        minCapacity: Math.min(
+          tableCreateDraft.minCapacity,
+          Math.max(tableCreateDraft.capacityMax, nextDraft.capacityTotal)
+        ),
         seatLayout: nextDraft.seatLayout,
         sideCapacities: nextDraft.sideCapacities,
         capacityTotal: nextDraft.capacityTotal,
@@ -5929,9 +5926,30 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const refitEditViewport = useCallback(() => {
     if (!isEditMode) return;
     if (dragStateRef.current || obstacleDragRef.current) return;
+    const viewport = floorplanViewportRef.current;
+    const fallback = floorplanContainerRef.current;
+    const rect = viewport?.getBoundingClientRect() ?? fallback?.getBoundingClientRect();
+    const rectWidth = rect?.width ?? 0;
+    const rectHeight = rect?.height ?? 0;
+    if (rectWidth <= 0 || rectHeight <= 0 || floorplanW <= 0 || floorplanH <= 0) {
+      return;
+    }
+    const fitted = computeFloorplanTransformFromRect(
+      { width: rectWidth, height: rectHeight, left: 0, top: 0 },
+      floorplanW,
+      floorplanH
+    );
     setViewportMode('fit');
-    applyTransformOverride('edit-refit', null);
-  }, [applyTransformOverride, isEditMode]);
+    applyTransformOverride('edit-refit', {
+      scale: fitted.scale,
+      offsetX: fitted.offsetX,
+      offsetY: fitted.offsetY,
+      rectLeft: 0,
+      rectTop: 0,
+      rectWidth: rectWidth,
+      rectHeight: rectHeight,
+    });
+  }, [applyTransformOverride, floorplanH, floorplanW, isEditMode]);
 
   useLayoutEffect(() => {
     refitEditViewport();
@@ -5939,6 +5957,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   useLayoutEffect(() => {
     if (!isEditMode) return;
+    if (typeof window === 'undefined') return;
     const viewport = floorplanViewportRef.current;
     const container = floorplanContainerRef.current;
     const onResize = () => {
