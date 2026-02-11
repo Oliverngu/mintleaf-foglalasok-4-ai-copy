@@ -1,6 +1,7 @@
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import { createHash, randomBytes } from "crypto";
 import { onRequest } from "firebase-functions/v2/https";
 
 // 🔹 Firebase Admin init – EGYSZER, LEGELŐL
@@ -9,11 +10,78 @@ admin.initializeApp();
 // 🔹 Itt definiáljuk, és CSAK EZT használjuk mindenhol
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
+const FieldValue = admin.firestore.FieldValue;
 const REGION = "europe-west3";
 
 const EMAIL_GATEWAY_URL =
   process.env.EMAIL_GATEWAY_URL ||
   "https://mintleaf-email-gateway.oliverngu.workers.dev/api/email/send";
+
+const toDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const generateAdminActionToken = () =>
+  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+
+const hashAdminActionToken = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
+const generateManageToken = () => randomBytes(24).toString("base64url");
+
+const hashManageToken = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
+const RATE_LIMIT_MAX = 15;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
+const getClientIp = (req: any) => {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp) return cfIp;
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return forwarded[0];
+  }
+  return req.ip || 'unknown';
+};
+
+const enforceRateLimit = async (unitId: string, req: any) => {
+  const ip = getClientIp(req);
+  const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+  const docId = `${unitId}_${ipHash}`;
+  const ref = db.collection('guest_rate_limits').doc(docId);
+
+  await db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref);
+    const now = Date.now();
+    const data = snap.exists ? snap.data() || {} : {};
+    const windowStartMs =
+      typeof data.windowStartMs === 'number' ? data.windowStartMs : now;
+    const count = typeof data.count === 'number' ? data.count : 0;
+    const withinWindow = now - windowStartMs < RATE_LIMIT_WINDOW_MS;
+
+    if (withinWindow && count >= RATE_LIMIT_MAX) {
+      throw new Error('RATE_LIMIT');
+    }
+
+    if (!withinWindow) {
+      transaction.set(ref, { windowStartMs: now, count: 1 }, { merge: true });
+      return;
+    }
+
+    transaction.set(
+      ref,
+      { windowStartMs, count: count + 1 },
+      { merge: true }
+    );
+  });
+};
 
 export const guestUpdateReservation = onRequest(
   { region: REGION, cors: true },
@@ -24,29 +92,66 @@ export const guestUpdateReservation = onRequest(
         return;
       }
 
-      const { unitId, manageToken, action, reason } = req.body || {};
-
-      if (!unitId || !manageToken || !action) {
-        res.status(400).json({ error: 'unitId, manageToken és action kötelező' });
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set([
+        'unitId',
+        'reservationId',
+        'manageToken',
+        'action',
+        'reason',
+      ]);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
         return;
       }
 
-      // 1) Foglalás keresése: unit + manageToken alapján
-      const snap = await db
+      const { unitId, manageToken, reservationId, action, reason } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof manageToken !== 'string' ||
+        action !== 'cancel' ||
+        (typeof reason !== 'undefined' && typeof reason !== 'string')
+      ) {
+        res.status(400).json({ error: 'unitId, reservationId, action és token kötelező' });
+        return;
+      }
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
+      }
+
+      const docRef = db
         .collection('units')
         .doc(unitId)
         .collection('reservations')
-        .where('manageToken', '==', manageToken)
-        .limit(1)
-        .get();
+        .doc(reservationId);
+      const bookingSnap = await docRef.get();
 
-      if (snap.empty) {
+      if (!bookingSnap || !bookingSnap.exists) {
         res.status(404).json({ error: 'Foglalás nem található' });
         return;
       }
 
-      const docRef = snap.docs[0].ref;
-      const booking = snap.docs[0].data();
+      const booking = bookingSnap.data();
+      const manageTokenHash = hashManageToken(manageToken);
+      const hasHash = typeof booking.manageTokenHash === 'string' && booking.manageTokenHash;
+      const legacyMatch = !hasHash && manageToken === reservationId;
+      if (!legacyMatch && booking.manageTokenHash !== manageTokenHash) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
 
       // 2) Extra biztonság: ne lehessen múltbeli foglalást piszkálni
       if (booking.startTime && booking.startTime.toDate() < new Date()) {
@@ -57,46 +162,68 @@ export const guestUpdateReservation = onRequest(
       }
 
       if (action === 'cancel') {
-        // már lemondott? akkor ne csináljunk semmit
-        if (booking.status === 'cancelled') {
-          res.status(200).json({ ok: true, alreadyCancelled: true });
-          return;
-        }
+        const result = await db.runTransaction(async (transaction) => {
+          const latestSnap = await transaction.get(docRef);
+          if (!latestSnap.exists) {
+            throw new Error('NOT_FOUND');
+          }
+          const latest = latestSnap.data() || {};
 
-        await docRef.update({
-          status: 'cancelled',
-          cancelledAt: Timestamp.now(),
-          cancelReason: reason || '',
-          cancelledBy: 'guest',
-          updatedAt: Timestamp.now(),
-        });
+          if (latest.status === 'cancelled') {
+            return { alreadyCancelled: true };
+          }
 
-        // opcionális: log írás
-        await db
-          .collection('units')
-          .doc(unitId)
-          .collection('reservation_logs')
-          .add({
+          if (latest.startTime && latest.headcount > 0) {
+            const startDate = latest.startTime.toDate();
+            const dateKey = toDateKey(startDate);
+            const capacityRef = db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservation_capacity')
+              .doc(dateKey);
+            const capacitySnap = await transaction.get(capacityRef);
+            const currentCount = capacitySnap.exists
+              ? (capacitySnap.data()?.count as number) || 0
+              : 0;
+            const nextCount = Math.max(0, currentCount - (latest.headcount || 0));
+            transaction.set(
+              capacityRef,
+              {
+                date: dateKey,
+                count: nextCount,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+
+          transaction.update(docRef, {
+            status: 'cancelled',
+            cancelledAt: FieldValue.serverTimestamp(),
+            cancelReason: reason || '',
+            cancelledBy: 'guest',
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          const logRef = db
+            .collection('units')
+            .doc(unitId)
+            .collection('reservation_logs')
+            .doc();
+          transaction.set(logRef, {
             bookingId: docRef.id,
             unitId,
-            type: 'cancelled',
-            createdAt: Timestamp.now(),
-            createdByUserId: null,
-            createdByName: booking.name || 'Guest',
+            type: 'guest_cancelled',
+            createdAt: FieldValue.serverTimestamp(),
+            createdByName: latest.name || 'Guest',
             source: 'guest',
             message: reason ? `Vendég lemondta: ${reason}` : 'Vendég lemondta',
           });
 
-        res.status(200).json({ ok: true });
-        return;
-      }
+          return { alreadyCancelled: false };
+        });
 
-      // Ha később lesz "edit" action (pl. headcount módosítás)
-      if (action === 'edit') {
-        // itt valami ilyesmi:
-        // const { headcount, notes } = req.body;
-        // validálod, majd docRef.update({ headcount, notes, updatedAt: Timestamp.now() });
-        res.status(501).json({ error: 'EDIT még nincs implementálva' });
+        res.status(200).json({ ok: true, alreadyCancelled: result.alreadyCancelled });
         return;
       }
 
@@ -108,7 +235,540 @@ export const guestUpdateReservation = onRequest(
   }
 );
 
+export const guestCreateReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const { unitId, dateKey, reservation } = req.body || {};
+      if (!unitId || !reservation) {
+        res.status(400).json({ error: 'unitId és reservation kötelező' });
+        return;
+      }
+
+      const startTime = reservation.startTime ? new Date(reservation.startTime) : null;
+      const endTime = reservation.endTime ? new Date(reservation.endTime) : null;
+      const headcount = Number(reservation.headcount || 0);
+
+      if (!startTime || Number.isNaN(startTime.getTime())) {
+        res.status(400).json({ error: 'startTime hiányzik vagy érvénytelen' });
+        return;
+      }
+      if (!endTime || Number.isNaN(endTime.getTime())) {
+        res.status(400).json({ error: 'endTime hiányzik vagy érvénytelen' });
+        return;
+      }
+      if (!reservation.name || headcount <= 0) {
+        res.status(400).json({ error: 'Név és létszám kötelező' });
+        return;
+      }
+      if (!reservation.contact?.email) {
+        res.status(400).json({ error: 'E-mail kötelező' });
+        return;
+      }
+
+      const settingsSnap = await db.doc(`reservation_settings/${unitId}`).get();
+      const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+      const reservationMode = settings.reservationMode || 'request';
+      const status = reservationMode === 'auto' ? 'confirmed' : 'pending';
+
+      const effectiveDateKey = dateKey || toDateKey(startTime);
+      const capacityRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_capacity')
+        .doc(effectiveDateKey);
+      const reservationsRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations');
+
+      const manageToken = generateManageToken();
+      const manageTokenHash = hashManageToken(manageToken);
+      const adminActionToken =
+        reservationMode === 'request' ? generateAdminActionToken() : null;
+      const adminActionTokenHash = adminActionToken
+        ? hashAdminActionToken(adminActionToken)
+        : null;
+      const adminActionExpiresAt = adminActionToken
+        ? Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000))
+        : null;
+
+      const createResult = await db.runTransaction(async (transaction) => {
+        const capacitySnap = await transaction.get(capacityRef);
+        const currentCount = capacitySnap.exists
+          ? (capacitySnap.data()?.count as number) || 0
+          : 0;
+        const limitFromDoc = capacitySnap.exists
+          ? (capacitySnap.data()?.limit as number | undefined)
+          : undefined;
+        const limitFromSettings =
+          settings.dailyCapacity && settings.dailyCapacity > 0
+            ? settings.dailyCapacity
+            : undefined;
+        const limit = limitFromDoc ?? limitFromSettings;
+        const nextCount = currentCount + headcount;
+
+        if (typeof limit === 'number' && nextCount > limit) {
+          throw new Error('CAPACITY_FULL');
+        }
+
+        const reservationRef = reservationsRef.doc();
+        const referenceCode = reservationRef.id;
+
+        transaction.set(reservationRef, {
+          unitId,
+          name: reservation.name,
+          headcount,
+          startTime: Timestamp.fromDate(startTime),
+          endTime: Timestamp.fromDate(endTime),
+          contact: {
+            phoneE164: reservation.contact?.phoneE164 || '',
+            email: String(reservation.contact?.email || '').toLowerCase(),
+          },
+          locale: reservation.locale || 'hu',
+          status,
+          createdAt: FieldValue.serverTimestamp(),
+          referenceCode,
+          reservationMode,
+          occasion: reservation.occasion || '',
+          source: reservation.source || '',
+          customData: reservation.customData || {},
+          manageTokenHash,
+          ...(adminActionToken
+            ? {
+                adminActionTokenHash: adminActionTokenHash ?? undefined,
+                adminActionExpiresAt: adminActionExpiresAt ?? undefined,
+                adminActionUsedAt: null,
+              }
+            : {}),
+          skipCreateEmails: true,
+        });
+
+        const capacityUpdate: Record<string, any> = {
+          date: effectiveDateKey,
+          count: nextCount,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (limitFromDoc == null && typeof limitFromSettings === 'number') {
+          capacityUpdate.limit = limitFromSettings;
+        }
+        transaction.set(capacityRef, capacityUpdate, { merge: true });
+
+        const dateStr = startTime.toLocaleString('hu-HU', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const logRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .doc();
+        transaction.set(logRef, {
+          bookingId: referenceCode,
+          unitId,
+          type: 'guest_created',
+          createdAt: FieldValue.serverTimestamp(),
+          createdByName: reservation.name,
+          source: 'guest',
+          message: `Vendég foglalást adott le: ${reservation.name} (${headcount} fő, ${dateStr})`,
+        });
+
+        return { bookingId: referenceCode };
+      });
+
+      const bookingForEmail: BookingRecord = {
+        unitId,
+        name: reservation.name,
+        headcount,
+        startTime: Timestamp.fromDate(startTime),
+        endTime: Timestamp.fromDate(endTime),
+        contact: {
+          phoneE164: reservation.contact?.phoneE164 || '',
+          email: String(reservation.contact?.email || '').toLowerCase(),
+        },
+        locale: reservation.locale || 'hu',
+        status,
+        createdAt: Timestamp.now(),
+        referenceCode: createResult.bookingId,
+        reservationMode,
+        occasion: reservation.occasion || '',
+        source: reservation.source || '',
+        customData: reservation.customData || {},
+        adminActionToken: adminActionToken || undefined,
+      };
+
+      const unitName = await getUnitName(unitId);
+      await Promise.all([
+        sendGuestCreatedEmail(
+          unitId,
+          bookingForEmail,
+          unitName,
+          createResult.bookingId,
+          manageToken
+        ),
+        sendAdminCreatedEmail(
+          unitId,
+          bookingForEmail,
+          unitName,
+          createResult.bookingId,
+          adminActionToken || undefined
+        ),
+      ]);
+
+      res.status(200).json({ ...createResult, manageToken });
+    } catch (err: any) {
+      if (err instanceof Error && err.message === 'CAPACITY_FULL') {
+        res.status(409).json({ error: 'capacity_full' });
+        return;
+      }
+      logger.error('guestCreateReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const guestGetReservation = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set(['unitId', 'reservationId', 'manageToken']);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, manageToken } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof manageToken !== 'string'
+      ) {
+        res.status(400).json({ error: 'unitId, reservationId és token kötelező' });
+        return;
+      }
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
+      }
+
+      const docRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+      const bookingSnap = await docRef.get();
+      if (!bookingSnap.exists) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const booking = bookingSnap.data() || {};
+      const manageTokenHash = hashManageToken(manageToken);
+      const hasHash = typeof booking.manageTokenHash === 'string' && booking.manageTokenHash;
+      const legacyMatch = !hasHash && manageToken === reservationId;
+      if (!legacyMatch && booking.manageTokenHash !== manageTokenHash) {
+        res.status(404).json({ error: 'Foglalás nem található' });
+        return;
+      }
+
+      const unitName = await getUnitName(unitId);
+      const startTime = booking.startTime?.toDate
+        ? booking.startTime.toDate()
+        : booking.startTime instanceof Date
+        ? booking.startTime
+        : null;
+      const endTime = booking.endTime?.toDate
+        ? booking.endTime.toDate()
+        : booking.endTime instanceof Date
+        ? booking.endTime
+        : null;
+      const adminActionExpiresAt = booking.adminActionExpiresAt?.toDate
+        ? booking.adminActionExpiresAt.toDate()
+        : booking.adminActionExpiresAt instanceof Date
+        ? booking.adminActionExpiresAt
+        : null;
+      const adminActionUsedAt = booking.adminActionUsedAt?.toDate
+        ? booking.adminActionUsedAt.toDate()
+        : booking.adminActionUsedAt instanceof Date
+        ? booking.adminActionUsedAt
+        : null;
+
+      res.status(200).json({
+        id: bookingSnap.id,
+        unitId,
+        unitName,
+        name: booking.name || '',
+        headcount: booking.headcount || 0,
+        startTimeMs: startTime ? startTime.getTime() : null,
+        endTimeMs: endTime ? endTime.getTime() : null,
+        status: booking.status || 'pending',
+        locale: booking.locale || 'hu',
+        occasion: booking.occasion || '',
+        source: booking.source || '',
+        referenceCode: booking.referenceCode || bookingSnap.id,
+        contact: booking.contact || {},
+        adminActionTokenHash: booking.adminActionTokenHash || null,
+        adminActionExpiresAtMs: adminActionExpiresAt
+          ? adminActionExpiresAt.getTime()
+          : null,
+        adminActionUsedAtMs: adminActionUsedAt ? adminActionUsedAt.getTime() : null,
+      });
+    } catch (err) {
+      logger.error('guestGetReservation error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminHandleReservationAction = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const body = req.body || {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+      const allowedKeys = new Set([
+        'unitId',
+        'reservationId',
+        'adminToken',
+        'action',
+      ]);
+      const keys = Object.keys(body);
+      if (keys.some(key => !allowedKeys.has(key))) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const { unitId, reservationId, adminToken, action } = body;
+      if (
+        typeof unitId !== 'string' ||
+        typeof reservationId !== 'string' ||
+        typeof adminToken !== 'string' ||
+        (action !== 'approve' && action !== 'reject')
+      ) {
+        res.status(400).json({ error: 'Érvénytelen kérés' });
+        return;
+      }
+
+      const docRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservations')
+        .doc(reservationId);
+
+      try {
+        await enforceRateLimit(unitId, req);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT') {
+          res.status(429).json({ error: 'Túl sok kérés' });
+          return;
+        }
+        throw err;
+      }
+
+      await db.runTransaction(async transaction => {
+        const snap = await transaction.get(docRef);
+        if (!snap.exists) {
+          throw new Error('NOT_FOUND');
+        }
+        const booking = snap.data() || {};
+        const tokenHash = hashAdminActionToken(adminToken);
+        const expiresAt = booking.adminActionExpiresAt?.toDate
+          ? booking.adminActionExpiresAt.toDate()
+          : booking.adminActionExpiresAt instanceof Date
+          ? booking.adminActionExpiresAt
+          : null;
+        const usedAt = booking.adminActionUsedAt?.toDate
+          ? booking.adminActionUsedAt.toDate()
+          : booking.adminActionUsedAt instanceof Date
+          ? booking.adminActionUsedAt
+          : null;
+
+        if (
+          !booking.adminActionTokenHash ||
+          booking.adminActionTokenHash !== tokenHash
+        ) {
+          throw new Error('NOT_FOUND');
+        }
+
+        if (expiresAt && expiresAt.getTime() < Date.now()) {
+          throw new Error('NOT_FOUND');
+        }
+
+        if (usedAt) {
+          throw new Error('NOT_FOUND');
+        }
+
+        if (booking.status && booking.status !== 'pending') {
+          throw new Error('NOT_FOUND');
+        }
+
+        const status = action === 'approve' ? 'confirmed' : 'cancelled';
+        const update: Record<string, any> = {
+          status,
+          adminActionUsedAt: FieldValue.serverTimestamp(),
+          adminActionHandledAt: FieldValue.serverTimestamp(),
+          adminActionSource: 'email',
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (status === 'cancelled') {
+          update.cancelledBy = 'admin';
+          update.cancelledAt = FieldValue.serverTimestamp();
+        }
+
+        transaction.update(docRef, update);
+      });
+
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message === 'NOT_FOUND') {
+          res.status(404).json({ error: 'Foglalás nem található' });
+          return;
+        }
+      }
+      logger.error('adminHandleReservationAction error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
+export const adminOverrideDailyCapacity = onRequest(
+  { region: REGION, cors: true },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).send('Only POST allowed');
+        return;
+      }
+
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const decoded = await admin.auth().verifyIdToken(token);
+      const userSnap = await db.collection('users').doc(decoded.uid).get();
+      if (!userSnap.exists) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const userData = userSnap.data() || {};
+      const role = userData.role as string | undefined;
+      const unitIds = (userData.unitIds || userData.unitIDs || []) as string[];
+
+      const { unitId, dateKey, newLimit } = req.body || {};
+      if (!unitId || !dateKey || typeof newLimit !== 'number' || Number.isNaN(newLimit)) {
+        res.status(400).json({ error: 'unitId, dateKey és newLimit kötelező' });
+        return;
+      }
+
+      const canManage =
+        role === 'Admin' || (role === 'Unit Admin' && unitIds.includes(unitId));
+      if (!canManage) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const capacityRef = db
+        .collection('units')
+        .doc(unitId)
+        .collection('reservation_capacity')
+        .doc(dateKey);
+
+      const result = await db.runTransaction(async (transaction) => {
+        const capacitySnap = await transaction.get(capacityRef);
+        const count = capacitySnap.exists
+          ? (capacitySnap.data()?.count as number) || 0
+          : 0;
+
+        if (capacitySnap.exists) {
+          transaction.update(capacityRef, {
+            limit: newLimit,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.set(capacityRef, {
+            date: dateKey,
+            count: 0,
+            limit: newLimit,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        const logRef = db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .doc();
+        transaction.set(logRef, {
+          type: 'capacity_override',
+          unitId,
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUserId: decoded.uid,
+          createdByName:
+            userData.name ||
+            userData.fullName ||
+            decoded.name ||
+            decoded.email ||
+            'Ismeretlen felhasználó',
+          source: 'internal',
+          message: `Daily capacity changed to ${newLimit}.`,
+          date: dateKey,
+        });
+
+        return {
+          status: newLimit < count ? 'OVERBOOKED' : 'UPDATED',
+          count,
+          limit: newLimit,
+        };
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      logger.error('adminOverrideDailyCapacity error', err);
+      res.status(500).json({ error: 'Szerverhiba' });
+    }
+  }
+);
+
 interface BookingRecord {
+  unitId?: string;
   name?: string;
   headcount?: number;
   occasion?: string;
@@ -129,10 +789,13 @@ interface BookingRecord {
   referenceCode?: string;
   reservationMode?: 'auto' | 'request';
   adminActionToken?: string;
+  adminActionTokenHash?: string;
   adminActionHandledAt?: FirebaseFirestore.Timestamp | admin.firestore.Timestamp | Date;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
-  customData?: Record<string, any>; 
+  customData?: Record<string, any>;
+  manageTokenHash?: string;
+  skipCreateEmails?: boolean;
 }
 
 interface QueuedEmail {
@@ -848,6 +1511,21 @@ const getPublicBaseUrl = (settings?: ReservationSettings) => {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 };
 
+const buildGuestManageUrl = (params: {
+  publicBaseUrl: string;
+  unitId: string;
+  bookingId: string;
+  manageToken?: string | null;
+  hasManageTokenHash: boolean;
+}): string | null => {
+  const { publicBaseUrl, unitId, bookingId, manageToken, hasManageTokenHash } = params;
+  if (hasManageTokenHash) {
+    if (!manageToken) return null;
+    return `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${manageToken}`;
+  }
+  return `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${bookingId}`;
+};
+
 const buildPayload = (
   booking: BookingRecord,
   unitName: string,
@@ -953,7 +1631,8 @@ const sendGuestCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
-  bookingId: string
+  bookingId: string,
+  manageToken?: string
 ) => {
   const locale = booking.locale || 'hu';
   const guestEmail = booking.contact?.email || booking.email;
@@ -972,7 +1651,8 @@ const sendGuestCreatedEmail = async (
     customSelects,
     publicBaseUrl,
   });
-  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const manageTokenValue = manageToken || bookingId;
+  const manageUrl = `${publicBaseUrl}/manage?reservationId=${bookingId}&unitId=${unitId}&token=${manageTokenValue}`;
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_created_guest',
@@ -1014,7 +1694,8 @@ const sendAdminCreatedEmail = async (
   unitId: string,
   booking: BookingRecord,
   unitName: string,
-  bookingId: string
+  bookingId: string,
+  adminActionTokenOverride?: string
 ) => {
   const settings = await getReservationSettings(unitId);
   const legacyRecipients = settings.notificationEmails || [];
@@ -1038,16 +1719,13 @@ const sendAdminCreatedEmail = async (
     customSelects,
     publicBaseUrl,
   });
+  const adminActionToken = adminActionTokenOverride || payload.adminActionToken || '';
 
-  const manageApproveUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
-    payload.adminActionToken || ''
-  }&action=approve`;
-  const manageRejectUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}&adminToken=${
-    payload.adminActionToken || ''
-  }&action=reject`;
+  const manageApproveUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&adminToken=${adminActionToken}&action=approve`;
+  const manageRejectUrl = `${publicBaseUrl}/manage?reservationId=${payload.bookingId}&unitId=${unitId}&adminToken=${adminActionToken}&action=reject`;
 
   const showAdminButtons =
-    booking.reservationMode === 'request' && !!payload.adminActionToken;
+    booking.reservationMode === 'request' && !!adminActionToken;
 
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
@@ -1120,7 +1798,13 @@ const sendGuestStatusEmail = async (
     customSelects,
     publicBaseUrl,
   });
-  const manageUrl = `${publicBaseUrl}/manage?token=${payload.bookingId}`;
+  const manageUrl = buildGuestManageUrl({
+    publicBaseUrl,
+    unitId,
+    bookingId,
+    manageToken: null,
+    hasManageTokenHash: !!booking.manageTokenHash,
+  });
   const { subject: rawSubject, html: rawHtml } = await resolveEmailTemplate(
     unitId,
     'booking_status_updated_guest',
@@ -1136,15 +1820,19 @@ const sendGuestStatusEmail = async (
     payload
   );
 
-  const extraHtml = `${buildButtonBlock(
-    [
-      {
-        label: 'FOGLALÁS MÓDOSÍTÁSA',
-        url: manageUrl,
-      },
-    ],
-    theme
-  )}${buildDetailsCardHtml(payload, theme)}`;
+  const extraHtml = `${
+    manageUrl
+      ? buildButtonBlock(
+          [
+            {
+              label: 'FOGLALÁS MÓDOSÍTÁSA',
+              url: manageUrl,
+            },
+          ],
+          theme
+        )
+      : ''
+  }${buildDetailsCardHtml(payload, theme)}`;
 
   const finalHtml = appendHtmlSafely(baseHtmlRendered, extraHtml);
 
@@ -1357,6 +2045,7 @@ export const onReservationCreated = onDocumentCreated(
   async (event) => {
     const booking = event.data?.data() as BookingRecord | undefined;
     if (!booking) return;
+    if (booking.skipCreateEmails) return;
 
     const unitId = event.params.unitId as string;
     const bookingId = event.params.bookingId as string;
@@ -1422,6 +2111,10 @@ export const onReservationStatusChange = onDocumentUpdated(
       statusChanged &&
       after.status === "cancelled" &&
       after.cancelledBy === "guest";
+    const adminCancelled =
+      statusChanged &&
+      after.status === "cancelled" &&
+      after.cancelledBy !== "guest";
 
     const tasks: Promise<void>[] = [];
 
@@ -1431,6 +2124,28 @@ export const onReservationStatusChange = onDocumentUpdated(
           logger.error("Failed to send guest status email", { unitId, err })
         )
       );
+
+      tasks.push(
+        db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservation_logs')
+          .add({
+            bookingId,
+            unitId,
+            type: after.status === 'confirmed' ? 'updated' : 'cancelled',
+            createdAt: FieldValue.serverTimestamp(),
+            createdByName: 'Email jóváhagyás',
+            source: 'internal',
+            message:
+              after.status === 'confirmed'
+                ? 'Foglalás jóváhagyva e-mailből'
+                : 'Foglalás elutasítva e-mailből',
+          })
+          .catch(err =>
+            logger.error("Failed to write admin decision log", { unitId, err })
+          )
+      );
     }
 
     if (guestCancelled) {
@@ -1438,6 +2153,43 @@ export const onReservationStatusChange = onDocumentUpdated(
         sendAdminCancellationEmail(unitId, after, unitName, bookingId).catch(err =>
           logger.error("Failed to send admin cancellation email", { unitId, err })
         )
+      );
+    }
+
+    if (adminCancelled && after.startTime && after.headcount && after.headcount > 0) {
+      tasks.push(
+        db
+          .runTransaction(async transaction => {
+            const startDate =
+              after.startTime instanceof admin.firestore.Timestamp
+                ? after.startTime.toDate()
+                : after.startTime instanceof Date
+                ? after.startTime
+                : new Date(after.startTime as any);
+            const dateKey = toDateKey(startDate);
+            const capacityRef = db
+              .collection('units')
+              .doc(unitId)
+              .collection('reservation_capacity')
+              .doc(dateKey);
+            const capacitySnap = await transaction.get(capacityRef);
+            const currentCount = capacitySnap.exists
+              ? (capacitySnap.data()?.count as number) || 0
+              : 0;
+            const nextCount = Math.max(0, currentCount - (after.headcount || 0));
+            transaction.set(
+              capacityRef,
+              {
+                date: dateKey,
+                count: nextCount,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          })
+          .catch(err =>
+            logger.error("Failed to adjust capacity after admin cancel", { unitId, err })
+          )
       );
     }
 
