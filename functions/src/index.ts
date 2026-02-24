@@ -612,7 +612,7 @@ export const guestUpdateReservation = onRequest(
 
       if (action === 'cancel') {
         const capacitySettings = normalizeReservationCapacitySettings(
-          await getReservationSettings(unitId)
+          (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
         );
         const result = await db.runTransaction(async (transaction) => {
           const latestSnap = await transaction.get(docRef);
@@ -2305,7 +2305,7 @@ export const adminHandleReservationAction = onRequest(
       }
 
       const capacitySettings = normalizeReservationCapacitySettings(
-        await getReservationSettings(unitId)
+        (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
       );
       const bookingStart = booking.startTime?.toDate
         ? booking.startTime.toDate()
@@ -6193,7 +6193,7 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     if (adminCancelled && after.startTime && after.headcount && after.headcount > 0) {
       const capacitySettings = normalizeReservationCapacitySettings(
-        await getReservationSettings(unitId)
+        (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
       );
       tasks.push(
         db
@@ -6220,7 +6220,7 @@ export const onReservationStatusChange = onDocumentUpdated(
               nextDateKey: dateKey,
               nextHeadcount: Number(after.headcount || 0),
               nextStartTime: startDate,
-              nextEndTime: after.endTime?.toDate
+              nextEndTime: after.endTime instanceof Timestamp
                 ? after.endTime.toDate()
                 : after.endTime instanceof Date
                 ? after.endTime

@@ -36,12 +36,14 @@ const normalizeLogStrategy = (strategy: SeatingSettingsDoc['allocationStrategy']
     ? strategy
     : null;
 
-const allowedSources = new Set(Object.values(ALLOCATION_LOG_SOURCES));
+const allowedSources = new Set<string>(Object.values(ALLOCATION_LOG_SOURCES));
 const normalizeLogSource = (source: string | null | undefined) => {
   if (typeof source !== 'string') return ALLOCATION_LOG_SOURCES.unknown;
   const trimmed = source.trim();
   if (!trimmed) return ALLOCATION_LOG_SOURCES.unknown;
-  return allowedSources.has(trimmed) ? trimmed : ALLOCATION_LOG_SOURCES.unknown;
+  return allowedSources.has(trimmed)
+    ? (trimmed as (typeof ALLOCATION_LOG_SOURCES)[keyof typeof ALLOCATION_LOG_SOURCES])
+    : ALLOCATION_LOG_SOURCES.unknown;
 };
 
 export const writeAllocationDecisionLogForBooking = async ({
