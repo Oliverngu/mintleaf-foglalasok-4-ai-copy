@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, FC } from 'react';
-import { ReservationSetting, ThemeSettings, GuestFormSettings, CustomSelectField } from '../../../core/models/data';
+import { ReservationSetting, ThemeSettings, GuestFormSettings, CustomSelectField, User } from '../../../core/models/data';
 import { db, storage } from '../../../core/firebase/config';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -10,9 +10,11 @@ import TrashIcon from '../../../../components/icons/TrashIcon';
 import PencilIcon from '../../../../components/icons/PencilIcon';
 import ColorPicker from '../common/ColorPicker';
 import { buildReservationTheme, defaultThemeSettings } from '../../../core/ui/reservationTheme';
+import { overrideDailyCapacity } from '../../../core/services/adminCapacityApiService';
 
 interface ReservationSettingsFormProps {
     unitId: string;
+    currentUser: User;
     onClose?: () => void;
     layout?: 'modal' | 'page';
 }
@@ -66,7 +68,7 @@ const getContrastingTextColors = (hex: string): { primary: string; secondary: st
 };
 
 
-const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, onClose, layout = 'modal' }) => {
+const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, currentUser, onClose, layout = 'modal' }) => {
     const [settings, setSettings] = useState<ReservationSetting | null>(null);
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -96,6 +98,10 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, onC
                     id: unitId,
                     blackoutDates: data.blackoutDates || [],
                     dailyCapacity: data.dailyCapacity ?? null,
+                    capacityMode: data.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily',
+                    timeWindowCapacity: data.timeWindowCapacity ?? null,
+                    bucketMinutes: Number.isFinite(data.bucketMinutes) ? data.bucketMinutes : 15,
+                    bufferMinutes: Number.isFinite(data.bufferMinutes) ? data.bufferMinutes : 15,
                     bookableWindow: data.bookableWindow || { from: '11:00', to: '23:00' },
                     kitchenStartTime: data.kitchenStartTime ?? data.kitchenOpen ?? null,
                     kitchenEndTime: data.kitchenEndTime ?? null,
@@ -112,6 +118,10 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, onC
                     id: unitId,
                     blackoutDates: [],
                     dailyCapacity: null,
+                    capacityMode: 'daily',
+                    timeWindowCapacity: null,
+                    bucketMinutes: 15,
+                    bufferMinutes: 15,
                     bookableWindow: { from: '11:00', to: '23:00' },
                     kitchenStartTime: null,
                     kitchenEndTime: null,
@@ -171,7 +181,14 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, onC
     const renderContent = () => {
         if (loading || !settings) return <div className="h-full relative"><LoadingSpinner /></div>;
         switch (activeTab) {
-            case 'általános': return <GeneralSettingsTab settings={settings} setSettings={setSettings} />;
+            case 'általános': return (
+                <GeneralSettingsTab
+                    settings={settings}
+                    setSettings={setSettings}
+                    unitId={unitId}
+                    currentUser={currentUser}
+                />
+            );
             case 'űrlap': return <FormOptionsTab settings={settings} setSettings={setSettings} />;
             case 'téma': return <ThemeStyleTab settings={settings} setSettings={setSettings} />;
             default: return null;
@@ -221,7 +238,17 @@ const ReservationSettingsForm: FC<ReservationSettingsFormProps> = ({ unitId, onC
     return content;
 };
 
-const GeneralSettingsTab: FC<{ settings: ReservationSetting, setSettings: React.Dispatch<React.SetStateAction<ReservationSetting | null>> }> = ({ settings, setSettings }) => {
+const GeneralSettingsTab: FC<{
+    settings: ReservationSetting;
+    setSettings: React.Dispatch<React.SetStateAction<ReservationSetting | null>>;
+    unitId: string;
+    currentUser: User;
+}> = ({ settings, setSettings, unitId, currentUser }) => {
+    const [overrideDate, setOverrideDate] = useState('');
+    const [overrideLimit, setOverrideLimit] = useState('');
+    const [overrideStatus, setOverrideStatus] = useState<string | null>(null);
+    const [overrideError, setOverrideError] = useState<string | null>(null);
+    const [isOverriding, setIsOverriding] = useState(false);
     const [newBlackoutDate, setNewBlackoutDate] = useState('');
 
     const handleFieldChange = (field: keyof ReservationSetting, value: any) => {
@@ -304,6 +331,142 @@ const GeneralSettingsTab: FC<{ settings: ReservationSetting, setSettings: React.
             <div className="p-4 bg-white border rounded-lg">
                 <label className="font-bold mb-2 block">Napi létszám limit</label>
                 <input type="number" placeholder="Nincs limit" value={settings.dailyCapacity || ''} onChange={e => handleFieldChange('dailyCapacity', e.target.value ? Number(e.target.value) : null)} className="w-full p-2 border rounded-md"/>
+            </div>
+            <div className="p-4 bg-white border rounded-lg space-y-3">
+                <h3 className="font-bold">Kapacitás mód</h3>
+                <label className="text-sm block">
+                    Mód
+                    <select
+                        value={settings.capacityMode ?? 'daily'}
+                        onChange={e =>
+                            handleFieldChange('capacityMode', e.target.value === 'timeWindow' ? 'timeWindow' : 'daily')
+                        }
+                        className="w-full p-2 border rounded-md mt-1"
+                    >
+                        <option value="daily">Napi limit</option>
+                        <option value="timeWindow">Idősávos limit</option>
+                    </select>
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="text-sm block">
+                        Idősávos kapacitás
+                        <input
+                            type="number"
+                            min="0"
+                            placeholder="Nincs limit"
+                            value={settings.timeWindowCapacity || ''}
+                            onChange={e =>
+                                handleFieldChange(
+                                    'timeWindowCapacity',
+                                    e.target.value ? Number(e.target.value) : null
+                                )
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                    <label className="text-sm block">
+                        Bucket (perc)
+                        <input
+                            type="number"
+                            min="1"
+                            value={settings.bucketMinutes ?? 15}
+                            onChange={e =>
+                                handleFieldChange('bucketMinutes', Number(e.target.value) || 15)
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                    <label className="text-sm block">
+                        Buffer (perc)
+                        <input
+                            type="number"
+                            min="0"
+                            value={settings.bufferMinutes ?? 15}
+                            onChange={e =>
+                                handleFieldChange('bufferMinutes', Number(e.target.value) || 0)
+                            }
+                            className="w-full p-2 border rounded-md mt-1"
+                            disabled={(settings.capacityMode ?? 'daily') !== 'timeWindow'}
+                        />
+                    </label>
+                </div>
+                <p className="text-xs text-gray-500">
+                    Idősávos módban a foglalás a kezdés + időtartam + buffer szerint fogyaszt
+                    kapacitást a bucketekben.
+                </p>
+            </div>
+            <div className="p-4 bg-white border rounded-lg">
+                <h3 className="font-bold mb-2">Napi limit felülbírálása</h3>
+                <p className="text-sm text-gray-500 mb-3">
+                    Ez csak az adott napra írja felül az alapértelmezett limitet.
+                </p>
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                    <div>
+                        <label className="text-sm block mb-1">Dátum</label>
+                        <input
+                            type="date"
+                            value={overrideDate}
+                            onChange={e => setOverrideDate(e.target.value)}
+                            className="w-full p-2 border rounded-md"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm block mb-1">Új limit</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={overrideLimit}
+                            onChange={e => setOverrideLimit(e.target.value)}
+                            className="w-full p-2 border rounded-md"
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            if (!overrideDate || !overrideLimit) {
+                                setOverrideError('Adj meg dátumot és limitet.');
+                                return;
+                            }
+                            const parsedLimit = Number(overrideLimit);
+                            if (Number.isNaN(parsedLimit) || parsedLimit < 0) {
+                                setOverrideError('A limitnek 0 vagy nagyobb számnak kell lennie.');
+                                return;
+                            }
+                            setOverrideError(null);
+                            setOverrideStatus(null);
+                            setIsOverriding(true);
+                            try {
+                                const result = await overrideDailyCapacity(
+                                    unitId,
+                                    overrideDate,
+                                    parsedLimit
+                                );
+                                if (result.status === 'OVERBOOKED') {
+                                    setOverrideStatus('Figyelem: a napi foglalások száma meghaladja az új limitet.');
+                                } else {
+                                    setOverrideStatus('A napi limit frissítve lett.');
+                                }
+                            } catch (overrideErr) {
+                                console.error('Failed to override daily capacity', overrideErr);
+                                setOverrideError('Hiba történt a napi limit frissítésekor.');
+                            } finally {
+                                setIsOverriding(false);
+                            }
+                        }}
+                        className="bg-green-700 text-white px-4 py-2 rounded-lg font-semibold disabled:bg-gray-400"
+                        disabled={isOverriding}
+                    >
+                        {isOverriding ? 'Mentés...' : 'Felülírás'}
+                    </button>
+                </div>
+                {overrideError && (
+                    <p className="mt-3 text-sm text-red-600">{overrideError}</p>
+                )}
+                {overrideStatus && (
+                    <p className="mt-3 text-sm text-amber-600">{overrideStatus}</p>
+                )}
             </div>
             <div className="p-4 bg-white border rounded-lg">
                 <h3 className="font-bold mb-2">Blackout napok</h3>

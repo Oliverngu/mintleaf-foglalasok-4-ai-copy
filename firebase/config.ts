@@ -20,6 +20,5 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 export { Timestamp, serverTimestamp };
 export const storage = getStorage(app, "gs://mintleaf-74d27.firebasestorage.app");

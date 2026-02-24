@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Unit,
   ReservationSetting,
-  User,
+  ReservationCapacity,
   ThemeSettings,
   GuestFormSettings,
   CustomSelectField,
 } from '../../../core/models/data';
-import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
+import { db, Timestamp } from '../../../core/firebase/config';
 import {
   doc,
   getDoc,
   collection,
-  setDoc,
   query,
   where,
   getDocs,
-  addDoc,
+  orderBy,
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import CalendarIcon from '../../../../components/icons/CalendarIcon';
@@ -28,6 +27,14 @@ import {
   syncThemeCssVariables,
 } from '../../../core/ui/reservationTheme';
 import PublicReservationLayout from './PublicReservationLayout';
+import { formatTimeSlot } from '../../utils/timeSlot';
+import {
+  normalizeSubmitError,
+  type SubmitError,
+} from '../../utils/normalizeSubmitError';
+import { getOnlineStatus } from '../../utils/getOnlineStatus';
+import { v4 as uuidv4 } from 'uuid';
+import { computeReservationBucketKeysClient } from '../../../core/utils/capacityBuckets';
 
 type Locale = 'hu' | 'en';
 
@@ -41,8 +48,6 @@ const PlayfulBubbles = () => (
 
 interface ReservationPageProps {
   unitId: string;
-  allUnits: Unit[];
-  currentUser: User | null;
 }
 
 const toDateKey = (date: Date): string => {
@@ -107,63 +112,9 @@ const resolveHeaderLogoUrl = (
   return null;
 };
 
-const generateAdminActionToken = () =>
-  `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-
-// ===== GUEST LOG HELPER =====
-const writeGuestLog = async (
-  unitId: string,
-  booking: {
-    id: string;
-    name: string;
-    headcount?: number;
-    startTime?: Timestamp;
-  },
-  type: 'guest_created' | 'guest_cancelled',
-  extraMessage?: string
-) => {
-  try {
-    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
-
-    let dateStr = '';
-    if (booking.startTime && typeof booking.startTime.toDate === 'function') {
-      dateStr = booking.startTime.toDate().toLocaleString('hu-HU', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
-
-    let baseMessage = '';
-    if (type === 'guest_created') {
-      baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő${
-        dateStr ? `, ${dateStr}` : ''
-      })`;
-    }
-    if (type === 'guest_cancelled') {
-      baseMessage = `Vendég lemondta a foglalást: ${booking.name}${
-        dateStr ? ` (${dateStr})` : ''
-      }`;
-    }
-
-    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
-
-    await addDoc(logsRef, {
-      bookingId: booking.id,
-      unitId,
-      type,
-      createdAt: serverTimestamp(),
-      source: 'guest',
-      createdByUserId: null,
-      createdByName: booking.name,
-      message,
-    });
-  } catch (logErr) {
-    console.error('Failed to write reservation log from guest page:', logErr);
-  }
-};
+const FUNCTIONS_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  'https://europe-west3-mintleaf-74d27.cloudfunctions.net';
 
 const ProgressIndicator: React.FC<{
   currentStep: number;
@@ -253,16 +204,39 @@ const ProgressIndicator: React.FC<{
   );
 };
 
-const ReservationPage: React.FC<ReservationPageProps> = ({
-  unitId,
-  allUnits,
-  currentUser: _currentUser, // jelenleg nincs használva
-}) => {
+const buildPublicUnit = (
+  unitId: string,
+  settings: ReservationSetting | null
+): Unit => {
+  const settingsAny = settings as Record<string, any> | null;
+  const name =
+    settingsAny?.publicName ||
+    settingsAny?.unitName ||
+    settingsAny?.brandName ||
+    unitId ||
+    'MintLeaf';
+  const logoUrl =
+    settings?.theme?.headerLogoUrl || settings?.theme?.timeWindowLogoUrl;
+
+  return {
+    id: unitId,
+    name,
+    logoUrl,
+  };
+};
+
+type SeatingPreference = 'any' | 'bar' | 'table' | 'outdoor';
+
+const ReservationPage: React.FC<ReservationPageProps> = ({ unitId }) => {
   const [step, setStep] = useState(1);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [settings, setSettings] = useState<ReservationSetting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitState, setSubmitState] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle');
+  const [submitError, setSubmitError] = useState<SubmitError | null>(null);
   const [locale, setLocale] = useState<Locale>('hu');
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -273,16 +247,29 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     endTime: '',
     phone: '',
     email: '',
+    preferredTimeSlot: null as string | null,
+    seatingPreference: 'any' as SeatingPreference,
     customData: {} as Record<string, string>,
   });
   const [submittedData, setSubmittedData] = useState<any>(null);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmitting = submitState === 'submitting';
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dailyHeadcounts, setDailyHeadcounts] = useState<Map<string, number>>(
     new Map()
   );
+  const [capacityByDate, setCapacityByDate] = useState<
+    Map<string, ReservationCapacity>
+  >(new Map());
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
+  const localeRef = useRef(locale);
+  const timeWindowCapacityValue =
+    typeof settings?.timeWindowCapacity === 'number' &&
+    Number.isFinite(settings.timeWindowCapacity) &&
+    settings.timeWindowCapacity > 0
+      ? settings.timeWindowCapacity
+      : null;
 
   const theme = useMemo(
     () => buildReservationTheme(settings?.theme || defaultReservationTheme, settings?.uiTheme),
@@ -299,25 +286,29 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
   }, []);
 
   useEffect(() => {
-    const currentUnit = allUnits.find((u) => u.id === unitId);
-    if (currentUnit) {
-      setUnit(currentUnit);
-      document.title = `Foglalás - ${currentUnit.name}`;
-    } else if (allUnits.length > 0) {
-      setError('A megadott egység nem található.');
-    }
-  }, [unitId, allUnits]);
+    localeRef.current = locale;
+  }, [locale]);
 
   useEffect(() => {
-    if (!unit) return;
+    if (!unitId) {
+      setLoadError('Hiányzik az egység azonosítója.');
+      setLoading(false);
+      return;
+    }
     const fetchSettings = async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const docRef = doc(db, 'reservation_settings', unitId);
         const docSnap = await getDoc(docRef);
         const defaultSettings: ReservationSetting = {
           id: unitId,
           blackoutDates: [],
+          dailyCapacity: null,
+          capacityMode: 'daily',
+          timeWindowCapacity: null,
+          bucketMinutes: 15,
+          bufferMinutes: 15,
           bookableWindow: { from: '11:00', to: '23:00' },
           kitchenStartTime: null,
           kitchenEndTime: null,
@@ -342,24 +333,34 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
               ...DEFAULT_THEME,
               ...(dbData.theme || {}),
             },
+            capacityMode: dbData.capacityMode === 'timeWindow' ? 'timeWindow' : 'daily',
+            bucketMinutes: Number.isFinite(dbData.bucketMinutes) ? dbData.bucketMinutes : 15,
+            bufferMinutes: Number.isFinite(dbData.bufferMinutes) ? dbData.bufferMinutes : 15,
           };
           setSettings(finalSettings);
+          const publicUnit = buildPublicUnit(unitId, finalSettings);
+          setUnit(publicUnit);
+          document.title = `Foglalás - ${publicUnit.name}`;
         } else {
           setSettings(defaultSettings);
+          const publicUnit = buildPublicUnit(unitId, defaultSettings);
+          setUnit(publicUnit);
+          document.title = `Foglalás - ${publicUnit.name}`;
         }
       } catch (err) {
         console.error('Error fetching reservation settings:', err);
-        setError('Hiba a foglalási beállítások betöltésekor.');
+        setLoadError(translations[localeRef.current].genericError);
       } finally {
         setLoading(false);
       }
     };
     fetchSettings();
-  }, [unit, unitId]);
+  }, [unitId]);
 
   useEffect(() => {
-    if (!unitId || !settings?.dailyCapacity || settings.dailyCapacity <= 0) {
+    if (!unitId || !settings) {
       setDailyHeadcounts(new Map());
+      setCapacityByDate(new Map());
       return;
     }
 
@@ -378,30 +379,44 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         59
       );
 
+      const startKey = toDateKey(startOfMonth);
+      const endKey = toDateKey(endOfMonth);
       const q = query(
-        collection(db, 'units', unitId, 'reservations'),
-        where('startTime', '>=', Timestamp.fromDate(startOfMonth)),
-        where('startTime', '<=', Timestamp.fromDate(endOfMonth)),
-        where('status', 'in', ['pending', 'confirmed'])
+        collection(db, 'units', unitId, 'reservation_capacity'),
+        where('date', '>=', startKey),
+        where('date', '<=', endKey),
+        orderBy('date')
       );
 
       try {
         const querySnapshot = await getDocs(q);
         const headcounts = new Map<string, number>();
+        const capacityMap = new Map<string, ReservationCapacity>();
         querySnapshot.docs.forEach((docSnap) => {
-          const booking = docSnap.data();
-          const dateKey = toDateKey(booking.startTime.toDate());
+          const capacity = docSnap.data() as ReservationCapacity;
+          const dateKey = capacity.date || docSnap.id;
+          const baseCount =
+            typeof capacity.totalCount === 'number'
+              ? capacity.totalCount
+              : capacity.count || 0;
           const currentCount = headcounts.get(dateKey) || 0;
-          headcounts.set(dateKey, currentCount + (booking.headcount || 0));
+          headcounts.set(dateKey, currentCount + baseCount);
+          capacityMap.set(dateKey, {
+            date: dateKey,
+            ...capacity,
+            count: capacity.count ?? baseCount,
+            totalCount: capacity.totalCount ?? baseCount,
+          });
         });
         setDailyHeadcounts(headcounts);
+        setCapacityByDate(capacityMap);
       } catch (err) {
         console.error('Error fetching headcounts:', err);
       }
     };
 
     fetchHeadcounts();
-  }, [unitId, currentMonth, settings?.dailyCapacity]);
+  }, [unitId, currentMonth, settings]);
 
   useEffect(() => {
     syncThemeCssVariables(theme);
@@ -416,10 +431,14 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
       endTime: '',
       phone: '',
       email: '',
+      preferredTimeSlot: null,
+      seatingPreference: 'any',
       customData: {},
     });
     setSubmittedData(null);
     setStep(1);
+    setSubmitState('idle');
+    setSubmitError(null);
   };
 
   const handleDateSelect = (day: Date) => {
@@ -453,19 +472,54 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDate || !formData.startTime || !unit || !settings) return;
+    if (submitState === 'submitting') return;
+    setSubmitError(null);
+    setSubmitState('submitting');
+    const traceId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : uuidv4();
 
-    setIsSubmitting(true);
-    setError('');
+    console.log(
+      `[reserve-submit] start traceId=${traceId} unitId=${unitId} date=${
+        selectedDate ? toDateKey(selectedDate) : 'unknown'
+      } partySize=${formData.headcount}`
+    );
+
+    if (!selectedDate || !formData.startTime || !unit || !settings) {
+      const normalized = normalizeSubmitError({
+        error: new Error(t.errorRequired),
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
+      });
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
+      return;
+    }
+
+    const headcount = Number.parseInt(formData.headcount, 10);
+    if (!Number.isFinite(headcount) || headcount < 1) {
+      const normalized = normalizeSubmitError({
+        error: new Error(t.errorRequired),
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
+      });
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
+      return;
+    }
 
     let startDateTime: Date;
     let endDateTime: Date;
-    let newReservation: any;
-
     try {
       const requestedStartTime = formData.startTime;
-      const requestedHeadcount = parseInt(formData.headcount, 10);
-
       const { from: bookingStart, to: bookingEnd } = settings.bookableWindow || {
         from: '00:00',
         to: '23:59',
@@ -478,37 +532,6 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         );
       }
 
-      if (settings.dailyCapacity && settings.dailyCapacity > 0) {
-        const dayStart = new Date(selectedDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(selectedDate);
-        dayEnd.setHours(23, 59, 59, 999);
-
-        const q = query(
-          collection(db, 'units', unitId, 'reservations'),
-          where('startTime', '>=', Timestamp.fromDate(dayStart)),
-          where('startTime', '<=', Timestamp.fromDate(dayEnd)),
-          where('status', 'in', ['pending', 'confirmed'])
-        );
-
-        const querySnapshot = await getDocs(q);
-        const currentHeadcount = querySnapshot.docs.reduce(
-          (sum, docSnap) => sum + (docSnap.data().headcount || 0),
-          0
-        );
-
-        if (currentHeadcount >= settings.dailyCapacity)
-          throw new Error(t.errorCapacityFull);
-        if (currentHeadcount + requestedHeadcount > settings.dailyCapacity) {
-          throw new Error(
-            t.errorCapacityLimited.replace(
-              '{count}',
-              String(settings.dailyCapacity - currentHeadcount)
-            )
-          );
-        }
-      }
-
       startDateTime = new Date(
         `${toDateKey(selectedDate)}T${formData.startTime}`
       );
@@ -517,25 +540,56 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         const potentialEndDateTime = new Date(
           `${toDateKey(selectedDate)}T${formData.endTime}`
         );
-        if (potentialEndDateTime > startDateTime)
-          endDateTime = potentialEndDateTime;
+        if (Number.isNaN(potentialEndDateTime.getTime())) {
+          throw new Error(t.errorTime);
+        }
+        if (potentialEndDateTime.getTime() <= startDateTime.getTime()) {
+          throw new Error(t.errorTime);
+        }
+        endDateTime = potentialEndDateTime;
       }
 
-      const newReservationRef = doc(
-        collection(db, 'units', unitId, 'reservations')
-      );
-      const referenceCode = newReservationRef.id;
-      const adminActionToken =
-        settings.reservationMode === 'request'
-          ? generateAdminActionToken()
-          : null;
+      const capacityMode = settings.capacityMode ?? 'daily';
+      if (capacityMode === 'timeWindow' && timeWindowCapacityValue) {
+        const bucketKeys = timeWindowSelection.bucketKeys;
+        const capacityEntry = capacityByDate.get(toDateKey(selectedDate));
+        const byTimeBucket = capacityEntry?.byTimeBucket ?? {};
+        let remaining = timeWindowCapacityValue;
+        let overLimit = false;
+        bucketKeys.forEach(key => {
+          const current = byTimeBucket[key] ?? 0;
+          remaining = Math.min(remaining, timeWindowCapacityValue - current);
+          if (current + headcount > timeWindowCapacityValue) {
+            overLimit = true;
+          }
+        });
+        if (bucketKeys.length && overLimit) {
+          const safeRemaining = Math.max(0, remaining);
+          const userMessage =
+            locale === 'hu'
+              ? `Erre az időpontra jelenleg ${safeRemaining} fő fér el. Kérjük, válassz másik időpontot.`
+              : `Only ${safeRemaining} seats are available for this time. Please pick another time.`;
+          setSubmitError({
+            kind: 'validation',
+            userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+            userMessage,
+            debugId: traceId,
+          });
+          setSubmitState('error');
+          console.log(
+            `[reserve-submit] capacity_full traceId=${traceId} remaining=${safeRemaining}`
+          );
+          return;
+        }
+      }
+
       const reservationStatus: 'confirmed' | 'pending' =
         settings?.reservationMode === 'auto' ? 'confirmed' : 'pending';
 
       const baseReservation = {
         unitId,
         name: formData.name,
-        headcount: parseInt(formData.headcount, 10),
+        headcount,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: Timestamp.fromDate(endDateTime),
         contact: {
@@ -544,52 +598,112 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
         },
         locale,
         status: reservationStatus,
-        createdAt: serverTimestamp(),
-        referenceCode,
         reservationMode: settings.reservationMode,
         occasion: formData.customData['occasion'] || '',
         source: formData.customData['heardFrom'] || '',
-        customData: formData.customData,
-      };
-
-      const adminActionFields =
-        typeof adminActionToken === 'string' && adminActionToken
-          ? { adminActionToken }
-          : {};
-
-      newReservation = {
-        ...baseReservation,
-        ...adminActionFields,
-      };
-
-      await setDoc(newReservationRef, newReservation);
-
-      // ---- GUEST LOG: booking created ----
-      await writeGuestLog(
-        unitId,
-        {
-          id: referenceCode,
-          name: newReservation.name,
-          headcount: newReservation.headcount,
-          startTime: newReservation.startTime,
+        preferredTimeSlot: formData.preferredTimeSlot,
+        seatingPreference: formData.seatingPreference,
+        customData: {
+          ...formData.customData,
+          preferredTimeSlot: formData.preferredTimeSlot ?? '',
+          seatingPreference: formData.seatingPreference,
         },
-        'guest_created'
+      };
+      const dateKey = toDateKey(selectedDate);
+
+      const response = await fetch(
+        `${FUNCTIONS_BASE_URL}/guestCreateReservation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            unitId,
+            dateKey,
+            reservation: {
+              ...baseReservation,
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+            },
+          }),
+        }
       );
 
-      setSubmittedData({ ...newReservation, date: selectedDate });
+      if (!response.ok) {
+        if (response.status === 409) {
+          const payload = await response.json().catch(() => ({}));
+          if (payload?.error === 'capacity_full') {
+            const remaining =
+              typeof payload.remaining === 'number' && Number.isFinite(payload.remaining)
+                ? Math.max(0, payload.remaining)
+                : null;
+            const userMessage =
+              locale === 'hu'
+                ? remaining !== null
+                  ? `Erre az időpontra jelenleg ${remaining} fő fér el. Kérjük, válassz másik időpontot.`
+                  : t.errorCapacityFull
+                : remaining !== null
+                ? `Only ${remaining} seats are available for this time. Please pick another time.`
+                : t.errorCapacityFull;
+            setSubmitError({
+              kind: 'validation',
+              userTitle: locale === 'hu' ? 'Nincs kapacitás' : 'No capacity',
+              userMessage,
+              debugId: traceId,
+            });
+            setSubmitState('error');
+            console.log(
+              `[reserve-submit] error traceId=${traceId} kind=capacity_full remaining=${remaining ?? 'n/a'}`
+            );
+            return;
+          }
+        }
+        const normalized = normalizeSubmitError({
+          response,
+          traceId,
+          isOnline: getOnlineStatus(),
+          locale,
+        });
+        setSubmitError(normalized);
+        setSubmitState('error');
+        console.log(
+          `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+        );
+        return;
+      }
+
+      const payload = await response.json();
+      const referenceCode = payload.bookingId || payload.id;
+      const manageToken = payload.manageToken as string | undefined;
+      setSubmittedData({
+        ...baseReservation,
+        referenceCode,
+        manageToken,
+        startTime: Timestamp.fromDate(startDateTime),
+        endTime: Timestamp.fromDate(endDateTime),
+        date: selectedDate,
+        capacityByDate,
+      });
       setStep(3);
+      setSubmitState('success');
+      console.log(`[reserve-submit] success traceId=${traceId}`);
 
       // !!! FRONTEND NEM KÜLD EMAILT !!!
       // A backend (onReservationCreated / onReservationStatusChange) intézi.
     } catch (err: unknown) {
       console.error('Error during reservation submission:', err);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError(t.genericError);
-      }
-    } finally {
-      setIsSubmitting(false);
+      const normalized = normalizeSubmitError({
+        error: err,
+        traceId,
+        isOnline: getOnlineStatus(),
+        locale,
+      });
+      setSubmitError(normalized);
+      setSubmitState('error');
+      console.log(
+        `[reserve-submit] error traceId=${traceId} kind=${normalized.kind} message=${normalized.userMessage}`
+      );
     }
   };
 
@@ -654,7 +768,104 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
     watermarkText,
   };
 
-  if (error && step !== 2) {
+  useEffect(() => {
+    if (loadError && errorBannerRef.current) {
+      errorBannerRef.current.focus();
+    }
+  }, [loadError, step]);
+
+  const timeWindowSelection = useMemo(() => {
+    if (!settings || (settings.capacityMode ?? 'daily') !== 'timeWindow') {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    if (!selectedDate || !formData.startTime) {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    const startDateTime = new Date(`${toDateKey(selectedDate)}T${formData.startTime}`);
+    const defaultEnd = new Date(startDateTime.getTime() + 2 * 60 * 60 * 1000);
+    const endDateTime = formData.endTime
+      ? new Date(`${toDateKey(selectedDate)}T${formData.endTime}`)
+      : defaultEnd;
+    if (Number.isNaN(startDateTime.getTime()) || Number.isNaN(endDateTime.getTime())) {
+      return {
+        dateKey: null,
+        startTime: null,
+        endTime: null,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    if (endDateTime.getTime() <= startDateTime.getTime()) {
+      return {
+        dateKey: null,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        bucketKeys: [] as string[],
+        remaining: null as number | null,
+        overLimit: false,
+      };
+    }
+    const bucketMinutes = settings.bucketMinutes ?? 15;
+    const bufferMinutes = settings.bufferMinutes ?? 15;
+    const bucketKeys = computeReservationBucketKeysClient({
+      startTime: startDateTime,
+      endTime: endDateTime,
+      bufferMinutes,
+      bucketMinutes,
+    });
+    const dateKey = toDateKey(selectedDate);
+    const capacityEntry = capacityByDate.get(dateKey);
+    const byTimeBucket = capacityEntry?.byTimeBucket ?? {};
+    const remaining =
+      timeWindowCapacityValue && bucketKeys.length
+        ? bucketKeys.reduce(
+            (min, key) => Math.min(min, timeWindowCapacityValue - (byTimeBucket[key] ?? 0)),
+            timeWindowCapacityValue
+          )
+        : null;
+    const headcount = Number.parseInt(formData.headcount, 10);
+    const overLimit =
+      timeWindowCapacityValue && bucketKeys.length && Number.isFinite(headcount)
+        ? bucketKeys.some(
+            key => (byTimeBucket[key] ?? 0) + headcount > timeWindowCapacityValue
+          )
+        : false;
+    return {
+      dateKey,
+      startTime: startDateTime,
+      endTime: endDateTime,
+      bucketKeys,
+      remaining: remaining !== null ? Math.max(0, remaining) : null,
+      overLimit,
+    };
+  }, [
+    capacityByDate,
+    formData.endTime,
+    formData.headcount,
+    formData.startTime,
+    selectedDate,
+    settings,
+    timeWindowCapacityValue,
+  ]);
+
+  const retryLabel = locale === 'hu' ? 'Próbáld újra' : 'Try again';
+
+  if (loadError && step !== 2) {
     return (
       <PublicReservationLayout
         {...baseLayoutProps}
@@ -669,13 +880,23 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
           </h2>
         }
         body={
-          <p
-            className={`mt-2 ${
-              isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
-            }`}
-          >
-            {error}
-          </p>
+          <div ref={errorBannerRef} tabIndex={-1} aria-live="assertive">
+            <p
+              className={`mt-2 ${
+                isMinimalGlassTheme ? 'text-[var(--color-text-secondary)]' : ''
+              }`}
+            >
+              {loadError}
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className={`mt-4 ${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`}
+              style={{ backgroundColor: 'var(--color-primary)' }}
+            >
+              {retryLabel}
+            </button>
+          </div>
         }
       />
     );
@@ -755,27 +976,37 @@ const ReservationPage: React.FC<ReservationPageProps> = ({
             }`}
           >
             <div className="flex-1 min-h-0">
-              <Step2Details
-                selectedDate={selectedDate}
-                formData={formData}
-                setFormData={setFormData}
-                onBack={() => {
-                  setStep(1);
-                  setError('');
-                }}
-                onSubmit={handleSubmit}
-                isSubmitting={isSubmitting}
-                settings={settings}
-                themeProps={themeClassProps}
-                t={t}
-                locale={locale}
-                error={error}
-                buttonClasses={{
-                  primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
-                  secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
-                }}
-                unit={unit}
-              />
+              {selectedDate ? (
+                <Step2Details
+                  selectedDate={selectedDate}
+                  formData={formData}
+                  setFormData={setFormData}
+                  onBack={() => {
+                    setStep(1);
+                    setSubmitError(null);
+                    setSubmitState('idle');
+                  }}
+                  onSubmit={handleSubmit}
+                  isSubmitting={isSubmitting}
+                  settings={settings}
+                  timeWindowRemaining={timeWindowSelection.remaining}
+                  timeWindowCapacity={timeWindowCapacityValue}
+                  timeWindowOverLimit={timeWindowSelection.overLimit}
+                  themeProps={themeClassProps}
+                  t={t}
+                  locale={locale}
+                  error={submitError}
+                  onRetry={() => {
+                    setSubmitError(null);
+                    setSubmitState('idle');
+                  }}
+                  buttonClasses={{
+                    primary: `${baseButtonClasses.primaryButton} ${themeClassProps.radiusClass}`,
+                    secondary: `${baseButtonClasses.secondaryButton} ${themeClassProps.radiusClass}`,
+                  }}
+                  unit={unit}
+                />
+              ) : null}
             </div>
           </div>
           <div
@@ -933,7 +1164,11 @@ const Step1Date: React.FC<{
           const isBlackout = blackoutSet.has(dateKey);
           const isPast = day < today;
           let isFull = false;
-          if (settings.dailyCapacity && settings.dailyCapacity > 0) {
+          if (
+            (settings.capacityMode ?? 'daily') === 'daily' &&
+            settings.dailyCapacity &&
+            settings.dailyCapacity > 0
+          ) {
             const currentHeadcount = dailyHeadcounts.get(dateKey) || 0;
             isFull = currentHeadcount >= settings.dailyCapacity;
           }
@@ -980,10 +1215,14 @@ interface Step2DetailsProps {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   isSubmitting: boolean;
   settings: ReservationSetting;
+  timeWindowRemaining: number | null;
+  timeWindowCapacity: number | null;
+  timeWindowOverLimit: boolean;
   themeProps: any;
   t: any;
   locale: Locale;
-  error: string;
+  error: SubmitError | null;
+  onRetry: () => void;
   buttonClasses: { primary: string; secondary: string };
   unit: Unit;
 }
@@ -996,10 +1235,14 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
   onSubmit,
   isSubmitting,
   settings,
+  timeWindowRemaining,
+  timeWindowCapacity,
+  timeWindowOverLimit,
   themeProps,
   t,
   locale,
   error,
+  onRetry,
   buttonClasses,
   unit,
 }) => {
@@ -1008,6 +1251,16 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     phone: '',
     email: '',
   });
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
+
+  const timeSlotOptions = [
+    '11:00-13:00',
+    '13:00-15:00',
+    '15:00-17:00',
+    '17:00-19:00',
+    '19:00-21:00',
+    '21:00-23:00',
+  ];
 
   const validateField = (name: string, value: string) => {
     if (!value.trim()) return t.errorRequired;
@@ -1043,6 +1296,14 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
     }));
   };
 
+  const handleTimeSlotChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const { value } = e.target;
+    setFormData((prev: any) => ({
+      ...prev,
+      preferredTimeSlot: value ? value : null,
+    }));
+  };
+
   const isFormValid = useMemo(() => {
     return (
       formData.name &&
@@ -1054,8 +1315,6 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
       !validateField('email', formData.email)
     );
   }, [formData, t]);
-
-  if (!selectedDate) return null;
 
   const bookingWindowText = settings.bookableWindow
     ? `${settings.bookableWindow.from} – ${settings.bookableWindow.to}`
@@ -1079,6 +1338,23 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
 
   const hasTimeWindowInfo =
     bookingWindowText || settings.kitchenStartTime || settings.barStartTime;
+  const showTimeWindowRemaining =
+    (settings.capacityMode ?? 'daily') === 'timeWindow' &&
+    typeof timeWindowCapacity === 'number' &&
+    timeWindowCapacity > 0 &&
+    timeWindowRemaining !== null;
+
+  const fieldErrorItems = [
+    { key: 'name', label: t.name, message: formErrors.name },
+    { key: 'phone', label: t.phone, message: formErrors.phone },
+    { key: 'email', label: t.email, message: formErrors.email },
+  ].filter((item) => item.message);
+
+  useEffect(() => {
+    if (error && errorBannerRef.current) {
+      errorBannerRef.current.focus();
+    }
+  }, [error]);
 
   return (
     <div
@@ -1093,8 +1369,30 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
         {t.step2Title}
       </h2>
       {error && (
-        <div className="p-3 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm">
-          {error}
+        <div
+          ref={errorBannerRef}
+          role="alert"
+          aria-live="assertive"
+          tabIndex={-1}
+          className="p-4 mb-4 bg-red-100 text-red-800 font-semibold rounded-lg text-sm leading-relaxed break-words border border-red-200 shadow-sm flex flex-col gap-3"
+        >
+          <div>
+            <p className="text-base font-bold">{error.userTitle}</p>
+            <p className="mt-1">{error.userMessage}</p>
+          </div>
+          {error.debugId && (
+            <p className="text-xs font-medium">
+              {locale === 'hu' ? 'Hiba azonosító' : 'Error ID'}: {error.debugId}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onRetry}
+            className={`${buttonClasses.primary} ${themeProps.radiusClass} text-sm`}
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          >
+            {locale === 'hu' ? 'Próbáld újra' : 'Try again'}
+          </button>
         </div>
       )}
       {hasTimeWindowInfo && (
@@ -1127,6 +1425,27 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {fieldErrorItems.length > 0 && (
+        <div
+          className={`mb-4 p-3 ${themeProps.radiusClass}`}
+          style={{
+            backgroundColor: `${themeProps.colors.danger}15`,
+            color: themeProps.colors.textPrimary,
+            border: `1px solid ${themeProps.colors.danger}40`,
+          }}
+        >
+          <p className="text-sm font-semibold">
+            {locale === 'hu' ? 'Ellenőrizd az alábbi mezőket:' : 'Please review:'}
+          </p>
+          <ul className="mt-2 space-y-1 text-xs list-disc list-inside">
+            {fieldErrorItems.map((item) => (
+              <li key={item.key}>
+                {item.label}: {item.message}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-5">
@@ -1233,6 +1552,86 @@ const Step2Details: React.FC<Step2DetailsProps> = ({
               style={inputTextStyle}
               min={formData.startTime}
             />
+            {showTimeWindowRemaining && (
+              <p
+                className={`mt-2 text-xs ${
+                  timeWindowOverLimit ? 'text-red-600' : 'text-[var(--color-text-secondary)]'
+                }`}
+              >
+                {locale === 'hu'
+                  ? `Szabad kapacitás ebben az idősávban: ${timeWindowRemaining} fő`
+                  : `Remaining capacity for this window: ${timeWindowRemaining}`}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.preferredTimeSlotLabel}</label>
+            <select
+              name="preferredTimeSlot"
+              value={formData.preferredTimeSlot || ''}
+              onChange={handleTimeSlotChange}
+              className={`${themeProps.radiusClass} w-full p-3 border placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]`}
+              style={inputTextStyle}
+            >
+              <option value="">{t.preferenceNotProvided}</option>
+              {timeSlotOptions.map((slot) => (
+                <option key={slot} value={slot}>
+                  {slot}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">{t.seatingPreferenceLabel}</label>
+            <div
+              className={`grid grid-cols-2 gap-2 ${themeProps.radiusClass}`}
+              role="radiogroup"
+              aria-label={t.seatingPreferenceLabel}
+            >
+              {[
+                { value: 'any', label: t.seatingPreferenceAny },
+                { value: 'bar', label: t.seatingPreferenceBar },
+                { value: 'table', label: t.seatingPreferenceTable },
+                { value: 'outdoor', label: t.seatingPreferenceOutdoor },
+              ].map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-center justify-center px-3 py-2 border text-sm font-medium cursor-pointer transition-colors ${themeProps.radiusClass} ${
+                    formData.seatingPreference === option.value
+                      ? 'bg-[var(--color-primary)] text-white border-transparent'
+                      : ''
+                  }`}
+                  aria-checked={formData.seatingPreference === option.value}
+                  role="radio"
+                  style={{
+                    borderColor:
+                      formData.seatingPreference === option.value
+                        ? 'transparent'
+                        : themeProps.colors.surface,
+                    backgroundColor:
+                      formData.seatingPreference === option.value
+                        ? 'var(--color-primary)'
+                        : themeProps.colors.surface,
+                    color:
+                      formData.seatingPreference === option.value
+                        ? '#fff'
+                        : themeProps.colors.textPrimary,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="seatingPreference"
+                    value={option.value}
+                    checked={formData.seatingPreference === option.value}
+                    onChange={handleStandardChange}
+                    className="sr-only"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
         {settings.guestForm?.customSelects?.map((field: CustomSelectField) => (
@@ -1308,7 +1707,7 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
     if (!submittedData)
       return { googleLink: '#', icsLink: '#', manageLink: '#' };
 
-    const { startTime, endTime, name, referenceCode } = submittedData;
+    const { startTime, endTime, name, referenceCode, manageToken } = submittedData;
     const startDate = startTime.toDate();
     const endDate = endTime.toDate();
 
@@ -1340,12 +1739,22 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       icsContent
     )}`;
 
-    const mLink = `${window.location.origin}/manage?token=${referenceCode}`;
+    if (!manageToken) {
+      return { googleLink: gLink, icsLink: iLink, manageLink: '#' };
+    }
+
+    const mLinkParams = new URLSearchParams({
+      reservationId: referenceCode,
+      unitId: unit.id,
+      token: manageToken,
+    });
+    const mLink = `${window.location.origin}/manage?${mLinkParams.toString()}`;
 
     return { googleLink: gLink, icsLink: iLink, manageLink: mLink };
   }, [submittedData, unit.name, t]);
 
   const handleCopy = () => {
+    if (manageLink === '#') return;
     navigator.clipboard.writeText(manageLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -1360,6 +1769,10 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
   const isAutoConfirm = settings.reservationMode === 'auto';
   const titleText = isAutoConfirm ? t.step3TitleConfirmed : t.step3Title;
   const bodyText = isAutoConfirm ? t.step3BodyConfirmed : t.step3Body;
+  const nextStepsText =
+    locale === 'hu'
+      ? 'Mi történik ezután? A foglalás részleteit e-mailben küldjük, és a linken bármikor módosíthatod vagy lemondhatod.'
+      : 'What happens next? We will email your reservation details, and you can modify or cancel anytime via the link.';
   const primaryButtonClass =
     buttonClasses?.primary ||
     `text-white font-bold py-3 px-6 ${themeProps.radiusClass}`;
@@ -1384,6 +1797,9 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
       <p className="text-[var(--color-text-primary)] mt-4">{bodyText}</p>
       <p className="text-sm mt-2" style={{ color: themeProps.colors.textSecondary }}>
         {t.emailConfirmationSent}
+      </p>
+      <p className="text-sm" style={{ color: themeProps.colors.textSecondary }}>
+        {nextStepsText}
       </p>
 
       {submittedData && (
@@ -1441,6 +1857,26 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
               ? maskPhone(submittedData.contact.phoneE164)
               : 'N/A'}
           </p>
+          <p>
+            <strong>{t.preferredTimeSlotLabel}:</strong>{' '}
+            {(() => {
+              const label = formatTimeSlot(submittedData.preferredTimeSlot, {
+                mode: 'label',
+                locale,
+              });
+              return label === '—' ? t.preferenceNotProvided : label;
+            })()}
+          </p>
+          <p>
+            <strong>{t.seatingPreferenceLabel}:</strong>{' '}
+            {submittedData.seatingPreference && submittedData.seatingPreference !== 'any'
+              ? ({
+                  bar: t.seatingPreferenceBar,
+                  table: t.seatingPreferenceTable,
+                  outdoor: t.seatingPreferenceOutdoor,
+                } as Record<string, string>)[submittedData.seatingPreference] || t.preferenceNotProvided
+              : t.preferenceNotProvided}
+          </p>
           {Object.entries(submittedData.customData || {}).map(([key, value]) => {
             const field = settings.guestForm?.customSelects?.find(
               (f) => f.id === key
@@ -1476,20 +1912,31 @@ const Step3Confirmation: React.FC<Step3ConfirmationProps> = ({
         >
           <input
             type="text"
-            value={manageLink}
+            value={manageLink === '#' ? '' : manageLink}
             readOnly
             className="w-full bg-transparent text-sm focus:outline-none placeholder:text-gray-600"
             style={inputTextStyle}
           />
           <button
             onClick={handleCopy}
+            disabled={manageLink === '#'}
             className={`${themeProps.radiusClass} font-semibold text-sm px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 ${theme.shadowClass}`}
-            style={{ backgroundColor: themeProps.colors.primary, color: '#fff' }}
+            style={{
+              backgroundColor:
+                manageLink === '#'
+                  ? themeProps.colors.textSecondary
+                  : themeProps.colors.primary,
+              color: '#fff',
+              opacity: manageLink === '#' ? 0.6 : 1,
+            }}
           >
             <CopyIcon className="h-4 w-4" />
             {copied ? t.copied : t.copy}
           </button>
         </div>
+        {manageLink === '#' && (
+          <p className="text-sm text-red-600">{t.invalidManageLink}</p>
+        )}
       </div>
 
       <div className="mt-6 space-y-3">

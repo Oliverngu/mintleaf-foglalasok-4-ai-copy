@@ -18,36 +18,27 @@ service cloud.firestore {
       return d.role;
     }
 
-    // unitIds + unitIDs (legacy) + unitId egyesítése
-    function unitsFromData(d) {
-      let u1 = d.unitIds;
-      let u2 = d.unitIDs;
-      let u3 = d.unitId;
+    // unitIds + unitIDs (legacy) + unitId (single) + string legacy támogatása
+function userUnits() {
+  let d = userData();
+  let u1 = d.unitIds;
+  let u2 = d.unitIDs;
+  let u3 = d.unitId;
 
-      return u1 is list
-        ? u1
-        : (u1 is string
-          ? [u1]
-          : (u2 is list
-            ? u2
-            : (u2 is string
-              ? [u2]
-              : (u3 is string ? [u3] : []))));
-    }
+  // Prefer list fields
+  return (u1 is list && u1.size() > 0)
+    ? u1
+    : ((u2 is list && u2.size() > 0)
+        ? u2
+        : ((u1 is string && u1.size() > 0)
+            ? [u1]
+            : ((u2 is string && u2.size() > 0)
+                ? [u2]
+                : ((u3 is string && u3.size() > 0)
+                    ? [u3]
+                    : []))));
+}
 
-    function userUnits() {
-      return unitsFromData(userData());
-    }
-
-    function sharesUnitWithUserDoc() {
-      let targetUnits = unitsFromData(resource.data);
-      return isSignedIn()
-        && userUnits().size() > 0
-        && targetUnits.size() > 0
-        && userUnits().hasAny(targetUnits);
-    }
-
-    // <<< ITT VOLT A HIBA
     function hasUnit(unitId) {
       return isSignedIn()
         && unitId != null
@@ -78,15 +69,43 @@ service cloud.firestore {
       return isAdmin() || hasUnit(unitId);
     }
 
+    function capacityFieldsAllowed() {
+      return request.resource.data.keys().hasOnly(['date', 'count', 'limit', 'updatedAt']);
+    }
+
+    function capacityLimitTouched() {
+      return 'limit' in request.resource.data;
+    }
+
+    function capacityLimitChanged() {
+      return capacityLimitTouched()
+        && (
+          !('limit' in resource.data)
+          || request.resource.data.limit != resource.data.limit
+        );
+    }
+
     function isSelf(userId) {
       return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- Public reservation reads ---
+
+    match /reservation_settings/{unitId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /units/{unitId}/reservation_capacity/{dateKey} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // --- users ---
 
     match /users/{userId} {
       // ADMIN is láthassa a többieket, különben nem lesz staff lista
-      allow read: if isSelf(userId) || isAdmin() || sharesUnitWithUserDoc();
+      allow read: if isSelf(userId) || isAdmin();
 
       allow create: if isAdmin()
         || (
@@ -128,20 +147,66 @@ service cloud.firestore {
     // --- units + subcollections ---
 
     match /units/{unitId} {
-      // egységek meta – minden belépett user láthatja (selectorhez)
-      allow read: if isSignedIn();
-      allow write: if canManageUnit(unitId);
+  // egységek meta – P0 stabil: minden belépett user láthatja (selector/theme miatt)
+  allow read: if isSignedIn();
+  allow write: if canManageUnit(unitId);
 
       match /reservations/{reservationId} {
         allow read: if canViewUnit(unitId);
-        allow create: if canViewUnit(unitId);
+        allow create: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
         allow update, delete: if canManageUnit(unitId)
           || (isUnitLeader() && hasUnit(unitId));
       }
 
+      match /allocation_logs/{logId} {
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow create, update, delete: if false;
+      }
+
+      match /floorplans/{floorplanId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /seating_settings/{docId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /reservation_overrides/{reservationId} {
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow create, update: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow delete: if canManageUnit(unitId);
+      }
+
+      match /zones/{zoneId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /tables/{tableId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /table_combinations/{comboId} {
+        allow read: if canManageUnit(unitId);
+        allow create, update, delete: if canManageUnit(unitId);
+      }
+
+      match /reservation_capacity/{dateKey} {
+        allow read: if true;
+        allow create, update, delete: if false;
+      }
+
       match /reservation_logs/{logId} {
-        allow read, create: if canViewUnit(unitId);
-        allow update, delete: if canManageUnit(unitId);
+        allow read: if canManageUnit(unitId)
+          || (isUnitLeader() && hasUnit(unitId));
+        allow create, update, delete: if false;
       }
 
       match /files/{fileId} {
@@ -557,7 +622,7 @@ service cloud.firestore {
       allow delete: if resource.data.unitId != null
         && (
           canManageUnit(resource.data.unitId)
-          || (isUnitLeader() && hasUnit(resource.data.unitId))
+          || (isUnitLeader() && hasUnit(request.resource.data.unitId))
         );
     }
 
@@ -566,6 +631,19 @@ service cloud.firestore {
     match /user_private_data/{userId} {
       allow read, write: if isSelf(userId) || isAdmin();
     }
+
+    // --- global settings (theme, etc.) ---
+match /global_settings/{docId} {
+  allow read: if isSignedIn();
+  allow write: if isAdmin();
+}
+
+// --- nicknames (login/register helper) ---
+match /nicknames/{nick} {
+  allow read: if true;        // username availability check
+  allow create: if isSignedIn();
+  allow update, delete: if false;
+}
 
     // Catch-all
     match /{document=**} {
