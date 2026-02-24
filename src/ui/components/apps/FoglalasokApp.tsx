@@ -126,6 +126,17 @@ function toLocalDateKey(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
+function toSafeDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (value && typeof value === 'object' && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    const date = (value as { toDate: () => unknown }).toDate();
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+  return null;
+}
+
 function parseTimeToMinutes(timeValue: string) {
   const [hours, minutes] = timeValue.split(':').map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
@@ -252,9 +263,7 @@ const DeleteConfirmationModal: React.FC<{
           <p>
             Biztosan törlöd a(z) <span className="font-bold">{booking.name}</span> nevű
             foglalást erre a napra:{' '}
-            <span className="font-bold">
-              {booking.startTime.toDate().toLocaleDateString('hu-HU')}
-            </span>
+            <span className="font-bold">{toSafeDate(booking.startTime)?.toLocaleDateString('hu-HU') ?? '—'}</span>
             ? A művelet nem vonható vissza.
           </p>
           <div>
@@ -368,10 +377,16 @@ const BookingSeatingEditor: React.FC<{
     setSuggestError(null);
     setSuggestSuccess(null);
     try {
+      const startTime = toSafeDate(booking.startTime);
+      const endTime = toSafeDate(booking.endTime);
+      if (!startTime || !endTime) {
+        setSuggestError('Érvénytelen foglalás időpont, javaslat nem készíthető.');
+        return;
+      }
       const result = await suggestSeating({
         unitId,
-        startTime: booking.startTime.toDate(),
-        endTime: booking.endTime.toDate(),
+        startTime,
+        endTime,
         headcount: booking.headcount,
         bookingId: booking.id,
       });
@@ -494,8 +509,8 @@ const computeAllocationConflicts = (
     return [];
   }
 
-  const targetStart = targetBooking.startTime?.toDate?.() ?? null;
-  const targetEnd = targetBooking.endTime?.toDate?.() ?? null;
+  const targetStart = toSafeDate(targetBooking.startTime);
+  const targetEnd = toSafeDate(targetBooking.endTime);
   if (!targetStart || !targetEnd) {
     return [];
   }
@@ -512,8 +527,8 @@ const computeAllocationConflicts = (
     if (!otherTableIds.length) {
       return;
     }
-    const otherStart = other.startTime?.toDate?.() ?? null;
-    const otherEnd = other.endTime?.toDate?.() ?? null;
+    const otherStart = toSafeDate(other.startTime);
+    const otherEnd = toSafeDate(other.endTime);
     if (!otherStart || !otherEnd) {
       return;
     }
@@ -638,10 +653,7 @@ const AllocationPanel: React.FC<{
   );
 
   const suggestion = useMemo(() => {
-    const bookingDate =
-      booking.startTime && typeof booking.startTime.toDate === 'function'
-        ? booking.startTime.toDate()
-        : undefined;
+    const bookingDate = toSafeDate(booking.startTime) ?? undefined;
     return suggestAllocation({
       partySize: booking.headcount,
       bookingDate,
@@ -1144,41 +1156,49 @@ const BookingDetailTabs: React.FC<{
 };
 
 const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <p className="text-sm font-semibold text-[var(--color-text-main)]">
-        {booking.name} ({booking.headcount} fő)
-      </p>
-      <p className="text-xs text-[var(--color-text-secondary)]">
-        {booking.startTime
-          .toDate()
-          .toLocaleTimeString('hu-HU', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}{' '}
-        -{' '}
-        {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })}
-      </p>
-    </div>
-    <div className="flex items-center gap-2">
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-        {booking.status || '—'}
-      </span>
-      {booking.allocationOverride?.enabled && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
-          OVERRIDE
-        </span>
-      )}
-      {booking.allocationFinal?.locked && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
-          ZÁROLT
-        </span>
-      )}
-    </div>
-  </div>
+  (() => {
+    const startDate = toSafeDate(booking.startTime);
+    const endDate = toSafeDate(booking.endTime);
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">
+            {booking.name} ({booking.headcount} fő)
+          </p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            {startDate
+              ? startDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}{' '}
+            -{' '}
+            {endDate
+              ? endDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+            {booking.status || '—'}
+          </span>
+          {booking.allocationOverride?.enabled && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+              OVERRIDE
+            </span>
+          )}
+          {booking.allocationFinal?.locked && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
+              ZÁROLT
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  })()
 );
 
 const BookingSummaryCard: React.FC<{
@@ -2257,7 +2277,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     bookings
       .filter(b => b.status !== 'cancelled')
       .forEach(booking => {
-        const key = toLocalDateKey(booking.startTime.toDate());
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return;
+        }
+        const key = toLocalDateKey(startDate);
         if (!map.has(key)) {
           map.set(key, []);
         }
@@ -2317,8 +2341,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const windowBookings = useMemo(() => {
     return overviewBookings.filter(booking => {
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) return false;
       return start < windowEnd && end > windowStart;
     });
@@ -2326,8 +2350,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const sortedOverviewBookings = useMemo(() => {
     return [...overviewBookings].sort((a, b) => {
-      const aTime = a.startTime?.toDate?.()?.getTime?.() ?? 0;
-      const bTime = b.startTime?.toDate?.()?.getTime?.() ?? 0;
+      const aTime = toSafeDate(a.startTime)?.getTime() ?? 0;
+      const bTime = toSafeDate(b.startTime)?.getTime() ?? 0;
       if (aTime !== bTime) return aTime - bTime;
       return a.id.localeCompare(b.id);
     });
@@ -2338,8 +2362,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const isToday = overviewDateKey === todayKey;
     const now = new Date();
     const withTimes = overviewBookings.map(booking => {
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       const startMs = start?.getTime() ?? 0;
       const endMs = end?.getTime() ?? 0;
       const isPast = isToday ? Boolean(end && end < now) : false;
@@ -2357,8 +2381,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const dayConflictedBookingIds = useMemo(() => {
     const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
     overviewBookings.forEach(booking => {
-      const start = booking.startTime?.toDate?.();
-      const end = booking.endTime?.toDate?.();
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) return;
       const tableIds = new Set<string>([
         ...(booking.assignedTableIds ?? []),
@@ -2393,8 +2417,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     dayStart.setHours(0, 0, 0, 0);
     return overviewBookings
       .map(booking => {
-        const start = booking.startTime?.toDate?.() ?? null;
-        const end = booking.endTime?.toDate?.() ?? null;
+        const start = toSafeDate(booking.startTime);
+        const end = toSafeDate(booking.endTime);
         if (!start || !end) return null;
         const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
         const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
@@ -2457,8 +2481,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const handleBookingFocus = useCallback(
     (booking: Booking) => {
       if (manualMode.active) return;
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) {
         setSelectedBookingId(booking.id);
         return;
@@ -2651,12 +2675,17 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     setSeedError(null);
     setSeedSuccess(null);
     try {
-      const seeded = bookings.filter(
-        booking =>
-          toLocalDateKey(booking.startTime.toDate()) === seedDate &&
+      const seeded = bookings.filter(booking => {
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return false;
+        }
+        return (
+          toLocalDateKey(startDate) === seedDate &&
           (booking.notes?.includes('[DEV_SEED]') || booking.name.startsWith('DEV Seed ')) &&
           booking.status !== 'cancelled'
-      );
+        );
+      });
       for (const booking of seeded) {
         await updateDoc(doc(db, 'units', activeUnitId, 'reservations', booking.id), {
           status: 'cancelled',
@@ -2780,8 +2809,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       overviewBookings.find(booking => booking.id === bookingId) ??
       bookings.find(booking => booking.id === bookingId);
     if (targetBooking) {
-      const start = targetBooking.startTime?.toDate?.() ?? null;
-      const end = targetBooking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(targetBooking.startTime);
+      const end = toSafeDate(targetBooking.endTime);
       if (start && end) {
         const dayStart = new Date(overviewDate);
         dayStart.setHours(0, 0, 0, 0);
@@ -3005,8 +3034,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </div>
                   <div className="mt-2 grid min-w-0 auto-rows-min grid-cols-2 justify-items-start gap-2 sm:grid-cols-3">
                     {sortedTodayBookings.map(booking => {
-                      const start = booking.startTime?.toDate?.();
-                      const end = booking.endTime?.toDate?.();
+                      const start = toSafeDate(booking.startTime);
+                      const end = toSafeDate(booking.endTime);
                       const isFocused = selectedBookingId === booking.id;
                       const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
                       const isConflict = dayConflictedBookingIds.has(booking.id);
@@ -3188,8 +3217,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </div>
                       <div className="mt-2 min-w-0 space-y-2">
                         {sortedTodayBookings.map(booking => {
-                          const start = booking.startTime?.toDate?.();
-                          const end = booking.endTime?.toDate?.();
+                          const start = toSafeDate(booking.startTime);
+                          const end = toSafeDate(booking.endTime);
                           const isFocused = selectedBookingId === booking.id;
                           const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
                           const isConflict = dayConflictedBookingIds.has(booking.id);
