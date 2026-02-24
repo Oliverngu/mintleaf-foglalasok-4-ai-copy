@@ -612,7 +612,7 @@ export const guestUpdateReservation = onRequest(
 
       if (action === 'cancel') {
         const capacitySettings = normalizeReservationCapacitySettings(
-          await getReservationSettings(unitId)
+          (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
         );
         const result = await db.runTransaction(async (transaction) => {
           const latestSnap = await transaction.get(docRef);
@@ -2305,7 +2305,7 @@ export const adminHandleReservationAction = onRequest(
       }
 
       const capacitySettings = normalizeReservationCapacitySettings(
-        await getReservationSettings(unitId)
+        (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
       );
       const bookingStart = booking.startTime?.toDate
         ? booking.startTime.toDate()
@@ -3477,6 +3477,398 @@ export const adminRecalcReservationCapacityDay = onRequest(
   }
 );
 
+type AutoAllocateDayMode = 'apply' | 'dryRun';
+
+type AutoAllocateDayResult = {
+  ok: true;
+  unitId: string;
+  dateKey: string;
+  mode: AutoAllocateDayMode;
+  totals: {
+    scanned: number;
+    processed: number;
+    updated: number;
+    skipped: number;
+    skippedLocked: number;
+    skippedOverride: number;
+    skippedReservationOverrides: number;
+    noFit: number;
+    conflicts: number;
+  };
+  items: Array<{
+    bookingId: string;
+    status:
+      | 'updated'
+      | 'dryRun'
+      | 'skipped_locked'
+      | 'skipped_override'
+      | 'skipped_reservation_overrides'
+      | 'skipped_invalid'
+      | 'error';
+    reason?: string;
+    selectedZoneId?: string | null;
+    selectedTableIds?: string[];
+    diagnostics?: { conflict?: boolean; noFit?: boolean };
+    startTimeMs?: number;
+    endTimeMs?: number;
+  }>;
+};
+
+const DEFAULT_AUTO_ALLOCATE_DURATION_MINUTES = 90;
+
+const getReservationOverrideFromBooking = (booking: any): { enabled: boolean; note?: string } | null => {
+  const raw = booking?.reservationAllocationOverride;
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  return {
+    enabled: Boolean((raw as { enabled?: unknown }).enabled),
+    note:
+      typeof (raw as { note?: unknown }).note === 'string'
+        ? ((raw as { note: string }).note || undefined)
+        : undefined,
+  };
+};
+
+async function runAdminAutoAllocateDay({
+  unitId,
+  dateKey,
+  mode,
+  force = false,
+  uid,
+}: {
+  unitId: string;
+  dateKey: string;
+  mode: AutoAllocateDayMode;
+  force?: boolean;
+  uid: string;
+}): Promise<AutoAllocateDayResult> {
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) {
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const userData = userSnap.data() || {};
+  const role = userData.role as string | undefined;
+  const normalizedUnits = Array.from(
+    new Set(
+      [
+        ...normalizeUnitIds(userData.unitIds),
+        ...normalizeUnitIds(userData.unitIDs),
+        ...normalizeUnitIds(userData.unitId),
+      ].filter(Boolean)
+    )
+  );
+  const canManage =
+    role === 'Admin' ||
+    ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
+  if (!canManage) {
+    throw new HttpsError('permission-denied', 'Forbidden');
+  }
+
+  const dayStart = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(dayStart.getTime())) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen dateKey');
+  }
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+
+  let allocationZones: FloorplanZone[] = [];
+  let allocationTables: FloorplanTable[] = [];
+  let allocationContextReady = false;
+  try {
+    const context = await fetchFloorplanContextCached(unitId);
+    allocationZones = context.zones;
+    allocationTables = context.tables;
+    allocationContextReady = true;
+  } catch (err) {
+    logger.warn('adminTriggerAutoAllocateDay allocation context failed', {
+      unitId,
+      error: serializeError(err),
+    });
+  }
+
+  const reservationsSnap = await db
+    .collection('units')
+    .doc(unitId)
+    .collection('reservations')
+    .where('startTime', '>=', Timestamp.fromDate(dayStart))
+    .where('startTime', '<', Timestamp.fromDate(dayEnd))
+    .orderBy('startTime', 'asc')
+    .get();
+
+  const rows = reservationsSnap.docs
+    .map(docSnap => ({ id: docSnap.id, data: docSnap.data() || {} }))
+    .sort((a, b) => {
+      const aStart = a.data.startTime?.toDate?.() as Date | undefined;
+      const bStart = b.data.startTime?.toDate?.() as Date | undefined;
+      const aTime = aStart ? aStart.getTime() : 0;
+      const bTime = bStart ? bStart.getTime() : 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return a.id.localeCompare(b.id);
+    });
+
+  const overrideBookingIds = new Set<string>();
+  if (rows.length > 0) {
+    const overrideCollection = db.collection('units').doc(unitId).collection('reservation_overrides');
+    const overrideRefs = rows.map(row => overrideCollection.doc(row.id));
+    for (let i = 0; i < overrideRefs.length; i += 300) {
+      const chunk = overrideRefs.slice(i, i + 300);
+      const overrideDocs = await Promise.all(chunk.map(ref => ref.get()));
+      overrideDocs.forEach(overrideDoc => {
+        if (overrideDoc.exists) {
+          overrideBookingIds.add(overrideDoc.id);
+        }
+      });
+    }
+  }
+
+  const items: AutoAllocateDayResult['items'] = [];
+
+  const totals = {
+    scanned: 0,
+    processed: 0,
+    updated: 0,
+    skipped: 0,
+    skippedLocked: 0,
+    skippedOverride: 0,
+    skippedReservationOverrides: 0,
+    noFit: 0,
+    conflicts: 0,
+  };
+
+  for (const row of rows) {
+    totals.scanned += 1;
+    const bookingId = row.id;
+    const booking = row.data;
+    const status = booking.status;
+    if (status === 'cancelled') {
+      totals.skipped += 1;
+      items.push({ bookingId, status: 'skipped_invalid', reason: 'cancelled' });
+      continue;
+    }
+
+    const startDate =
+      typeof booking.startTime?.toDate === 'function'
+        ? booking.startTime.toDate()
+        : booking.startTime instanceof Date
+        ? booking.startTime
+        : null;
+    const rawEndDate =
+      typeof booking.endTime?.toDate === 'function'
+        ? booking.endTime.toDate()
+        : booking.endTime instanceof Date
+        ? booking.endTime
+        : null;
+    const rawDurationMinutes = Number(booking.durationMinutes);
+    const fallbackDurationMinutes = Number.isFinite(rawDurationMinutes) && rawDurationMinutes > 0
+      ? Math.round(rawDurationMinutes)
+      : DEFAULT_AUTO_ALLOCATE_DURATION_MINUTES;
+    const endDate =
+      startDate instanceof Date
+        ? rawEndDate instanceof Date && rawEndDate.getTime() > startDate.getTime()
+          ? rawEndDate
+          : new Date(startDate.getTime() + fallbackDurationMinutes * 60000)
+        : rawEndDate;
+    const partySize = Number(booking.headcount);
+
+    if (!force) {
+      if (booking.allocationFinal?.locked) {
+        totals.skipped += 1;
+        totals.skippedLocked += 1;
+        items.push({ bookingId, status: 'skipped_locked' });
+        continue;
+      }
+      if (booking.allocationOverride?.enabled || booking.manualAllocation?.enabled) {
+        totals.skipped += 1;
+        totals.skippedOverride += 1;
+        items.push({ bookingId, status: 'skipped_override' });
+        continue;
+      }
+
+      if (overrideBookingIds.has(bookingId)) {
+        totals.skipped += 1;
+        totals.skippedReservationOverrides += 1;
+        items.push({
+          bookingId,
+          status: 'skipped_reservation_overrides',
+          reason: 'reservation_override_document',
+        });
+        continue;
+      }
+
+      const reservationOverride = getReservationOverrideFromBooking(booking);
+      if (reservationOverride?.enabled) {
+        totals.skipped += 1;
+        totals.skippedReservationOverrides += 1;
+        items.push({
+          bookingId,
+          status: 'skipped_reservation_overrides',
+          reason: reservationOverride.note || 'reservation_override_enabled',
+        });
+        continue;
+      }
+    }
+
+    if (!(startDate instanceof Date) || !(endDate instanceof Date) || !Number.isFinite(partySize)) {
+      totals.skipped += 1;
+      const reason =
+        !(startDate instanceof Date) || !(endDate instanceof Date) ? 'invalid_time' : 'invalid_party_size';
+      items.push({
+        bookingId,
+        status: 'skipped_invalid',
+        reason,
+        startTimeMs: startDate?.getTime(),
+        endTimeMs: endDate?.getTime(),
+      });
+      if (startDate && endDate) {
+        try {
+          await writeAllocationDecisionLogForBooking({
+            unitId,
+            bookingId,
+            startDate,
+            endDate,
+            partySize,
+            selectedZoneId: null,
+            selectedTableIds: [],
+            reason,
+            allocationMode: null,
+            allocationStrategy: null,
+            snapshot: null,
+            algoVersion: SEATING_LOG_ALGO_VERSION,
+            source: SEATING_LOG_SOURCES.adminBatch,
+          });
+        } catch (err) {
+          logger.warn('adminTriggerAutoAllocateDay invalid booking log failed', {
+            unitId,
+            bookingId,
+            err,
+          });
+        }
+      }
+      continue;
+    }
+
+    totals.processed += 1;
+    try {
+      const decision = normalizeSeatingDecision(
+        await computeAllocationDecisionForBooking({
+          unitId,
+          bookingId,
+          startDate,
+          endDate,
+          partySize,
+        }),
+        allocationContextReady ? allocationZones : [],
+        allocationContextReady ? allocationTables : []
+      );
+      const allocationRecord = buildAllocationRecord({
+        decision,
+        traceId: `alloc-${bookingId}`,
+        decidedAtMs: Date.now(),
+        enabled: decision.reason !== 'ALLOCATION_DISABLED',
+        computedForStartTimeMs: startDate.getTime(),
+        computedForEndTimeMs: endDate.getTime(),
+        computedForHeadcount: partySize,
+        algoVersion: SEATING_LOG_ALGO_VERSION,
+      });
+
+      const noFit = decision.reason === 'NO_FIT' || !allocationRecord;
+      if (noFit) {
+        totals.noFit += 1;
+      }
+
+      await writeAllocationDecisionLogForBooking({
+        unitId,
+        bookingId,
+        startDate,
+        endDate,
+        partySize,
+        selectedZoneId: decision.zoneId ?? null,
+        selectedTableIds: decision.tableIds,
+        reason: decision.reason,
+        allocationMode: decision.allocationMode ?? null,
+        allocationStrategy: decision.allocationStrategy ?? null,
+        snapshot: decision.snapshot ?? null,
+        algoVersion: SEATING_LOG_ALGO_VERSION,
+        source: SEATING_LOG_SOURCES.adminBatch,
+      });
+
+      if (mode === 'apply' && allocationRecord) {
+        await db
+          .collection('units')
+          .doc(unitId)
+          .collection('reservations')
+          .doc(bookingId)
+          .update({ allocated: allocationRecord });
+        totals.updated += 1;
+      }
+
+      items.push({
+        bookingId,
+        status: mode === 'apply' && allocationRecord ? 'updated' : 'dryRun',
+        reason: decision.reason,
+        selectedZoneId: decision.zoneId ?? null,
+        selectedTableIds: decision.tableIds,
+        diagnostics: { noFit },
+        startTimeMs: startDate.getTime(),
+        endTimeMs: endDate.getTime(),
+      });
+    } catch (err) {
+      totals.skipped += 1;
+      items.push({ bookingId, status: 'error', reason: 'decision_failed' });
+      logger.warn('adminTriggerAutoAllocateDay decision failed', {
+        unitId,
+        bookingId,
+        err,
+      });
+    }
+  }
+
+  const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
+  items.forEach(item => {
+    if (!item.selectedTableIds?.length || !item.startTimeMs || !item.endTimeMs) {
+      return;
+    }
+    item.selectedTableIds.forEach(tableId => {
+      const entries = tableMap.get(tableId) ?? [];
+      entries.push({ bookingId: item.bookingId, start: item.startTimeMs, end: item.endTimeMs });
+      tableMap.set(tableId, entries);
+    });
+  });
+
+  const conflictedBookings = new Set<string>();
+  tableMap.forEach(entries => {
+    if (entries.length < 2) return;
+    const sorted = [...entries].sort((a, b) => a.start - b.start);
+    let latestEnd = sorted[0].end;
+    for (let i = 1; i < sorted.length; i += 1) {
+      const entry = sorted[i];
+      if (entry.start < latestEnd) {
+        conflictedBookings.add(entry.bookingId);
+        conflictedBookings.add(sorted[i - 1].bookingId);
+      }
+      latestEnd = Math.max(latestEnd, entry.end);
+    }
+  });
+
+  items.forEach(item => {
+    if (conflictedBookings.has(item.bookingId)) {
+      item.diagnostics = { ...(item.diagnostics ?? {}), conflict: true };
+    }
+  });
+  totals.conflicts = conflictedBookings.size;
+
+  return {
+    ok: true,
+    unitId,
+    dateKey,
+    mode,
+    totals,
+    items,
+  };
+}
+
 export const adminTriggerAutoAllocateDay = onRequest(
   { region: REGION, cors: true },
   async (req, res) => {
@@ -3494,11 +3886,6 @@ export const adminTriggerAutoAllocateDay = onRequest(
 
       const token = authHeader.replace('Bearer ', '').trim();
       const decoded = await admin.auth().verifyIdToken(token);
-      const userSnap = await db.collection('users').doc(decoded.uid).get();
-      if (!userSnap.exists) {
-        res.status(403).json({ error: 'Forbidden' });
-        return;
-      }
 
       const body = req.body || {};
       if (typeof body !== 'object' || Array.isArray(body)) {
@@ -3530,310 +3917,86 @@ export const adminTriggerAutoAllocateDay = onRequest(
         return;
       }
 
-      const userData = userSnap.data() || {};
-      const role = userData.role as string | undefined;
-      const normalizedUnits = Array.from(
-        new Set(
-          [
-            ...normalizeUnitIds(userData.unitIds),
-            ...normalizeUnitIds(userData.unitIDs),
-            ...normalizeUnitIds(userData.unitId),
-          ].filter(Boolean)
-        )
-      );
-      const canManage =
-        role === 'Admin' ||
-        ((role === 'Unit Admin' || role === 'Unit Leader') && normalizedUnits.includes(unitId));
-      if (!canManage) {
-        res.status(403).json({ error: 'Forbidden' });
-        return;
-      }
-
-      const dayStart = new Date(`${dateKey}T00:00:00`);
-      if (Number.isNaN(dayStart.getTime())) {
-        res.status(400).json({ error: 'Érvénytelen dateKey' });
-        return;
-      }
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-
-      let allocationZones: FloorplanZone[] = [];
-      let allocationTables: FloorplanTable[] = [];
-      let allocationContextReady = false;
-      try {
-        const context = await fetchFloorplanContextCached(unitId);
-        allocationZones = context.zones;
-        allocationTables = context.tables;
-        allocationContextReady = true;
-      } catch (err) {
-        logger.warn('adminTriggerAutoAllocateDay allocation context failed', {
-          unitId,
-          error: serializeError(err),
-        });
-      }
-
-      const reservationsSnap = await db
-        .collection('units')
-        .doc(unitId)
-        .collection('reservations')
-        .where('startTime', '>=', Timestamp.fromDate(dayStart))
-        .where('startTime', '<', Timestamp.fromDate(dayEnd))
-        .orderBy('startTime', 'asc')
-        .get();
-
-      const rows = reservationsSnap.docs
-        .map(docSnap => ({ id: docSnap.id, data: docSnap.data() || {} }))
-        .sort((a, b) => {
-          const aStart = a.data.startTime?.toDate?.() as Date | undefined;
-          const bStart = b.data.startTime?.toDate?.() as Date | undefined;
-          const aTime = aStart ? aStart.getTime() : 0;
-          const bTime = bStart ? bStart.getTime() : 0;
-          if (aTime !== bTime) return aTime - bTime;
-          return a.id.localeCompare(b.id);
-        });
-
-      const items: Array<{
-        bookingId: string;
-        status:
-          | 'updated'
-          | 'dryRun'
-          | 'skipped_locked'
-          | 'skipped_override'
-          | 'skipped_reservation_overrides'
-          | 'skipped_invalid'
-          | 'error';
-        reason?: string;
-        selectedZoneId?: string | null;
-        selectedTableIds?: string[];
-        diagnostics?: { conflict?: boolean; noFit?: boolean };
-        startTimeMs?: number;
-        endTimeMs?: number;
-      }> = [];
-
-      const totals = {
-        scanned: 0,
-        processed: 0,
-        updated: 0,
-        skipped: 0,
-        skippedLocked: 0,
-        skippedOverride: 0,
-        skippedReservationOverrides: 0,
-        noFit: 0,
-        conflicts: 0,
-      };
-
-      for (const row of rows) {
-        totals.scanned += 1;
-        const bookingId = row.id;
-        const booking = row.data;
-        const status = booking.status;
-        if (status === 'cancelled') {
-          totals.skipped += 1;
-          items.push({ bookingId, status: 'skipped_invalid', reason: 'cancelled' });
-          continue;
-        }
-
-        const startDate =
-          typeof booking.startTime?.toDate === 'function'
-            ? booking.startTime.toDate()
-            : booking.startTime instanceof Date
-            ? booking.startTime
-            : null;
-        const endDate =
-          typeof booking.endTime?.toDate === 'function'
-            ? booking.endTime.toDate()
-            : booking.endTime instanceof Date
-            ? booking.endTime
-            : null;
-        const partySize = Number(booking.headcount);
-
-        if (!force) {
-          if (booking.allocationFinal?.locked) {
-            totals.skipped += 1;
-            totals.skippedLocked += 1;
-            items.push({ bookingId, status: 'skipped_locked' });
-            continue;
-          }
-          if (booking.allocationOverride?.enabled) {
-            totals.skipped += 1;
-            totals.skippedOverride += 1;
-            items.push({ bookingId, status: 'skipped_override' });
-            continue;
-          }
-          const overrideSnap = await db
-            .collection('units')
-            .doc(unitId)
-            .collection('reservation_overrides')
-            .doc(bookingId)
-            .get();
-          if (overrideSnap.exists) {
-            totals.skipped += 1;
-            totals.skippedReservationOverrides += 1;
-            items.push({ bookingId, status: 'skipped_reservation_overrides' });
-            continue;
-          }
-        }
-
-        if (!startDate || !endDate || !canRunSeatingAllocation(startDate, endDate, partySize)) {
-          totals.skipped += 1;
-          totals.processed += 1;
-          const reason = resolveSkipReason(startDate ?? new Date(0), endDate ?? new Date(0), partySize);
-          items.push({
-            bookingId,
-            status: 'skipped_invalid',
-            reason,
-            startTimeMs: startDate?.getTime(),
-            endTimeMs: endDate?.getTime(),
-          });
-          if (startDate && endDate) {
-            try {
-              await writeAllocationDecisionLogForBooking({
-                unitId,
-                bookingId,
-                startDate,
-                endDate,
-                partySize,
-                selectedZoneId: null,
-                selectedTableIds: [],
-                reason,
-                allocationMode: null,
-                allocationStrategy: null,
-                snapshot: null,
-                algoVersion: SEATING_LOG_ALGO_VERSION,
-                source: SEATING_LOG_SOURCES.adminBatch,
-              });
-            } catch (err) {
-              logger.warn('adminTriggerAutoAllocateDay invalid booking log failed', {
-                unitId,
-                bookingId,
-                err,
-              });
-            }
-          }
-          continue;
-        }
-
-        totals.processed += 1;
-        try {
-          const decision = normalizeSeatingDecision(
-            await computeAllocationDecisionForBooking({
-              unitId,
-              bookingId,
-              startDate,
-              endDate,
-              partySize,
-            }),
-            allocationContextReady ? allocationZones : [],
-            allocationContextReady ? allocationTables : []
-          );
-          const allocationRecord = buildAllocationRecord({
-            decision,
-            traceId: `alloc-${bookingId}`,
-            decidedAtMs: Date.now(),
-            enabled: decision.reason !== 'ALLOCATION_DISABLED',
-            computedForStartTimeMs: startDate.getTime(),
-            computedForEndTimeMs: endDate.getTime(),
-            computedForHeadcount: partySize,
-            algoVersion: SEATING_LOG_ALGO_VERSION,
-          });
-
-          const noFit = decision.reason === 'NO_FIT' || !allocationRecord;
-          if (noFit) {
-            totals.noFit += 1;
-          }
-
-          await writeAllocationDecisionLogForBooking({
-            unitId,
-            bookingId,
-            startDate,
-            endDate,
-            partySize,
-            selectedZoneId: decision.zoneId ?? null,
-            selectedTableIds: decision.tableIds,
-            reason: decision.reason,
-            allocationMode: decision.allocationMode ?? null,
-            allocationStrategy: decision.allocationStrategy ?? null,
-            snapshot: decision.snapshot ?? null,
-            algoVersion: SEATING_LOG_ALGO_VERSION,
-            source: SEATING_LOG_SOURCES.adminBatch,
-          });
-
-          if (mode === 'apply' && allocationRecord) {
-            await db
-              .collection('units')
-              .doc(unitId)
-              .collection('reservations')
-              .doc(bookingId)
-              .update({ allocated: allocationRecord });
-            totals.updated += 1;
-          }
-
-          items.push({
-            bookingId,
-            status: mode === 'apply' && allocationRecord ? 'updated' : 'dryRun',
-            reason: decision.reason,
-            selectedZoneId: decision.zoneId ?? null,
-            selectedTableIds: decision.tableIds,
-            diagnostics: { noFit },
-            startTimeMs: startDate.getTime(),
-            endTimeMs: endDate.getTime(),
-          });
-        } catch (err) {
-          totals.skipped += 1;
-          items.push({ bookingId, status: 'error', reason: 'decision_failed' });
-          logger.warn('adminTriggerAutoAllocateDay decision failed', {
-            unitId,
-            bookingId,
-            err,
-          });
-        }
-      }
-
-      const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
-      items.forEach(item => {
-        if (!item.selectedTableIds?.length || !item.startTimeMs || !item.endTimeMs) {
-          return;
-        }
-        item.selectedTableIds.forEach(tableId => {
-          const entries = tableMap.get(tableId) ?? [];
-          entries.push({ bookingId: item.bookingId, start: item.startTimeMs, end: item.endTimeMs });
-          tableMap.set(tableId, entries);
-        });
-      });
-
-      const conflictedBookings = new Set<string>();
-      tableMap.forEach(entries => {
-        if (entries.length < 2) return;
-        const sorted = [...entries].sort((a, b) => a.start - b.start);
-        let latestEnd = sorted[0].end;
-        for (let i = 1; i < sorted.length; i += 1) {
-          const entry = sorted[i];
-          if (entry.start < latestEnd) {
-            conflictedBookings.add(entry.bookingId);
-            conflictedBookings.add(sorted[i - 1].bookingId);
-          }
-          latestEnd = Math.max(latestEnd, entry.end);
-        }
-      });
-
-      items.forEach(item => {
-        if (conflictedBookings.has(item.bookingId)) {
-          item.diagnostics = { ...(item.diagnostics ?? {}), conflict: true };
-        }
-      });
-      totals.conflicts = conflictedBookings.size;
-
-      res.status(200).json({
-        ok: true,
+      const result = await runAdminAutoAllocateDay({
         unitId,
         dateKey,
         mode,
-        totals,
-        items,
+        force,
+        uid: decoded.uid,
+      });
+      res.status(200).json(result);
+    } catch (err) {
+      if (err instanceof HttpsError) {
+        const status =
+          err.code === 'invalid-argument'
+            ? 400
+            : err.code === 'unauthenticated'
+            ? 401
+            : err.code === 'permission-denied'
+            ? 403
+            : 500;
+        res.status(status).json({ error: err.message || 'Szerverhiba' });
+        return;
+      }
+      const correlationId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      logger.error('adminTriggerAutoAllocateDay error', {
+        correlationId,
+        error: serializeError(err),
+      });
+      res.status(500).json({ error: 'Szerverhiba', correlationId });
+    }
+  }
+);
+
+export const adminTriggerAutoAllocateDayCallable = onCall(
+  { region: REGION },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Unauthorized');
+    }
+
+    const payload = request.data || {};
+    if (typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+    }
+
+    const unitId = payload.unitId;
+    const dateKey = payload.dateKey;
+    const mode = payload.mode;
+    const force = Boolean(payload.force);
+    if (typeof unitId !== 'string' || typeof dateKey !== 'string') {
+      throw new HttpsError('invalid-argument', 'unitId és dateKey kötelező');
+    }
+    if (mode !== 'apply' && mode !== 'dryRun') {
+      throw new HttpsError('invalid-argument', 'Érvénytelen mode');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      throw new HttpsError('invalid-argument', 'Érvénytelen dateKey');
+    }
+
+    try {
+      return await runAdminAutoAllocateDay({
+        unitId,
+        dateKey,
+        mode,
+        force,
+        uid: request.auth.uid,
       });
     } catch (err) {
-      logger.error('adminTriggerAutoAllocateDay error', err);
-      res.status(500).json({ error: 'Szerverhiba' });
+      if (err instanceof HttpsError) {
+        throw err;
+      }
+      const serializedError = serializeError(err);
+      const serializedText =
+        typeof serializedError === 'string' ? serializedError : JSON.stringify(serializedError);
+      const safeDebug =
+        serializedText.length > 800 ? `${serializedText.slice(0, 799)}…` : serializedText;
+      logger.error('adminTriggerAutoAllocateDayCallable error', {
+        error: safeDebug,
+      });
+      throw new HttpsError('internal', 'Auto-allocate internal error', {
+        debug: safeDebug,
+      });
     }
   }
 );
@@ -6030,7 +6193,7 @@ export const onReservationStatusChange = onDocumentUpdated(
 
     if (adminCancelled && after.startTime && after.headcount && after.headcount > 0) {
       const capacitySettings = normalizeReservationCapacitySettings(
-        await getReservationSettings(unitId)
+        (await getReservationSettings(unitId)) as unknown as Record<string, unknown>
       );
       tasks.push(
         db
@@ -6057,7 +6220,7 @@ export const onReservationStatusChange = onDocumentUpdated(
               nextDateKey: dateKey,
               nextHeadcount: Number(after.headcount || 0),
               nextStartTime: startDate,
-              nextEndTime: after.endTime?.toDate
+              nextEndTime: after.endTime instanceof Timestamp
                 ? after.endTime.toDate()
                 : after.endTime instanceof Date
                 ? after.endTime

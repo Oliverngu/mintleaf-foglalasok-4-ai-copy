@@ -328,6 +328,11 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [floorplanMode, setFloorplanMode] = useState<'view' | 'edit'>('view');
   const isEditMode = floorplanMode === 'edit';
   const [viewportMode, setViewportMode] = useState<'auto' | 'selected' | 'fit'>('auto');
+  const manualZoomLockRef = useRef(0);
+  const lockManualZoom = useCallback(() => {
+    manualZoomLockRef.current = Date.now();
+  }, []);
+  const isManualZoomLocked = useCallback(() => Date.now() - manualZoomLockRef.current < 1200, []);
   const prevSelectedTableIdRef = useRef<string | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [precisionEnabled, setPrecisionEnabled] = useState(false);
@@ -483,6 +488,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const recenterRafIdRef = useRef<number | null>(null);
   const dragRecenterRafIdRef = useRef<number | null>(null);
   const scheduleRecenterSelectedTableRef = useRef<(scaleOverride?: number) => void>(() => {});
+  const zoomToSelectedTableRef = useRef<(opts?: { forceScale?: number; reason?: string }) => void>(() => {});
   const pendingDragRecenterRef = useRef<{
     position: { x: number; y: number };
     size: { w: number; h: number };
@@ -560,6 +566,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [selectedTableDraft, setSelectedTableDraft] = useState<{
     id: string;
     shape?: Table['shape'];
+    minCapacity: number;
+    capacityMax: number;
     capacityTotal: number;
     sideCapacities: { north: number; east: number; south: number; west: number };
     combinableWithIds: string[];
@@ -568,6 +576,15 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   const [baseComboSelection, setBaseComboSelection] = useState<string[]>([]);
 
   const [comboSelection, setComboSelection] = useState<string[]>([]);
+  const [seatIncreaseConfirm, setSeatIncreaseConfirm] = useState<{
+    tableId: string;
+    oldMax: number;
+    newMax: number;
+    nextSeatLayout: Table['seatLayout'];
+    nextSideCapacities: Table['sideCapacities'];
+    nextCapacityTotal: number;
+    isDraft: boolean;
+  } | null>(null);
   const [comboMode, setComboMode] = useState<{
     active: boolean;
     baseTableId: string | null;
@@ -694,6 +711,60 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return 0;
   };
+  const normalizeSeatLayoutFromTable = useCallback(
+    (params: {
+      shape?: Table['shape'];
+      seatLayout?: Table['seatLayout'];
+      sideCapacities?: Table['sideCapacities'];
+      capacityTotal?: number;
+    }): Table['seatLayout'] | undefined => {
+      const { shape, seatLayout, sideCapacities, capacityTotal } = params;
+      // Single source of truth: if seatLayout exists, keep it as-is.
+      if (seatLayout && !isSeatLayoutEmpty(seatLayout)) {
+        return seatLayout;
+      }
+      const normalizedCapacityTotal =
+        typeof capacityTotal === 'number' && Number.isFinite(capacityTotal)
+          ? Math.max(0, Math.floor(capacityTotal))
+          : 0;
+      if (shape === 'circle') {
+        if (normalizedCapacityTotal > 0) {
+          return { kind: 'circle', count: normalizedCapacityTotal };
+        }
+        return undefined;
+      }
+      if (!sideCapacities) {
+        return undefined;
+      }
+      const rawSides = [
+        sideCapacities.north,
+        sideCapacities.east,
+        sideCapacities.south,
+        sideCapacities.west,
+      ];
+      const hasValidLegacySides = rawSides.every(
+        value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 3
+      );
+      if (!hasValidLegacySides) {
+        return undefined;
+      }
+      const sides = {
+        north: Math.floor(sideCapacities.north),
+        east: Math.floor(sideCapacities.east),
+        south: Math.floor(sideCapacities.south),
+        west: Math.floor(sideCapacities.west),
+      };
+      const sideTotal = sides.north + sides.east + sides.south + sides.west;
+      if (sideTotal <= 0) {
+        return undefined;
+      }
+      if (normalizedCapacityTotal > 0 && normalizedCapacityTotal !== sideTotal) {
+        return undefined;
+      }
+      return { kind: 'rect', sides };
+    },
+    []
+  );
   const formatSeatLayoutSummary = (seatLayout?: Table['seatLayout']) => {
     if (!seatLayout) return 'Seat layout: n/a';
     if (seatLayout.kind === 'circle') {
@@ -706,6 +777,56 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     }
     return 'Seat layout: n/a';
   };
+  const computeSeatAdjustment = useCallback(
+    (
+      draft: {
+        shape?: Table['shape'];
+        seatLayout?: Table['seatLayout'];
+        sideCapacities?: Table['sideCapacities'];
+        capacityTotal?: number;
+      },
+      side: 'north' | 'east' | 'south' | 'west' | 'radial',
+      delta: number
+    ) => {
+      const shape = draft.shape === 'circle' ? 'circle' : 'rect';
+      const baseSideCapacities =
+        draft.sideCapacities ?? defaultSideCapacities(draft.capacityTotal ?? 0);
+      if (shape === 'circle') {
+        const current = draft.seatLayout?.kind === 'circle' ? draft.seatLayout.count : 0;
+        const next = Math.max(0, Math.min(16, current + delta));
+        const nextSeatLayout = { kind: 'circle', count: next } as const;
+        const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+          nextSeatLayout,
+          baseSideCapacities
+        );
+        return {
+          seatLayout: nextSeatLayout,
+          sideCapacities: nextSideCapacities,
+          capacityTotal: next,
+        };
+      }
+      if (side === 'radial') return null;
+      const sides =
+        draft.seatLayout?.kind === 'rect'
+          ? { ...(draft.seatLayout.sides ?? {}) }
+          : { north: 0, east: 0, south: 0, west: 0 };
+      const current = Number((sides as Record<string, number>)[side] ?? 0);
+      const nextSide = Math.max(0, Math.min(3, current + delta));
+      (sides as Record<string, number>)[side] = nextSide;
+      const nextSeatLayout = { kind: 'rect', sides } as const;
+      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
+        nextSeatLayout,
+        baseSideCapacities
+      );
+      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+      return {
+        seatLayout: nextSeatLayout,
+        sideCapacities: nextSideCapacities,
+        capacityTotal: nextCapacityTotal,
+      };
+    },
+    [defaultSideCapacities, deriveSideCapacitiesFromSeatLayout]
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1057,6 +1178,8 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       table.id === selectedTableDraft.id
         ? {
             ...table,
+            minCapacity: selectedTableDraft.minCapacity,
+            capacityMax: selectedTableDraft.capacityMax,
             capacityTotal: selectedTableDraft.capacityTotal,
             sideCapacities: selectedTableDraft.sideCapacities,
             combinableWithIds: selectedTableDraft.combinableWithIds,
@@ -1114,20 +1237,33 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
         return;
       }
       setSelectedTableId(tableId);
+      if (!isEditMode) {
+        return;
+      }
+      if (isManualZoomLocked()) {
+        return;
+      }
+      if (dragStateRef.current || obstacleDragRef.current) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        zoomToSelectedTableRef.current({ reason: 'table-select' });
+      });
     },
-    [comboMode.active, setEditorDirty]
+    [comboMode.active, isEditMode, isManualZoomLocked, setEditorDirty]
   );
   const handleZoomOutFit = useCallback(() => {
+    lockManualZoom();
     setViewportMode('fit');
     prevSelectedTableIdRef.current = null;
     setFloorplanTransformOverride(null);
     viewportCanvasRef.current?.resetToFit();
-  }, []);
+  }, [lockManualZoom]);
   const handleZoomInSelected = useCallback(() => {
     if (!selectedEditorTable) return;
-    setViewportMode('selected');
-    scheduleRecenterSelectedTableRef.current?.();
-  }, [selectedEditorTable]);
+    lockManualZoom();
+    zoomToSelectedTableRef.current({ reason: 'zoom-button' });
+  }, [lockManualZoom, selectedEditorTable]);
   const handleFloorplanBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (comboMode.active) {
@@ -1170,11 +1306,18 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     setSelectedTableDraft({
       id: selectedTable.id,
       shape: selectedTable.shape ?? 'rect',
+      minCapacity: selectedTable.minCapacity ?? 1,
+      capacityMax: selectedTable.capacityMax ?? Math.max(1, capacityTotal),
       capacityTotal,
       sideCapacities:
         selectedTable.sideCapacities ?? defaultSideCapacities(capacityTotal),
       combinableWithIds: selectedTable.combinableWithIds ?? [],
-      seatLayout: selectedTable.seatLayout,
+      seatLayout: normalizeSeatLayoutFromTable({
+        shape: selectedTable.shape,
+        seatLayout: selectedTable.seatLayout,
+        sideCapacities: selectedTable.sideCapacities,
+        capacityTotal,
+      }),
     });
   }, [
     selectedTable?.id,
@@ -1194,6 +1337,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTable?.seatLayout?.sides?.west,
     selectedTable?.shape,
     defaultSideCapacities,
+    normalizeSeatLayoutFromTable,
   ]);
   const combinableTableOptions = useMemo(() => {
     if (!selectedTable) return [] as Table[];
@@ -1253,19 +1397,41 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     floorplanDims,
     getRenderPosition,
   ]);
+  const effectiveSelectedSeatLayout = useMemo(() => {
+    if (!selectedTableDraft) return undefined;
+    return normalizeSeatLayoutFromTable({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+  }, [
+    normalizeSeatLayoutFromTable,
+    selectedTableDraft?.shape,
+    selectedTableDraft?.seatLayout?.kind,
+    selectedTableDraft?.seatLayout?.count,
+    selectedTableDraft?.seatLayout?.sides?.north,
+    selectedTableDraft?.seatLayout?.sides?.east,
+    selectedTableDraft?.seatLayout?.sides?.south,
+    selectedTableDraft?.seatLayout?.sides?.west,
+    selectedTableDraft?.sideCapacities.north,
+    selectedTableDraft?.sideCapacities.east,
+    selectedTableDraft?.sideCapacities.south,
+    selectedTableDraft?.sideCapacities.west,
+    selectedTableDraft?.capacityTotal,
+  ]);
   const seatLayoutCapacityTotal = useMemo(() => {
-    if (!selectedTableDraft) return null;
-    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return null;
-    return computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
-  }, [selectedTableDraft?.seatLayout]);
+    if (isSeatLayoutEmpty(effectiveSelectedSeatLayout)) return null;
+    return computeSeatCountFromSeatLayout(effectiveSelectedSeatLayout);
+  }, [effectiveSelectedSeatLayout]);
   const seatLayoutSummary = useMemo(
-    () => formatSeatLayoutSummary(selectedTableDraft?.seatLayout),
-    [selectedTableDraft?.seatLayout]
+    () => formatSeatLayoutSummary(effectiveSelectedSeatLayout),
+    [effectiveSelectedSeatLayout]
   );
   useEffect(() => {
     if (!selectedTableDraft) return;
-    if (isSeatLayoutEmpty(selectedTableDraft.seatLayout)) return;
-    const nextCapacityTotal = computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout);
+    if (isSeatLayoutEmpty(effectiveSelectedSeatLayout)) return;
+    const nextCapacityTotal = computeSeatCountFromSeatLayout(effectiveSelectedSeatLayout);
     if (nextCapacityTotal === selectedTableDraft.capacityTotal) return;
     setSelectedTableDraft(current =>
       current
@@ -1283,6 +1449,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     selectedTableDraft?.seatLayout?.sides?.east,
     selectedTableDraft?.seatLayout?.sides?.south,
     selectedTableDraft?.seatLayout?.sides?.west,
+    effectiveSelectedSeatLayout,
   ]);
   useEffect(() => {
     if (!selectedTableDraft) return;
@@ -1331,11 +1498,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       }
       return;
     }
+    if (isManualZoomLocked()) {
+      return;
+    }
     if (viewportMode === 'fit') {
       viewportCanvasRef.current?.resetToFit();
       return;
     }
-    if (viewportMode === 'auto' && prevSelectedTableIdRef.current === selectedId) {
+    if (prevSelectedTableIdRef.current === selectedId && viewportMode === 'selected') {
       return;
     }
     const geometry = resolveTableGeometryInFloorplanSpace(
@@ -1344,14 +1514,23 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       TABLE_GEOMETRY_DEFAULTS
     );
     const position = getRenderPosition(selectedEditorTable, geometry);
-    viewportCanvasRef.current?.centerOnRect({
-      x: position.x,
-      y: position.y,
-      w: geometry.w,
-      h: geometry.h,
+    const renderRot = draftRotations[selectedEditorTable.id] ?? geometry.rot;
+    const rect = getTableAabbForCollision(position.x, position.y, geometry.w, geometry.h, renderRot);
+    viewportCanvasRef.current?.centerOnRect(rect, {
+      targetScale: 1.4,
+      padding: 0.2,
     });
+    setViewportMode('selected');
     prevSelectedTableIdRef.current = selectedId;
-  }, [floorplanDims, getRenderPosition, isEditMode, selectedEditorTable, viewportMode]);
+  }, [
+    draftRotations,
+    floorplanDims,
+    getRenderPosition,
+    isEditMode,
+    isManualZoomLocked,
+    selectedEditorTable,
+    viewportMode,
+  ]);
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
   }
@@ -1826,7 +2005,42 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
   const abortDragRef = useRef(abortDrag);
 
-  const isDirty = settingsDirty || editorDirty;
+  const selectedTableSourceForMeta = useMemo(() => {
+    if (!selectedTableDraft) return null;
+    return tables.find(table => table.id === selectedTableDraft.id) ?? null;
+  }, [selectedTableDraft, tables]);
+
+  const isSelectedTableMetaDirty = useMemo(() => {
+    if (!selectedTableDraft || !selectedTableSourceForMeta) return false;
+    const normalizeCombos = (ids: string[] | undefined) => [...(ids ?? [])].sort();
+    const normalizedDraftSeatLayout = normalizeSeatLayoutFromTable({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+    const normalizedSourceSeatLayout = normalizeSeatLayoutFromTable({
+      shape: selectedTableSourceForMeta.shape,
+      seatLayout: selectedTableSourceForMeta.seatLayout,
+      sideCapacities: selectedTableSourceForMeta.sideCapacities,
+      capacityTotal: selectedTableSourceForMeta.capacityTotal,
+    });
+    return (
+      selectedTableDraft.minCapacity !== (selectedTableSourceForMeta.minCapacity ?? 1) ||
+      selectedTableDraft.capacityMax !== (selectedTableSourceForMeta.capacityMax ?? 1) ||
+      selectedTableDraft.capacityTotal !== (selectedTableSourceForMeta.capacityTotal ?? 0) ||
+      selectedTableDraft.sideCapacities.north !== (selectedTableSourceForMeta.sideCapacities?.north ?? 0) ||
+      selectedTableDraft.sideCapacities.east !== (selectedTableSourceForMeta.sideCapacities?.east ?? 0) ||
+      selectedTableDraft.sideCapacities.south !== (selectedTableSourceForMeta.sideCapacities?.south ?? 0) ||
+      selectedTableDraft.sideCapacities.west !== (selectedTableSourceForMeta.sideCapacities?.west ?? 0) ||
+      JSON.stringify(normalizedDraftSeatLayout ?? null) !==
+        JSON.stringify(normalizedSourceSeatLayout ?? null) ||
+      JSON.stringify(normalizeCombos(selectedTableDraft.combinableWithIds)) !==
+        JSON.stringify(normalizeCombos(selectedTableSourceForMeta.combinableWithIds))
+    );
+  }, [normalizeSeatLayoutFromTable, selectedTableDraft, selectedTableSourceForMeta]);
+
+  const isDirty = settingsDirty || editorDirty || isSelectedTableMetaDirty;
   const isSaving = Boolean(actionSaving['settings-save']);
   const canSave = isDirty && !isSaving;
   const saveLabel = isSaving ? 'Mentés...' : isDirty ? 'Mentés' : 'Nincs változás';
@@ -2031,6 +2245,29 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     if (!settings || actionSavingRef.current['settings-save'] || actionSaving['settings-save']) {
       return;
     }
+
+    let savedMetaInSaveAll = false;
+    if (isSelectedTableMetaDirty) {
+      const saveData = buildSelectedTableMetaSaveData();
+      if (!saveData) {
+        return;
+      }
+      savedMetaInSaveAll = await persistSelectedTableMetaData(saveData, {
+        actionKey: `table-meta-save-all-${saveData.tableId}`,
+      });
+      if (!savedMetaInSaveAll) {
+        return;
+      }
+    }
+
+    if (debugEnabled) {
+      console.debug('[seating] save-all flow', {
+        savedMetaInSaveAll,
+        settingsDirty,
+        editorDirty,
+      });
+    }
+
     const snapshot = createSettingsSnapshot(settings);
     let didSave = false;
     normalizedSettingsRef.current = null;
@@ -2586,6 +2823,69 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
 
   const sanitizeCapacityValue = (value: number) =>
     Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  const updateTableCapacityMax = useCallback(
+    (tableId: string, nextMax: number) => {
+      const normalizedMax = sanitizeCapacityValue(nextMax);
+      setTables(current =>
+        current.map(table => {
+          if (table.id !== tableId) return table;
+          const minCapacity = sanitizeCapacityValue(table.minCapacity ?? 0);
+          const nextMin = minCapacity > normalizedMax ? normalizedMax : minCapacity;
+          return {
+            ...table,
+            capacityMax: normalizedMax,
+            minCapacity: nextMin > 0 ? nextMin : normalizedMax,
+          };
+        })
+      );
+      setTableCreateDraft(current => {
+        if (!current || current.id !== tableId) return current;
+        const minCapacity = sanitizeCapacityValue(current.minCapacity ?? 0);
+        const nextMin = minCapacity > normalizedMax ? normalizedMax : minCapacity;
+        return {
+          ...current,
+          capacityMax: normalizedMax,
+          minCapacity: nextMin > 0 ? nextMin : normalizedMax,
+        };
+      });
+      setTableQuickForm(current => {
+        if (!current) return current;
+        if (tableCreateDraft?.id !== tableId) return current;
+        const minCapacity = sanitizeCapacityValue(current.minCapacity);
+        const nextMin = minCapacity > normalizedMax ? normalizedMax : minCapacity;
+        return {
+          ...current,
+          capacityMax: normalizedMax,
+          minCapacity: nextMin > 0 ? nextMin : normalizedMax,
+        };
+      });
+      setSelectedTableDraft(current => {
+        if (!current || current.id !== tableId) return current;
+        const minCapacity = sanitizeCapacityValue(current.minCapacity ?? 0);
+        const nextMin = minCapacity > normalizedMax ? normalizedMax : minCapacity;
+        return {
+          ...current,
+          capacityMax: normalizedMax,
+          minCapacity: nextMin > 0 ? nextMin : normalizedMax,
+        };
+      });
+    },
+    [sanitizeCapacityValue, tableCreateDraft?.id]
+  );
+  const queueSeatIncreaseConfirm = useCallback(
+    (payload: {
+      tableId: string;
+      oldMax: number;
+      newMax: number;
+      nextSeatLayout: Table['seatLayout'];
+      nextSideCapacities: Table['sideCapacities'];
+      nextCapacityTotal: number;
+      isDraft: boolean;
+    }) => {
+      setSeatIncreaseConfirm(payload);
+    },
+    []
+  );
 
   const handleEnterComboMode = useCallback(() => {
     if (!selectedTable || !selectedTableDraft) {
@@ -2666,93 +2966,129 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     unitId,
   ]);
 
-  const handleSelectedTableMetadataSave = async () => {
-    if (!selectedTableDraft) return;
-    const seatLayoutEmpty = isSeatLayoutEmpty(selectedTableDraft.seatLayout);
+  const buildSelectedTableMetaSaveData = useCallback(() => {
+    if (!selectedTableDraft) return null;
+    const effectiveSeatLayout = normalizeSeatLayoutFromTable({
+      shape: selectedTableDraft.shape,
+      seatLayout: selectedTableDraft.seatLayout,
+      sideCapacities: selectedTableDraft.sideCapacities,
+      capacityTotal: selectedTableDraft.capacityTotal,
+    });
+    const seatLayoutEmpty = isSeatLayoutEmpty(effectiveSeatLayout);
     const capacityTotal = seatLayoutEmpty
       ? sanitizeCapacityValue(selectedTableDraft.capacityTotal)
-      : sanitizeCapacityValue(
-          computeSeatCountFromSeatLayout(selectedTableDraft.seatLayout)
-        );
+      : sanitizeCapacityValue(computeSeatCountFromSeatLayout(effectiveSeatLayout));
     if (seatLayoutEmpty && capacityTotal < 1) {
       setError('A kapacitás megadása kötelező, ha nincs seat layout.');
       setSuccess(null);
-      return;
+      return null;
     }
     const sideCapSource = seatLayoutEmpty
       ? selectedTableDraft.sideCapacities
-      : deriveSideCapacitiesFromSeatLayout(
-          selectedTableDraft.seatLayout,
-          selectedTableDraft.sideCapacities
-        );
+      : deriveSideCapacitiesFromSeatLayout(effectiveSeatLayout, selectedTableDraft.sideCapacities);
     const sideCapacities = {
       north: sanitizeCapacityValue(sideCapSource.north),
       east: sanitizeCapacityValue(sideCapSource.east),
       south: sanitizeCapacityValue(sideCapSource.south),
       west: sanitizeCapacityValue(sideCapSource.west),
     };
-    const combinableWithIds = selectedTableDraft.combinableWithIds.filter(
-      id => id !== selectedTableDraft.id
-    );
+    const combinableWithIds = selectedTableDraft.combinableWithIds.filter(id => id !== selectedTableDraft.id);
+    const requestedMax = sanitizeCapacityValue(selectedTableDraft.capacityMax);
+    const requestedMin = sanitizeCapacityValue(selectedTableDraft.minCapacity);
+    const capacityMax = Math.max(requestedMax, capacityTotal, 1);
+    const minCapacity = Math.max(1, Math.min(requestedMin || 1, capacityMax));
     const payload: Record<string, unknown> = {
+      minCapacity,
+      capacityMax,
       capacityTotal,
       sideCapacities,
       combinableWithIds,
     };
     if (seatLayoutEmpty) {
       payload.seatLayout = deleteField();
-    } else if (selectedTableDraft.seatLayout) {
-      payload.seatLayout = selectedTableDraft.seatLayout;
+    } else if (effectiveSeatLayout) {
+      payload.seatLayout = effectiveSeatLayout;
     }
-    await runAction({
-      key: `table-meta-${selectedTableDraft.id}`,
-      errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
-      errorContext: 'Error saving table capacity metadata:',
+    return {
+      tableId: selectedTableDraft.id,
+      payload,
+      minCapacity,
+      capacityMax,
+      capacityTotal,
+      sideCapacities,
+      combinableWithIds,
+      seatLayoutForState: seatLayoutEmpty ? undefined : effectiveSeatLayout,
+      seatLayoutEmpty,
+    };
+  }, [
+    computeSeatCountFromSeatLayout,
+    deriveSideCapacitiesFromSeatLayout,
+    normalizeSeatLayoutFromTable,
+    selectedTableDraft,
+  ]);
+
+  const persistSelectedTableMetaData = useCallback(
+    async (
+      data: NonNullable<ReturnType<typeof buildSelectedTableMetaSaveData>>,
+      options?: { actionKey?: string; successMessage?: string }
+    ) => {
+      let didSave = false;
+      await runAction({
+        key: options?.actionKey ?? `table-meta-${data.tableId}`,
+        errorMessage: 'Nem sikerült menteni az asztal kapacitás adatait.',
+        errorContext: 'Error saving table capacity metadata:',
+        successMessage: options?.successMessage,
+        action: async () => {
+          if (debugEnabled) {
+            console.debug('[seating] saving table meta payload', {
+              tableId: data.tableId,
+              payloadKeys: Object.keys(data.payload),
+              seatLayoutEmpty: data.seatLayoutEmpty,
+              context: options?.actionKey ?? 'table-meta',
+            });
+          }
+          await updateTable(unitId, data.tableId, data.payload);
+          setTables(current =>
+            current.map(table =>
+              table.id === data.tableId
+                ? {
+                    ...table,
+                    minCapacity: data.minCapacity,
+                    capacityMax: data.capacityMax,
+                    capacityTotal: data.capacityTotal,
+                    sideCapacities: data.sideCapacities,
+                    combinableWithIds: data.combinableWithIds,
+                    seatLayout: data.seatLayoutForState,
+                  }
+                : table
+            )
+          );
+          setSelectedTableDraft(current => {
+            if (!current || current.id !== data.tableId) return current;
+            return {
+              ...current,
+              minCapacity: data.minCapacity,
+              capacityMax: data.capacityMax,
+              capacityTotal: data.capacityTotal,
+              sideCapacities: data.sideCapacities,
+              combinableWithIds: data.combinableWithIds,
+              seatLayout: data.seatLayoutForState,
+            };
+          });
+          didSave = true;
+        },
+      });
+      return didSave;
+    },
+    [debugEnabled, runAction, unitId, buildSelectedTableMetaSaveData]
+  );
+
+  const handleSelectedTableMetadataSave = async () => {
+    const saveData = buildSelectedTableMetaSaveData();
+    if (!saveData) return;
+    await persistSelectedTableMetaData(saveData, {
+      actionKey: `table-meta-${saveData.tableId}`,
       successMessage: 'Asztal kapacitás mentve.',
-      action: async () => {
-        if (debugEnabled) {
-          console.debug('[seating] saving table meta payload', {
-            tableId: selectedTableDraft.id,
-            seatLayout: payload.seatLayout,
-            capacityTotal,
-            sideCapacities,
-          });
-        }
-        await updateTable(unitId, selectedTableDraft.id, payload);
-        const seatLayoutForState = seatLayoutEmpty ? undefined : selectedTableDraft.seatLayout;
-        setTables(current =>
-          current.map(table =>
-            table.id === selectedTableDraft.id
-              ? {
-                  ...table,
-                  capacityTotal,
-                  sideCapacities,
-                  combinableWithIds,
-                  seatLayout: seatLayoutForState,
-                }
-              : table
-          )
-        );
-        setSelectedTableDraft(current => {
-          if (!current || current.id !== selectedTableDraft.id) return current;
-          return {
-            ...current,
-            capacityTotal,
-            sideCapacities,
-            combinableWithIds,
-            seatLayout: seatLayoutForState,
-          };
-        });
-        if (debugEnabled) {
-          console.debug('[seating] table meta saved', {
-            tableId: selectedTableDraft.id,
-            payloadKeys: Object.keys(payload),
-            seatLayoutEmpty,
-            capacityTotal,
-            seatLayoutAction: seatLayoutEmpty ? 'deleted' : 'set',
-          });
-        }
-      },
     });
   };
 
@@ -2875,10 +3211,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     const rectLeft = rect?.left ?? 0;
     const rectTop = rect?.top ?? 0;
     const baseTransform = computeTransformFromViewportRect(rect, width, height);
+    const paddingFactor = 0.96;
+    const scale =
+      baseTransform.ready && Number.isFinite(baseTransform.scale)
+        ? baseTransform.scale * paddingFactor
+        : baseTransform.scale;
+    const offsetX = (baseTransform.rectWidth - width * scale) / 2;
+    const offsetY = (baseTransform.rectHeight - height * scale) / 2;
     return {
-      scale: baseTransform.scale,
-      offsetX: baseTransform.offsetX,
-      offsetY: baseTransform.offsetY,
+      scale,
+      offsetX: Number.isFinite(offsetX) ? offsetX : baseTransform.offsetX,
+      offsetY: Number.isFinite(offsetY) ? offsetY : baseTransform.offsetY,
       rectLeft: Number.isFinite(rectLeft) ? rectLeft : 0,
       rectTop: Number.isFinite(rectTop) ? rectTop : 0,
       rectWidth: baseTransform.rectWidth,
@@ -3050,6 +3393,24 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     ]
   );
 
+  const zoomToSelectedTable = useCallback(
+    (opts?: { forceScale?: number; reason?: string }) => {
+      if (!selectedEditorTable) return;
+      if (dragStateRef.current || obstacleDragRef.current) return;
+      const targetScale =
+        opts?.forceScale ?? getSelectedTableScale() ?? floorplanTransformOverride?.scale ?? activeFloorplanTransform.scale;
+      setViewportMode('selected');
+      recenterSelectedTable(targetScale);
+    },
+    [
+      activeFloorplanTransform.scale,
+      floorplanTransformOverride?.scale,
+      getSelectedTableScale,
+      recenterSelectedTable,
+      selectedEditorTable,
+    ]
+  );
+
   const shouldKeepSelectedTableCenteredDuringDrag = useCallback(
   (tableId: string) => {
     // “zoom in active” = van transform override
@@ -3141,11 +3502,17 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     scheduleRecenterSelectedTableRef.current = scheduleRecenterSelectedTable;
   }, [scheduleRecenterSelectedTable]);
   useEffect(() => {
+    zoomToSelectedTableRef.current = zoomToSelectedTable;
+  }, [zoomToSelectedTable]);
+  useEffect(() => {
     if (!isEditMode) {
       applyTransformOverride('mode-exit-edit', null);
       return;
     }
     if (dragStateRef.current) {
+      return;
+    }
+    if (isManualZoomLocked()) {
       return;
     }
     if (viewportMode === 'fit') {
@@ -3184,6 +3551,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
     recenterSelectedTable,
     selectedEditorTable,
     viewportMode,
+    isManualZoomLocked,
   ]);
 
   const isSelectedDragActive =
@@ -5611,57 +5979,55 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   ) => {
     setEditorDirty(true);
     if (tableCreateDraft?.id === tableId) {
-      setTableCreateDraft(curr => {
-        if (!curr || curr.id !== tableId) return curr;
-        return applySeatAdjustmentToDraft(curr, side, 1);
+      const nextDraft = computeSeatAdjustment(tableCreateDraft, side, 1);
+      if (!nextDraft) return;
+      const maxCapacity = sanitizeCapacityValue(tableCreateDraft.capacityMax ?? 0);
+      if (maxCapacity > 0 && nextDraft.capacityTotal > maxCapacity) {
+        queueSeatIncreaseConfirm({
+          tableId,
+          oldMax: maxCapacity,
+          newMax: nextDraft.capacityTotal,
+          nextSeatLayout: nextDraft.seatLayout,
+          nextSideCapacities: nextDraft.sideCapacities,
+          nextCapacityTotal: nextDraft.capacityTotal,
+          isDraft: true,
+        });
+        return;
+      }
+      setTableCreateDraft({
+        ...tableCreateDraft,
+        capacityMax: Math.max(tableCreateDraft.capacityMax, nextDraft.capacityTotal),
+        minCapacity: Math.min(
+          tableCreateDraft.minCapacity,
+          Math.max(tableCreateDraft.capacityMax, nextDraft.capacityTotal)
+        ),
+        seatLayout: nextDraft.seatLayout,
+        sideCapacities: nextDraft.sideCapacities,
+        capacityTotal: nextDraft.capacityTotal,
       });
       return;
     }
-    setSelectedTableDraft(curr => {
-      if (!curr || curr.id !== tableId) return curr;
-
-      const shape = curr.shape === 'circle' ? 'circle' : 'rect';
-
-      if (shape === 'circle') {
-        const current = curr.seatLayout?.kind === 'circle' ? curr.seatLayout.count : 0;
-        const next = Math.min(16, current + 1);
-        const nextSeatLayout = { kind: 'circle', count: next } as const;
-        const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
-          nextSeatLayout,
-          curr.sideCapacities
-        );
-        return {
-          ...curr,
-          seatLayout: nextSeatLayout,
-          sideCapacities: nextSideCapacities,
-          capacityTotal: next,
-        };
-      }
-
-      if (side === 'radial') return curr;
-
-      const sides =
-        curr.seatLayout?.kind === 'rect'
-          ? { ...(curr.seatLayout.sides ?? {}) }
-          : { north: 0, east: 0, south: 0, west: 0 };
-
-      const current = Number((sides as any)[side] ?? 0);
-      const nextSide = Math.min(3, current + 1);
-      (sides as any)[side] = nextSide;
-
-      const nextSeatLayout = { kind: 'rect', sides } as const;
-      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
-        nextSeatLayout,
-        curr.sideCapacities
-      );
-      const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
-
-      return {
-        ...curr,
-        seatLayout: nextSeatLayout,
-        sideCapacities: nextSideCapacities,
-        capacityTotal: nextCapacityTotal,
-      };
+    if (!selectedTableDraft || selectedTableDraft.id !== tableId) return;
+    const nextDraft = computeSeatAdjustment(selectedTableDraft, side, 1);
+    if (!nextDraft) return;
+    const maxCapacity = sanitizeCapacityValue(selectedTableDraft.capacityMax ?? 0);
+    if (maxCapacity > 0 && nextDraft.capacityTotal > maxCapacity) {
+      queueSeatIncreaseConfirm({
+        tableId,
+        oldMax: maxCapacity,
+        newMax: nextDraft.capacityTotal,
+        nextSeatLayout: nextDraft.seatLayout,
+        nextSideCapacities: nextDraft.sideCapacities,
+        nextCapacityTotal: nextDraft.capacityTotal,
+        isDraft: false,
+      });
+      return;
+    }
+    setSelectedTableDraft({
+      ...selectedTableDraft,
+      seatLayout: nextDraft.seatLayout,
+      sideCapacities: nextDraft.sideCapacities,
+      capacityTotal: nextDraft.capacityTotal,
     });
   };
 
@@ -5724,50 +6090,117 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
       };
     });
   };
+  const handleSeatIncreaseConfirm = () => {
+    if (!seatIncreaseConfirm) return;
+    const {
+      tableId,
+      newMax,
+      nextSeatLayout,
+      nextSideCapacities,
+      nextCapacityTotal,
+      isDraft,
+    } = seatIncreaseConfirm;
+    setEditorDirty(true);
+    updateTableCapacityMax(tableId, newMax);
+    if (isDraft) {
+      setTableCreateDraft(current => {
+        if (!current || current.id !== tableId) return current;
+        return {
+          ...current,
+          capacityMax: newMax,
+          minCapacity:
+            (current.minCapacity ?? 1) > newMax ? newMax : current.minCapacity ?? 1,
+          seatLayout: nextSeatLayout,
+          sideCapacities: nextSideCapacities,
+          capacityTotal: nextCapacityTotal,
+        };
+      });
+    } else {
+      setSelectedTableDraft(current => {
+        if (!current || current.id !== tableId) return current;
+        return {
+          ...current,
+          capacityMax: newMax,
+          minCapacity: current.minCapacity > newMax ? newMax : current.minCapacity,
+          seatLayout: nextSeatLayout,
+          sideCapacities: nextSideCapacities,
+          capacityTotal: nextCapacityTotal,
+        };
+      });
+    }
+    setSeatIncreaseConfirm(null);
+  };
 
   function applySeatAdjustmentToDraft(
     draft: TableDraft,
     side: 'north' | 'east' | 'south' | 'west' | 'radial',
     delta: number
   ) {
-    const shape = draft.shape === 'circle' ? 'circle' : 'rect';
-    const currentSeatLayout = draft.seatLayout;
-    if (shape === 'circle') {
-      const current = currentSeatLayout?.kind === 'circle' ? currentSeatLayout.count : 0;
-      const next = Math.max(0, Math.min(16, current + delta));
-      const nextSeatLayout = { kind: 'circle', count: next } as const;
-      const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
-        nextSeatLayout,
-        draft.sideCapacities ?? defaultSideCapacities(next)
-      );
-      return {
-        ...draft,
-        seatLayout: nextSeatLayout,
-        sideCapacities: nextSideCapacities,
-        capacityTotal: next,
-      };
-    }
-    if (side === 'radial') return draft;
-    const sides =
-      currentSeatLayout?.kind === 'rect'
-        ? { ...(currentSeatLayout.sides ?? {}) }
-        : { north: 0, east: 0, south: 0, west: 0 };
-    const current = Number((sides as any)[side] ?? 0);
-    const nextSide = Math.max(0, Math.min(3, current + delta));
-    (sides as any)[side] = nextSide;
-    const nextSeatLayout = { kind: 'rect', sides } as const;
-    const nextSideCapacities = deriveSideCapacitiesFromSeatLayout(
-      nextSeatLayout,
-      draft.sideCapacities ?? defaultSideCapacities(draft.capacityTotal ?? 0)
-    );
-    const nextCapacityTotal = computeSeatCountFromSeatLayout(nextSeatLayout);
+    const next = computeSeatAdjustment(draft, side, delta);
+    if (!next) return draft;
     return {
       ...draft,
-      seatLayout: nextSeatLayout,
-      sideCapacities: nextSideCapacities,
-      capacityTotal: nextCapacityTotal,
+      seatLayout: next.seatLayout,
+      sideCapacities: next.sideCapacities,
+      capacityTotal: next.capacityTotal,
     };
   }
+
+  const refitEditViewport = useCallback(() => {
+    if (!isEditMode) return;
+    if (viewportMode === 'selected') return;
+    if (isManualZoomLocked()) return;
+    if (dragStateRef.current || obstacleDragRef.current) return;
+    const viewport = floorplanViewportRef.current;
+    const fallback = floorplanContainerRef.current;
+    const rect = viewport?.getBoundingClientRect() ?? fallback?.getBoundingClientRect();
+    const rectWidth = rect?.width ?? 0;
+    const rectHeight = rect?.height ?? 0;
+    if (rectWidth <= 0 || rectHeight <= 0 || floorplanW <= 0 || floorplanH <= 0) {
+      return;
+    }
+    const fitted = computeFloorplanTransformFromRect(
+      { width: rectWidth, height: rectHeight, left: 0, top: 0 },
+      floorplanW,
+      floorplanH
+    );
+    setViewportMode('fit');
+    applyTransformOverride('edit-refit', {
+      scale: fitted.scale,
+      offsetX: fitted.offsetX,
+      offsetY: fitted.offsetY,
+      rectLeft: 0,
+      rectTop: 0,
+      rectWidth: rectWidth,
+      rectHeight: rectHeight,
+    });
+  }, [applyTransformOverride, floorplanH, floorplanW, isEditMode, isManualZoomLocked, viewportMode]);
+
+  useLayoutEffect(() => {
+    refitEditViewport();
+  }, [advancedOpen, refitEditViewport, resolvedActiveFloorplanId, floorplanW, floorplanH]);
+
+
+  useLayoutEffect(() => {
+    if (!isEditMode) return;
+    if (typeof window === 'undefined') return;
+    const viewport = floorplanViewportRef.current;
+    const container = floorplanContainerRef.current;
+    const onResize = () => {
+      refitEditViewport();
+    };
+    window.addEventListener('resize', onResize);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(onResize);
+      if (viewport) observer.observe(viewport);
+      if (container) observer.observe(container);
+    }
+    return () => {
+      window.removeEventListener('resize', onResize);
+      observer?.disconnect();
+    };
+  }, [isEditMode, refitEditViewport]);
   
   const renderSelectedTablePopover = (transform: {
     scale: number;
@@ -5958,14 +6391,14 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   };
 
   const renderFloorplanEditorSection = () => (
-    <section className="space-y-3 border rounded-lg p-4">
+    <section className="flex flex-1 flex-col min-h-0 gap-3 border rounded-lg p-4 overflow-hidden">
       <h3 className="font-semibold">Asztaltérkép szerkesztő</h3>
       {!activeFloorplan ? (
         <div className="text-sm text-[var(--color-text-secondary)]">
           Nincs aktív alaprajz kiválasztva.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col min-h-0 gap-2">
           <div
             className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]"
             data-seating-no-deselect="1"
@@ -6003,7 +6436,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                       ? 'border-blue-200 bg-blue-50 text-blue-700'
                       : 'border-gray-200 bg-white text-gray-600'
                   }`}
-                  onClick={() => setViewportMode('selected')}
+                  onClick={handleZoomInSelected}
                 >
                   Zoom in (asztal)
                 </button>
@@ -6187,7 +6620,7 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
             )}
           <div
             ref={floorplanContainerRef}
-            className="relative w-full max-w-[min(90vh,100%)] aspect-square mx-auto overflow-hidden min-w-0 min-h-0 pb-14"
+            className="relative w-full max-w-[min(90vh,100%)] mx-auto flex-1 min-h-[420px] overflow-hidden"
           >
             {isEditMode ? (
               <div
@@ -6772,12 +7205,16 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
                 </div>
               </div>
             ) : (
-              <div className="h-full w-full" onPointerDownCapture={handleFloorplanBackgroundPointerDown}>
+              <div
+                className="h-full w-full"
+                onPointerDownCapture={handleFloorplanBackgroundPointerDown}
+              >
                 <FloorplanViewportCanvas
                   ref={viewportCanvasRef}
                   floorplanDims={floorplanDims}
                   debugEnabled={debugEnabled}
                   viewportDeps={[resolvedActiveFloorplanId]}
+                  fitToViewport
                   debugOverlay={context => (
                     <div className="absolute left-2 top-2 z-20 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 max-w-[240px]">
                       <div>
@@ -7457,55 +7894,97 @@ const SeatingSettingsModal: React.FC<SeatingSettingsModalProps> = ({ unitId, onC
   );
 
   return (
-    <ModalShell
-      onClose={handleClose}
-      ariaLabelledBy="seating-settings-title"
-      containerClassName="max-w-5xl h-[85vh]"
-      header={headerContent}
-      footer={footerContent}
-    >
-      <RuntimeErrorOverlay enabled={errorOverlayEnabled} />
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-              onClick={handleQuickTableDraft}
-              disabled={!activeFloorplan}
-            >
-              + Asztal hozzáadása
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
-              onClick={() => setAdvancedOpen(open => !open)}
-            >
-              {advancedOpen ? 'Haladó beállítások elrejtése' : 'Haladó beállítások'}
-            </button>
+    <>
+      <ModalShell
+        onClose={handleClose}
+        ariaLabelledBy="seating-settings-title"
+        containerClassName="max-w-5xl h-[85vh]"
+        header={headerContent}
+        footer={footerContent}
+      >
+        <RuntimeErrorOverlay enabled={errorOverlayEnabled} />
+        <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                onClick={handleQuickTableDraft}
+                disabled={!activeFloorplan}
+              >
+                + Asztal hozzáadása
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
+                onClick={() => setAdvancedOpen(open => !open)}
+              >
+                {advancedOpen ? 'Haladó beállítások elrejtése' : 'Haladó beállítások'}
+              </button>
+            </div>
+            {comboMode.active && (
+              <div className="text-xs text-emerald-700">
+                Összetolható mód aktív: kattints más asztalokra a kijelöléshez.
+              </div>
+            )}
           </div>
-          {comboMode.active && (
-            <div className="text-xs text-emerald-700">
-              Összetolható mód aktív: kattints más asztalokra a kijelöléshez.
+          {renderFloorplanEditorSection()}
+          {advancedOpen && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4">
+              <PillPanelLayout
+                sections={tabs}
+                activeId={activeTab}
+                onChange={setActiveTab}
+                onKeyDown={handleTabsKeyDown}
+                ariaLabel="Ültetés beállítások szakaszok"
+                idPrefix="seating"
+                renderPanel={renderActivePanel}
+              />
             </div>
           )}
         </div>
-        {renderFloorplanEditorSection()}
-        {advancedOpen && (
-          <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4">
-            <PillPanelLayout
-              sections={tabs}
-              activeId={activeTab}
-              onChange={setActiveTab}
-              onKeyDown={handleTabsKeyDown}
-              ariaLabel="Ültetés beállítások szakaszok"
-              idPrefix="seating"
-              renderPanel={renderActivePanel}
-            />
-          </div>
-        )}
-      </div>
-    </ModalShell>
+      </ModalShell>
+      {seatIncreaseConfirm &&
+        (typeof document === 'undefined' ? (
+          <div />
+        ) : (
+          createPortal(
+            <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
+              <div
+                className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className="text-lg font-semibold text-gray-900">Biztos benne?</div>
+                <p className="mt-2 text-sm text-gray-600">
+                  Ha folytatja, a maximum fők száma megváltozik:{' '}
+                  <span className="font-semibold text-gray-900">
+                    {seatIncreaseConfirm.oldMax} → {seatIncreaseConfirm.newMax}
+                  </span>
+                  .
+                </p>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700"
+                    onClick={() => setSeatIncreaseConfirm(null)}
+                  >
+                    Mégse
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white"
+                    onClick={handleSeatIncreaseConfirm}
+                  >
+                    Igen, növeld a maximumot
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        ))}
+    </>
   );
 };
 

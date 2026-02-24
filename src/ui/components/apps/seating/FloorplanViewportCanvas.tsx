@@ -45,6 +45,8 @@ type FloorplanViewportCanvasProps = {
   renderOverlay?: (context: FloorplanViewportContext) => React.ReactNode;
   renderWorld: (context: FloorplanViewportContext) => React.ReactNode;
   viewportDeps?: ReadonlyArray<unknown>;
+  fitPadding?: number;
+  fitToViewport?: boolean;
 };
 
 const FloorplanViewportCanvas = React.forwardRef<
@@ -57,107 +59,146 @@ const FloorplanViewportCanvas = React.forwardRef<
   renderOverlay,
   renderWorld,
   viewportDeps = [],
+  fitPadding = 0.96,
+  fitToViewport = false,
 }, ref) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [transformOverride, setTransformOverride] =
     useState<FloorplanViewportContext['transform'] | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
-const viewportRect = useViewportRect(viewportRef, {
-  retryFrames: 80,
-  deps: viewportDeps,
-});
+  const viewportRect = useViewportRect(viewportRef, {
+    retryFrames: 80,
+    deps: viewportDeps,
+  });
 
-// mindig “lokális” rect-et adjunk tovább (0,0 origóval)
-const normalizedViewportRect = useMemo(
-  () => ({
-    width: viewportRect.width,
-    height: viewportRect.height,
-    left: 0,
-    top: 0,
-  }),
-  [viewportRect.width, viewportRect.height]
-);
+  // mindig “lokális” rect-et adjunk tovább (0,0 origóval)
+  const normalizedViewportRect = useMemo(
+    () => ({
+      width: viewportRect.width,
+      height: viewportRect.height,
+      left: 0,
+      top: 0,
+    }),
+    [viewportRect.width, viewportRect.height]
+  );
 
-const transform = useMemo(
-  () =>
-    computeTransformFromViewportRect(
+  const transform = useMemo(() => {
+    const baseTransform = computeTransformFromViewportRect(
       normalizedViewportRect,
       floorplanDims.width,
       floorplanDims.height
-    ),
-  [floorplanDims.width, floorplanDims.height, normalizedViewportRect]
-);
+    );
+    if (!baseTransform.ready) {
+      return baseTransform;
+    }
+    const paddingFactor = Math.min(1, Math.max(0.5, fitPadding));
+    const scale = baseTransform.scale * paddingFactor;
+    const offsetX = (baseTransform.rectWidth - floorplanDims.width * scale) / 2;
+    const offsetY = (baseTransform.rectHeight - floorplanDims.height * scale) / 2;
+    return {
+      ...baseTransform,
+      scale,
+      offsetX: Number.isFinite(offsetX) ? offsetX : baseTransform.offsetX,
+      offsetY: Number.isFinite(offsetY) ? offsetY : baseTransform.offsetY,
+    };
+  }, [
+    fitPadding,
+    floorplanDims.height,
+    floorplanDims.width,
+    normalizedViewportRect,
+  ]);
 
-const activeTransform = transformOverride ?? transform;
+  const activeTransform = transformOverride ?? transform;
 
-const context = useMemo(
-  () => ({
-    floorplanDims,
-    viewportRect: normalizedViewportRect,
-    transform: activeTransform,
-  }),
-  [floorplanDims, normalizedViewportRect, activeTransform]
-);
-
-const centerOnRect = (
-  rect: { x: number; y: number; w: number; h: number },
-  options: { targetScale?: number; padding?: number } = {}
-) => {
-  if (normalizedViewportRect.width <= 0 || normalizedViewportRect.height <= 0) return;
-  if (!Number.isFinite(rect.w) || !Number.isFinite(rect.h) || rect.w <= 0 || rect.h <= 0) return;
-  const padding = typeof options.padding === 'number' ? Math.max(0, options.padding) : 0.2;
-  const paddedW = rect.w * (1 + padding * 2);
-  const paddedH = rect.h * (1 + padding * 2);
-  const baseScale = Math.min(
-    normalizedViewportRect.width / paddedW,
-    normalizedViewportRect.height / paddedH
+  const context = useMemo(
+    () => ({
+      floorplanDims,
+      viewportRect: normalizedViewportRect,
+      transform: activeTransform,
+    }),
+    [floorplanDims, normalizedViewportRect, activeTransform]
   );
-  const requestedScale = typeof options.targetScale === 'number' ? options.targetScale : baseScale;
-  const scale = Math.min(2.5, Math.max(0.4, requestedScale));
-  const centerX = rect.x + rect.w / 2;
-  const centerY = rect.y + rect.h / 2;
-  const offsetX = normalizedViewportRect.width / 2 - centerX * scale;
-  const offsetY = normalizedViewportRect.height / 2 - centerY * scale;
-  setTransformOverride({
-    scale,
-    offsetX,
-    offsetY,
-    rectWidth: normalizedViewportRect.width,
-    rectHeight: normalizedViewportRect.height,
-    ready: true,
-  });
-  setIsAnimating(true);
-  window.setTimeout(() => setIsAnimating(false), 220);
-};
 
-const resetToFit = () => {
-  setTransformOverride(null);
-  setIsAnimating(true);
-  window.setTimeout(() => setIsAnimating(false), 220);
-};
+  const centerOnRect = (
+    rect: { x: number; y: number; w: number; h: number },
+    options: { targetScale?: number; padding?: number } = {}
+  ) => {
+    if (normalizedViewportRect.width <= 0 || normalizedViewportRect.height <= 0) return;
+    if (!Number.isFinite(rect.w) || !Number.isFinite(rect.h) || rect.w <= 0 || rect.h <= 0) {
+      return;
+    }
+    const padding = typeof options.padding === 'number' ? Math.max(0, options.padding) : 0.2;
+    const paddedW = rect.w * (1 + padding * 2);
+    const paddedH = rect.h * (1 + padding * 2);
+    const baseScale = Math.min(
+      normalizedViewportRect.width / paddedW,
+      normalizedViewportRect.height / paddedH
+    );
+    const requestedScale = typeof options.targetScale === 'number' ? options.targetScale : baseScale;
+    const scale = Math.min(2.5, Math.max(0.4, requestedScale));
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const offsetX = normalizedViewportRect.width / 2 - centerX * scale;
+    const offsetY = normalizedViewportRect.height / 2 - centerY * scale;
+    setTransformOverride({
+      scale,
+      offsetX,
+      offsetY,
+      rectWidth: normalizedViewportRect.width,
+      rectHeight: normalizedViewportRect.height,
+      ready: true,
+    });
+    setIsAnimating(true);
+    window.setTimeout(() => setIsAnimating(false), 220);
+  };
 
-useImperativeHandle(ref, () => ({
-  centerOnRect,
-  resetToFit,
-  getTransform: () => activeTransform,
-}));
+  const resetToFit = () => {
+    setTransformOverride(null);
+    setIsAnimating(true);
+    window.setTimeout(() => setIsAnimating(false), 220);
+  };
 
-useEffect(() => {
-  setTransformOverride(null);
-}, [floorplanDims.width, floorplanDims.height, normalizedViewportRect.width, normalizedViewportRect.height]);
+  useImperativeHandle(ref, () => ({
+    centerOnRect,
+    resetToFit,
+    getTransform: () => activeTransform,
+  }));
+
+  useEffect(() => {
+    setTransformOverride(null);
+  }, [
+    floorplanDims.width,
+    floorplanDims.height,
+    normalizedViewportRect.width,
+    normalizedViewportRect.height,
+  ]);
 
   return (
-  <div className="w-full max-w-[min(90vh,100%)] mx-auto overflow-hidden min-w-0 min-h-0">
     <div
-      ref={viewportRef}
-      className="relative w-full overflow-hidden border border-gray-200 rounded-xl bg-white/80"
-      style={{
-        aspectRatio:
-          floorplanDims.width > 0 && floorplanDims.height > 0
-            ? `${floorplanDims.width} / ${floorplanDims.height}`
-            : '1 / 1',
-      }}
+      className={
+        fitToViewport
+          ? 'w-full h-full overflow-hidden min-w-0 min-h-0'
+          : 'w-full max-w-[min(90vh,100%)] mx-auto overflow-hidden min-w-0 min-h-0'
+      }
     >
+      <div
+        ref={viewportRef}
+        className={
+          fitToViewport
+            ? 'relative h-full w-full overflow-hidden border border-gray-200 rounded-xl bg-white/80'
+            : 'relative w-full overflow-hidden border border-gray-200 rounded-xl bg-white/80'
+        }
+        style={
+          fitToViewport
+            ? undefined
+            : {
+                aspectRatio:
+                  floorplanDims.width > 0 && floorplanDims.height > 0
+                    ? `${floorplanDims.width} / ${floorplanDims.height}`
+                    : '1 / 1',
+              }
+        }
+      >
         {debugEnabled && debugOverlay ? debugOverlay(context) : null}
         {renderOverlay ? renderOverlay(context) : null}
         <div

@@ -57,6 +57,14 @@ type ReservationFloorplanPreviewInnerProps = {
   zones: Zone[];
 };
 
+type ReservationFloorplanPreviewGuardProps = {
+  floorplanError: string | null;
+  floorplanLoading: boolean;
+  hasCapacitySettings: boolean;
+  floorplan: Floorplan | null;
+  innerProps: ReservationFloorplanPreviewInnerProps;
+};
+
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -78,6 +86,57 @@ const TABLE_GEOMETRY_DEFAULTS = {
   rectWidth: 80,
   rectHeight: 60,
   circleRadius: 40,
+};
+
+const isSeatLayoutEmpty = (seatLayout?: Table['seatLayout']) => {
+  if (!seatLayout) return true;
+  if (seatLayout.kind === 'circle') {
+    return (seatLayout.count ?? 0) <= 0;
+  }
+  if (seatLayout.kind === 'rect') {
+    const sides = seatLayout.sides ?? {};
+    return (
+      (sides.north ?? 0) <= 0 &&
+      (sides.east ?? 0) <= 0 &&
+      (sides.south ?? 0) <= 0 &&
+      (sides.west ?? 0) <= 0
+    );
+  }
+  return true;
+};
+
+const normalizeSeatLayoutFromTable = (table: Table): Table['seatLayout'] | undefined => {
+  if (table.seatLayout && !isSeatLayoutEmpty(table.seatLayout)) {
+    return table.seatLayout;
+  }
+  const capacityTotal =
+    typeof table.capacityTotal === 'number' && Number.isFinite(table.capacityTotal)
+      ? Math.max(0, Math.floor(table.capacityTotal))
+      : 0;
+  if (table.shape === 'circle') {
+    return capacityTotal > 0 ? { kind: 'circle', count: capacityTotal } : undefined;
+  }
+  if (!table.sideCapacities) return undefined;
+  const sideValues = [
+    table.sideCapacities.north,
+    table.sideCapacities.east,
+    table.sideCapacities.south,
+    table.sideCapacities.west,
+  ];
+  const hasSeatLikeSides = sideValues.every(
+    value => typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= 3
+  );
+  if (!hasSeatLikeSides) return undefined;
+  const sides = {
+    north: table.sideCapacities.north,
+    east: table.sideCapacities.east,
+    south: table.sideCapacities.south,
+    west: table.sideCapacities.west,
+  };
+  const sideTotal = sides.north + sides.east + sides.south + sides.west;
+  if (sideTotal <= 0) return undefined;
+  if (capacityTotal > 0 && capacityTotal !== sideTotal) return undefined;
+  return { kind: 'rect', sides };
 };
 
 const ReservationFloorplanPreviewInner: React.FC<ReservationFloorplanPreviewInnerProps> = ({
@@ -285,6 +344,40 @@ const ReservationFloorplanPreviewInner: React.FC<ReservationFloorplanPreviewInne
   );
 };
 
+const ReservationFloorplanPreviewGuard: React.FC<ReservationFloorplanPreviewGuardProps> = ({
+  floorplanError,
+  floorplanLoading,
+  hasCapacitySettings,
+  floorplan,
+  innerProps,
+}) => {
+  if (floorplanLoading) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Betöltés...
+      </div>
+    );
+  }
+
+  if (floorplanError) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {floorplanError}
+      </div>
+    );
+  }
+
+  if (!floorplan || !hasCapacitySettings) {
+    return (
+      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
+        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
+      </div>
+    );
+  }
+
+  return <ReservationFloorplanPreviewInner {...innerProps} />;
+};
+
 const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = ({
   unitId,
   selectedDate,
@@ -460,12 +553,37 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
 
   const visibleTables = useMemo(() => {
     if (!floorplan) return [] as Table[];
-    return tables.filter(table => {
-      const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
-      const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
-      return matchesFloorplan && matchesZone && table.isActive !== false;
-    });
+    return tables
+      .filter(table => {
+        const matchesFloorplan = !table.floorplanId || table.floorplanId === floorplan.id;
+        const matchesZone = activeZoneId ? table.zoneId === activeZoneId : true;
+        return matchesFloorplan && matchesZone && table.isActive !== false;
+      })
+      .map(table => ({
+        ...table,
+        seatLayout: normalizeSeatLayoutFromTable(table),
+      }));
   }, [activeZoneId, floorplan, tables]);
+
+  useEffect(() => {
+    if (!debugEnabled) return;
+    visibleTables.forEach(table => {
+      if (!table.seatLayout) return;
+      const seatCount =
+        table.seatLayout.kind === 'circle'
+          ? Math.max(0, table.seatLayout.count ?? 0)
+          : Math.max(0, table.seatLayout.sides?.north ?? 0) +
+            Math.max(0, table.seatLayout.sides?.east ?? 0) +
+            Math.max(0, table.seatLayout.sides?.south ?? 0) +
+            Math.max(0, table.seatLayout.sides?.west ?? 0);
+      if (seatCount === 0) {
+        console.debug('[reservation-preview] normalized seatLayout has zero seats', {
+          tableId: table.id,
+          seatLayout: table.seatLayout,
+        });
+      }
+    });
+  }, [debugEnabled, visibleTables]);
 
   const debugRawGeometry = useMemo(() => {
     const table = visibleTables[0];
@@ -700,30 +818,6 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
       ? `Közelgő figyelmeztetés: ${Math.round(settings.upcomingWarningMinutes)} perc`
       : null;
 
-  if (floorplanLoading) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Betöltés...
-      </div>
-    );
-  }
-
-  if (floorplanError) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        {floorplanError}
-      </div>
-    );
-  }
-
-  if (!floorplan || !hasCapacitySettings) {
-    return (
-      <div className="rounded-2xl border border-gray-200 p-4 text-sm text-[var(--color-text-secondary)]">
-        Nincs elérhető asztaltérkép vagy kapacitás beállítás ehhez a naphoz.
-      </div>
-    );
-  }
-
   const renderStatusColor = (status: TableStatus) => {
     switch (status) {
       case 'occupied':
@@ -739,33 +833,39 @@ const ReservationFloorplanPreview: React.FC<ReservationFloorplanPreviewProps> = 
   const hasSelectedBooking = Boolean(selectedBookingId && selectedBookingHasTables);
 
   return (
-    <ReservationFloorplanPreviewInner
-      activeZoneId={activeZoneId}
-      capacityLimit={capacityLimit}
-      capacityMode={capacityMode}
-      capacityUsed={capacityUsed}
-      conflictTableIds={conflictTableIds}
-      debugEnabled={debugEnabled}
-      debugRawGeometry={debugRawGeometry}
+    <ReservationFloorplanPreviewGuard
+      floorplanError={floorplanError}
+      floorplanLoading={floorplanLoading}
+      hasCapacitySettings={hasCapacitySettings}
       floorplan={floorplan}
-      floorplanDims={floorplanDims}
-      hasSelectedBooking={hasSelectedBooking}
-      normalizedDetected={normalizedDetected}
-      onOpenFloorplanEditor={onOpenFloorplanEditor}
-      onViewportTopOffsetPx={onViewportTopOffsetPx}
-      recommendedTableIds={recommendedTableIds}
-      renderStatusColor={renderStatusColor}
-      selectedAssignedTableIds={selectedAssignedTableIds}
-      selectedBookingHasConflict={selectedBookingHasConflict}
-      selectedBookingHasNoFit={selectedBookingHasNoFit}
-      selectedBookingReason={selectedBookingReason}
-      selectedDate={selectedDate}
-      setActiveZoneId={setActiveZoneId}
-      showFloorplanEditorButton={showFloorplanEditorButton}
-      tableStatusById={tableStatusById}
-      upcomingWarningLabel={upcomingWarningLabel}
-      visibleTables={visibleTables}
-      zones={zones}
+      innerProps={{
+        activeZoneId,
+        capacityLimit,
+        capacityMode,
+        capacityUsed,
+        conflictTableIds,
+        debugEnabled,
+        debugRawGeometry,
+        floorplan,
+        floorplanDims,
+        hasSelectedBooking,
+        normalizedDetected,
+        onOpenFloorplanEditor,
+        onViewportTopOffsetPx,
+        recommendedTableIds,
+        renderStatusColor,
+        selectedAssignedTableIds,
+        selectedBookingHasConflict,
+        selectedBookingHasNoFit,
+        selectedBookingReason,
+        selectedDate,
+        setActiveZoneId,
+        showFloorplanEditorButton,
+        tableStatusById,
+        upcomingWarningLabel,
+        visibleTables,
+        zones,
+      }}
     />
   );
 };

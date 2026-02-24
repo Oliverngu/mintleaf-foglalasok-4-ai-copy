@@ -118,6 +118,47 @@ function formatDebugError(info: DebugErrorInfo) {
   }
 }
 
+
+function toLocalDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function toSafeDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (value && typeof value === 'object' && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    const date = (value as { toDate: () => unknown }).toDate();
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+  return null;
+}
+
+function parseTimeToMinutes(timeValue: string) {
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutes(minutes: number) {
+  const safe = Math.max(0, minutes);
+  const h = String(Math.floor(safe / 60)).padStart(2, '0');
+  const m = String(safe % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function clampDayInMonth(year: number, month: number, day: number) {
+  const maxDay = new Date(year, month + 1, 0).getDate();
+  return Math.min(Math.max(day, 1), maxDay);
+}
+
+function clampWindowStart(minutes: number, min: number, max: number) {
+  return Math.min(Math.max(minutes, min), max);
+}
+
 const resolveAllocationReasonLabel = (reason?: string | null) => {
   if (!reason) return 'Nincs elérhető magyarázat.';
   switch (reason) {
@@ -144,16 +185,17 @@ interface FoglalasokAppProps {
 }
 
 class SeatingSettingsErrorBoundary extends React.Component<
-  { onError: (info: DebugErrorInfo) => void; children: React.ReactNode },
-  { hasError: boolean }
+  { onError: (info: DebugErrorInfo) => void; onClose: () => void; children: React.ReactNode },
+  { hasError: boolean; message: string; stack?: string }
 > {
-  state = { hasError: false };
+  state = { hasError: false, message: '', stack: undefined as string | undefined };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message || 'Ismeretlen hiba', stack: error.stack };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('SeatingSettingsModal render error:', error, info);
     try {
       this.props.onError({
         name: error.name || 'Error',
@@ -171,7 +213,28 @@ class SeatingSettingsErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      return null;
+      return (
+        <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl border border-red-200 p-5 space-y-3">
+            <h2 className="text-lg font-bold text-red-700">Hiba történt az asztaltérkép szerkesztő megnyitásakor</h2>
+            <p className="text-sm text-[var(--color-text-main)]">{this.state.message || 'Ismeretlen hiba.'}</p>
+            {this.state.stack && (
+              <pre className="max-h-64 overflow-auto rounded-lg bg-red-50 p-3 text-[11px] text-red-800 whitespace-pre-wrap">
+                {this.state.stack}
+              </pre>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={this.props.onClose}
+                className="rounded-lg bg-[var(--color-primary)] text-white px-4 py-2 text-sm font-semibold"
+              >
+                Bezárás
+              </button>
+            </div>
+          </div>
+        </div>
+      );
     }
     return this.props.children;
   }
@@ -200,9 +263,7 @@ const DeleteConfirmationModal: React.FC<{
           <p>
             Biztosan törlöd a(z) <span className="font-bold">{booking.name}</span> nevű
             foglalást erre a napra:{' '}
-            <span className="font-bold">
-              {booking.startTime.toDate().toLocaleDateString('hu-HU')}
-            </span>
+            <span className="font-bold">{toSafeDate(booking.startTime)?.toLocaleDateString('hu-HU') ?? '—'}</span>
             ? A művelet nem vonható vissza.
           </p>
           <div>
@@ -316,10 +377,16 @@ const BookingSeatingEditor: React.FC<{
     setSuggestError(null);
     setSuggestSuccess(null);
     try {
+      const startTime = toSafeDate(booking.startTime);
+      const endTime = toSafeDate(booking.endTime);
+      if (!startTime || !endTime) {
+        setSuggestError('Érvénytelen foglalás időpont, javaslat nem készíthető.');
+        return;
+      }
       const result = await suggestSeating({
         unitId,
-        startTime: booking.startTime.toDate(),
-        endTime: booking.endTime.toDate(),
+        startTime,
+        endTime,
         headcount: booking.headcount,
         bookingId: booking.id,
       });
@@ -442,8 +509,8 @@ const computeAllocationConflicts = (
     return [];
   }
 
-  const targetStart = targetBooking.startTime?.toDate?.() ?? null;
-  const targetEnd = targetBooking.endTime?.toDate?.() ?? null;
+  const targetStart = toSafeDate(targetBooking.startTime);
+  const targetEnd = toSafeDate(targetBooking.endTime);
   if (!targetStart || !targetEnd) {
     return [];
   }
@@ -460,8 +527,8 @@ const computeAllocationConflicts = (
     if (!otherTableIds.length) {
       return;
     }
-    const otherStart = other.startTime?.toDate?.() ?? null;
-    const otherEnd = other.endTime?.toDate?.() ?? null;
+    const otherStart = toSafeDate(other.startTime);
+    const otherEnd = toSafeDate(other.endTime);
     if (!otherStart || !otherEnd) {
       return;
     }
@@ -586,10 +653,7 @@ const AllocationPanel: React.FC<{
   );
 
   const suggestion = useMemo(() => {
-    const bookingDate =
-      booking.startTime && typeof booking.startTime.toDate === 'function'
-        ? booking.startTime.toDate()
-        : undefined;
+    const bookingDate = toSafeDate(booking.startTime) ?? undefined;
     return suggestAllocation({
       partySize: booking.headcount,
       bookingDate,
@@ -1092,41 +1156,49 @@ const BookingDetailTabs: React.FC<{
 };
 
 const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <p className="text-sm font-semibold text-[var(--color-text-main)]">
-        {booking.name} ({booking.headcount} fő)
-      </p>
-      <p className="text-xs text-[var(--color-text-secondary)]">
-        {booking.startTime
-          .toDate()
-          .toLocaleTimeString('hu-HU', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}{' '}
-        -{' '}
-        {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })}
-      </p>
-    </div>
-    <div className="flex items-center gap-2">
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
-        {booking.status || '—'}
-      </span>
-      {booking.allocationOverride?.enabled && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
-          OVERRIDE
-        </span>
-      )}
-      {booking.allocationFinal?.locked && (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
-          ZÁROLT
-        </span>
-      )}
-    </div>
-  </div>
+  (() => {
+    const startDate = toSafeDate(booking.startTime);
+    const endDate = toSafeDate(booking.endTime);
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">
+            {booking.name} ({booking.headcount} fő)
+          </p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            {startDate
+              ? startDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}{' '}
+            -{' '}
+            {endDate
+              ? endDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+            {booking.status || '—'}
+          </span>
+          {booking.allocationOverride?.enabled && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+              OVERRIDE
+            </span>
+          )}
+          {booking.allocationFinal?.locked && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
+              ZÁROLT
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  })()
 );
 
 const BookingSummaryCard: React.FC<{
@@ -1932,6 +2004,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
   const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
   const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
+  const isFpDebug = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('fpdebug') === '1';
+  }, []);
   const debugEnabled = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -1942,6 +2019,20 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       return false;
     }
   }, []);
+  const showDevSeed = isFpDebug;
+  const canRunSeedAutoAllocate = typeof triggerAutoAllocateDay === 'function';
+  const [seedDate, setSeedDate] = useState(() => toLocalDateKey(new Date()));
+  const [seedCount, setSeedCount] = useState(10);
+  const [seedPartyMin, setSeedPartyMin] = useState(2);
+  const [seedPartyMax, setSeedPartyMax] = useState(4);
+  const [seedStartTime, setSeedStartTime] = useState('18:00');
+  const [seedEndTime, setSeedEndTime] = useState('22:00');
+  const [seedDurationMinutes, setSeedDurationMinutes] = useState(90);
+  const [seedSpacingMinutes, setSeedSpacingMinutes] = useState(15);
+  const [seedRunAllocationAfter, setSeedRunAllocationAfter] = useState(false);
+  const [seedRunning, setSeedRunning] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
+  const [seedSuccess, setSeedSuccess] = useState<string | null>(null);
   const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
   useEffect(() => {
     if (!debugEnabled) return;
@@ -1995,8 +2086,15 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, [debugEnabled]);
-
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
+  useEffect(() => {
+    if (!isFpDebug) return;
+    console.debug('[fpdebug] FoglalasokApp render mode', {
+      hasActiveUnit: Boolean(activeUnitId),
+      loading,
+      hasError: Boolean(error),
+    });
+  }, [activeUnitId, error, isFpDebug, loading]);
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
 
@@ -2174,38 +2272,16 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return () => unsubLogs();
   }, [activeUnitId]);
 
-  const toLocalDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const parseTimeToMinutes = (timeValue: string) => {
-    const [hours, minutes] = timeValue.split(':').map(Number);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-    return hours * 60 + minutes;
-  };
-
-  const formatMinutes = (minutes: number) => {
-    const safe = Math.max(0, minutes);
-    const hours = String(Math.floor(safe / 60)).padStart(2, '0');
-    const mins = String(safe % 60).padStart(2, '0');
-    return `${hours}:${mins}`;
-  };
-  const clampDayInMonth = (year: number, month: number, day: number) => {
-    const maxDay = new Date(year, month + 1, 0).getDate();
-    return Math.min(Math.max(day, 1), maxDay);
-  };
-  const clampWindowStart = (minutes: number, min: number, max: number) =>
-    Math.min(Math.max(minutes, min), max);
-
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
     bookings
       .filter(b => b.status !== 'cancelled')
       .forEach(booking => {
-        const key = toLocalDateKey(booking.startTime.toDate());
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return;
+        }
+        const key = toLocalDateKey(startDate);
         if (!map.has(key)) {
           map.set(key, []);
         }
@@ -2216,6 +2292,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const overviewDateKey = toLocalDateKey(overviewDate);
   const overviewBookings = bookingsByDate.get(overviewDateKey) || [];
+  useEffect(() => {
+    if (!showDevSeed) return;
+    setSeedDate(overviewDateKey);
+  }, [overviewDateKey, showDevSeed]);
   const previewDate = overviewDate;
 
   const bookingWindow = reservationSettings?.bookableWindow || {
@@ -2261,8 +2341,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const windowBookings = useMemo(() => {
     return overviewBookings.filter(booking => {
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) return false;
       return start < windowEnd && end > windowStart;
     });
@@ -2270,8 +2350,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
   const sortedOverviewBookings = useMemo(() => {
     return [...overviewBookings].sort((a, b) => {
-      const aTime = a.startTime?.toDate?.()?.getTime?.() ?? 0;
-      const bTime = b.startTime?.toDate?.()?.getTime?.() ?? 0;
+      const aTime = toSafeDate(a.startTime)?.getTime() ?? 0;
+      const bTime = toSafeDate(b.startTime)?.getTime() ?? 0;
       if (aTime !== bTime) return aTime - bTime;
       return a.id.localeCompare(b.id);
     });
@@ -2282,8 +2362,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const isToday = overviewDateKey === todayKey;
     const now = new Date();
     const withTimes = overviewBookings.map(booking => {
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       const startMs = start?.getTime() ?? 0;
       const endMs = end?.getTime() ?? 0;
       const isPast = isToday ? Boolean(end && end < now) : false;
@@ -2301,8 +2381,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const dayConflictedBookingIds = useMemo(() => {
     const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
     overviewBookings.forEach(booking => {
-      const start = booking.startTime?.toDate?.();
-      const end = booking.endTime?.toDate?.();
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) return;
       const tableIds = new Set<string>([
         ...(booking.assignedTableIds ?? []),
@@ -2337,8 +2417,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     dayStart.setHours(0, 0, 0, 0);
     return overviewBookings
       .map(booking => {
-        const start = booking.startTime?.toDate?.() ?? null;
-        const end = booking.endTime?.toDate?.() ?? null;
+        const start = toSafeDate(booking.startTime);
+        const end = toSafeDate(booking.endTime);
         if (!start || !end) return null;
         const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
         const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
@@ -2401,8 +2481,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const handleBookingFocus = useCallback(
     (booking: Booking) => {
       if (manualMode.active) return;
-      const start = booking.startTime?.toDate?.() ?? null;
-      const end = booking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
       if (!start || !end) {
         setSelectedBookingId(booking.id);
         return;
@@ -2434,22 +2514,17 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     setSelectedBookingId(null);
   }, [overviewDateKey]);
 
-  if (!activeUnitId) {
-    return (
-      <div className="flex items-center justify-center h-full p-8 text-center">
-        <div>
-          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
-            A funkció használatához válassz egy egységet
-          </h2>
-          <p className="mt-2 text-[var(--color-text-secondary)]">
-            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
-            pontosan egy egységet a fejlécben.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    const element = leftColumnActionsRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const writeLog = async (
     unitId: string,
@@ -2482,6 +2557,151 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
     setIsAddModalOpen(false);
   };
+
+  const parseLocalDateTime = useCallback((dateIso: string, hhmm: string) => {
+    const [yRaw, mRaw, dRaw] = dateIso.split('-');
+    const [hRaw, minRaw] = hhmm.split(':');
+    const year = Number(yRaw);
+    const month = Number(mRaw);
+    const day = Number(dRaw);
+    const hours = Number(hRaw);
+    const minutes = Number(minRaw);
+    if (
+      !Number.isFinite(year) ||
+      !Number.isFinite(month) ||
+      !Number.isFinite(day) ||
+      !Number.isFinite(hours) ||
+      !Number.isFinite(minutes)
+    ) {
+      return null;
+    }
+    const parsed = new Date(
+      year,
+      Math.max(0, Math.min(11, Math.floor(month - 1))),
+      Math.max(1, Math.min(31, Math.floor(day))),
+      Math.max(0, Math.min(23, Math.floor(hours))),
+      Math.max(0, Math.min(59, Math.floor(minutes))),
+      0,
+      0
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, []);
+
+  const handleSeedBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    if (manualMode.active || isNavLocked) {
+      setSeedError('Seed futtatás közben a manuális mód nem lehet aktív.');
+      return;
+    }
+    const start = parseLocalDateTime(seedDate, seedStartTime);
+    const end = parseLocalDateTime(seedDate, seedEndTime);
+    if (!start || !end || end <= start) {
+      setSeedError('Érvénytelen időablak.');
+      return;
+    }
+    const safeCount = Math.max(1, Math.min(300, Math.floor(seedCount)));
+    const minParty = Math.max(1, Math.floor(Math.min(seedPartyMin, seedPartyMax)));
+    const maxParty = Math.max(minParty, Math.floor(Math.max(seedPartyMin, seedPartyMax)));
+    const duration = Math.max(15, Math.floor(seedDurationMinutes));
+    const spacing = Math.max(5, Math.floor(seedSpacingMinutes));
+    const targetZone =
+      zones.find(zone => zone.isActive !== false && !zone.isEmergency) ??
+      zones.find(zone => zone.isActive !== false) ??
+      zones[0];
+
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      let created = 0;
+      for (let i = 0; i < safeCount; i += 1) {
+        const bookingStart = new Date(start.getTime() + i * spacing * 60000);
+        const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
+        if (bookingEnd > end) break;
+        const partySize =
+          minParty + Math.floor(Math.random() * (Math.max(1, maxParty - minParty + 1)));
+        const payload: Omit<Booking, 'id'> = {
+          unitId: activeUnitId,
+          name: `DEV Seed ${i + 1}`,
+          headcount: partySize,
+          occasion: 'DEV_SEED',
+          source: 'admin',
+          startTime: Timestamp.fromDate(bookingStart),
+          endTime: Timestamp.fromDate(bookingEnd),
+          status: 'confirmed',
+          createdAt: Timestamp.now(),
+          notes: '[DEV_SEED] fpdebug quick seed',
+          ...(targetZone?.id ? { zoneId: targetZone.id } : {}),
+        };
+        await addDoc(collection(db, 'units', activeUnitId, 'reservations'), payload);
+        created += 1;
+      }
+      if (seedRunAllocationAfter && canRunSeedAutoAllocate && created > 0) {
+        try {
+          await triggerAutoAllocateDay({ unitId: activeUnitId, dateKey: seedDate, mode: 'apply' });
+        } catch (allocErr) {
+          console.error('DEV seed auto-allocate failed', allocErr);
+        }
+      }
+      setSeedSuccess(`${created} db DEV seed foglalás létrehozva (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed failed', err);
+      setSeedError('Nem sikerült seed foglalásokat létrehozni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [
+    activeUnitId,
+    canRunSeedAutoAllocate,
+    isNavLocked,
+    manualMode.active,
+    parseLocalDateTime,
+    seedCount,
+    seedDate,
+    seedDurationMinutes,
+    seedEndTime,
+    seedPartyMax,
+    seedPartyMin,
+    seedRunAllocationAfter,
+    seedSpacingMinutes,
+    seedStartTime,
+    showDevSeed,
+    zones,
+  ]);
+
+  const handleClearSeededBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      const seeded = bookings.filter(booking => {
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return false;
+        }
+        return (
+          toLocalDateKey(startDate) === seedDate &&
+          (booking.notes?.includes('[DEV_SEED]') || booking.name.startsWith('DEV Seed ')) &&
+          booking.status !== 'cancelled'
+        );
+      });
+      for (const booking of seeded) {
+        await updateDoc(doc(db, 'units', activeUnitId, 'reservations', booking.id), {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelReason: 'DEV_SEED_CLEAR',
+          cancelledBy: 'admin',
+        });
+      }
+      setSeedSuccess(`${seeded.length} db DEV seed foglalás törölve (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed clear failed', err);
+      setSeedError('Nem sikerült a DEV seed foglalásokat törölni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [activeUnitId, bookings, seedDate, showDevSeed]);
 
   const handleConfirmDelete = async (reason: string) => {
     if (!bookingToDelete || !activeUnitId) return;
@@ -2520,6 +2740,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     window.open(`/reserve?unit=${activeUnitId}`, '_blank');
   };
 
+  const normalizeUnknownError = (err: unknown) => {
+    const trimTo = (value: string, max: number) =>
+      value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+    if (err instanceof Error) {
+      const summary = trimTo(`${err.name || 'Error'}: ${err.message || 'Ismeretlen hiba'}`, 280);
+      const detailParts = [err.stack, err.cause ? `cause: ${safeStringify(err.cause)}` : ''].filter(Boolean);
+      const details = trimTo(detailParts.join('\n\n') || 'Nincs további részlet.', 700);
+      return { summary, details };
+    }
+
+    if (typeof err === 'string') {
+      return {
+        summary: trimTo(err || 'Ismeretlen hiba', 280),
+        details: trimTo(err || 'Nincs további részlet.', 700),
+      };
+    }
+
+    const serialized = safeStringify(err);
+    return {
+      summary: 'Ismeretlen hiba történt az automatikus ültetés során.',
+      details: trimTo(serialized || 'Nincs további részlet.', 700),
+    };
+  };
+
   const handleAutoAllocateDay = async () => {
     if (!activeUnitId) return;
     setAutoAllocateRunning(true);
@@ -2532,8 +2777,28 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       });
       setAutoAllocateSummary(result);
     } catch (err) {
-      console.error('Auto-allocate failed', err);
-      setAutoAllocateError('Nem sikerült lefuttatni az automatikus ültetést.');
+      const normalizedError = normalizeUnknownError(err);
+      const errorMessage = `Auto-allocate failed: ${normalizedError.summary}\n${normalizedError.details}`.slice(
+        0,
+        1000
+      );
+      console.error('[autoAllocate] failed', {
+        summary: normalizedError.summary,
+        details: normalizedError.details,
+        err,
+      });
+      if (isFpDebug) {
+        console.debug('[autoAllocate] context', {
+          unitId: activeUnitId,
+          dateKey: overviewDateKey,
+          mode: autoAllocateDryRun ? 'dryRun' : 'apply',
+          bookingCountForDay: overviewBookings.length,
+          hasZones: zones.length > 0,
+          hasTables: tables.length > 0,
+          hasSeatingSettings: Boolean(reservationSettings),
+        });
+      }
+      setAutoAllocateError(errorMessage);
     } finally {
       setAutoAllocateRunning(false);
     }
@@ -2544,8 +2809,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       overviewBookings.find(booking => booking.id === bookingId) ??
       bookings.find(booking => booking.id === bookingId);
     if (targetBooking) {
-      const start = targetBooking.startTime?.toDate?.() ?? null;
-      const end = targetBooking.endTime?.toDate?.() ?? null;
+      const start = toSafeDate(targetBooking.startTime);
+      const end = toSafeDate(targetBooking.endTime);
       if (start && end) {
         const dayStart = new Date(overviewDate);
         dayStart.setHours(0, 0, 0, 0);
@@ -2600,17 +2865,23 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     }
   };
 
-  useEffect(() => {
-    const element = leftColumnActionsRef.current;
-    if (!element) return;
-    const updateHeight = () => {
-      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+
+  if (!activeUnitId) {
+    return (
+      <div className="flex items-center justify-center h-full p-8 text-center">
+        <div>
+          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
+            A funkció használatához válassz egy egységet
+          </h2>
+          <p className="mt-2 text-[var(--color-text-secondary)]">
+            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
+            pontosan egy egységet a fejlécben.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8">
@@ -2763,8 +3034,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                   </div>
                   <div className="mt-2 grid min-w-0 auto-rows-min grid-cols-2 justify-items-start gap-2 sm:grid-cols-3">
                     {sortedTodayBookings.map(booking => {
-                      const start = booking.startTime?.toDate?.();
-                      const end = booking.endTime?.toDate?.();
+                      const start = toSafeDate(booking.startTime);
+                      const end = toSafeDate(booking.endTime);
                       const isFocused = selectedBookingId === booking.id;
                       const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
                       const isConflict = dayConflictedBookingIds.has(booking.id);
@@ -2877,6 +3148,51 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                         </button>
                       )}
                     </div>
+                    {showDevSeed && (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-3 text-xs text-amber-900 space-y-2">
+                        {/* DEV: fpdebug seed tool (local testing only) */}
+                        <div className="font-semibold uppercase tracking-wide">DEV Seed bookings (fpdebug=1)</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">Dátum<input type="date" value={seedDate} onChange={e => setSeedDate(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Db<input type="number" min={1} max={300} value={seedCount} onChange={e => setSeedCount(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party min<input type="number" min={1} value={seedPartyMin} onChange={e => setSeedPartyMin(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party max<input type="number" min={1} value={seedPartyMax} onChange={e => setSeedPartyMax(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Kezdés<input type="time" value={seedStartTime} onChange={e => setSeedStartTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Vége<input type="time" value={seedEndTime} onChange={e => setSeedEndTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Időtartam (perc)<input type="number" min={15} value={seedDurationMinutes} onChange={e => setSeedDurationMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Lépésköz (perc)<input type="number" min={5} value={seedSpacingMinutes} onChange={e => setSeedSpacingMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                        </div>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={seedRunAllocationAfter}
+                            onChange={e => setSeedRunAllocationAfter(e.target.checked)}
+                            disabled={!canRunSeedAutoAllocate}
+                          />
+                          Seed után auto-allocate (apply)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSeedBookings}
+                            disabled={seedRunning || manualMode.active || isNavLocked}
+                            className="rounded-full bg-amber-600 px-3 py-1.5 text-white font-semibold disabled:opacity-60"
+                          >
+                            {seedRunning ? 'Futtatás...' : 'Seed bookings'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearSeededBookings}
+                            disabled={seedRunning}
+                            className="rounded-full border border-amber-400 px-3 py-1.5 font-semibold text-amber-900 disabled:opacity-60"
+                          >
+                            Clear seeded ({seedDate})
+                          </button>
+                        </div>
+                        {seedError && <div className="text-red-700">{seedError}</div>}
+                        {seedSuccess && <div className="text-emerald-700">{seedSuccess}</div>}
+                      </div>
+                    )}
                     <div className="hidden lg:block" style={{ height: leftColumnSpacerHeight }} />
                     <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2901,8 +3217,8 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
                       </div>
                       <div className="mt-2 min-w-0 space-y-2">
                         {sortedTodayBookings.map(booking => {
-                          const start = booking.startTime?.toDate?.();
-                          const end = booking.endTime?.toDate?.();
+                          const start = toSafeDate(booking.startTime);
+                          const end = toSafeDate(booking.endTime);
                           const isFocused = selectedBookingId === booking.id;
                           const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
                           const isConflict = dayConflictedBookingIds.has(booking.id);
@@ -3124,6 +3440,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               setDebugError(info);
             }
           }}
+          onClose={() => setIsSeatingSettingsOpen(false)}
         >
           <SeatingSettingsModal
             unitId={activeUnitId}
