@@ -98,10 +98,218 @@ export interface Booking {
   referenceCode?: string;
   customData?: Record<string, string>;
   reservationMode?: 'auto' | 'request';
-  adminActionToken?: string;
+  adminActionTokenHash?: string;
+  adminActionExpiresAt?: Timestamp;
+  adminActionUsedAt?: Timestamp | null;
   adminActionHandledAt?: Timestamp;
   adminActionSource?: 'email' | 'manual';
   cancelledBy?: 'guest' | 'admin' | 'system';
+  manageTokenHash?: string;
+  zoneId?: string;
+  assignedTableIds?: string[];
+  seatingSource?: 'auto' | 'manual';
+  isVip?: boolean;
+  noShowAt?: Timestamp;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
+  allocationIntent?: {
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+  };
+  allocationDiagnostics?: {
+    intentQuality?: 'none' | 'weak' | 'good';
+    reasons?: string[];
+    warnings?: string[];
+    matchedZoneId?: string | null;
+  };
+  allocationOverride?: {
+    enabled?: boolean;
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+    note?: string | null;
+  };
+  allocationOverrideSetAt?: Timestamp | null;
+  allocationOverrideSetByUid?: string;
+  allocationFinal?: {
+    source?: 'intent' | 'override';
+    timeSlot?: string | null;
+    zoneId?: string | null;
+    tableGroup?: string | null;
+    tableIds?: string[] | null;
+    locked?: boolean | null;
+  };
+  allocationFinalComputedAt?: Timestamp | null;
+  allocated?: {
+    zoneId?: string | null;
+    tableIds?: string[];
+    traceId?: string;
+    decidedAtMs?: number;
+    strategy?: string | null;
+    diagnosticsSummary?: string;
+    computedForStartTimeMs?: number;
+    computedForEndTimeMs?: number;
+    computedForHeadcount?: number;
+    algoVersion?: string;
+  };
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  priority: number;
+  isActive: boolean;
+  isEmergency?: boolean;
+  tags?: string[];
+  type?: 'bar' | 'outdoor' | 'table' | 'other';
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+// --- Seating / Seat Layout (chairs) ---
+export type SeatSide = 'north' | 'east' | 'south' | 'west' | 'radial';
+
+export type SeatLayoutRect = {
+  kind: 'rect';
+  sides: {
+    north?: number; // 0..3
+    east?: number;  // 0..3
+    south?: number; // 0..3
+    west?: number;  // 0..3
+  };
+};
+
+export type SeatLayoutCircle = {
+  kind: 'circle';
+  count: number; // 0..16
+};
+
+export type SeatLayout = SeatLayoutRect | SeatLayoutCircle;
+
+export interface Table {
+  id: string;
+  name: string;
+  zoneId: string;
+  capacityMax: number;
+  minCapacity: number;
+  seatLayout?: SeatLayout;
+  capacityTotal?: number;
+  sideCapacities?: {
+    north: number;
+    east: number;
+    south: number;
+    west: number;
+  };
+  combinableWithIds?: string[];
+  baseCombo?: {
+    groupId: string;
+    role: 'member' | 'aggregate';
+    memberIds?: string[];
+  };
+  isActive: boolean;
+  tableGroup?: string | null;
+  tags?: string[];
+  floorplanId?: string | null;
+  shape?: 'rect' | 'circle' | string | null;
+  w?: number | null;
+  h?: number | null;
+  radius?: number | null;
+  snapToGrid?: boolean;
+  locked?: boolean | null;
+  x?: number | null;
+  y?: number | null;
+  rot?: number | null;
+  canSeatSolo?: boolean;
+  canCombine?: boolean | null;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Floorplan {
+  id: string;
+  name: string;
+  width?: number | null;
+  height?: number | null;
+  isActive?: boolean;
+  gridSize?: number;
+  backgroundImageUrl?: string | null;
+  obstacles?: FloorplanObstacle[];
+  unitId?: string | null;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface FloorplanObstacle {
+  id: string;
+  name?: string | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot?: number | null;
+}
+
+export interface TableCombination {
+  id: string;
+  tableIds: string[];
+  isActive: boolean;
+  groupId?: string;
+  resultingCapacity?: number;
+  constraints?: string[];
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface SeatingSettings {
+  bufferMinutes?: number;
+  defaultDurationMinutes?: number;
+  allowGuestDurationEdit?: boolean;
+  holdTableMinutesOnLate?: number;
+  maxCombineCount?: number;
+  vipEnabled?: boolean;
+  activeFloorplanId?: string;
+  soloAllowedTableIds?: string[];
+  allocationEnabled?: boolean;
+  allocationMode?: 'capacity' | 'floorplan' | 'hybrid';
+  allocationStrategy?: 'bestFit' | 'minWaste' | 'priorityZoneFirst';
+  defaultZoneId?: string;
+  zonePriority?: string[];
+  overflowZones?: string[];
+  allowCrossZoneCombinations?: boolean;
+  emergencyZones?: {
+    enabled?: boolean;
+    zoneIds?: string[];
+    activeRule?: 'always' | 'byWeekday';
+    weekdays?: number[];
+  };
+}
+
+export interface PublicBookingDTO {
+  id: string;
+  unitId: string;
+  unitName?: string;
+  name: string;
+  headcount: number;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+  preferredTimeSlot?: string | null;
+  seatingPreference?: 'any' | 'bar' | 'table' | 'outdoor';
+  status: 'confirmed' | 'pending' | 'cancelled';
+  locale?: 'hu' | 'en';
+  occasion?: string;
+  source?: string;
+  referenceCode?: string;
+  cancelReason?: string;
+  cancelledBy?: 'guest' | 'admin' | 'system';
+  contact?: {
+    phoneE164?: string;
+    email?: string;
+  };
+  adminActionTokenHash?: string | null;
+  adminActionExpiresAtMs?: number | null;
+  adminActionUsedAtMs?: number | null;
 }
 
 export interface ThemeSettings {
@@ -139,6 +347,11 @@ export interface ReservationSetting {
     id: string; // unitId
     blackoutDates: string[]; // "YYYY-MM-DD"
     dailyCapacity?: number | null;
+    capacityMode?: 'daily' | 'timeWindow';
+    timeWindowCapacity?: number | null;
+    bucketMinutes?: number;
+    bufferMinutes?: number;
+    upcomingWarningMinutes?: number;
     bookableWindow?: { from: string; to: string }; // "HH:mm"
     kitchenStartTime?: string | null;
     kitchenEndTime?: string | null;
@@ -150,6 +363,20 @@ export interface ReservationSetting {
     schemaVersion?: number;
     reservationMode?: 'request' | 'auto';
     notificationEmails?: string[];
+}
+
+export interface ReservationCapacity {
+  date: string;
+  count?: number;
+  totalCount?: number;
+  byTimeSlot?: Record<string, number>;
+  byTimeBucket?: Record<string, number>;
+  byZone?: Record<string, number>;
+  byTableGroup?: Record<string, number>;
+  limit?: number;
+  updatedAt?: Timestamp;
+  capacityNeedsRecalc?: boolean;
+  hasAllocationWarnings?: boolean;
 }
 
 

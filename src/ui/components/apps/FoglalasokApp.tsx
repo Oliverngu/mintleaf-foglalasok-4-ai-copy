@@ -1,5 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Booking, User, Unit } from '../../../core/models/data';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import {
+  Booking,
+  ReservationSetting,
+  SeatingSettings,
+  Table,
+  TableCombination,
+  User,
+  Unit,
+  Zone,
+} from '../../../core/models/data';
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
@@ -19,27 +28,216 @@ import PlusIcon from '../../../../components/icons/PlusIcon';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import ReservationSettingsModal from './ReservationSettingsModal';
 import TrashIcon from '../../../../components/icons/TrashIcon';
+import { listTables, listZones, updateReservationSeating } from '../../../core/services/seatingService';
+import { getSeatingSettings, listCombinations } from '../../../core/services/seatingAdminService';
+import { suggestAllocation } from '../../../core/services/allocation/tableAllocation';
+import { suggestSeating } from '../../../core/services/seatingSuggestionService';
+import SeatingSettingsModal from './SeatingSettingsModal';
+import { recalcReservationCapacityDay } from '../../../core/services/adminCapacityApiService';
+import {
+  triggerAutoAllocateDay,
+  type AutoAllocateDayResult,
+} from '../../../core/services/adminAllocationApiService';
+import FloorplanViewer from './seating/FloorplanViewer';
+import ReservationFloorplanPreview from './reservations/ReservationFloorplanPreview';
+import HorizontalWheelPicker from '../common/HorizontalWheelPicker';
+import LoupeTimeRangePicker from '../common/LoupeTimeRangePicker';
+import {
+  clearOverride,
+  getOverride,
+  setOverride,
+} from '../../../core/services/seating/reservationOverridesService';
+import { formatTimeSlot } from '../../utils/timeSlot';
 
 // --- LOG TÍPUS HELYBEN (ha van központi, lehet oda áttenni) ---
-type BookingLogType = 'created' | 'cancelled' | 'updated' | 'guest_created' | 'guest_cancelled';
+type BookingLogType =
+  | 'created'
+  | 'cancelled'
+  | 'updated'
+  | 'guest_created'
+  | 'guest_cancelled'
+  | 'capacity_override'
+  | 'admin_seating_updated'
+  | 'capacity_recalc'
+  | 'allocation_override_set';
 
 interface BookingLog {
   id: string;
-  bookingId: string;
+  bookingId?: string;
   unitId: string;
   type: BookingLogType;
   createdAt: Timestamp | null;
   createdByUserId?: string | null;
   createdByName?: string | null;
-  source?: 'internal' | 'guest';
+  source?: 'internal' | 'guest' | 'admin';
   message: string;
 }
+
+type DebugErrorInfo = {
+  name: string;
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  url: string;
+  source: 'error-boundary' | 'window:error' | 'window:unhandledrejection';
+  time: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+  reason?: unknown;
+};
+
+function safeStringify(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDebugError(info: DebugErrorInfo) {
+  try {
+    return [
+      `name: ${info.name || 'Error'}`,
+      `message: ${info.message || 'Unknown error'}`,
+      `source: ${info.source}`,
+      `time: ${info.time}`,
+      `url: ${info.url}`,
+      info.filename ? `file: ${info.filename}` : '',
+      typeof info.lineno === 'number' ? `line: ${info.lineno}` : '',
+      typeof info.colno === 'number' ? `col: ${info.colno}` : '',
+      info.stack ? `stack:\n${info.stack}` : '',
+      info.componentStack ? `componentStack:\n${info.componentStack}` : '',
+      typeof info.reason !== 'undefined' ? `reason:\n${safeStringify(info.reason)}` : '',
+      'hint: open with ?fpdebug=1 and reproduce the issue, then copy this log.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  } catch {
+    return 'Failed to format debug error.';
+  }
+}
+
+
+function toLocalDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function toSafeDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (value && typeof value === 'object' && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    const date = (value as { toDate: () => unknown }).toDate();
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+  return null;
+}
+
+function parseTimeToMinutes(timeValue: string) {
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutes(minutes: number) {
+  const safe = Math.max(0, minutes);
+  const h = String(Math.floor(safe / 60)).padStart(2, '0');
+  const m = String(safe % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function clampDayInMonth(year: number, month: number, day: number) {
+  const maxDay = new Date(year, month + 1, 0).getDate();
+  return Math.min(Math.max(day, 1), maxDay);
+}
+
+function clampWindowStart(minutes: number, min: number, max: number) {
+  return Math.min(Math.max(minutes, min), max);
+}
+
+const resolveAllocationReasonLabel = (reason?: string | null) => {
+  if (!reason) return 'Nincs elérhető magyarázat.';
+  switch (reason) {
+    case 'ALLOCATION_DISABLED':
+      return 'Az automatikus asztal-kiosztás ki van kapcsolva.';
+    case 'NO_FIT':
+      return 'Nem találtunk megfelelő szabad asztalt vagy kombinációt.';
+    case 'INVALID_PARTY_SIZE':
+      return 'Érvénytelen létszám (0 vagy negatív).';
+    case 'EMERGENCY_ZONE':
+      return 'Vészhelyzeti zóna lett kiválasztva, hogy biztosítsuk a helyet.';
+    case 'STALE_ENTITY':
+      return 'A korábban kiválasztott asztal vagy zóna már nem elérhető.';
+    default:
+      return 'A rendszer automatikus döntést hozott a rendelkezésre álló adatok alapján.';
+  }
+};
 
 interface FoglalasokAppProps {
   currentUser: User;
   canAddBookings: boolean;
   allUnits: Unit[];
   activeUnitIds: string[];
+}
+
+class SeatingSettingsErrorBoundary extends React.Component<
+  { onError: (info: DebugErrorInfo) => void; onClose: () => void; children: React.ReactNode },
+  { hasError: boolean; message: string; stack?: string }
+> {
+  state = { hasError: false, message: '', stack: undefined as string | undefined };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message || 'Ismeretlen hiba', stack: error.stack };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('SeatingSettingsModal render error:', error, info);
+    try {
+      this.props.onError({
+        name: error.name || 'Error',
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        componentStack: info.componentStack,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        source: 'error-boundary',
+        time: new Date().toISOString(),
+      });
+    } catch {
+      // no-op
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl border border-red-200 p-5 space-y-3">
+            <h2 className="text-lg font-bold text-red-700">Hiba történt az asztaltérkép szerkesztő megnyitásakor</h2>
+            <p className="text-sm text-[var(--color-text-main)]">{this.state.message || 'Ismeretlen hiba.'}</p>
+            {this.state.stack && (
+              <pre className="max-h-64 overflow-auto rounded-lg bg-red-50 p-3 text-[11px] text-red-800 whitespace-pre-wrap">
+                {this.state.stack}
+              </pre>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={this.props.onClose}
+                className="rounded-lg bg-[var(--color-primary)] text-white px-4 py-2 text-sm font-semibold"
+              >
+                Bezárás
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const DeleteConfirmationModal: React.FC<{
@@ -65,9 +263,7 @@ const DeleteConfirmationModal: React.FC<{
           <p>
             Biztosan törlöd a(z) <span className="font-bold">{booking.name}</span> nevű
             foglalást erre a napra:{' '}
-            <span className="font-bold">
-              {booking.startTime.toDate().toLocaleDateString('hu-HU')}
-            </span>
+            <span className="font-bold">{toSafeDate(booking.startTime)?.toLocaleDateString('hu-HU') ?? '—'}</span>
             ? A művelet nem vonható vissza.
           </p>
           <div>
@@ -108,17 +304,1301 @@ const DeleteConfirmationModal: React.FC<{
   );
 };
 
+const BookingSeatingEditor: React.FC<{
+  booking: Booking;
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+  onSeatingSaved: (update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({ booking, unitId, zones, tables, onSeatingSaved }) => {
+  const [selectedZoneId, setSelectedZoneId] = useState<string>(booking.zoneId ?? '');
+  const [selectedTableIds, setSelectedTableIds] = useState<string[]>(
+    booking.assignedTableIds ?? []
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [suggestSuccess, setSuggestSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedZoneId(booking.zoneId ?? '');
+    setSelectedTableIds(booking.assignedTableIds ?? []);
+  }, [booking.assignedTableIds, booking.zoneId]);
+
+  const availableTables = useMemo(
+    () => tables.filter(table => table.zoneId === selectedZoneId && table.isActive),
+    [tables, selectedZoneId]
+  );
+
+  const handleZoneChange = (value: string) => {
+    setSelectedZoneId(value);
+    setSelectedTableIds([]);
+  };
+
+  const toggleTable = (tableId: string) => {
+    setSelectedTableIds(current =>
+      current.includes(tableId)
+        ? current.filter(id => id !== tableId)
+        : [...current, tableId]
+    );
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      await updateReservationSeating(unitId, booking.id, {
+        zoneId: selectedZoneId || null,
+        assignedTableIds: selectedTableIds,
+      });
+      onSeatingSaved({
+        zoneId: selectedZoneId || null,
+        assignedTableIds: selectedTableIds,
+        seatingSource: 'manual',
+      });
+      setSaveSuccess('Ültetés mentve.');
+    } catch (err) {
+      console.error('Error updating seating:', err);
+      setSaveError('Nem sikerült menteni az ültetést.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSuggest = async () => {
+    setIsSuggesting(true);
+    setSuggestError(null);
+    setSuggestSuccess(null);
+    try {
+      const startTime = toSafeDate(booking.startTime);
+      const endTime = toSafeDate(booking.endTime);
+      if (!startTime || !endTime) {
+        setSuggestError('Érvénytelen foglalás időpont, javaslat nem készíthető.');
+        return;
+      }
+      const result = await suggestSeating({
+        unitId,
+        startTime,
+        endTime,
+        headcount: booking.headcount,
+        bookingId: booking.id,
+      });
+      if (result.tableIds.length) {
+        setSelectedZoneId(result.zoneId ?? '');
+        setSelectedTableIds(result.tableIds);
+        setSuggestSuccess('Javaslat betöltve.');
+      } else {
+        setSuggestError('Nincs megfelelő ültetés javaslat.');
+      }
+    } catch (err) {
+      console.error('Error suggesting seating:', err);
+      setSuggestError('Nem sikerült ültetést javasolni.');
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Zóna</label>
+        <select
+          className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+          value={selectedZoneId}
+          onChange={event => handleZoneChange(event.target.value)}
+        >
+          <option value="">Nincs beállítva</option>
+          {zones.map(zone => (
+            <option key={zone.id} value={zone.id}>
+              {zone.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Asztalok</label>
+        <div className="mt-2 space-y-2">
+          {!selectedZoneId && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Előbb válassz zónát.
+            </p>
+          )}
+          {selectedZoneId && !availableTables.length && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Ebben a zónában nincs aktív asztal.
+            </p>
+          )}
+          {selectedZoneId &&
+            availableTables.map(table => {
+              const minCapacity = table.minCapacity ?? 1;
+              const maxCapacity = table.capacityMax ?? 2;
+
+              return (
+                <label key={table.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedTableIds.includes(table.id)}
+                    onChange={() => toggleTable(table.id)}
+                    className="h-4 w-4"
+                  />
+                  <span>
+                    {table.name} (min {minCapacity} – max {maxCapacity} fő)
+                  </span>
+                </label>
+              );
+            })}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-[var(--color-primary)] text-white disabled:opacity-60"
+        >
+          {isSaving ? 'Mentés...' : 'Mentés'}
+        </button>
+        <button
+          type="button"
+          onClick={handleSuggest}
+          disabled={isSuggesting}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-60"
+        >
+          {isSuggesting ? 'Javaslat...' : 'Javaslat'}
+        </button>
+        {saveSuccess && <span className="text-xs text-green-600">{saveSuccess}</span>}
+        {saveError && <span className="text-xs text-red-600">{saveError}</span>}
+        {suggestSuccess && <span className="text-xs text-green-600">{suggestSuccess}</span>}
+        {suggestError && <span className="text-xs text-red-600">{suggestError}</span>}
+      </div>
+    </div>
+  );
+};
+
+const resolveSeatingPreferenceLabel = (value?: Booking['seatingPreference']) => {
+  if (!value || value === 'any') return 'Nincs megadva';
+  if (value === 'bar') return 'Bár';
+  if (value === 'table') return 'Asztal';
+  if (value === 'outdoor') return 'Terasz';
+  return 'Nincs megadva';
+};
+
+const TIME_SLOT_LOCALE = 'hu' as const;
+
+type AllocationConflict = {
+  bookingId: string;
+  bookingName: string;
+  overlapLabel: string;
+  tableIds: string[];
+};
+
+const computeAllocationConflicts = (
+  targetBooking: Booking,
+  candidateTableIds: string[],
+  dayBookings: Booking[],
+  bufferMinutes: number
+): AllocationConflict[] => {
+  if (!candidateTableIds.length) {
+    return [];
+  }
+
+  const targetStart = toSafeDate(targetBooking.startTime);
+  const targetEnd = toSafeDate(targetBooking.endTime);
+  if (!targetStart || !targetEnd) {
+    return [];
+  }
+
+  const bufferMs = bufferMinutes * 60 * 1000;
+  const candidateSet = new Set(candidateTableIds);
+  const conflicts: Array<AllocationConflict & { sortTime: number }> = [];
+
+  dayBookings.forEach(other => {
+    if (other.id === targetBooking.id) {
+      return;
+    }
+    const otherTableIds = other.assignedTableIds ?? [];
+    if (!otherTableIds.length) {
+      return;
+    }
+    const otherStart = toSafeDate(other.startTime);
+    const otherEnd = toSafeDate(other.endTime);
+    if (!otherStart || !otherEnd) {
+      return;
+    }
+    const otherStartAdj = new Date(otherStart.getTime() - bufferMs);
+    const otherEndAdj = new Date(otherEnd.getTime() + bufferMs);
+    if (!(targetStart < otherEndAdj && targetEnd > otherStartAdj)) {
+      return;
+    }
+    const overlapTables = otherTableIds.filter(tableId => candidateSet.has(tableId));
+    if (!overlapTables.length) {
+      return;
+    }
+    const overlapLabel = `${otherStart.toLocaleTimeString('hu-HU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}–${otherEnd.toLocaleTimeString('hu-HU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    conflicts.push({
+      bookingId: other.id,
+      bookingName: other.name,
+      overlapLabel,
+      tableIds: overlapTables,
+      sortTime: otherStart.getTime(),
+    });
+  });
+
+  return conflicts
+    .sort((a, b) => {
+      if (a.sortTime !== b.sortTime) {
+        return a.sortTime - b.sortTime;
+      }
+      return a.bookingName.localeCompare(b.bookingName);
+    })
+    .map(({ sortTime, ...rest }) => rest);
+};
+
+const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const AllocationPanel: React.FC<{
+  booking: Booking;
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+  combinations: TableCombination[];
+  seatingSettings: SeatingSettings;
+  dayBookings: Booking[];
+  onClose?: () => void;
+}> = ({
+  booking,
+  unitId,
+  zones,
+  tables,
+  combinations,
+  seatingSettings,
+  dayBookings,
+  onClose,
+}) => {
+  const [zoneId, setZoneId] = useState<string>('');
+  const [tableIds, setTableIds] = useState<string[]>([]);
+  const [note, setNote] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [confirmSaveOnConflict, setConfirmSaveOnConflict] = useState(false);
+  const [isFloorplanOverride, setIsFloorplanOverride] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    setSaveError(null);
+    getOverride(unitId, booking.id)
+      .then(data => {
+        if (!isMounted) return;
+        setZoneId(data?.forcedZoneId ?? '');
+        setTableIds(data?.forcedTableIds ?? []);
+        setNote(data?.note ?? '');
+      })
+      .catch(err => {
+        console.error('Error loading allocation override:', err);
+        if (isMounted) {
+          setSaveError('Nem sikerült betölteni az override adatokat.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [booking.id, unitId]);
+
+  const availableTables = useMemo(
+    () => tables.filter(table => table.zoneId === zoneId && table.isActive),
+    [tables, zoneId]
+  );
+  const tableIdsByZone = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    tables.forEach(table => {
+      if (!table.isActive) {
+        return;
+      }
+      if (!map.has(table.zoneId)) {
+        map.set(table.zoneId, new Set());
+      }
+      map.get(table.zoneId)!.add(table.id);
+    });
+    return map;
+  }, [tables]);
+
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name ?? table.id])),
+    [tables]
+  );
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name ?? zone.id])),
+    [zones]
+  );
+
+  const suggestion = useMemo(() => {
+    const bookingDate = toSafeDate(booking.startTime) ?? undefined;
+    return suggestAllocation({
+      partySize: booking.headcount,
+      bookingDate,
+      seatingSettings,
+      zones,
+      tables,
+      tableCombinations: combinations,
+      override: {
+        forcedZoneId: zoneId || undefined,
+        forcedTableIds: tableIds.length ? tableIds : undefined,
+      },
+    });
+  }, [
+    booking.headcount,
+    booking.startTime,
+    seatingSettings,
+    zones,
+    tables,
+    combinations,
+    zoneId,
+    tableIds,
+  ]);
+  const bufferMinutes = seatingSettings.bufferMinutes ?? 15;
+  const suggestionConflicts = useMemo(
+    () =>
+      suggestion.tableIds.length
+        ? computeAllocationConflicts(booking, suggestion.tableIds, dayBookings, bufferMinutes)
+        : [],
+    [
+      booking.id,
+      booking.startTime,
+      booking.endTime,
+      suggestion.tableIds,
+      dayBookings,
+      bufferMinutes,
+    ]
+  );
+  const selectionConflicts = useMemo(
+    () =>
+      tableIds.length
+        ? computeAllocationConflicts(booking, tableIds, dayBookings, bufferMinutes)
+        : [],
+    [
+      booking.id,
+      booking.startTime,
+      booking.endTime,
+      tableIds,
+      dayBookings,
+      bufferMinutes,
+    ]
+  );
+
+  const toggleTable = (tableId: string) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    setTableIds(current =>
+      current.includes(tableId)
+        ? current.filter(id => id !== tableId)
+        : [...current, tableId]
+    );
+  };
+
+  const handleZonePick = (nextZoneId: string) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    setZoneId(nextZoneId);
+    if (!nextZoneId) {
+      setTableIds([]);
+      return;
+    }
+    const allowedTableIds = tableIdsByZone.get(nextZoneId) ?? new Set();
+    setTableIds(current => current.filter(tableId => allowedTableIds.has(tableId)));
+  };
+
+  const handleTablePick = (table: Table) => {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    if (!table.isActive) {
+      return;
+    }
+    if (zoneId && table.zoneId !== zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    if (!zoneId) {
+      setZoneId(table.zoneId);
+      setTableIds([table.id]);
+      return;
+    }
+    setTableIds(current =>
+      current.includes(table.id)
+        ? current.filter(id => id !== table.id)
+        : [...current, table.id]
+    );
+  };
+
+  const handleClear = async () => {
+    if (isSaving) {
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    setConfirmSaveOnConflict(false);
+    try {
+      await clearOverride(unitId, booking.id);
+      setZoneId('');
+      setTableIds([]);
+      setNote('');
+      setSaveSuccess('Allocation override törölve.');
+      onClose?.();
+    } catch (err) {
+      console.error('Error clearing allocation override:', err);
+      setSaveError('Nem sikerült törölni az allocation override-ot.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleForceSave = async () => {
+    if (isSaving) {
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    if (tableIds.length > 0 && !zoneId) {
+      setIsSaving(false);
+      setSaveError('Asztalokhoz zóna megadása kötelező.');
+      setConfirmSaveOnConflict(false);
+      return;
+    }
+    if (zoneId && tableIds.length > 0) {
+      const allowedTableIds = tableIdsByZone.get(zoneId) ?? new Set();
+      const invalidTableIds = tableIds.filter(tableId => !allowedTableIds.has(tableId));
+      if (invalidTableIds.length > 0) {
+        setIsSaving(false);
+        setSaveError('A kiválasztott asztalok nem tartoznak a megadott zónához.');
+        setConfirmSaveOnConflict(false);
+        return;
+      }
+    }
+    if (!zoneId && tableIds.length === 0 && !note.trim()) {
+      setIsSaving(false);
+      setSaveError('Adj meg legalább egy mezőt az override-hoz.');
+      setConfirmSaveOnConflict(false);
+      return;
+    }
+    try {
+      await setOverride(unitId, booking.id, {
+        forcedZoneId: zoneId || undefined,
+        forcedTableIds: tableIds.length ? tableIds : undefined,
+        note: note.trim() || undefined,
+      });
+      setSaveSuccess('Allocation override mentve.');
+      setConfirmSaveOnConflict(false);
+      onClose?.();
+    } catch (err) {
+      console.error('Error saving allocation override:', err);
+      setSaveError('Nem sikerült menteni az allocation override-ot.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
+    if (selectionConflicts.length > 0 && !confirmSaveOnConflict) {
+      setConfirmSaveOnConflict(true);
+      return;
+    }
+    await handleForceSave();
+  };
+
+  const suggestionZoneLabel = suggestion.zoneId
+    ? zoneNameById.get(suggestion.zoneId) ?? suggestion.zoneId
+    : '—';
+  const suggestionTableLabels =
+    suggestion.tableIds.length > 0
+      ? suggestion.tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
+      <div className="text-xs text-[var(--color-text-secondary)] space-y-1">
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">Javaslat:</span>{' '}
+          {suggestionZoneLabel} • {suggestionTableLabels}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">Indoklás:</span>{' '}
+          {suggestion.reason} • {Math.round(suggestion.confidence * 100)}%
+        </div>
+        {suggestionConflicts.length > 0 && (
+          <div className="text-amber-600 space-y-1">
+            <div className="font-semibold">⚠️ Javaslat ütközik</div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {suggestionConflicts.map(conflict => (
+                <li
+                  key={`${conflict.bookingId}-${conflict.overlapLabel}-${conflict.tableIds.join(
+                    ','
+                  )}`}
+                >
+                  {conflict.bookingName} ({conflict.overlapLabel}) –{' '}
+                  {conflict.tableIds
+                    .map(tableId => tableNameById.get(tableId) ?? tableId)
+                    .join(', ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <button
+          type="button"
+          className="text-xs font-semibold text-blue-600 hover:underline"
+          onClick={() => {
+            setSaveError(null);
+            setSaveSuccess(null);
+            setConfirmSaveOnConflict(false);
+            if (!suggestion.zoneId) {
+              if (suggestion.tableIds.length > 0) {
+                setSaveError('A javaslat nem tartalmaz zónát.');
+                return;
+              }
+              setSaveError('Nincs alkalmazható javaslat.');
+              return;
+            }
+            const allowedTableIds = tableIdsByZone.get(suggestion.zoneId) ?? new Set();
+            const filteredTableIds = suggestion.tableIds.filter(tableId =>
+              allowedTableIds.has(tableId)
+            );
+            if (!filteredTableIds.length) {
+              setSaveError('Nincs alkalmazható javaslat.');
+              return;
+            }
+            handleZonePick(suggestion.zoneId);
+            setTableIds(filteredTableIds);
+          }}
+        >
+          Javaslat alkalmazása
+        </button>
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-white/70">
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs font-semibold"
+          onClick={() => setIsFloorplanOverride(current => !current)}
+        >
+          {isFloorplanOverride ? 'Térképes kijelölés bezárása' : 'Térképes kijelölés'}
+        </button>
+        {isFloorplanOverride && (
+          <div className="px-3 pb-3">
+            <FloorplanViewer
+              unitId={unitId}
+              highlightTableIds={tableIds}
+              highlightZoneId={zoneId || null}
+              onZoneClick={handleZonePick}
+              onTableClick={handleTablePick}
+            />
+          </div>
+        )}
+      </div>
+      {selectionConflicts.length > 0 && (
+        <div className="text-xs text-amber-600 space-y-1">
+          <div className="font-semibold">⚠️ Kiválasztott asztalok ütköznek</div>
+          <ul className="list-disc list-inside space-y-0.5">
+            {selectionConflicts.map(conflict => (
+              <li
+                key={`${conflict.bookingId}-${conflict.overlapLabel}-${conflict.tableIds.join(
+                  ','
+                )}`}
+              >
+                {conflict.bookingName} ({conflict.overlapLabel}) –{' '}
+                {conflict.tableIds
+                  .map(tableId => tableNameById.get(tableId) ?? tableId)
+                  .join(', ')}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+            Zóna
+          </label>
+          <select
+            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+            value={zoneId}
+            onChange={event => {
+              setSaveError(null);
+              setSaveSuccess(null);
+              setConfirmSaveOnConflict(false);
+              handleZonePick(event.target.value);
+            }}
+            disabled={isLoading}
+          >
+            <option value="">Nincs beállítva</option>
+            {zones.map(zone => (
+              <option key={zone.id} value={zone.id}>
+                {zone.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+            Megjegyzés
+          </label>
+          <input
+            className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm"
+            value={note}
+            onChange={event => {
+              setSaveError(null);
+              setSaveSuccess(null);
+              setConfirmSaveOnConflict(false);
+              setNote(event.target.value);
+            }}
+            placeholder="Override megjegyzés"
+            disabled={isLoading}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)]">
+          Asztalok
+        </label>
+        <div className="mt-2 space-y-2">
+          {!zoneId && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Előbb válassz zónát.
+            </p>
+          )}
+          {zoneId && availableTables.length === 0 && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Ebben a zónában nincs aktív asztal.
+            </p>
+          )}
+          {zoneId &&
+            availableTables.map(table => (
+              <label key={table.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={tableIds.includes(table.id)}
+                  onChange={() => toggleTable(table.id)}
+                  disabled={isLoading}
+                />
+                <span>{table.name}</span>
+              </label>
+            ))}
+        </div>
+      </div>
+      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+      {saveSuccess && <p className="text-xs text-green-600">{saveSuccess}</p>}
+      {confirmSaveOnConflict && (
+        <div className="text-xs text-amber-600 space-y-2">
+          <div className="font-semibold">⚠️ Ütközés van. Biztosan mented?</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-amber-500 text-white disabled:opacity-50"
+              onClick={() => void handleForceSave()}
+              disabled={isSaving || isLoading}
+            >
+              Mentés mégis
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-50"
+              onClick={() => setConfirmSaveOnConflict(false)}
+              disabled={isSaving || isLoading}
+            >
+              Mégse
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white disabled:opacity-50"
+          disabled={isSaving || isLoading}
+        >
+          {isSaving ? 'Mentés...' : 'Mentés'}
+        </button>
+        <button
+          type="button"
+          onClick={handleClear}
+          className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] disabled:opacity-50"
+          disabled={isSaving || isLoading}
+        >
+          Törlés
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const SectionCard: React.FC<{
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ title, description, actions, children }) => (
+  <div
+    className="rounded-xl border border-gray-100 p-3 space-y-2"
+    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+        {description && (
+          <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+        )}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+    <div>{children}</div>
+  </div>
+);
+
+const CollapsibleSection: React.FC<{
+  title: string;
+  description?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}> = ({ title, description, defaultOpen = false, children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div
+      className="rounded-xl border border-gray-100 p-3 space-y-2"
+      style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="w-full text-left flex items-center justify-between gap-2"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h3>
+          {description && (
+            <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
+          )}
+        </div>
+        <span className="text-xs text-[var(--color-text-secondary)]">
+          {open ? 'Bezár' : 'Megnyit'}
+        </span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+};
+
+type BookingDetailSection = 'summary' | 'allocation' | 'seating' | 'capacity' | 'logs';
+
+const BookingDetailTabs: React.FC<{
+  active: BookingDetailSection;
+  onChange: (section: BookingDetailSection) => void;
+  isAdmin: boolean;
+}> = ({ active, onChange, isAdmin }) => {
+  const tabs: { id: BookingDetailSection; label: string }[] = [
+    { id: 'summary', label: 'Összefoglaló' },
+    { id: 'allocation', label: 'Allokáció' },
+    { id: 'seating', label: 'Ültetés' },
+    { id: 'capacity', label: 'Kapacitás' },
+    { id: 'logs', label: 'Napló' },
+  ];
+
+  const visibleTabs = tabs.filter(tab => isAdmin || !['seating', 'capacity'].includes(tab.id));
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {visibleTabs.map(tab => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className="px-3 py-1.5 rounded-full text-xs font-semibold border"
+          style={{
+            backgroundColor:
+              active === tab.id ? 'var(--color-primary)' : 'var(--color-surface)',
+            color:
+              active === tab.id ? 'var(--color-surface)' : 'var(--color-text-secondary)',
+            borderColor:
+              active === tab.id ? 'var(--color-primary)' : 'var(--color-border, #e5e7eb)',
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const BookingHeaderMini: React.FC<{ booking: Booking }> = ({ booking }) => (
+  (() => {
+    const startDate = toSafeDate(booking.startTime);
+    const endDate = toSafeDate(booking.endTime);
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">
+            {booking.name} ({booking.headcount} fő)
+          </p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            {startDate
+              ? startDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}{' '}
+            -{' '}
+            {endDate
+              ? endDate.toLocaleTimeString('hu-HU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+            {booking.status || '—'}
+          </span>
+          {booking.allocationOverride?.enabled && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-amber-100 text-amber-800">
+              OVERRIDE
+            </span>
+          )}
+          {booking.allocationFinal?.locked && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-gray-200 text-gray-700">
+              ZÁROLT
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  })()
+);
+
+const BookingSummaryCard: React.FC<{
+  booking: Booking;
+  resolveSeatingPreferenceLabel: (value?: Booking['seatingPreference']) => string;
+}> = ({ booking, resolveSeatingPreferenceLabel }) => (
+  <SectionCard title="Összefoglaló">
+    <div className="space-y-2 text-sm text-[var(--color-text-secondary)]">
+      <div className="grid gap-1 md:grid-cols-2">
+        <p>Alkalom: {booking.occasion || '—'}</p>
+        <p>Forrás: {booking.source || '—'}</p>
+      </div>
+      {booking.notes && <p>Megjegyzés: {booking.notes}</p>}
+      <div className="grid gap-1 md:grid-cols-2">
+        <p>
+          Preferált idősáv: {booking.preferredTimeSlot || 'Nincs megadva'}
+        </p>
+        <p>
+          Ülés preferencia: {resolveSeatingPreferenceLabel(booking.seatingPreference)}
+        </p>
+      </div>
+    </div>
+  </SectionCard>
+);
+
+const AllocationDecisionChain: React.FC<{
+  booking: Booking;
+  resolveZoneName: (zoneId?: string | null) => string;
+  resolveTableNames: (tableIds?: string[]) => string;
+}> = ({ booking, resolveZoneName, resolveTableNames }) => {
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const intentLabel =
+    booking.allocationIntent?.timeSlot ||
+    booking.allocationIntent?.zoneId ||
+    booking.allocationIntent?.tableGroup
+      ? `timeSlot=${formatTimeSlot(booking.allocationIntent?.timeSlot, {
+          mode: 'raw+label',
+          locale: TIME_SLOT_LOCALE,
+        })}, zoneId=${booking.allocationIntent?.zoneId || '—'}, tableGroup=${
+          booking.allocationIntent?.tableGroup || '—'
+        }`
+      : 'Nincs adat';
+  const overrideLabel = booking.allocationOverride?.enabled
+    ? `zoneId=${booking.allocationOverride.zoneId || '—'}, tableIds=${
+        booking.allocationOverride.tableIds?.length
+          ? booking.allocationOverride.tableIds.join(', ')
+          : '—'
+      }, note=${booking.allocationOverride.note || '—'}`
+    : 'Nincs override';
+  const allocationReason =
+    booking.allocated?.diagnosticsSummary ||
+    booking.allocationDiagnostics?.reasons?.[0] ||
+    null;
+  const allocationReasonLabel = resolveAllocationReasonLabel(allocationReason);
+  const finalLabel = booking.allocationFinal
+    ? `source=${booking.allocationFinal.source || '—'}, timeSlot=${formatTimeSlot(
+        booking.allocationFinal.timeSlot,
+        {
+          mode: 'raw+label',
+          locale: TIME_SLOT_LOCALE,
+        }
+      )}, zoneId=${booking.allocationFinal.zoneId || '—'}, tableGroup=${
+        booking.allocationFinal.tableGroup || '—'
+      }, tableIds=${
+        booking.allocationFinal.tableIds?.length
+          ? booking.allocationFinal.tableIds.join(', ')
+          : '—'
+      }`
+    : 'Nincs adat';
+
+  return (
+    <SectionCard
+      title="Allokáció döntési lánc"
+      description="Intent → override → final → allocated"
+    >
+      {(booking.allocationFinal?.locked || booking.allocationOverride?.enabled) && (
+        <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+          {booking.allocationFinal?.locked && (
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
+              Zárolt
+            </span>
+          )}
+          {booking.allocationOverride?.enabled && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+              Override aktív
+            </span>
+          )}
+        </div>
+      )}
+      <div className="grid gap-2 text-xs text-[var(--color-text-secondary)]">
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Intent:
+          </span>{' '}
+          {intentLabel}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Override:
+          </span>{' '}
+          {overrideLabel}
+        </div>
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Final:
+          </span>{' '}
+          {finalLabel}
+        </div>
+        {booking.allocated ? (
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Allocated:
+            </span>{' '}
+            {`zone=${resolveZoneName(
+              booking.allocated.zoneId
+            )}, tables=${resolveTableNames(
+              booking.allocated.tableIds
+            )}, strategy=${booking.allocated.strategy || '—'}`}
+          </div>
+        ) : (
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Allocated:
+            </span>{' '}
+            Nincs adat
+          </div>
+        )}
+        <div>
+          <span className="font-semibold text-[var(--color-text-main)]">
+            Miért itt?
+          </span>{' '}
+          {allocationReason ? `${allocationReason} — ${allocationReasonLabel}` : allocationReasonLabel}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setDiagnosticsOpen(current => !current)}
+        className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
+      >
+        {diagnosticsOpen ? 'Diagnosztika elrejtése' : 'Diagnosztika megnyitása'}
+      </button>
+      {diagnosticsOpen && (
+        <div className="mt-2 space-y-1 text-xs text-[var(--color-text-secondary)]">
+          <div>
+            <span className="font-semibold text-[var(--color-text-main)]">
+              Diagnostics:
+            </span>{' '}
+            {booking.allocationDiagnostics
+              ? `quality=${booking.allocationDiagnostics.intentQuality || '—'}, reasons=${
+                  booking.allocationDiagnostics.reasons?.length
+                    ? booking.allocationDiagnostics.reasons.join(', ')
+                    : '—'
+                }, warnings=${
+                  booking.allocationDiagnostics.warnings?.length
+                    ? booking.allocationDiagnostics.warnings.join(', ')
+                    : '—'
+                }`
+              : 'Nincs adat'}
+          </div>
+          {booking.allocated?.diagnosticsSummary && (
+            <div>
+              <span className="font-semibold text-[var(--color-text-main)]">
+                Summary:
+              </span>{' '}
+              {booking.allocated.diagnosticsSummary}
+            </div>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
+};
+
+const BookingSeatingPanel: React.FC<{
+  booking: Booking;
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+  highlightTableIds: string[];
+  highlightZoneId: string | null;
+  isFloorplanOpen: boolean;
+  onToggleFloorplan: () => void;
+  onSeatingSaved: (update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({
+  booking,
+  unitId,
+  zones,
+  tables,
+  highlightTableIds,
+  highlightZoneId,
+  isFloorplanOpen,
+  onToggleFloorplan,
+  onSeatingSaved,
+}) => (
+  <SectionCard
+    title="Ültetés"
+    description="Asztalok kiosztása és ellenőrzés az asztaltérképen."
+  >
+    <div className="rounded-lg border border-gray-200 bg-white/70">
+      <button
+        type="button"
+        onClick={event => {
+          event.stopPropagation();
+          onToggleFloorplan();
+        }}
+        className="w-full text-left px-3 py-2 text-sm font-semibold"
+      >
+        {isFloorplanOpen ? 'Asztaltérkép bezárása' : 'Asztaltérkép'}
+      </button>
+      {isFloorplanOpen && (
+        <div className="px-3 pb-3">
+          <FloorplanViewer
+            unitId={unitId}
+            highlightTableIds={highlightTableIds}
+            highlightZoneId={highlightZoneId}
+          />
+        </div>
+      )}
+    </div>
+    <BookingSeatingEditor
+      booking={booking}
+      unitId={unitId}
+      zones={zones}
+      tables={tables}
+      onSeatingSaved={onSeatingSaved}
+    />
+  </SectionCard>
+);
+
 const BookingDetailsModal: React.FC<{
   selectedDate: Date;
   bookings: Booking[];
   onClose: () => void;
+  onSelectBooking?: (bookingId: string | null) => void;
   isAdmin: boolean;
   onDelete: (booking: Booking) => void;
-}> = ({ selectedDate, bookings, onClose, isAdmin, onDelete }) => {
+  unitId: string;
+  zones: Zone[];
+  tables: Table[];
+  combinations: TableCombination[];
+  seatingSettings: SeatingSettings | null;
+  onSeatingSaved: (bookingId: string, update: {
+    zoneId: string | null;
+    assignedTableIds: string[];
+    seatingSource: 'manual';
+  }) => void;
+}> = ({
+  selectedDate,
+  bookings,
+  onClose,
+  onSelectBooking,
+  isAdmin,
+  onDelete,
+  unitId,
+  zones,
+  tables,
+  combinations,
+  seatingSettings,
+  onSeatingSaved,
+}) => {
+  const [isRecalcRunning, setIsRecalcRunning] = useState(false);
+  const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+  const [dayLogs, setDayLogs] = useState<BookingLog[]>([]);
+  const [dayLogsLoading, setDayLogsLoading] = useState(true);
+  const [openAllocationId, setOpenAllocationId] = useState<string | null>(null);
+  const [openFloorplanBookingId, setOpenFloorplanBookingId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<BookingDetailSection>('summary');
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
+
+  const dateKey = useMemo(() => {
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedDate]);
+
+  useEffect(() => {
+    setOpenAllocationId(null);
+    setOpenFloorplanBookingId(null);
+    setActiveSection('summary');
+  }, [dateKey]);
+
+  const handleClose = useCallback(() => {
+    setOpenAllocationId(null);
+    setOpenFloorplanBookingId(null);
+    setActiveSection('summary');
+    onSelectBooking?.(null);
+    onClose();
+  }, [onClose, onSelectBooking]);
+
+  const handleRecalcCapacity = async () => {
+    if (!unitId || !dateKey) {
+      setRecalcError('Hiányzó egység vagy dátum.');
+      return;
+    }
+    setIsRecalcRunning(true);
+    setRecalcMessage(null);
+    setRecalcError(null);
+    try {
+      await recalcReservationCapacityDay(unitId, dateKey);
+      setRecalcMessage('Napi kapacitás újraszámolva.');
+    } catch (err) {
+      console.error('Error recalculating capacity:', err);
+      setRecalcError('Nem sikerült újraszámolni a kapacitást.');
+    } finally {
+      setIsRecalcRunning(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!unitId) {
+      setDayLogs([]);
+      setDayLogsLoading(false);
+      return;
+    }
+
+    setDayLogsLoading(true);
+    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
+    const allowedTypes: BookingLogType[] = [
+      'created',
+      'cancelled',
+      'updated',
+      'guest_created',
+      'guest_cancelled',
+      'capacity_override',
+      'admin_seating_updated',
+      'capacity_recalc',
+      'allocation_override_set',
+    ];
+
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(selectedDate);
+    end.setHours(23, 59, 59, 999);
+
+    const mapLogs = (snapshot: { docs: { id: string; data: () => any }[] }) =>
+      snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          bookingId: typeof data.bookingId === 'string' ? data.bookingId : undefined,
+          unitId: typeof data.unitId === 'string' ? data.unitId : unitId,
+          type: allowedTypes.includes(data.type) ? data.type : 'updated',
+          createdAt: data.createdAt ?? null,
+          createdByUserId: data.createdByUserId ?? null,
+          createdByName: data.createdByName ?? null,
+          source: data.source,
+          message: typeof data.message === 'string' ? data.message : '',
+        } as BookingLog;
+      });
+
+    let unsub = () => {};
+
+    const qDayLogs = query(
+      logsRef,
+      where('createdAt', '>=', Timestamp.fromDate(start)),
+      where('createdAt', '<=', Timestamp.fromDate(end)),
+      orderBy('createdAt', 'desc'),
+      limit(25)
+    );
+
+    unsub = onSnapshot(
+      qDayLogs,
+      snapshot => {
+        setDayLogs(mapLogs(snapshot));
+        setDayLogsLoading(false);
+      },
+      err => {
+        console.error('Error fetching day logs:', err);
+        setDayLogsLoading(false);
+      }
+    );
+
+    return () => {
+      unsub();
+    };
+  }, [dateKey, selectedDate, unitId]);
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
@@ -135,7 +1615,7 @@ const BookingDetailsModal: React.FC<{
             })}
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 rounded-full hover:bg-gray-200"
             style={{ color: 'var(--color-text-secondary)' }}
           >
@@ -156,42 +1636,203 @@ const BookingDetailsModal: React.FC<{
           </button>
         </div>
         <div className="p-6 overflow-y-auto space-y-4">
+          <SectionCard
+            title="Foglalás részletek"
+            description="Összefoglaló, allokáció, ültetés, kapacitás és napló."
+          >
+            <BookingDetailTabs
+              active={activeSection}
+              onChange={setActiveSection}
+              isAdmin={isAdmin}
+            />
+          </SectionCard>
+          {activeSection === 'capacity' && isAdmin && (
+            <SectionCard title="Kapacitás" description="Napi kapacitás műveletek">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleRecalcCapacity}
+                  disabled={isRecalcRunning}
+                  className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 disabled:opacity-60"
+                >
+                  {isRecalcRunning ? 'Újraszámolás...' : 'Napi kapacitás újraszámolása'}
+                </button>
+                {recalcMessage && (
+                  <span className="text-xs text-green-600">{recalcMessage}</span>
+                )}
+                {recalcError && (
+                  <span className="text-xs text-red-600">{recalcError}</span>
+                )}
+              </div>
+            </SectionCard>
+          )}
+          {activeSection === 'logs' && (
+            <SectionCard title="Napi napló" description="Az adott naphoz tartozó események">
+              {dayLogsLoading ? (
+                <div className="text-xs text-[var(--color-text-secondary)]">Betöltés...</div>
+              ) : dayLogs.length ? (
+                <div className="space-y-2 text-xs max-h-40 overflow-y-auto">
+                  {dayLogs.map(log => {
+                    const createdDate =
+                      typeof log.createdAt?.toDate === 'function'
+                        ? log.createdAt.toDate()
+                        : log.createdAt instanceof Date
+                        ? log.createdAt
+                        : null;
+                    const created = createdDate
+                      ? createdDate.toLocaleString('hu-HU', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '—';
+
+                    const dotClass =
+                      log.type === 'cancelled' || log.type === 'guest_cancelled'
+                        ? 'bg-red-500'
+                        : log.type === 'guest_created'
+                        ? 'bg-green-500'
+                        : log.type === 'capacity_override'
+                        ? 'bg-blue-500'
+                        : log.type === 'admin_seating_updated'
+                        ? 'bg-blue-500'
+                        : log.type === 'capacity_recalc'
+                        ? 'bg-purple-500'
+                        : 'bg-blue-500';
+
+                    const message =
+                      log.message ||
+                      (log.type === 'capacity_override'
+                        ? 'Napi limit módosítva.'
+                        : 'Ismeretlen naplóbejegyzés');
+
+                    return (
+                      <div
+                        key={log.id}
+                        className="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 last:border-b-0 last:pb-0"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full mt-1 ${dotClass}`}
+                          />
+                          <div className="space-y-0.5">
+                            <div className="text-[var(--color-text-main)]">{message}</div>
+                            {log.createdByName && (
+                              <div className="text-[11px] text-[var(--color-text-secondary)]">
+                                {log.createdByName} ({log.source === 'guest' ? 'vendég' : 'belső'})
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
+                          {created}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--color-text-secondary)]">
+                  Nincsenek naplóbejegyzések erre a napra.
+                </div>
+              )}
+            </SectionCard>
+          )}
           {bookings.length > 0 ? (
             bookings
               .sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
-              .map(booking => (
-                <div
-                  key={booking.id}
-                  className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
-                  style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-                >
-                  <p className="font-bold text-[var(--color-text-main)]">
-                    {booking.name} ({booking.headcount} fő)
-                  </p>
-                  <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
-                    {booking.startTime
-                      .toDate()
-                      .toLocaleTimeString('hu-HU', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
-                    -{' '}
-                    {booking.endTime.toDate().toLocaleTimeString('hu-HU', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                  <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                    Alkalom: {booking.occasion}
-                  </p>
-                  {booking.notes && (
-                    <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                      Megjegyzés: {booking.notes}
-                    </p>
-                  )}
+              .map(booking => {
+                const highlightTableIds = booking.assignedTableIds ?? [];
+                const highlightZoneId = booking.zoneId ?? null;
+                const isFloorplanOpen = openFloorplanBookingId === booking.id;
+
+                return (
+                  <div
+                    key={booking.id}
+                    className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
+                    onClick={() => onSelectBooking?.(booking.id)}
+                  >
+                    <div className="space-y-4">
+                      <BookingHeaderMini booking={booking} />
+                      {activeSection === 'summary' && (
+                        <BookingSummaryCard
+                          booking={booking}
+                          resolveSeatingPreferenceLabel={resolveSeatingPreferenceLabel}
+                        />
+                      )}
+                      {activeSection === 'allocation' && (
+                        <>
+                          <AllocationDecisionChain
+                            booking={booking}
+                            resolveZoneName={resolveZoneName}
+                            resolveTableNames={resolveTableNames}
+                          />
+                          {isAdmin && seatingSettings?.allocationEnabled && (
+                            <SectionCard title="Allokáció override">
+                              <button
+                                type="button"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  setOpenAllocationId(current =>
+                                    current === booking.id ? null : booking.id
+                                  );
+                                }}
+                                className="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-[var(--color-text-main)]"
+                              >
+                                {openAllocationId === booking.id
+                                  ? 'Allokáció bezárása'
+                                  : 'Allokáció'}
+                              </button>
+                              {openAllocationId === booking.id && seatingSettings && (
+                                <AllocationPanel
+                                  booking={booking}
+                                  unitId={unitId}
+                                  zones={zones}
+                                  tables={tables}
+                                  combinations={combinations}
+                                  seatingSettings={seatingSettings}
+                                  dayBookings={bookings}
+                                  onClose={() => setOpenAllocationId(null)}
+                                />
+                              )}
+                            </SectionCard>
+                          )}
+                        </>
+                      )}
+                      {activeSection === 'seating' &&
+                        (isAdmin ? (
+                          <BookingSeatingPanel
+                            booking={booking}
+                            unitId={unitId}
+                            zones={zones}
+                            tables={tables}
+                            highlightTableIds={highlightTableIds}
+                            highlightZoneId={highlightZoneId}
+                            isFloorplanOpen={isFloorplanOpen}
+                            onToggleFloorplan={() =>
+                              setOpenFloorplanBookingId(current =>
+                                current === booking.id ? null : booking.id
+                              )
+                            }
+                            onSeatingSaved={update => onSeatingSaved(booking.id, update)}
+                          />
+                        ) : (
+                          <SectionCard title="Ültetés">
+                            <p className="text-xs text-[var(--color-text-secondary)]">
+                              Ültetés szerkesztéséhez admin hozzáférés szükséges.
+                            </p>
+                          </SectionCard>
+                        ))}
+                    </div>
                   {isAdmin && (
                     <button
-                      onClick={() => onDelete(booking)}
+                      onClick={event => {
+                        event.stopPropagation();
+                        onDelete(booking);
+                      }}
                       className="absolute top-3 right-3 p-2 text-gray-400 rounded-full opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
                       style={{
                         backgroundColor: 'var(--color-surface)',
@@ -204,7 +1845,8 @@ const BookingDetailsModal: React.FC<{
                     </button>
                   )}
                 </div>
-              ))
+                );
+              })
           ) : (
             <p className="text-[var(--color-text-secondary)]">Erre a napra nincsenek foglalások.</p>
           )}
@@ -236,6 +1878,18 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
       // zöld – vendég foglalta
       return 'bg-green-500';
     }
+    if (log.type === 'capacity_override') {
+      return 'bg-blue-500';
+    }
+    if (log.type === 'admin_seating_updated') {
+      return 'bg-blue-500';
+    }
+    if (log.type === 'capacity_recalc') {
+      return 'bg-purple-500';
+    }
+    if (log.type === 'allocation_override_set') {
+      return 'bg-purple-500';
+    }
     // kék – admin / belső
     return 'bg-blue-500';
   };
@@ -248,16 +1902,29 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
       <h2 className="text-lg font-bold text-[var(--color-text-main)] mb-3">Foglalási napló</h2>
       <div className="space-y-2 max-h-72 overflow-y-auto text-sm">
         {logs.map(log => {
-          const created =
-            log.createdAt?.toDate().toLocaleString('hu-HU', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-            }) ?? 'ismeretlen időpont';
+          const createdDate =
+            typeof log.createdAt?.toDate === 'function'
+              ? log.createdAt.toDate()
+              : log.createdAt instanceof Date
+              ? log.createdAt
+              : null;
+          const created = createdDate
+            ? createdDate.toLocaleString('hu-HU', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—';
 
           const dotClass = getDotClass(log);
+
+          const message =
+            log.message ||
+            (log.type === 'capacity_override'
+              ? 'Napi limit módosítva.'
+              : 'Ismeretlen naplóbejegyzés');
 
           return (
             <div
@@ -270,7 +1937,7 @@ const LogsPanel: React.FC<{ logs: BookingLog[] }> = ({ logs }) => {
                     className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`}
                   />
                   <span className="font-medium text-[var(--color-text-main)]">
-                    {log.message}
+                    {message}
                   </span>
                 </div>
                 <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">
@@ -296,37 +1963,213 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   allUnits,
   activeUnitIds,
 }) => {
+  // Manual allocation state machine & booking focus flow:
+  // - Booking click focuses selection + programmatic timeline jump.
+  // - Manual mode locks navigation, stages table selection, confirms via override API.
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [logs, setLogs] = useState<BookingLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [logsLoading, setLogsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [tableCombinations, setTableCombinations] = useState<TableCombination[]>([]);
+  const [seatingSettings, setSeatingSettings] = useState<SeatingSettings | null>(null);
+  const [reservationSettings, setReservationSettings] =
+    useState<ReservationSetting | null>(null);
+  const [detailsDate, setDetailsDate] = useState<Date | null>(null);
+  const [overviewDate, setOverviewDate] = useState(new Date());
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSeatingSettingsOpen, setIsSeatingSettingsOpen] = useState(false);
+  const [floorplanViewportTopOffsetPx, setFloorplanViewportTopOffsetPx] = useState(0);
+  const [leftColumnActionsHeight, setLeftColumnActionsHeight] = useState(0);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
-
+  const [windowStartMinutes, setWindowStartMinutes] = useState(0);
+  const [autoAllocateDryRun, setAutoAllocateDryRun] = useState(true);
+  const [autoAllocateRunning, setAutoAllocateRunning] = useState(false);
+  const [autoAllocateSummary, setAutoAllocateSummary] =
+    useState<AutoAllocateDayResult | null>(null);
+  const [autoAllocateError, setAutoAllocateError] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState<{
+    active: boolean;
+    bookingId: string | null;
+    stagedTableIds: string[];
+  }>({
+    active: false,
+    bookingId: null,
+    stagedTableIds: [],
+  });
+  const leftColumnActionsRef = useRef<HTMLDivElement | null>(null);
+  const leftColumnSpacerHeight = Math.max(0, floorplanViewportTopOffsetPx - leftColumnActionsHeight);
+  const prevSeatingSettingsOpenRef = useRef(isSeatingSettingsOpen);
+  const isFpDebug = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('fpdebug') === '1';
+  }, []);
+  const debugEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fpdebug') === '1') return true;
+    try {
+      return window.localStorage.getItem('ml_fp_debug') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
+  const showDevSeed = isFpDebug;
+  const canRunSeedAutoAllocate = typeof triggerAutoAllocateDay === 'function';
+  const [seedDate, setSeedDate] = useState(() => toLocalDateKey(new Date()));
+  const [seedCount, setSeedCount] = useState(10);
+  const [seedPartyMin, setSeedPartyMin] = useState(2);
+  const [seedPartyMax, setSeedPartyMax] = useState(4);
+  const [seedStartTime, setSeedStartTime] = useState('18:00');
+  const [seedEndTime, setSeedEndTime] = useState('22:00');
+  const [seedDurationMinutes, setSeedDurationMinutes] = useState(90);
+  const [seedSpacingMinutes, setSeedSpacingMinutes] = useState(15);
+  const [seedRunAllocationAfter, setSeedRunAllocationAfter] = useState(false);
+  const [seedRunning, setSeedRunning] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
+  const [seedSuccess, setSeedSuccess] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<DebugErrorInfo | null>(null);
+  useEffect(() => {
+    if (!debugEnabled) return;
+    const handleWindowError = (event: ErrorEvent) => {
+      try {
+        const error =
+          event.error instanceof Error
+            ? event.error
+            : new Error(event.message || 'Unknown error');
+        setDebugError({
+          name: error.name || 'Error',
+          message: error.message || 'Unknown error',
+          stack: error.stack,
+          componentStack: undefined,
+          url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          source: 'window:error',
+          time: new Date().toISOString(),
+        });
+      } catch {
+        // no-op
+      }
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      try {
+        const reason = event.reason;
+        const error =
+          reason instanceof Error
+            ? reason
+            : new Error(typeof reason === 'string' ? reason : 'Unhandled rejection');
+        setDebugError({
+          name: error.name || 'Error',
+          message: error.message || 'Unknown error',
+          stack: error.stack,
+          componentStack: undefined,
+          url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+          reason,
+          source: 'window:unhandledrejection',
+          time: new Date().toISOString(),
+        });
+      } catch {
+        // no-op
+      }
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, [debugEnabled]);
   const activeUnitId = activeUnitIds.length === 1 ? activeUnitIds[0] : null;
+  useEffect(() => {
+    if (!isFpDebug) return;
+    console.debug('[fpdebug] FoglalasokApp render mode', {
+      hasActiveUnit: Boolean(activeUnitId),
+      loading,
+      hasError: Boolean(error),
+    });
+  }, [activeUnitId, error, isFpDebug, loading]);
   const isAdmin =
     currentUser.role === 'Admin' || currentUser.role === 'Unit Admin';
+
+  const zoneNameById = useMemo(
+    () => new Map(zones.map(zone => [zone.id, zone.name || zone.id])),
+    [zones]
+  );
+  const tableNameById = useMemo(
+    () => new Map(tables.map(table => [table.id, table.name || table.id])),
+    [tables]
+  );
+  const resolveZoneName = (zoneId?: string | null) =>
+    zoneId ? zoneNameById.get(zoneId) ?? zoneId : '—';
+  const resolveTableNames = (tableIds?: string[]) =>
+    tableIds?.length
+      ? tableIds.map(id => tableNameById.get(id) ?? id).join(', ')
+      : '—';
+
+  const reloadSeatingData = useCallback(async () => {
+    if (!activeUnitId || !isAdmin) {
+      setZones([]);
+      setTables([]);
+      setTableCombinations([]);
+      setSeatingSettings(null);
+      return;
+    }
+    try {
+      const [zonesData, tablesData, combinationsData, settingsData] = await Promise.all([
+        listZones(activeUnitId),
+        listTables(activeUnitId),
+        listCombinations(activeUnitId),
+        getSeatingSettings(activeUnitId, { createIfMissing: false }),
+      ]);
+      setZones(zonesData);
+      setTables(tablesData);
+      setTableCombinations(combinationsData);
+      setSeatingSettings(settingsData);
+    } catch (err) {
+      console.error('Error fetching seating data:', err);
+      setZones([]);
+      setTables([]);
+      setTableCombinations([]);
+      setSeatingSettings(null);
+    }
+  }, [activeUnitId, isAdmin]);
+
+  useEffect(() => {
+    void reloadSeatingData();
+  }, [reloadSeatingData]);
+
+  useEffect(() => {
+    const wasOpen = prevSeatingSettingsOpenRef.current;
+    if (wasOpen && !isSeatingSettingsOpen) {
+      void reloadSeatingData();
+    }
+    prevSeatingSettingsOpenRef.current = isSeatingSettingsOpen;
+  }, [isSeatingSettingsOpen, reloadSeatingData]);
 
   useEffect(() => {
     if (!activeUnitId) {
       setBookings([]);
       setLoading(false);
+      setReservationSettings(null);
       return;
     }
     setLoading(true);
 
     const startOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
+      overviewDate.getFullYear(),
+      overviewDate.getMonth(),
       1
     );
     const endOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() + 1,
+      overviewDate.getFullYear(),
+      overviewDate.getMonth() + 1,
       0
     );
 
@@ -354,7 +2197,28 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
 
     return () => unsubscribeBookings();
-  }, [activeUnitId, currentDate]);
+  }, [activeUnitId, overviewDate]);
+
+  useEffect(() => {
+    if (!activeUnitId) {
+      setReservationSettings(null);
+      return;
+    }
+    const settingsRef = doc(db, 'reservation_settings', activeUnitId);
+    const unsubscribe = onSnapshot(
+      settingsRef,
+      snapshot => {
+        setReservationSettings(
+          snapshot.exists() ? (snapshot.data() as ReservationSetting) : null
+        );
+      },
+      err => {
+        console.error('Error fetching reservation settings:', err);
+        setReservationSettings(null);
+      }
+    );
+    return () => unsubscribe();
+  }, [activeUnitId]);
 
   // --- LOGOK FELIRATKOZÁS ---
   useEffect(() => {
@@ -371,9 +2235,31 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     const unsubLogs = onSnapshot(
       qLogs,
       snapshot => {
-        const fetchedLogs = snapshot.docs.map(
-          d => ({ id: d.id, ...d.data() } as BookingLog)
-        );
+        const fetchedLogs = snapshot.docs.map(d => {
+          const data = d.data();
+          const allowedTypes: BookingLogType[] = [
+            'created',
+            'cancelled',
+            'updated',
+            'guest_created',
+            'guest_cancelled',
+            'capacity_override',
+            'admin_seating_updated',
+            'capacity_recalc',
+            'allocation_override_set',
+          ];
+          return {
+            id: d.id,
+            bookingId: typeof data.bookingId === 'string' ? data.bookingId : undefined,
+            unitId: typeof data.unitId === 'string' ? data.unitId : activeUnitId,
+            type: allowedTypes.includes(data.type) ? data.type : 'updated',
+            createdAt: data.createdAt ?? null,
+            createdByUserId: data.createdByUserId ?? null,
+            createdByName: data.createdByName ?? null,
+            source: data.source,
+            message: typeof data.message === 'string' ? data.message : '',
+          } as BookingLog;
+        });
         setLogs(fetchedLogs);
         setLogsLoading(false);
       },
@@ -386,19 +2272,16 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return () => unsubLogs();
   }, [activeUnitId]);
 
-  const toLocalDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const bookingsByDate = useMemo(() => {
     const map = new Map<string, Booking[]>();
     bookings
       .filter(b => b.status !== 'cancelled')
       .forEach(booking => {
-        const key = toLocalDateKey(booking.startTime.toDate());
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return;
+        }
+        const key = toLocalDateKey(startDate);
         if (!map.has(key)) {
           map.set(key, []);
         }
@@ -407,22 +2290,241 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     return map;
   }, [bookings]);
 
-  if (!activeUnitId) {
+  const overviewDateKey = toLocalDateKey(overviewDate);
+  const overviewBookings = bookingsByDate.get(overviewDateKey) || [];
+  useEffect(() => {
+    if (!showDevSeed) return;
+    setSeedDate(overviewDateKey);
+  }, [overviewDateKey, showDevSeed]);
+  const previewDate = overviewDate;
+
+  const bookingWindow = reservationSettings?.bookableWindow || {
+    from: '00:00',
+    to: '23:59',
+  };
+  const monthItems = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, idx) => ({
+        monthIndex: idx,
+        labelShort: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'short' }),
+        labelLong: new Date(2024, idx, 1).toLocaleDateString('hu-HU', { month: 'long' }),
+      })),
+    []
+  );
+  const daysInMonth = useMemo(
+    () =>
+      new Date(overviewDate.getFullYear(), overviewDate.getMonth() + 1, 0).getDate(),
+    [overviewDate]
+  );
+  const openingMinutes = parseTimeToMinutes(bookingWindow.from) ?? 0;
+  const closingMinutes = parseTimeToMinutes(bookingWindow.to) ?? 24 * 60;
+  const maxWindowStart = Math.max(openingMinutes, closingMinutes - 120);
+  const stepMinutes = 15;
+
+  useEffect(() => {
+    setWindowStartMinutes(openingMinutes);
+  }, [openingMinutes, overviewDateKey]);
+
+
+  const windowStart = useMemo(() => {
+    const date = new Date(overviewDate);
+    date.setHours(0, 0, 0, 0);
+    date.setMinutes(windowStartMinutes);
+    return date;
+  }, [overviewDate, windowStartMinutes]);
+
+  const windowEnd = useMemo(() => {
+    const date = new Date(windowStart);
+    date.setMinutes(windowStart.getMinutes() + 120);
+    return date;
+  }, [windowStart]);
+
+  const windowBookings = useMemo(() => {
+    return overviewBookings.filter(booking => {
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
+      if (!start || !end) return false;
+      return start < windowEnd && end > windowStart;
+    });
+  }, [overviewBookings, windowEnd, windowStart]);
+
+  const sortedOverviewBookings = useMemo(() => {
+    return [...overviewBookings].sort((a, b) => {
+      const aTime = toSafeDate(a.startTime)?.getTime() ?? 0;
+      const bTime = toSafeDate(b.startTime)?.getTime() ?? 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return a.id.localeCompare(b.id);
+    });
+  }, [overviewBookings]);
+
+  const sortedTodayBookings = useMemo(() => {
+    const todayKey = toLocalDateKey(new Date());
+    const isToday = overviewDateKey === todayKey;
+    const now = new Date();
+    const withTimes = overviewBookings.map(booking => {
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
+      const startMs = start?.getTime() ?? 0;
+      const endMs = end?.getTime() ?? 0;
+      const isPast = isToday ? Boolean(end && end < now) : false;
+      return { booking, startMs, endMs, isPast };
+    });
+    const upcoming = withTimes
+      .filter(item => !item.isPast)
+      .sort((a, b) => a.startMs - b.startMs || a.booking.id.localeCompare(b.booking.id));
+    const past = withTimes
+      .filter(item => item.isPast)
+      .sort((a, b) => a.startMs - b.startMs || a.booking.id.localeCompare(b.booking.id));
+    return [...upcoming, ...past].map(item => item.booking);
+  }, [overviewBookings, overviewDateKey]);
+
+  const dayConflictedBookingIds = useMemo(() => {
+    const tableMap = new Map<string, Array<{ bookingId: string; start: number; end: number }>>();
+    overviewBookings.forEach(booking => {
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
+      if (!start || !end) return;
+      const tableIds = new Set<string>([
+        ...(booking.assignedTableIds ?? []),
+        ...(booking.allocationFinal?.tableIds ?? []),
+        ...(booking.allocated?.tableIds ?? []),
+      ]);
+      tableIds.forEach(tableId => {
+        const entries = tableMap.get(tableId) ?? [];
+        entries.push({ bookingId: booking.id, start: start.getTime(), end: end.getTime() });
+        tableMap.set(tableId, entries);
+      });
+    });
+    const conflicted = new Set<string>();
+    tableMap.forEach(entries => {
+      if (entries.length < 2) return;
+      const sorted = [...entries].sort((a, b) => a.start - b.start);
+      let latestEnd = sorted[0].end;
+      for (let i = 1; i < sorted.length; i += 1) {
+        const entry = sorted[i];
+        if (entry.start < latestEnd) {
+          conflicted.add(entry.bookingId);
+          conflicted.add(sorted[i - 1].bookingId);
+        }
+        latestEnd = Math.max(latestEnd, entry.end);
+      }
+    });
+    return conflicted;
+  }, [overviewBookings]);
+
+  const loupeBookings = useMemo(() => {
+    const dayStart = new Date(overviewDate);
+    dayStart.setHours(0, 0, 0, 0);
+    return overviewBookings
+      .map(booking => {
+        const start = toSafeDate(booking.startTime);
+        const end = toSafeDate(booking.endTime);
+        if (!start || !end) return null;
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null;
+        return {
+          id: booking.id,
+          startMinutes,
+          endMinutes,
+          partySize: booking.headcount ?? 1,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      startMinutes: number;
+      endMinutes: number;
+      partySize: number;
+    }>;
+  }, [overviewBookings, overviewDate]);
+
+  const loupeCapacity = useMemo(() => {
+    const derived = tables.reduce((sum, table) => {
+      const maxCapacity = table.capacityMax ?? table.minCapacity ?? 0;
+      return sum + maxCapacity;
+    }, 0);
+    return derived > 0 ? derived : 1;
+  }, [tables]);
+
+  const manualBooking = useMemo(() => {
+    if (!manualMode.bookingId) return null;
     return (
-      <div className="flex items-center justify-center h-full p-8 text-center">
-        <div>
-          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
-            A funkció használatához válassz egy egységet
-          </h2>
-          <p className="mt-2 text-[var(--color-text-secondary)]">
-            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
-            pontosan egy egységet a fejlécben.
-          </p>
-        </div>
-      </div>
+      overviewBookings.find(booking => booking.id === manualMode.bookingId) ??
+      bookings.find(booking => booking.id === manualMode.bookingId) ??
+      null
     );
-  }
+  }, [bookings, manualMode.bookingId, overviewBookings]);
+
+  const manualSelectionConflicts = useMemo(() => {
+    if (!manualBooking || manualMode.stagedTableIds.length === 0) return [];
+    const bufferMinutes = reservationSettings?.bufferMinutes ?? 15;
+    return computeAllocationConflicts(
+      manualBooking,
+      manualMode.stagedTableIds,
+      overviewBookings,
+      bufferMinutes
+    );
+  }, [manualBooking, manualMode.stagedTableIds, overviewBookings, reservationSettings?.bufferMinutes]);
+
+  const resolveManualZoneId = useCallback(
+    (tableIds: string[]) => {
+      if (!tableIds.length) return null;
+      const tableById = new Map(tables.map(table => [table.id, table]));
+      const firstTable = tableById.get(tableIds[0]);
+      return firstTable?.zoneId ?? null;
+    },
+    [tables]
+  );
+
+  const isNavLocked = manualMode.active;
+
+  const handleBookingFocus = useCallback(
+    (booking: Booking) => {
+      if (manualMode.active) return;
+      const start = toSafeDate(booking.startTime);
+      const end = toSafeDate(booking.endTime);
+      if (!start || !end) {
+        setSelectedBookingId(booking.id);
+        return;
+      }
+      const dayStart = new Date(overviewDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+      const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+      const midpointMinutes = Math.round((startMinutes + endMinutes) / 2);
+      const desiredStart = midpointMinutes - 60;
+      const snappedStart = Math.round(desiredStart / stepMinutes) * stepMinutes;
+      const clampedStart = clampValue(snappedStart, openingMinutes, maxWindowStart);
+      setSelectedBookingId(booking.id);
+      setWindowStartMinutes(clampedStart);
+    },
+    [manualMode.active, maxWindowStart, openingMinutes, overviewDate, stepMinutes]
+  );
+
+  const autoAllocateProblemItems = useMemo(() => {
+    if (!autoAllocateSummary?.items) return [];
+    return autoAllocateSummary.items.filter(item =>
+      ['error', 'skipped_invalid'].includes(item.status) ||
+      item.diagnostics?.conflict ||
+      item.diagnostics?.noFit
+    ).slice(0, 10);
+  }, [autoAllocateSummary]);
+
+  useEffect(() => {
+    setSelectedBookingId(null);
+  }, [overviewDateKey]);
+
+  useEffect(() => {
+    const element = leftColumnActionsRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      setLeftColumnActionsHeight(element.getBoundingClientRect().height);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const writeLog = async (
     unitId: string,
@@ -430,51 +2532,10 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     type: BookingLogType,
     extraMessage?: string
   ) => {
-    const logsRef = collection(db, 'units', unitId, 'reservation_logs');
-
-    let baseMessage = '';
-    const dateStr = booking.startTime
-      ? booking.startTime
-          .toDate()
-          .toLocaleString('hu-HU', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-      : '';
-
-    switch (type) {
-      case 'created':
-        baseMessage = `Új foglalás létrehozva: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
-        break;
-      case 'cancelled':
-        baseMessage = `Foglalás lemondva/törölve: ${booking.name} (${dateStr})`;
-        break;
-      case 'updated':
-        baseMessage = `Foglalás módosítva: ${booking.name}`;
-        break;
-      case 'guest_created':
-        baseMessage = `Vendég foglalást adott le: ${booking.name} (${booking.headcount ?? '-'} fő, ${dateStr})`;
-        break;
-      case 'guest_cancelled':
-        baseMessage = `Vendég lemondta a foglalást: ${booking.name} (${dateStr})`;
-        break;
-    }
-
-    const message = extraMessage ? `${baseMessage} – ${extraMessage}` : baseMessage;
-
-    await addDoc(logsRef, {
-      bookingId: booking.id,
-      unitId,
-      type,
-      createdAt: serverTimestamp(),
-      createdByUserId: currentUser.id ?? null,
-      createdByName: currentUser.displayName ?? currentUser.name ?? null,
-      source: 'internal',
-      message,
-    });
+    void unitId;
+    void booking;
+    void type;
+    void extraMessage;
   };
 
   const handleAddBooking = async (bookingData: Omit<Booking, 'id'>) => {
@@ -496,6 +2557,151 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     );
     setIsAddModalOpen(false);
   };
+
+  const parseLocalDateTime = useCallback((dateIso: string, hhmm: string) => {
+    const [yRaw, mRaw, dRaw] = dateIso.split('-');
+    const [hRaw, minRaw] = hhmm.split(':');
+    const year = Number(yRaw);
+    const month = Number(mRaw);
+    const day = Number(dRaw);
+    const hours = Number(hRaw);
+    const minutes = Number(minRaw);
+    if (
+      !Number.isFinite(year) ||
+      !Number.isFinite(month) ||
+      !Number.isFinite(day) ||
+      !Number.isFinite(hours) ||
+      !Number.isFinite(minutes)
+    ) {
+      return null;
+    }
+    const parsed = new Date(
+      year,
+      Math.max(0, Math.min(11, Math.floor(month - 1))),
+      Math.max(1, Math.min(31, Math.floor(day))),
+      Math.max(0, Math.min(23, Math.floor(hours))),
+      Math.max(0, Math.min(59, Math.floor(minutes))),
+      0,
+      0
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, []);
+
+  const handleSeedBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    if (manualMode.active || isNavLocked) {
+      setSeedError('Seed futtatás közben a manuális mód nem lehet aktív.');
+      return;
+    }
+    const start = parseLocalDateTime(seedDate, seedStartTime);
+    const end = parseLocalDateTime(seedDate, seedEndTime);
+    if (!start || !end || end <= start) {
+      setSeedError('Érvénytelen időablak.');
+      return;
+    }
+    const safeCount = Math.max(1, Math.min(300, Math.floor(seedCount)));
+    const minParty = Math.max(1, Math.floor(Math.min(seedPartyMin, seedPartyMax)));
+    const maxParty = Math.max(minParty, Math.floor(Math.max(seedPartyMin, seedPartyMax)));
+    const duration = Math.max(15, Math.floor(seedDurationMinutes));
+    const spacing = Math.max(5, Math.floor(seedSpacingMinutes));
+    const targetZone =
+      zones.find(zone => zone.isActive !== false && !zone.isEmergency) ??
+      zones.find(zone => zone.isActive !== false) ??
+      zones[0];
+
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      let created = 0;
+      for (let i = 0; i < safeCount; i += 1) {
+        const bookingStart = new Date(start.getTime() + i * spacing * 60000);
+        const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
+        if (bookingEnd > end) break;
+        const partySize =
+          minParty + Math.floor(Math.random() * (Math.max(1, maxParty - minParty + 1)));
+        const payload: Omit<Booking, 'id'> = {
+          unitId: activeUnitId,
+          name: `DEV Seed ${i + 1}`,
+          headcount: partySize,
+          occasion: 'DEV_SEED',
+          source: 'admin',
+          startTime: Timestamp.fromDate(bookingStart),
+          endTime: Timestamp.fromDate(bookingEnd),
+          status: 'confirmed',
+          createdAt: Timestamp.now(),
+          notes: '[DEV_SEED] fpdebug quick seed',
+          ...(targetZone?.id ? { zoneId: targetZone.id } : {}),
+        };
+        await addDoc(collection(db, 'units', activeUnitId, 'reservations'), payload);
+        created += 1;
+      }
+      if (seedRunAllocationAfter && canRunSeedAutoAllocate && created > 0) {
+        try {
+          await triggerAutoAllocateDay({ unitId: activeUnitId, dateKey: seedDate, mode: 'apply' });
+        } catch (allocErr) {
+          console.error('DEV seed auto-allocate failed', allocErr);
+        }
+      }
+      setSeedSuccess(`${created} db DEV seed foglalás létrehozva (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed failed', err);
+      setSeedError('Nem sikerült seed foglalásokat létrehozni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [
+    activeUnitId,
+    canRunSeedAutoAllocate,
+    isNavLocked,
+    manualMode.active,
+    parseLocalDateTime,
+    seedCount,
+    seedDate,
+    seedDurationMinutes,
+    seedEndTime,
+    seedPartyMax,
+    seedPartyMin,
+    seedRunAllocationAfter,
+    seedSpacingMinutes,
+    seedStartTime,
+    showDevSeed,
+    zones,
+  ]);
+
+  const handleClearSeededBookings = useCallback(async () => {
+    if (!activeUnitId || !showDevSeed) return;
+    setSeedRunning(true);
+    setSeedError(null);
+    setSeedSuccess(null);
+    try {
+      const seeded = bookings.filter(booking => {
+        const startDate = toSafeDate(booking.startTime);
+        if (!startDate) {
+          return false;
+        }
+        return (
+          toLocalDateKey(startDate) === seedDate &&
+          (booking.notes?.includes('[DEV_SEED]') || booking.name.startsWith('DEV Seed ')) &&
+          booking.status !== 'cancelled'
+        );
+      });
+      for (const booking of seeded) {
+        await updateDoc(doc(db, 'units', activeUnitId, 'reservations', booking.id), {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelReason: 'DEV_SEED_CLEAR',
+          cancelledBy: 'admin',
+        });
+      }
+      setSeedSuccess(`${seeded.length} db DEV seed foglalás törölve (${seedDate}).`);
+    } catch (err) {
+      console.error('DEV seed clear failed', err);
+      setSeedError('Nem sikerült a DEV seed foglalásokat törölni.');
+    } finally {
+      setSeedRunning(false);
+    }
+  }, [activeUnitId, bookings, seedDate, showDevSeed]);
 
   const handleConfirmDelete = async (reason: string) => {
     if (!bookingToDelete || !activeUnitId) return;
@@ -534,126 +2740,154 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     window.open(`/reserve?unit=${activeUnitId}`, '_blank');
   };
 
-  const renderCalendar = () => {
-    const startOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      1
-    );
-    const endOfMonth = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() + 1,
-      0
-    );
-    const days: { date: Date; isCurrentMonth: boolean }[] = [];
-    const startDayOfWeek = (startOfMonth.getDay() + 6) % 7;
+  const normalizeUnknownError = (err: unknown) => {
+    const trimTo = (value: string, max: number) =>
+      value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
-    for (let i = 0; i < startDayOfWeek; i++) {
-      const day = new Date(startOfMonth);
-      day.setDate(day.getDate() - (startDayOfWeek - i));
-      days.push({ date: day, isCurrentMonth: false });
-    }
-    for (let i = 1; i <= endOfMonth.getDate(); i++) {
-      const day = new Date(currentDate.getFullYear(), currentDate.getMonth(), i);
-      days.push({ date: day, isCurrentMonth: true });
-    }
-    const totalDays = days.length;
-    const remainingCells = (totalDays > 35 ? 42 : 35) - totalDays;
-    for (let i = 1; i <= remainingCells; i++) {
-      const day = new Date(endOfMonth);
-      day.setDate(day.getDate() + i);
-      days.push({ date: day, isCurrentMonth: false });
+    if (err instanceof Error) {
+      const summary = trimTo(`${err.name || 'Error'}: ${err.message || 'Ismeretlen hiba'}`, 280);
+      const detailParts = [err.stack, err.cause ? `cause: ${safeStringify(err.cause)}` : ''].filter(Boolean);
+      const details = trimTo(detailParts.join('\n\n') || 'Nincs további részlet.', 700);
+      return { summary, details };
     }
 
-    const todayKey = toLocalDateKey(new Date());
+    if (typeof err === 'string') {
+      return {
+        summary: trimTo(err || 'Ismeretlen hiba', 280),
+        details: trimTo(err || 'Nincs további részlet.', 700),
+      };
+    }
 
+    const serialized = safeStringify(err);
+    return {
+      summary: 'Ismeretlen hiba történt az automatikus ültetés során.',
+      details: trimTo(serialized || 'Nincs további részlet.', 700),
+    };
+  };
+
+  const handleAutoAllocateDay = async () => {
+    if (!activeUnitId) return;
+    setAutoAllocateRunning(true);
+    setAutoAllocateError(null);
+    try {
+      const result = await triggerAutoAllocateDay({
+        unitId: activeUnitId,
+        dateKey: overviewDateKey,
+        mode: autoAllocateDryRun ? 'dryRun' : 'apply',
+      });
+      setAutoAllocateSummary(result);
+    } catch (err) {
+      const normalizedError = normalizeUnknownError(err);
+      const errorMessage = `Auto-allocate failed: ${normalizedError.summary}\n${normalizedError.details}`.slice(
+        0,
+        1000
+      );
+      console.error('[autoAllocate] failed', {
+        summary: normalizedError.summary,
+        details: normalizedError.details,
+        err,
+      });
+      if (isFpDebug) {
+        console.debug('[autoAllocate] context', {
+          unitId: activeUnitId,
+          dateKey: overviewDateKey,
+          mode: autoAllocateDryRun ? 'dryRun' : 'apply',
+          bookingCountForDay: overviewBookings.length,
+          hasZones: zones.length > 0,
+          hasTables: tables.length > 0,
+          hasSeatingSettings: Boolean(reservationSettings),
+        });
+      }
+      setAutoAllocateError(errorMessage);
+    } finally {
+      setAutoAllocateRunning(false);
+    }
+  };
+
+  const handleManualStart = (bookingId: string) => {
+    const targetBooking =
+      overviewBookings.find(booking => booking.id === bookingId) ??
+      bookings.find(booking => booking.id === bookingId);
+    if (targetBooking) {
+      const start = toSafeDate(targetBooking.startTime);
+      const end = toSafeDate(targetBooking.endTime);
+      if (start && end) {
+        const dayStart = new Date(overviewDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const startMinutes = Math.floor((start.getTime() - dayStart.getTime()) / 60000);
+        const endMinutes = Math.floor((end.getTime() - dayStart.getTime()) / 60000);
+        const midpointMinutes = Math.round((startMinutes + endMinutes) / 2);
+        const desiredStart = midpointMinutes - 60;
+        const snappedStart = Math.round(desiredStart / stepMinutes) * stepMinutes;
+        const clampedStart = clampWindowStart(snappedStart, openingMinutes, maxWindowStart);
+        setWindowStartMinutes(clampedStart);
+      }
+    }
+    setSelectedBookingId(bookingId);
+    setManualMode({
+      active: true,
+      bookingId,
+      stagedTableIds: [],
+    });
+  };
+
+  const handleManualCancel = () => {
+    setManualMode({
+      active: false,
+      bookingId: null,
+      stagedTableIds: [],
+    });
+  };
+
+  const handleManualToggleTable = (table: Table) => {
+    if (!manualMode.active) return;
+    setManualMode(current => ({
+      ...current,
+      stagedTableIds: current.stagedTableIds.includes(table.id)
+        ? current.stagedTableIds.filter(id => id !== table.id)
+        : [...current.stagedTableIds, table.id],
+    }));
+  };
+
+  const handleManualConfirm = async () => {
+    if (!manualMode.active || !activeUnitId || !manualMode.bookingId) return;
+    if (manualMode.stagedTableIds.length === 0) return;
+    try {
+      const zoneId = resolveManualZoneId(manualMode.stagedTableIds);
+      await setOverride(activeUnitId, manualMode.bookingId, {
+        forcedZoneId: zoneId ?? null,
+        forcedTableIds: manualMode.stagedTableIds,
+      });
+      handleManualCancel();
+    } catch (err) {
+      console.error('Error saving manual allocation override:', err);
+      alert('Nem sikerült menteni a manuális ültetést.');
+    }
+  };
+
+
+  if (!activeUnitId) {
     return (
-      <div
-        className="p-6 rounded-2xl shadow-lg border border-gray-100"
-        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-main)' }}
-      >
-        <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={() =>
-              setCurrentDate(
-                new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)
-              )
-            }
-            className="p-2 rounded-full hover:bg-gray-100"
-            aria-label="Previous month"
-          >
-            &lt;
-          </button>
-          <h2 className="text-xl font-bold text-[var(--color-text-main)] capitalize">
-            {currentDate.toLocaleDateString('hu-HU', {
-              month: 'long',
-              year: 'numeric',
-            })}
+      <div className="flex items-center justify-center h-full p-8 text-center">
+        <div>
+          <BookingIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-[var(--color-text-main)]">
+            A funkció használatához válassz egy egységet
           </h2>
-          <button
-            onClick={() =>
-              setCurrentDate(
-                new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
-              )
-            }
-            className="p-2 rounded-full hover:bg-gray-100"
-            aria-label="Next month"
-          >
-            &gt;
-          </button>
-        </div>
-        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[var(--color-text-secondary)] text-sm mb-2">
-          {['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].map(day => (
-            <div key={day}>{day}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {days.map(({ date, isCurrentMonth }, index) => {
-            const dateKey = toLocalDateKey(date);
-            const dailyBookings = bookingsByDate.get(dateKey) || [];
-            const isToday = dateKey === todayKey;
-
-            return (
-              <div
-                key={index}
-                onClick={() => isCurrentMonth && setSelectedDate(date)}
-                className={`
-                  h-24 p-2 flex flex-col items-start rounded-lg transition-colors
-                  ${
-                    isCurrentMonth
-                      ? 'cursor-pointer hover:bg-gray-100'
-                      : 'text-gray-300'
-                  }
-                  ${isToday ? 'border-2 border-green-500' : 'border border-gray-200'}
-                `}
-              >
-                <span
-                  className={`font-bold ${
-                    isToday ? 'text-green-600' : 'text-[var(--color-text-main)]'
-                  }`}
-                >
-                  {date.getDate()}
-                </span>
-                {isCurrentMonth && dailyBookings.length > 0 && (
-                  <div className="mt-auto w-full text-left">
-                    <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
-                      {dailyBookings.length} foglalás
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <p className="mt-2 text-[var(--color-text-secondary)]">
+            A foglalási rendszer megtekintéséhez és kezeléséhez, kérjük, válassz ki
+            pontosan egy egységet a fejlécben.
+          </p>
         </div>
       </div>
     );
-  };
+  }
 
   return (
     <div className="p-4 md:p-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-bold text-[var(--color-text-main)]">Foglalások</h1>
-        <div className="flex items-center gap-3">
+        <h1 className="text-3xl font-bold text-[var(--color-text-main)] lg:hidden">Foglalások</h1>
+        <div className="flex items-center gap-3 lg:hidden">
           <button
             onClick={openGuestPage}
             className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
@@ -670,13 +2904,21 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
             </button>
           )}
           {isAdmin && activeUnitId && (
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
-              title="Foglalási beállítások"
-            >
-              <SettingsIcon className="h-6 w-6" />
-            </button>
+            <>
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
+                title="Foglalási beállítások"
+              >
+                <SettingsIcon className="h-6 w-6" />
+              </button>
+              <button
+                onClick={() => setIsSeatingSettingsOpen(true)}
+                className="px-3 py-2 rounded-lg bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300 text-sm font-semibold"
+              >
+                Ültetés beállítások
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -698,7 +2940,439 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
 
       {!loading && !error && (
         <>
-          {renderCalendar()}
+          <div className="mt-4 space-y-6">
+            <div className="space-y-4 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-wrap items-baseline gap-3">
+                  <div className="text-4xl md:text-5xl font-semibold text-[var(--color-text-main)] leading-none">
+                    {overviewDate.getFullYear()}
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-text-secondary)]">
+                    {activeUnitId ? `${activeUnitId} - Asztalfoglalási rendszer` : 'Asztalfoglalási rendszer'}
+                  </div>
+                </div>
+              </div>
+              <HorizontalWheelPicker
+                items={monthItems}
+                getKey={item => String(item.monthIndex)}
+                selectedKey={String(overviewDate.getMonth())}
+                onSelect={key => {
+                  const nextMonth = Number(key);
+                  if (!Number.isFinite(nextMonth)) return;
+                  const nextDate = new Date(overviewDate);
+                  const nextDay = clampDayInMonth(
+                    nextDate.getFullYear(),
+                    nextMonth,
+                    nextDate.getDate()
+                  );
+                  nextDate.setMonth(nextMonth);
+                  nextDate.setDate(nextDay);
+                  setOverviewDate(nextDate);
+                }}
+                itemClassName={(item, state) =>
+                  `rounded-full border text-xs font-semibold transition ${
+                    state.isSelected
+                      ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-md scale-[1.06] px-5 py-2.5'
+                      : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50 px-4 py-2'
+                  }`
+                }
+                renderLabel={(item, state) => (
+                  <span className={state.isSelected ? 'capitalize' : undefined}>
+                    {state.isSelected ? item.labelLong : item.labelShort}
+                  </span>
+                )}
+                infinite
+                repeatCount={5}
+                className="whitespace-nowrap"
+              />
+              <HorizontalWheelPicker
+                items={Array.from({ length: 31 }, (_, idx) => idx + 1)}
+                getKey={day => String(day)}
+                selectedKey={String(overviewDate.getDate())}
+                onSelect={key => {
+                  const day = Number(key);
+                  if (!Number.isFinite(day) || day > daysInMonth) return;
+                  const nextDate = new Date(overviewDate);
+                  nextDate.setDate(day);
+                  setOverviewDate(nextDate);
+                }}
+                isDisabled={day => day > daysInMonth || isNavLocked}
+                infinite
+                repeatCount={5}
+                itemClassName={(day, state) =>
+                  `h-10 w-10 shrink-0 flex items-center justify-center rounded-full border text-xs font-semibold transition ${
+                    state.isSelected
+                      ? 'border-emerald-500 bg-emerald-500 text-white shadow-md scale-[1.06] -translate-y-[1px]'
+                      : day > daysInMonth || isNavLocked
+                        ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                        : 'border-gray-200 text-[var(--color-text-secondary)] hover:bg-gray-50'
+                  }`
+                }
+                renderLabel={day => day}
+              />
+              <div className="space-y-3">
+                <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm lg:hidden">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3 md:justify-between">
+                    <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
+                      Mai foglalások
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {manualMode.active && (
+                        <span className="text-[10px] font-semibold uppercase text-amber-700">
+                          Manual mód aktív
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleAutoAllocateDay}
+                        disabled={autoAllocateRunning || isNavLocked || manualMode.active}
+                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid min-w-0 auto-rows-min grid-cols-2 justify-items-start gap-2 sm:grid-cols-3">
+                    {sortedTodayBookings.map(booking => {
+                      const start = toSafeDate(booking.startTime);
+                      const end = toSafeDate(booking.endTime);
+                      const isFocused = selectedBookingId === booking.id;
+                      const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                      const isConflict = dayConflictedBookingIds.has(booking.id);
+                      const isRowLocked = isNavLocked || manualMode.active;
+                      const timeLabel =
+                        start && end
+                          ? `${start.toLocaleTimeString('hu-HU', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}–${end.toLocaleTimeString('hu-HU', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}`
+                          : '—';
+                      return (
+                        <button
+                          key={booking.id}
+                          type="button"
+                          disabled={isRowLocked}
+                          onClick={() => handleBookingFocus(booking)}
+                          className={`flex h-14 w-14 flex-col justify-between rounded-xl border p-1 text-left text-[10px] transition ${
+                            isFocused
+                              ? 'border-emerald-500 bg-emerald-50'
+                              : 'border-gray-200 bg-white'
+                          } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
+                        >
+                          <div className="space-y-1">
+                            <div className="truncate text-[11px] font-semibold text-[var(--color-text-main)]">
+                              {booking.name}
+                            </div>
+                            <div className="text-[9px] text-[var(--color-text-secondary)]">
+                              {timeLabel}
+                            </div>
+                            <div className="text-[9px] text-[var(--color-text-secondary)]">
+                              {booking.headcount} fő
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {isConflict && (
+                              <span className="rounded-full bg-red-200 px-1.5 py-0.5 text-[8px] font-semibold text-red-800">
+                                CONFLICT
+                              </span>
+                            )}
+                            {isNoFit && (
+                              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[8px] font-semibold text-slate-700">
+                                NO_FIT
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {!sortedTodayBookings.length && (
+                      <div className="col-span-full rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
+                        Nincs foglalás erre a napra.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="min-w-0 space-y-3 lg:hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                      {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                    </div>
+                  </div>
+                  <div
+                    className={`relative w-full max-w-full py-1 ${
+                      manualMode.active ? 'pointer-events-none opacity-70' : ''
+                    }`}
+                  >
+                    <LoupeTimeRangePicker
+                      openingMinutes={openingMinutes}
+                      maxWindowStartMinutes={maxWindowStart}
+                      stepMinutes={stepMinutes}
+                      valueStartMinutes={windowStartMinutes}
+                      onChangeStartMinutes={nextMinutes => {
+                        if (manualMode.active) return;
+                        setWindowStartMinutes(nextMinutes);
+                      }}
+                      capacity={loupeCapacity}
+                      bookings={loupeBookings}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+                  <div className="hidden lg:block space-y-3">
+                    <div ref={leftColumnActionsRef} className="hidden flex-wrap gap-2 lg:flex">
+                      <button
+                        onClick={openGuestPage}
+                        className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                      >
+                        Vendégoldal megnyitása
+                      </button>
+                      {canAddBookings && (
+                        <button
+                          onClick={() => setIsAddModalOpen(true)}
+                          className="bg-green-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-800 flex items-center gap-2"
+                        >
+                          <PlusIcon className="h-5 w-5" />
+                          Új foglalás
+                        </button>
+                      )}
+                      {isAdmin && activeUnitId && (
+                        <button
+                          onClick={() => setIsSettingsOpen(true)}
+                          className="p-2 rounded-full bg-gray-200 text-[var(--color-text-main)] hover:bg-gray-300"
+                          title="Foglalási beállítások"
+                        >
+                          <SettingsIcon className="h-6 w-6" />
+                        </button>
+                      )}
+                    </div>
+                    {showDevSeed && (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-3 text-xs text-amber-900 space-y-2">
+                        {/* DEV: fpdebug seed tool (local testing only) */}
+                        <div className="font-semibold uppercase tracking-wide">DEV Seed bookings (fpdebug=1)</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">Dátum<input type="date" value={seedDate} onChange={e => setSeedDate(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Db<input type="number" min={1} max={300} value={seedCount} onChange={e => setSeedCount(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party min<input type="number" min={1} value={seedPartyMin} onChange={e => setSeedPartyMin(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Party max<input type="number" min={1} value={seedPartyMax} onChange={e => setSeedPartyMax(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Kezdés<input type="time" value={seedStartTime} onChange={e => setSeedStartTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Vége<input type="time" value={seedEndTime} onChange={e => setSeedEndTime(e.target.value)} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Időtartam (perc)<input type="number" min={15} value={seedDurationMinutes} onChange={e => setSeedDurationMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                          <label className="space-y-1">Lépésköz (perc)<input type="number" min={5} value={seedSpacingMinutes} onChange={e => setSeedSpacingMinutes(Number(e.target.value))} className="w-full rounded border border-amber-200 bg-white px-2 py-1" /></label>
+                        </div>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={seedRunAllocationAfter}
+                            onChange={e => setSeedRunAllocationAfter(e.target.checked)}
+                            disabled={!canRunSeedAutoAllocate}
+                          />
+                          Seed után auto-allocate (apply)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSeedBookings}
+                            disabled={seedRunning || manualMode.active || isNavLocked}
+                            className="rounded-full bg-amber-600 px-3 py-1.5 text-white font-semibold disabled:opacity-60"
+                          >
+                            {seedRunning ? 'Futtatás...' : 'Seed bookings'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearSeededBookings}
+                            disabled={seedRunning}
+                            className="rounded-full border border-amber-400 px-3 py-1.5 font-semibold text-amber-900 disabled:opacity-60"
+                          >
+                            Clear seeded ({seedDate})
+                          </button>
+                        </div>
+                        {seedError && <div className="text-red-700">{seedError}</div>}
+                        {seedSuccess && <div className="text-emerald-700">{seedSuccess}</div>}
+                      </div>
+                    )}
+                    <div className="hidden lg:block" style={{ height: leftColumnSpacerHeight }} />
+                    <div className="rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">
+                          Mai foglalások
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          {manualMode.active && (
+                            <span className="text-[10px] font-semibold uppercase text-amber-700">
+                              Manual mód aktív
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleAutoAllocateDay}
+                            disabled={autoAllocateRunning || isNavLocked || manualMode.active}
+                            className="rounded-full bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                          >
+                            {autoAllocateRunning ? 'Futtatás...' : 'Auto-allocate'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 min-w-0 space-y-2">
+                        {sortedTodayBookings.map(booking => {
+                          const start = toSafeDate(booking.startTime);
+                          const end = toSafeDate(booking.endTime);
+                          const isFocused = selectedBookingId === booking.id;
+                          const isNoFit = booking.allocated?.diagnosticsSummary === 'NO_FIT';
+                          const isConflict = dayConflictedBookingIds.has(booking.id);
+                          const isRowLocked = isNavLocked || manualMode.active;
+                          const timeLabel =
+                            start && end
+                              ? `${start.toLocaleTimeString('hu-HU', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}–${end.toLocaleTimeString('hu-HU', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}`
+                              : '—';
+                          return (
+                            <button
+                              key={booking.id}
+                              type="button"
+                              disabled={isRowLocked}
+                              onClick={() => handleBookingFocus(booking)}
+                              className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition ${
+                                isFocused
+                                  ? 'border-emerald-500 bg-emerald-50'
+                                  : 'border-gray-200 bg-white'
+                              } ${isRowLocked ? 'opacity-80' : 'hover:bg-gray-50'}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-semibold text-[var(--color-text-main)]">
+                                  {booking.name}
+                                </span>
+                                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                                  {timeLabel}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase text-[var(--color-text-secondary)]">
+                                {isConflict && (
+                                  <span className="rounded-full bg-red-200 px-2 py-0.5 text-red-800">
+                                    CONFLICT
+                                  </span>
+                                )}
+                                {isNoFit && (
+                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">
+                                    NO_FIT
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                        {!sortedTodayBookings.length && (
+                          <div className="rounded-lg border border-dashed border-gray-200 p-3 text-xs text-[var(--color-text-secondary)]">
+                            Nincs foglalás erre a napra.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="min-w-0 w-full space-y-3">
+                    <div className="hidden min-w-0 w-full space-y-3 lg:block">
+                      <div className="w-full max-w-[min(90vh,100%)] mx-auto space-y-3 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="text-sm font-semibold text-[var(--color-text-main)]">
+                            {formatMinutes(windowStartMinutes)}–{formatMinutes(windowStartMinutes + 120)}
+                          </div>
+                        </div>
+                        <div
+                          className={`relative w-full min-w-0 py-1 ${
+                            manualMode.active ? 'pointer-events-none opacity-70' : ''
+                          }`}
+                        >
+                          <LoupeTimeRangePicker
+                            openingMinutes={openingMinutes}
+                            maxWindowStartMinutes={maxWindowStart}
+                            stepMinutes={stepMinutes}
+                            valueStartMinutes={windowStartMinutes}
+                            onChangeStartMinutes={nextMinutes => {
+                              if (manualMode.active) return;
+                              setWindowStartMinutes(nextMinutes);
+                            }}
+                            capacity={loupeCapacity}
+                            bookings={loupeBookings}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="min-w-0 w-full">
+                      {manualMode.active && manualBooking ? (
+                        <div className="space-y-3">
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                            Manuális ültetés aktív: kattints asztalokra a kijelöléshez.
+                          </div>
+                          <FloorplanViewer
+                            unitId={activeUnitId}
+                            highlightTableIds={manualMode.stagedTableIds}
+                            highlightZoneId={manualBooking.zoneId ?? null}
+                            onTableClick={handleManualToggleTable}
+                          />
+                          <div className="sticky bottom-4 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="font-semibold text-[var(--color-text-main)]">
+                                  Kijelölt asztalok: {manualMode.stagedTableIds.length}
+                                </div>
+                                {manualSelectionConflicts.length > 0 && (
+                                  <div className="text-amber-700">
+                                    ⚠️ Ütközés lehetséges a kijelölt asztalokkal.
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleManualCancel}
+                                  className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+                                >
+                                  Mégse
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleManualConfirm()}
+                                  className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
+                                  disabled={manualMode.stagedTableIds.length === 0}
+                                >
+                                  Jóváhagyás
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                      <ReservationFloorplanPreview
+                        unitId={activeUnitId}
+                        selectedDate={previewDate}
+                        bookings={windowBookings}
+                        selectedBookingId={selectedBookingId}
+                        onViewportTopOffsetPx={setFloorplanViewportTopOffsetPx}
+                        onOpenFloorplanEditor={() => setIsSeatingSettingsOpen(true)}
+                        showFloorplanEditorButton
+                      />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {manualMode.active && (
+              <div className="fixed inset-0 pointer-events-none bg-black/10 backdrop-blur-[1px] z-20" />
+            )}
+            {autoAllocateError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {autoAllocateError}
+              </div>
+            )}
+          </div>
           {logsLoading ? (
             <div className="mt-6">
               <LoadingSpinner />
@@ -709,13 +3383,39 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
         </>
       )}
 
-      {selectedDate && (
+      {detailsDate && activeUnitId && (
         <BookingDetailsModal
-          selectedDate={selectedDate}
-          bookings={bookingsByDate.get(toLocalDateKey(selectedDate)) || []}
-          onClose={() => setSelectedDate(null)}
+          selectedDate={detailsDate}
+          bookings={bookingsByDate.get(toLocalDateKey(detailsDate)) || []}
+          onClose={() => {
+            setDetailsDate(null);
+          }}
+          onSelectBooking={bookingId => {
+            if (bookingId) {
+              setSelectedBookingId(bookingId);
+            }
+          }}
           isAdmin={isAdmin}
           onDelete={setBookingToDelete}
+          unitId={activeUnitId}
+          zones={zones}
+          tables={tables}
+          combinations={tableCombinations}
+          seatingSettings={seatingSettings}
+          onSeatingSaved={(bookingId, update) => {
+            setBookings(current =>
+              current.map(booking =>
+                booking.id === bookingId
+                  ? {
+                      ...booking,
+                      zoneId: update.zoneId ?? undefined,
+                      assignedTableIds: update.assignedTableIds,
+                      seatingSource: update.seatingSource,
+                    }
+                  : booking
+              )
+            );
+          }}
         />
       )}
       {isAddModalOpen && (
@@ -729,8 +3429,87 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       {isSettingsOpen && activeUnitId && (
         <ReservationSettingsModal
           unitId={activeUnitId}
+          currentUser={currentUser}
           onClose={() => setIsSettingsOpen(false)}
         />
+      )}
+      {isSeatingSettingsOpen && activeUnitId && (
+        <SeatingSettingsErrorBoundary
+          onError={info => {
+            if (debugEnabled) {
+              setDebugError(info);
+            }
+          }}
+          onClose={() => setIsSeatingSettingsOpen(false)}
+        >
+          <SeatingSettingsModal
+            unitId={activeUnitId}
+            onClose={() => setIsSeatingSettingsOpen(false)}
+          />
+        </SeatingSettingsErrorBoundary>
+      )}
+      {autoAllocateSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-main)]">
+                  Auto-allocate összegzés
+                </h2>
+                <p className="text-sm text-[var(--color-text-secondary)]">
+                  {autoAllocateSummary.dateKey} · {autoAllocateSummary.mode === 'apply' ? 'Apply' : 'Dry-run'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoAllocateSummary(null)}
+                className="rounded-lg border border-gray-200 px-3 py-1 text-sm"
+              >
+                Bezárás
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3 text-sm">
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Feldolgozott</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.processed}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Frissített</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.updated}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Skip</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.skipped}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">NO_FIT</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.noFit}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-xs text-[var(--color-text-secondary)]">Konfliktus</div>
+                <div className="text-lg font-semibold">{autoAllocateSummary.totals.conflicts}</div>
+              </div>
+            </div>
+            {autoAllocateProblemItems.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-[var(--color-text-main)]">
+                  Problémás foglalások (top 10)
+                </h3>
+                <ul className="mt-2 space-y-2 text-xs">
+                  {autoAllocateProblemItems.map(item => (
+                    <li key={item.bookingId} className="rounded-lg border border-gray-200 p-2">
+                      <div className="font-semibold">{item.bookingId}</div>
+                      <div className="text-[var(--color-text-secondary)]">
+                        {item.status}
+                        {item.reason ? ` · ${item.reason}` : ''}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
       )}
       {bookingToDelete && (
         <DeleteConfirmationModal
@@ -738,6 +3517,33 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           onClose={() => setBookingToDelete(null)}
           onConfirm={handleConfirmDelete}
         />
+      )}
+      {debugEnabled && debugError && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="max-w-2xl w-full rounded-xl bg-white shadow-xl border border-gray-200">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="font-semibold text-gray-900">Seating debug error</div>
+              <div className="text-xs text-gray-500">fpdebug=1</div>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-gray-600">
+                Open with <code>?fpdebug=1</code>, reproduce, copy text.
+              </div>
+              <pre className="text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto rounded bg-gray-100 p-3">
+                {formatDebugError(debugError)}
+              </pre>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDebugError(null)}
+                  className="px-3 py-1.5 rounded bg-gray-200 text-gray-800 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
