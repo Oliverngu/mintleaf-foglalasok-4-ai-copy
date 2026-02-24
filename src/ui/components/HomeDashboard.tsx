@@ -19,6 +19,21 @@ import ThemeSelector from './dashboard/ThemeSelector';
 import { ThemeMode, ThemeBases } from '../../core/theme/types';
 import AdminThemeEditor from './theme/AdminThemeEditor';
 
+function toSafeDate(value: any): Date | null {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    const d = value.toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+  }
+
+  return null;
+}
+
 interface HomeDashboardProps {
   currentUser: User;
   requests: Request[];
@@ -158,7 +173,12 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     if (activeTimeEntry) {
       interval = window.setInterval(() => {
         const now = new Date();
-        const start = activeTimeEntry.startTime.toDate();
+        const start = toSafeDate(activeTimeEntry.startTime);
+
+        if (!start) {
+          setActiveShiftDuration('—');
+          return;
+        }
 
         if (now < start) {
             const startTimeString = start.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
@@ -185,7 +205,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
     tomorrow.setDate(today.getDate() + 1);
 
     return filteredSchedule.filter(s => {
-      const shiftDate = s.start.toDate();
+      const shiftDate = toSafeDate(s.start);
+      if (!shiftDate) return false;
       return shiftDate >= today && shiftDate < tomorrow;
     });
   }, [filteredSchedule]);
@@ -193,8 +214,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const upcomingShift = useMemo(() => {
     const now = new Date();
     return todayShifts
-      .filter(s => s.userId === currentUser.id && s.start.toDate() > now)
-      .sort((a, b) => a.start.toMillis() - b.start.toMillis())[0];
+      .filter(s => {
+        const startDate = toSafeDate(s.start);
+        return s.userId === currentUser.id && !!startDate && startDate > now;
+      })
+      .sort((a, b) => (toSafeDate(a.start)?.getTime() ?? 0) - (toSafeDate(b.start)?.getTime() ?? 0))[0];
   }, [todayShifts, currentUser.id]);
 
   const openRequests = useMemo(() => filteredRequests.filter(r => r.status === 'pending'), [filteredRequests]);
@@ -247,13 +271,16 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
         const entriesThisMonth = filteredTimeEntries.filter(entry => {
-            const startTime = entry.startTime.toDate();
+            const startTime = toSafeDate(entry.startTime);
+            if (!startTime) return false;
             return entry.status === 'completed' && startTime >= startOfMonth && startTime <= endOfMonth;
         });
 
         const { totalHours, totalEarnings } = entriesThisMonth.reduce((acc, entry) => {
-            if (entry.endTime) {
-                const duration = (entry.endTime.toMillis() - entry.startTime.toMillis()) / (1000 * 60 * 60);
+            const startTime = toSafeDate(entry.startTime);
+            const endTime = toSafeDate(entry.endTime);
+            if (startTime && endTime) {
+                const duration = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
                 const wageForUnit = Number(wages[entry.unitId]) || 0;
                 acc.totalHours += duration;
                 acc.totalEarnings += duration * wageForUnit;
@@ -282,12 +309,14 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     <div>
                         <p style={{ color: 'var(--color-text-secondary)' }}>{activeShiftDuration.startsWith('Műszak') ? 'Hamarosan...' : 'Aktív műszakban:'}</p>
                         <p className={`my-1 font-bold ${activeShiftDuration.startsWith('Műszak') ? 'text-lg' : 'text-3xl text-green-700'}`}>{activeShiftDuration}</p>
-                        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Kezdés: {activeTimeEntry.startTime.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
+                        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                          Kezdés: {toSafeDate(activeTimeEntry.startTime)?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) ?? '—'}
+                        </p>
                     </div>
                 ) : upcomingShift ? (
                     <div>
                         <p style={{ color: 'var(--color-text-secondary)' }}>Következő műszakod:</p>
-                        <p className="text-xl font-bold my-2">{upcomingShift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}</p>
+                        <p className="text-xl font-bold my-2">{toSafeDate(upcomingShift.start)?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) ?? '—'}</p>
                     </div>
                 ) : (
                     <p className="my-2" style={{ color: 'var(--color-text-secondary)' }}>Ma nincs több beosztásod.</p>
@@ -403,7 +432,7 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   );
 
   const ScheduleWidget = () => {
-    const sortedTodayShifts = [...todayShifts].sort((a,b) => a.start.toMillis() - b.start.toMillis());
+    const sortedTodayShifts = [...todayShifts].sort((a,b) => (toSafeDate(a.start)?.getTime() ?? 0) - (toSafeDate(b.start)?.getTime() ?? 0));
     return (
         <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
@@ -421,8 +450,8 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <div className="space-y-3 overflow-y-auto max-h-64">
                     {sortedTodayShifts.map(shift => {
                         const unit = shift.unitId ? unitMap.get(shift.unitId) : undefined;
-                        const startTime = shift.start.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
-                        const endTime = shift.end ? shift.end.toDate().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : 'Zárásig';
+                        const startTime = toSafeDate(shift.start)?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) ?? '—';
+                        const endTime = shift.end ? (toSafeDate(shift.end)?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) ?? '—') : 'Zárásig';
                         return (
                             <div key={shift.id} className="p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
                                 <div className="flex items-center gap-2">
@@ -491,7 +520,11 @@ const HomeDashboard: React.FC<HomeDashboardProps> = ({
   );
 
   const SzavazasokWidget = () => {
-      const activePolls = useMemo(() => filteredPolls.filter(p => !p.closesAt || p.closesAt.toDate() > new Date()), [filteredPolls]);
+      const activePolls = useMemo(() => filteredPolls.filter(p => {
+        if (!p.closesAt) return true;
+        const closesAt = toSafeDate(p.closesAt);
+        return !!closesAt && closesAt > new Date();
+      }), [filteredPolls]);
       return (
           <div
             className="p-6 rounded-2xl shadow-md border h-full transition-colors duration-200"
