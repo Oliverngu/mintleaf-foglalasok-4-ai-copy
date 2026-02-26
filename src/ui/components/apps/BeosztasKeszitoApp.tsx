@@ -20,6 +20,7 @@ import {
 import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
+  addDoc,
   doc,
   onSnapshot,
   orderBy,
