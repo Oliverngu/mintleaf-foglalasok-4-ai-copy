@@ -48,6 +48,10 @@ import EyeSlashIcon from '../../../../components/icons/EyeSlashIcon';
 import EyeIcon from '../../../../components/icons/EyeIcon';
 import UnitLogoBadge from '../common/UnitLogoBadge';
 import GlassOverlay from '../common/GlassOverlay';
+import {
+  buildScheduleStaffDirectory,
+  resolveVisibleStaffForSchedule,
+} from './scheduleStaffDirectory';
 
 const LAYERS = {
   modal: 90,
@@ -1515,6 +1519,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     'published'
   );
   const [allAppUsers, setAllAppUsers] = useState<User[]>([]);
+  const [isUsersDirectoryDenied, setIsUsersDirectoryDenied] =
+    useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
@@ -1931,23 +1937,41 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
-      setAllAppUsers(
-        snapshot.docs.map(docSnap => {
-          const data = docSnap.data() as any;
-          const lastName = data.lastName || '';
-          const firstName = data.firstName || '';
-          return {
-            id: docSnap.id,
-            ...data,
-            fullName:
-              data.fullName ||
-              `${lastName} ${firstName}`.trim()
-          } as User;
-        })
-      );
-      setIsDataLoading(false);
-    });
+    const unsubUsers = onSnapshot(
+      collection(db, 'users'),
+      snapshot => {
+        setIsUsersDirectoryDenied(false);
+        setAllAppUsers(
+          snapshot.docs.map(docSnap => {
+            const data = docSnap.data() as any;
+            const lastName = data.lastName || '';
+            const firstName = data.firstName || '';
+            return {
+              id: docSnap.id,
+              ...data,
+              fullName:
+                data.fullName ||
+                `${lastName} ${firstName}`.trim()
+            } as User;
+          })
+        );
+        setIsDataLoading(false);
+      },
+      error => {
+        setIsUsersDirectoryDenied(true);
+        setAllAppUsers([]);
+        setIsDataLoading(false);
+        console.warn(
+          '[BeosztasApp] users collection listener denied; falling back to shift-local staff map',
+          {
+            code: error?.code,
+            message: error?.message,
+            role: currentUser.role,
+            activeUnitIds,
+          }
+        );
+      }
+    );
 
     const unsubPositions = onSnapshot(
       query(collection(db, 'positions'), orderBy('name')),
@@ -1965,7 +1989,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       unsubUsers();
       unsubPositions();
     };
-  }, []);
+  }, [activeUnitIds, currentUser.role]);
 
   useEffect(() => {
     if (weekSettings) {
@@ -2095,16 +2119,27 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     };
   }, [activeUnitIds, canManage, weekDays, weekStartDateStr]);
 
+  const shiftDerivedUsers = useMemo(
+    () => buildScheduleStaffDirectory(schedule, activeUnitIds),
+    [activeUnitIds, schedule]
+  );
+
   const filteredUsers = useMemo(() => {
     if (!activeUnitIds || activeUnitIds.length === 0) return [];
-    return allAppUsers
+    const sourceUsers = resolveVisibleStaffForSchedule(
+      allAppUsers,
+      shiftDerivedUsers,
+      isUsersDirectoryDenied
+    );
+
+    return sourceUsers
       .filter(
         u => u.unitIds && u.unitIds.some(uid => activeUnitIds.includes(uid))
       )
       .sort((a, b) =>
         (a.position || '').localeCompare(b.position || '')
       );
-  }, [allAppUsers, activeUnitIds]);
+  }, [allAppUsers, activeUnitIds, isUsersDirectoryDenied, shiftDerivedUsers]);
 
   useEffect(() => {
     if (!settingsDocId) return;
