@@ -36,10 +36,8 @@ import PencilIcon from '../../../../components/icons/PencilIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import PlusIcon from '../../../../components/icons/PlusIcon';
 import DownloadIcon from '../../../../components/icons/DownloadIcon';
-import { generateExcelExport } from './ExportModal';
 import SettingsIcon from '../../../../components/icons/SettingsIcon';
 import { enqueueQueuedEmail } from '../../../core/services/emailQueueService';
-import html2canvas from 'html2canvas';
 import ColorPicker from '../common/ColorPicker';
 import ImageIcon from '../../../../components/icons/ImageIcon';
 import ArrowUpIcon from '../../../../components/icons/ArrowUpIcon';
@@ -52,6 +50,17 @@ import {
   buildScheduleStaffDirectory,
   resolveVisibleStaffForSchedule,
 } from './scheduleStaffDirectory';
+import {
+  assertCanManageSchedule,
+  assertShiftUnitBoundary,
+  assertSingleActiveUnit,
+  isValidDayKey,
+} from './schedulerGuards';
+import { batchUpdateShifts, createShift, deleteShift, sanitizeShiftPayload, updateShift } from './schedulerShiftWrites';
+import { logSchedulerError, toUserMessage } from './schedulerErrors';
+import { exportExcel, exportPngFromElement } from './schedulerExport';
+import { buildPublishPlan } from './schedulerPublish';
+import { saveDisplaySettings as saveDisplaySettingsDoc, saveExportStyleSettings, upsertScheduleSettings } from './schedulerSettingsStore';
 
 const LAYERS = {
   modal: 90,
@@ -2178,25 +2187,19 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const saveDisplaySettings = useCallback(
     async (newOrder: string[], newHidden: string[]) => {
       if (!settingsDocId) return;
-      const docRef = doc(
-        db,
-        'schedule_display_settings',
-        settingsDocId
-      );
       try {
-        await setDoc(
-          docRef,
-          {
-            orderedUserIds: newOrder,
-            hiddenUserIds: newHidden
-          },
-          { merge: true }
-        );
+        assertCanManageSchedule(canManage, currentUser.role);
+        assertSingleActiveUnit(activeUnitIds);
+        await saveDisplaySettingsDoc(db, settingsDocId, newOrder, newHidden);
       } catch (error) {
-        console.error('Failed to save display settings:', error);
+        logSchedulerError('displaySettings.save.failed', error, {
+          action: 'display-settings.save',
+          activeUnitIds,
+          settingsDocId,
+        });
       }
     },
-    [settingsDocId]
+    [activeUnitIds, canManage, currentUser.role, settingsDocId]
   );
 
   useEffect(() => {
@@ -2227,10 +2230,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
     setIsSavingExportSettings(true);
-    const unitId = activeUnitIds[0];
+    let unitId = '';
     try {
-      const settingsDocRef = doc(db, 'unit_export_settings', unitId);
-
+      assertCanManageSchedule(canManage, currentUser.role);
+      unitId = assertSingleActiveUnit(activeUnitIds);
       const settingsToSave = {
         ...exportSettings,
         categoryHeaderTextColor: getContrastingTextColor(
@@ -2238,16 +2241,17 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         )
       };
 
-      await setDoc(settingsDocRef, settingsToSave);
+      await saveExportStyleSettings(db, unitId, settingsToSave);
 
       alert('Exportálási beállítások mentve ehhez az egységhez!');
       setInitialExportSettings(settingsToSave);
     } catch (error) {
-      console.error(
-        'Failed to save export settings for unit:',
-        error
-      );
-      alert('Hiba történt a beállítások mentésekor.');
+      logSchedulerError('exportSettings.save.failed', error, {
+        action: 'export-settings.save',
+        unitId,
+        activeUnitIds,
+      });
+      alert(toUserMessage(error, 'Hiba történt a beállítások mentésekor.'));
     } finally {
       setIsSavingExportSettings(false);
     }
@@ -3137,70 +3141,64 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       return;
     }
 
-    const weekStart = weekDays[0];
-    const weekEnd = new Date(weekDays[6]);
-    weekEnd.setHours(23, 59, 59, 999);
+    try {
+      assertCanManageSchedule(canManage, currentUser.role);
+      const weekStart = weekDays[0];
+      const weekEnd = new Date(weekDays[6]);
+      weekEnd.setHours(23, 59, 59, 999);
 
-    const shiftsToPublish = schedule.filter(
-      s =>
-        (s.status === 'draft' || !s.status) &&
-        s.start &&
-        s.start.toDate() >= weekStart &&
-        s.start.toDate() <= weekEnd &&
-        s.unitId &&
-        selectedUnitIds.includes(s.unitId)
-    );
+      const publishPlan = buildPublishPlan({
+        shifts: schedule,
+        weekStart,
+        weekEnd,
+        selectedUnitIds,
+        users: allAppUsers,
+        units: allUnits,
+        currentUserName: currentUser.fullName,
+        publicUrl: window.location?.href || '',
+        usersDirectoryAvailable: !isUsersDirectoryDenied,
+      });
 
-    if (shiftsToPublish.length > 0) {
-      const batch = writeBatch(db);
-      shiftsToPublish.forEach(shift =>
-        batch.update(doc(db, 'shifts', shift.id), {
-          status: 'published'
-        })
-      );
-      try {
+      if (publishPlan.affectedShiftIds.length > 0) {
+        const batch = writeBatch(db);
+        batchUpdateShifts(db, batch, publishPlan.updates);
         await batch.commit();
         alert('A kiválasztott műszakok sikeresen publikálva!');
-      } catch (err) {
-        console.error('Error publishing shifts:', err);
-        alert('Hiba a műszakok publikálása során.');
-        setIsPublishModalOpen(false);
-        return;
       }
 
-      const affectedUserIds = [...new Set(shiftsToPublish.map(s => s.userId))];
-      const weekLabel = `${weekDays[0].toLocaleDateString('hu-HU', {
-        month: 'short',
-        day: 'numeric'
-      })} - ${weekDays[6].toLocaleDateString('hu-HU', {
-        month: 'short',
-        day: 'numeric'
-      })}`;
-
-      const recipients = affectedUserIds
-        .map(userId => allAppUsers.find(u => u.id === userId))
-        .filter(
-          (u): u is User =>
-            !!u && !!u.email && u.notifications?.newSchedule !== false
-        )
-        .map(u => u.email as string);
-
-      const unitId = selectedUnitIds[0] || null;
-      const unitName =
-        allUnits.find(u => u.id === unitId)?.name || 'Ismeretlen egység';
-      const publicScheduleUrl = window.location?.href || '';
-
-      if (recipients.length > 0) {
-        await enqueueQueuedEmail('schedule_published', unitId, {
-          unitName,
-          weekLabel,
-          url: publicScheduleUrl,
-          editorName: currentUser.fullName,
-          recipients
-        });
+      if (publishPlan.emailPayload.recipients.length > 0) {
+        try {
+          await enqueueQueuedEmail('schedule_published', publishPlan.emailPayload.unitId, {
+            unitName: publishPlan.emailPayload.unitName,
+            weekLabel: publishPlan.emailPayload.weekLabel,
+            url: publishPlan.emailPayload.url,
+            editorName: publishPlan.emailPayload.editorName,
+            recipients: publishPlan.emailPayload.recipients,
+          });
+        } catch (emailError) {
+          logSchedulerError('publish.emailQueueFailed', emailError, {
+            action: 'publish.email',
+            unitId: publishPlan.emailPayload.unitId,
+            activeUnitIds,
+            selectedUnitIds,
+            affectedShiftIds: publishPlan.affectedShiftIds,
+          });
+          alert('A publikálás sikeres volt, de az email értesítés küldése nem sikerült.');
+        }
       }
+      if (publishPlan.emailPayload.emailDisabledReason === 'users_directory_unavailable') {
+        console.info('[scheduler] publish completed without email notifications: users directory unavailable');
+      }
+    } catch (err) {
+      logSchedulerError('publish.failed', err, {
+        action: 'publish',
+        activeUnitIds,
+        selectedUnitIds,
+      });
+      alert(toUserMessage(err, 'Hiba a műszakok publikálása során.'));
+    } finally {
+      setIsPublishModalOpen(false);
     }
-    setIsPublishModalOpen(false);
   };
 
   const handleOpenShiftModal = (
@@ -4048,26 +4046,39 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   const handleSaveShift = async (
     shiftData: Partial<Shift> & { id?: string }
   ) => {
-    const shiftToSave = {
-      ...shiftData,
-      unitId: activeUnitIds[0]
-    };
+    try {
+      assertCanManageSchedule(canManage, currentUser.role);
+      const unitId = assertSingleActiveUnit(activeUnitIds);
+      const shiftToSave = sanitizeShiftPayload({
+        ...shiftData,
+        unitId,
+      });
 
-    if (shiftToSave.id) {
-      const docId = shiftToSave.id;
-      const { id, isHighlighted, ...dataToUpdate } = shiftToSave;
-      const updatePayload =
-        isHighlighted !== undefined
-          ? { ...dataToUpdate, isHighlighted }
-          : dataToUpdate;
-      await updateDoc(doc(db, 'shifts', docId), updatePayload);
-    } else {
-      const { id, ...dataToAdd } = shiftToSave;
-      const isHighlighted = dataToAdd.isHighlighted ?? false;
-      const payload = { ...dataToAdd, isHighlighted };
-      await addDoc(collection(db, 'shifts'), payload);
+      if (shiftToSave.dayKey && !isValidDayKey(shiftToSave.dayKey)) {
+        console.warn('[scheduler] invalid dayKey, write skipped', { dayKey: shiftToSave.dayKey });
+        return;
+      }
+
+      assertShiftUnitBoundary(shiftToSave.unitId, activeUnitIds);
+
+      if (shiftData.id) {
+        await updateShift(db, shiftData.id, shiftToSave);
+      } else {
+        const payload = {
+          ...shiftToSave,
+          isHighlighted: shiftToSave.isHighlighted ?? false,
+        };
+        await createShift(db, payload);
+      }
+      setIsShiftModalOpen(false);
+    } catch (err) {
+      logSchedulerError('shift.save.failed', err, {
+        action: shiftData.id ? 'shift.update' : 'shift.create',
+        shiftId: shiftData.id,
+        activeUnitIds,
+      });
+      alert(toUserMessage(err, 'Nem sikerült menteni a műszakot.'));
     }
-    setIsShiftModalOpen(false);
   };
 
   const handleDeleteShift = async (shiftId: string) => {
@@ -4076,8 +4087,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         'Biztosan törölni szeretnéd ezt a műszakot?'
       )
     ) {
-      await deleteDoc(doc(db, 'shifts', shiftId));
-      setIsShiftModalOpen(false);
+      try {
+        assertCanManageSchedule(canManage, currentUser.role);
+        await deleteShift(db, shiftId);
+        setIsShiftModalOpen(false);
+      } catch (err) {
+        logSchedulerError('shift.delete.failed', err, {
+          action: 'shift.delete',
+          shiftId,
+          activeUnitIds,
+        });
+        alert(toUserMessage(err, 'Nem sikerült törölni a műszakot.'));
+      }
     }
   };
 
@@ -4097,10 +4118,14 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           unitId: updated.unitId || activeUnitIds[0] || baseSettings.unitId
         };
         if (canManage && activeUnitIds.length === 1) {
-          setDoc(doc(db, 'schedule_settings', updatedWithUnitId.id), updatedWithUnitId)
-            .catch(error => {
-              console.error('Failed to save settings:', error);
+          upsertScheduleSettings(db, updatedWithUnitId).catch(error => {
+            logSchedulerError('settings.save.failed', error, {
+              action: 'settings.save',
+              settingsId: updatedWithUnitId.id,
+              unitId: updatedWithUnitId.unitId,
+              activeUnitIds,
             });
+          });
         }
         return updatedWithUnitId;
       });
@@ -4343,14 +4368,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           dataRowIndex += 1;
         });
 
-      const canvas = await html2canvas(exportContainer, {
-        useCORS: true,
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: exportContainer.scrollWidth,
-        windowHeight: exportContainer.scrollHeight
-      });
+      const canvas = await exportPngFromElement(exportContainer, 2);
 
       const link = document.createElement('a');
       const weekStart = weekDays[0]
@@ -5098,7 +5116,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               } else {
                 // Excel export
                 try {
-                  await generateExcelExport({
+                  await exportExcel({
                     weekDays,
                     orderedUsers,
                     visiblePositionOrder,
