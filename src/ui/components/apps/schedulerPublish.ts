@@ -1,6 +1,6 @@
 import type { Shift, Unit, User } from '../../../core/models/data';
 
-import { SchedulerGuardError } from './schedulerGuards.ts';
+import { SchedulerGuardError } from './schedulerGuards';
 
 export type PublishPlan = {
   affectedShiftIds: string[];

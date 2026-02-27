@@ -6,7 +6,7 @@ import { initializeApp } from 'firebase/app';
 import type { Shift, User } from '../../../core/models/data';
 import { assertShiftUnitBoundary, SchedulerGuardError } from './schedulerGuards.ts';
 import { buildPublishPlan } from './schedulerPublish.ts';
-import { batchUpdateShifts, sanitizeShiftPayload } from './schedulerShiftWrites.ts';
+import { batchUpdateShifts, normalizeShiftTimeInput, sanitizeShiftPayload } from './schedulerShiftWrites.ts';
 
 const baseShift = (overrides: Partial<Shift>): Shift => ({
   id: 'shift-1',
@@ -42,7 +42,7 @@ test('sanitizeShiftPayload keeps only whitelisted fields', () => {
   assert.equal(sanitized.isHighlighted, true);
 });
 
-test('sanitizeShiftPayload allows null-clearing and rejects invalid time types', () => {
+test('sanitizeShiftPayload allows null-clearing, canonicalizes Date, and rejects invalid types', () => {
   const sanitized = sanitizeShiftPayload({
     start: null,
     end: null,
@@ -53,14 +53,43 @@ test('sanitizeShiftPayload allows null-clearing and rejects invalid time types',
   assert.equal(sanitized.end, null);
   assert.equal(sanitized.note, null);
 
+  const sourceDate = new Date('2025-01-13T08:00:00.000Z');
+  const normalizedDatePayload = sanitizeShiftPayload({
+    start: sourceDate as any,
+  });
+  assert.ok(normalizedDatePayload.start instanceof Timestamp);
+  assert.equal(normalizedDatePayload.start?.toMillis(), sourceDate.getTime());
+
   const invalid = sanitizeShiftPayload({
-    start: new Date('2025-01-13T08:00:00.000Z') as any,
     end: '10:00' as any,
     note: 42 as any,
   });
-  assert.equal('start' in invalid, false);
   assert.equal('end' in invalid, false);
   assert.equal('note' in invalid, false);
+});
+
+
+test('normalizeShiftTimeInput converts Date values to Timestamp at UI boundary', () => {
+  const sourceDate = new Date('2025-01-13T08:00:00.000Z');
+  const normalized = normalizeShiftTimeInput(sourceDate);
+  assert.ok(normalized instanceof Timestamp);
+  assert.equal(normalized?.toMillis(), sourceDate.getTime());
+
+  assert.equal(normalizeShiftTimeInput(null), null);
+  assert.equal(normalizeShiftTimeInput(undefined), undefined);
+});
+
+test('normalizeShiftTimeInput canonicalizes timestamp-like objects', () => {
+  const sourceDate = new Date('2025-01-13T10:15:00.000Z');
+  const timestampLike = {
+    toDate: () => sourceDate,
+    seconds: Math.floor(sourceDate.getTime() / 1000),
+    nanoseconds: 0,
+  };
+
+  const normalized = normalizeShiftTimeInput(timestampLike as any);
+  assert.ok(normalized instanceof Timestamp);
+  assert.equal(normalized?.toMillis(), sourceDate.getTime());
 });
 
 test('assertShiftUnitBoundary throws on out-of-scope unit', () => {
@@ -140,5 +169,5 @@ test('batchUpdateShifts sanitizes payload and targets shifts collection', () => 
   assert.equal(updatesCalled[0]?.ref.path, 'shifts/s1');
   assert.equal(updatesCalled[0]?.payload.status, 'published');
   assert.equal(updatesCalled[0]?.payload.note, null);
-  assert.equal('start' in (updatesCalled[0]?.payload || {}), false);
+  assert.ok(updatesCalled[0]?.payload.start instanceof Timestamp);
 });

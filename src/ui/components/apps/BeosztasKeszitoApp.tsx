@@ -17,7 +17,7 @@ import {
   ExportStyleSettings,
   DailySetting
 } from '../../../core/models/data';
-import { db, Timestamp, serverTimestamp } from '../../../core/firebase/config';
+import { db, serverTimestamp } from '../../../core/firebase/config';
 import {
   collection,
   addDoc,
@@ -29,7 +29,8 @@ import {
   deleteDoc,
   setDoc,
   query,
-  getDoc
+  getDoc,
+  Timestamp
 } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PencilIcon from '../../../../components/icons/PencilIcon';
@@ -56,7 +57,14 @@ import {
   assertSingleActiveUnit,
   isValidDayKey,
 } from './schedulerGuards';
-import { batchUpdateShifts, createShift, deleteShift, sanitizeShiftPayload, updateShift } from './schedulerShiftWrites';
+import {
+  batchUpdateShifts,
+  createShift,
+  deleteShift,
+  normalizeShiftTimeInput,
+  sanitizeShiftPayload,
+  updateShift,
+} from './schedulerShiftWrites';
 import { logSchedulerError, toUserMessage } from './schedulerErrors';
 import { exportExcel, exportPngFromElement } from './schedulerExport';
 import { buildPublishPlan } from './schedulerPublish';
@@ -2196,6 +2204,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           action: 'display-settings.save',
           activeUnitIds,
           settingsDocId,
+          currentUserRole: currentUser.role,
         });
       }
     },
@@ -2250,6 +2259,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         action: 'export-settings.save',
         unitId,
         activeUnitIds,
+        currentUserRole: currentUser.role,
       });
       alert(toUserMessage(error, 'Hiba történt a beállítások mentésekor.'));
     } finally {
@@ -3182,6 +3192,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             activeUnitIds,
             selectedUnitIds,
             affectedShiftIds: publishPlan.affectedShiftIds,
+            currentUserRole: currentUser.role,
           });
           alert('A publikálás sikeres volt, de az email értesítés küldése nem sikerült.');
         }
@@ -3194,6 +3205,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         action: 'publish',
         activeUnitIds,
         selectedUnitIds,
+        currentUserRole: currentUser.role,
       });
       alert(toUserMessage(err, 'Hiba a műszakok publikálása során.'));
     } finally {
@@ -4052,6 +4064,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const shiftToSave = sanitizeShiftPayload({
         ...shiftData,
         unitId,
+        start: normalizeShiftTimeInput(shiftData.start),
+        end: normalizeShiftTimeInput(shiftData.end),
       });
 
       if (shiftToSave.dayKey && !isValidDayKey(shiftToSave.dayKey)) {
@@ -4076,6 +4090,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         action: shiftData.id ? 'shift.update' : 'shift.create',
         shiftId: shiftData.id,
         activeUnitIds,
+        currentUserRole: currentUser.role,
       });
       alert(toUserMessage(err, 'Nem sikerült menteni a műszakot.'));
     }
@@ -4096,6 +4111,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           action: 'shift.delete',
           shiftId,
           activeUnitIds,
+          currentUserRole: currentUser.role,
         });
         alert(toUserMessage(err, 'Nem sikerült törölni a műszakot.'));
       }
@@ -4124,6 +4140,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
               settingsId: updatedWithUnitId.id,
               unitId: updatedWithUnitId.unitId,
               activeUnitIds,
+              currentUserRole: currentUser.role,
             });
           });
         }
