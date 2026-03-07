@@ -17,7 +17,7 @@ import {
   ExportStyleSettings,
   DailySetting
 } from '../../../core/models/data';
-import { db, serverTimestamp } from '../../../core/firebase/config';
+import { db } from '../../../core/firebase/config';
 import {
   collection,
   addDoc,
@@ -25,8 +25,6 @@ import {
   onSnapshot,
   orderBy,
   writeBatch,
-  updateDoc,
-  deleteDoc,
   setDoc,
   query,
   getDoc,
@@ -2102,17 +2100,24 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
             if (canManage) {
               await setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
                 error => {
-                  console.error('Failed to persist default settings:', error);
+                  logSchedulerError('settings.defaults.persist.failed', error, {
+                    action: 'settings.defaults.persist',
+                    unitId,
+                    settingsId: defaults.id,
+                    weekStartDateStr,
+                    currentUserRole: currentUser.role,
+                  });
                 }
               );
             }
             return defaults;
           } catch (error) {
-            console.error(
-              'Failed to load schedule settings for unit',
+            logSchedulerError('settings.load.failed', error, {
+              action: 'settings.load',
               unitId,
-              error
-            );
+              weekStartDateStr,
+              currentUserRole: currentUser.role,
+            });
             return null;
           }
         })
@@ -2134,7 +2139,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeUnitIds, canManage, weekDays, weekStartDateStr]);
+  }, [activeUnitIds, canManage, currentUser.role, weekDays, weekStartDateStr]);
 
   const shiftDerivedUsers = useMemo(
     () => buildScheduleStaffDirectory(schedule, activeUnitIds),
@@ -2291,14 +2296,20 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
           setWeekSettings(defaults);
           setDoc(doc(db, 'schedule_settings', defaults.id), defaults).catch(
             error => {
-              console.error('Failed to persist default settings:', error);
+              logSchedulerError('settings.defaults.persist.failed', error, {
+                action: 'settings.defaults.persist',
+                unitId,
+                settingsId: defaults.id,
+                weekStartDateStr,
+                currentUserRole: currentUser.role,
+              });
             }
           );
         }
       }
     );
     return () => unsub();
-  }, [activeUnitIds, weekDays, canManage]);
+  }, [activeUnitIds, canManage, currentUser.role, weekDays]);
 
   const activeShifts = useMemo(() => {
     const filtered = schedule.filter(s => {
@@ -3519,6 +3530,11 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         return;
       }
 
+      if (activeUnitIds.length !== 1) {
+        setBulkTimeModal(null);
+        return;
+      }
+
       const unitId = activeUnitIds[0];
       if (!unitId) {
         setBulkTimeModal(null);
@@ -3530,11 +3546,16 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       const additions: Array<Omit<Shift, 'id'>> = [];
       let skippedLegacyOrOtherUnit = 0;
       let skippedEndWithoutStart = 0;
+      let skippedInvalidDayKey = 0;
 
       selectedCellKeys.forEach(cellKey => {
         const { dayKey, userId } = parseSelectionKey(cellKey);
 
         if (!dayKey || !userId) return;
+        if (!isValidDayKey(dayKey)) {
+          skippedInvalidDayKey += 1;
+          return;
+        }
         if (!(canManage || currentUser.id === userId)) return;
 
         const user = userById.get(userId);
@@ -3622,6 +3643,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         console.info('Skipped end time without existing start:', skippedEndWithoutStart);
       }
 
+      if (skippedInvalidDayKey > 0) {
+        console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
+      }
+
       setBulkTimeModal(null);
     },
     [
@@ -3639,6 +3664,8 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const handleBulkDayOff = useCallback(async () => {
+    if (activeUnitIds.length !== 1) return;
+
     const unitId = activeUnitIds[0];
     if (!unitId) return;
 
@@ -3646,10 +3673,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     let hasBatchWrites = false;
     const additions: Array<Omit<Shift, 'id'>> = [];
     let skippedLegacyOrOtherUnit = 0;
+    let skippedInvalidDayKey = 0;
 
     selectedCellKeys.forEach(cellKey => {
       const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
+      if (!isValidDayKey(dayKey)) {
+        skippedInvalidDayKey += 1;
+        return;
+      }
       if (!(canManage || currentUser.id === userId)) return;
 
       const user = userById.get(userId);
@@ -3709,6 +3741,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
+
+    if (skippedInvalidDayKey > 0) {
+      console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
+    }
   }, [
     activeUnitIds,
     canManage,
@@ -3723,19 +3759,29 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   ]);
 
   const handleBulkDeleteNote = useCallback(async () => {
+    if (activeUnitIds.length !== 1) return;
+
+    const unitId = activeUnitIds[0];
+    if (!unitId) return;
+
     const batch = writeBatch(db);
     let hasBatchWrites = false;
     let skippedLegacyOrOtherUnit = 0;
+    let skippedInvalidDayKey = 0;
 
     selectedCellKeys.forEach(cellKey => {
       const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
+      if (!isValidDayKey(dayKey)) {
+        skippedInvalidDayKey += 1;
+        return;
+      }
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
       const existingShift = selectExistingShiftForCell(
         userDayShifts,
-        activeUnitIds[0],
+        unitId,
         viewMode
       );
       if (!existingShift && userDayShifts.length > 0) {
@@ -3759,6 +3805,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
+
+    if (skippedInvalidDayKey > 0) {
+      console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
+    }
   }, [
     activeUnitIds,
     canManage,
@@ -3771,16 +3821,23 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   ]);
 
   const handleBulkClearCells = useCallback(async () => {
+    if (activeUnitIds.length !== 1) return;
+
     const unitId = activeUnitIds[0];
     if (!unitId) return;
 
     const batch = writeBatch(db);
     let hasBatchWrites = false;
     let skippedLegacyOrOtherUnit = 0;
+    let skippedInvalidDayKey = 0;
 
     selectedCellKeys.forEach(cellKey => {
       const { dayKey, userId } = parseSelectionKey(cellKey);
       if (!dayKey || !userId) return;
+      if (!isValidDayKey(dayKey)) {
+        skippedInvalidDayKey += 1;
+        return;
+      }
       if (!(canManage || currentUser.id === userId)) return;
 
       const userDayShifts = shiftsByUserDay.get(userId)?.get(dayKey) || [];
@@ -3808,6 +3865,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     if (skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
+
+    if (skippedInvalidDayKey > 0) {
+      console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
+    }
   }, [
     activeUnitIds,
     canManage,
@@ -3818,6 +3879,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
     shiftsByUserDay,
     viewMode,
   ]);
+
   // Self-tests (manual):
   // a) Select empty cells and apply highlight -> highlight-only docs are created with dayKey.
   // b) Select cells with normal shifts -> isHighlighted toggles true/false on the same docs.
@@ -4400,8 +4462,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error('PNG export failed:', err);
-      alert('Hiba történt a PNG exportálás során.');
+      logSchedulerError('export.png.failed', err, {
+        action: 'export.png',
+        activeUnitIds,
+        weekStartDateStr,
+        currentUserRole: currentUser.role,
+      });
+      alert(toUserMessage(err, 'Hiba történt a PNG exportálás során.'));
       throw err;
     } finally {
       if (exportContainer?.parentElement) {
@@ -5143,8 +5210,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
                   });
                   setSuccessToast('Excel export sikeres!');
                 } catch (err) {
-                  console.error('Excel export failed:', err);
-                  alert('Hiba történt az Excel exportálás során.');
+                  logSchedulerError('export.excel.failed', err, {
+                    action: 'export.excel',
+                    activeUnitIds,
+                    weekStartDateStr,
+                    currentUserRole: currentUser.role,
+                  });
+                  alert(toUserMessage(err, 'Hiba történt az Excel exportálás során.'));
                 }
               }
             } finally {
