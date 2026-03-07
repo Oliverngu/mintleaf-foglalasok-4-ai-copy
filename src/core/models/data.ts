@@ -51,6 +51,7 @@ export interface User {
     newSchedule?: boolean;
   };
   registrationEmailSent?: boolean;
+  authUid?: string;
 }
 
 export interface Request {
@@ -463,6 +464,10 @@ export interface Invitation {
   createdAt: Timestamp;
   usedBy?: string;
   usedAt?: Timestamp;
+  mode?: 'create' | 'claim_existing';
+  existingUserId?: string;
+  email?: string;
+  expiresAt?: Timestamp;
 }
 
 export interface FileMetadata {

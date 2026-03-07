@@ -4337,6 +4337,129 @@ const enqueueQueuedEmailInternal = async (
   await db.collection("email_queue").add(doc);
 };
 
+
+const CLAIM_INVITE_ALLOWED_PROFILE_KEYS = new Set([
+  'name',
+  'nickname',
+  'nicknameLower',
+  'lastName',
+  'firstName',
+  'fullName',
+  'email',
+  'registrationEmailSent',
+]);
+
+export const finalizeClaimExistingInvitation = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const inviteCode = (data as any).inviteCode;
+  const profile = ((data as any).profile || {}) as Record<string, unknown>;
+
+  if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
+  }
+  if (typeof profile !== 'object' || Array.isArray(profile)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen profil adatok');
+  }
+
+  const profileKeys = Object.keys(profile);
+  if (profileKeys.some(key => !CLAIM_INVITE_ALLOWED_PROFILE_KEYS.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen profil mezők');
+  }
+
+  const invitationRef = db.collection('invitations').doc(inviteCode);
+  const now = Timestamp.now();
+
+  const result = await db.runTransaction(async tx => {
+    const inviteSnap = await tx.get(invitationRef);
+    if (!inviteSnap.exists) {
+      throw new HttpsError('not-found', 'A meghívó nem található.');
+    }
+
+    const invite = inviteSnap.data() as Record<string, any>;
+    if (invite.status !== 'active') {
+      throw new HttpsError('failed-precondition', 'A meghívó már felhasznált.');
+    }
+    if (invite.mode !== 'claim_existing') {
+      throw new HttpsError('failed-precondition', 'A meghívó típusa nem támogatott ehhez a művelethez.');
+    }
+
+    const expiresAt = invite.expiresAt as Timestamp | undefined;
+    if (expiresAt && expiresAt.toMillis() <= now.toMillis()) {
+      throw new HttpsError('deadline-exceeded', 'A meghívó lejárt.');
+    }
+
+    const existingUserId = invite.existingUserId;
+    if (typeof existingUserId !== 'string' || !existingUserId.trim()) {
+      throw new HttpsError('failed-precondition', 'A meghívó hibás: hiányzó user azonosító.');
+    }
+
+    const userRef = db.collection('users').doc(existingUserId);
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'A meghívóhoz tartozó felhasználó nem található.');
+    }
+
+    const userData = (userSnap.data() || {}) as Record<string, any>;
+    if (
+      typeof userData.authUid === 'string' &&
+      userData.authUid &&
+      userData.authUid !== request.auth.uid
+    ) {
+      throw new HttpsError('already-exists', 'A felhasználó már egy másik fiókhoz van kapcsolva.');
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      authUid: request.auth.uid,
+    };
+
+    if (typeof profile.name === 'string' && profile.name.trim()) {
+      updatePayload.name = profile.name.trim();
+    }
+    if (typeof profile.nickname === 'string' && profile.nickname.trim()) {
+      updatePayload.nickname = profile.nickname.trim();
+    }
+    if (typeof profile.nicknameLower === 'string' && profile.nicknameLower.trim()) {
+      updatePayload.nicknameLower = profile.nicknameLower.trim();
+    }
+    if (typeof profile.lastName === 'string') {
+      updatePayload.lastName = profile.lastName.trim();
+    }
+    if (typeof profile.firstName === 'string') {
+      updatePayload.firstName = profile.firstName.trim();
+    }
+    if (typeof profile.fullName === 'string' && profile.fullName.trim()) {
+      updatePayload.fullName = profile.fullName.trim();
+    }
+    if (typeof profile.email === 'string' && profile.email.trim()) {
+      updatePayload.email = profile.email.trim();
+    } else if (!userData.email && typeof invite.email === 'string' && invite.email.trim()) {
+      updatePayload.email = invite.email.trim();
+    }
+    if (typeof profile.registrationEmailSent === 'boolean') {
+      updatePayload.registrationEmailSent = profile.registrationEmailSent;
+    }
+
+    tx.update(userRef, updatePayload);
+    tx.update(invitationRef, {
+      status: 'used',
+      usedBy: request.auth.uid,
+      usedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { userId: existingUserId };
+  });
+
+  return { ok: true, userId: result.userId };
+});
+
 export const enqueueQueuedEmail = onCall({ region: REGION }, async request => {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Unauthorized");

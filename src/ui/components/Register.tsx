@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../../core/firebase/config';
+import { auth, db, functions } from '../../core/firebase/config';
 import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import ArrowIcon from '../../../components/icons/ArrowIcon';
@@ -8,6 +9,11 @@ import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
 import { enqueueQueuedEmail } from '../../core/services/emailQueueService';
+import {
+  isInvitationRedeemable,
+  resolveInvitationMode,
+  validateClaimExistingInvitation,
+} from './registerInvitationFlow';
 
 interface RegisterProps {
   inviteCode: string;
@@ -33,6 +39,10 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       position: string; 
       prefilledLastName?: string;
       prefilledFirstName?: string;
+      mode: 'create' | 'claim_existing';
+      existingUserId?: string;
+      email?: string;
+      expiresAt?: { toDate: () => Date } | null;
     } | null>(null);
 
   useEffect(() => {
@@ -40,19 +50,37 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       try {
         const inviteDoc = await getDoc(doc(db, 'invitations', inviteCode));
         if (inviteDoc.exists()) {
-          const data = inviteDoc.data();
+          const data = inviteDoc.data() || {};
+          if (!isInvitationRedeemable(data as any)) {
+            setError('A meghívó lejárt vagy már felhasznált.');
+            return;
+          }
+
+          const claimValidationError = validateClaimExistingInvitation(data as any);
+          if (claimValidationError) {
+            setError(claimValidationError);
+            return;
+          }
+
           setInviteDetails({
             role: data?.role || 'User',
             unitId: data?.unitId || '',
             position: data?.position || '',
             prefilledLastName: data?.prefilledLastName,
             prefilledFirstName: data?.prefilledFirstName,
+            mode: resolveInvitationMode(data as any),
+            existingUserId: data?.existingUserId,
+            email: data?.email,
+            expiresAt: data?.expiresAt || null,
           });
           if (data?.prefilledLastName) {
               setLastName(data.prefilledLastName);
           }
           if (data?.prefilledFirstName) {
               setFirstName(data.prefilledFirstName);
+          }
+          if (typeof data?.email === 'string' && data.email.trim()) {
+            setEmail(data.email.trim());
           }
         } else {
           setError('Érvénytelen meghívó kód.');
@@ -80,6 +108,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
 
     try {
       const trimmedUsername = username.trim();
+      const inviteMode = resolveInvitationMode(inviteDetails as any);
 
       // 1. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -98,7 +127,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         displayName: userFullName,
       });
 
-      // 5. Create user document in Firestore
+      // 5. Create or claim user document in Firestore
       const userDataForDb = {
         name: trimmedUsername,
         nickname: trimmedUsername,
@@ -115,7 +144,35 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
           newSchedule: true, // Default to on
         },
       };
-      await setDoc(doc(db, 'users', user.uid), userDataForDb);
+
+      if (inviteMode === 'claim_existing') {
+        const finalizeClaim = httpsCallable<
+          { inviteCode: string; profile: Record<string, unknown> },
+          { ok: boolean; userId: string }
+        >(functions, 'finalizeClaimExistingInvitation');
+
+        await finalizeClaim({
+          inviteCode,
+          profile: {
+            name: userDataForDb.name,
+            nickname: userDataForDb.nickname,
+            nicknameLower: userDataForDb.nicknameLower,
+            lastName: userDataForDb.lastName,
+            firstName: userDataForDb.firstName,
+            fullName: userDataForDb.fullName,
+            email: userDataForDb.email,
+            registrationEmailSent: true,
+          },
+        });
+      } else {
+        await setDoc(doc(db, 'users', user.uid), userDataForDb);
+
+        await updateDoc(doc(db, 'invitations', inviteCode), {
+          status: 'used',
+          usedBy: user.uid,
+          usedAt: new Date(),
+        });
+      }
 
       // 6. Send registration email via the new service
       await enqueueQueuedEmail('register_welcome', null, {
@@ -123,14 +180,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         email: userDataForDb.email
       });
 
-      // 7. Mark invitation as used
-      await updateDoc(doc(db, 'invitations', inviteCode), {
-        status: 'used',
-        usedBy: user.uid,
-        usedAt: new Date(),
-      });
-
-      // 8. Call success callback
+      // 7. Call success callback
       onRegisterSuccess();
     } catch (err: any) {
       switch (err.code) {
@@ -200,7 +250,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
             />
         </div>
         <div><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Felhasználónév" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500"/></div>
-        <div><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email cím" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500"/></div>
+        <div><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email cím" required className={`w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 ${inviteDetails?.email ? 'bg-gray-100 cursor-not-allowed' : ''}`} readOnly={!!inviteDetails?.email}/></div>
         <div className="relative">
             <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Jelszó" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 pr-12"/>
             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-4 flex items-center text-gray-500 hover:text-green-600">
