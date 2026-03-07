@@ -4474,7 +4474,6 @@ export const cleanupFailedClaimExistingAuthUser = onCall({ region: REGION }, asy
 
   const inviteCode = (data as any).inviteCode;
   const email = (data as any).email;
-
   if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
     throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
   }
@@ -4543,6 +4542,10 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
   const inviteCode = (data as any).inviteCode;
   const email = (data as any).email;
 
+  logger.info('recoverClaimExistingOrphanByEmail.start', {
+    inviteCode: typeof inviteCode === 'string' ? inviteCode : null,
+    email: typeof email === 'string' ? email : null,
+  });
   if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
     throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
   }
@@ -4557,6 +4560,14 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
   }
 
   const invite = (invitationSnap.data() || {}) as Record<string, any>;
+  logger.info('recoverClaimExistingOrphanByEmail.inviteLoaded', {
+    inviteCode,
+    mode: invite.mode ?? null,
+    status: invite.status ?? null,
+    existingUserId: invite.existingUserId ?? null,
+    inviteEmail: invite.email ?? null,
+  });
+
   if (invite.mode !== 'claim_existing') {
     throw new HttpsError('failed-precondition', 'A meghívó típusa nem támogatott ehhez a művelethez.');
   }
@@ -4587,18 +4598,42 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
   let authUser;
   try {
     authUser = await admin.auth().getUserByEmail(normalizedRequestedEmail);
+
+    logger.info('recoverClaimExistingOrphanByEmail.authUserFound', {
+      uid: authUser.uid,
+      email: authUser.email ?? null,
+      emailVerified: authUser.emailVerified,
+    });
   } catch (error: any) {
+    logger.error('recoverClaimExistingOrphanByEmail.getUserByEmail.failed', {
+      email: normalizedRequestedEmail,
+      error,
+    });
+
     if (error?.code === 'auth/user-not-found') {
       return { ok: true, deleted: false, reason: 'auth-user-not-found' };
     }
-    throw new HttpsError('internal', 'Nem sikerült ellenőrizni a fiókot.');
+    throw new HttpsError('internal', 'Auth lookup failed');
   }
 
   const targetUserData = (targetUserSnap.data() || {}) as Record<string, any>;
+  logger.info('recoverClaimExistingOrphanByEmail.targetUserLoaded', {
+    existingUserId,
+    targetUserEmail: targetUserData.email ?? null,
+    authUid: targetUserData.authUid ?? null,
+  });
+
   const normalizedTargetUserEmail = typeof targetUserData.email === 'string'
     ? targetUserData.email.trim().toLowerCase()
     : '';
   const normalizedAuthEmail = typeof authUser.email === 'string' ? authUser.email.trim().toLowerCase() : '';
+
+  logger.info('recoverClaimExistingOrphanByEmail.emailCheck', {
+    requested: normalizedRequestedEmail,
+    invite: normalizedInviteEmail,
+    targetUser: normalizedTargetUserEmail,
+    auth: normalizedAuthEmail,
+  });
 
   if (
     !normalizedRequestedEmail
@@ -4609,10 +4644,19 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
     || normalizedTargetUserEmail !== normalizedRequestedEmail
     || normalizedAuthEmail !== normalizedRequestedEmail
   ) {
+    logger.info('recoverClaimExistingOrphanByEmail.emailMismatch', {
+      requested: normalizedRequestedEmail,
+      invite: normalizedInviteEmail,
+      targetUser: normalizedTargetUserEmail,
+      auth: normalizedAuthEmail,
+    });
     return { ok: true, deleted: false, reason: 'email-mismatch' };
   }
 
   if (authUser.emailVerified === true) {
+    logger.info('recoverClaimExistingOrphanByEmail.emailAlreadyVerified', {
+      uid: authUser.uid,
+    });
     return { ok: true, deleted: false, reason: 'email-already-verified' };
   }
 
@@ -4629,6 +4673,11 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
     .limit(2)
     .get();
 
+  logger.info('recoverClaimExistingOrphanByEmail.linkedUsersCheck', {
+    uid: authUser.uid,
+    linkedCount: linkedUsersSnapshot.size,
+  });
+
   if (!linkedUsersSnapshot.empty) {
     const linkedToDifferentUser = linkedUsersSnapshot.docs.some(doc => doc.id !== existingUserId);
     if (linkedToDifferentUser) {
@@ -4637,7 +4686,26 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
     return { ok: true, deleted: false, reason: 'already-bound' };
   }
 
-  await admin.auth().deleteUser(authUser.uid);
+  try {
+    await admin.auth().deleteUser(authUser.uid);
+
+    logger.info('recoverClaimExistingOrphanByEmail.authUserDeleted', {
+      uid: authUser.uid,
+      email: normalizedAuthEmail,
+    });
+  } catch (deleteError) {
+    logger.error('recoverClaimExistingOrphanByEmail.deleteUser.failed', {
+      uid: authUser.uid,
+      email: normalizedAuthEmail,
+      deleteError,
+    });
+    throw new HttpsError('internal', 'Auth delete failed');
+  }
+
+  logger.info('recoverClaimExistingOrphanByEmail.success', {
+    deleted: true,
+    uid: authUser.uid,
+  });
   return { ok: true, deleted: true };
 });
 
