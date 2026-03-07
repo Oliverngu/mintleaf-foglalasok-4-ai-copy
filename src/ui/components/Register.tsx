@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, functions } from '../../core/firebase/config';
-import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification, updateProfile } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
@@ -93,6 +93,21 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     fetchInviteDetails();
   }, [inviteCode]);
 
+  const getClaimFinalizeErrorMessage = (code?: string) => {
+    switch (code) {
+      case 'already-exists':
+        return 'Ez a felhasználó már egy másik fiókhoz van kapcsolva.';
+      case 'deadline-exceeded':
+        return 'A meghívó lejárt.';
+      case 'failed-precondition':
+        return 'A meghívó már nem használható fel.';
+      case 'not-found':
+        return 'A meghívóhoz tartozó felhasználó nem található.';
+      default:
+        return 'Hiba a meglévő felhasználó aktiválása során. Próbáld újra később.';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
@@ -151,19 +166,31 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
           { ok: boolean; userId: string }
         >(functions, 'finalizeClaimExistingInvitation');
 
-        await finalizeClaim({
-          inviteCode,
-          profile: {
-            name: userDataForDb.name,
-            nickname: userDataForDb.nickname,
-            nicknameLower: userDataForDb.nicknameLower,
-            lastName: userDataForDb.lastName,
-            firstName: userDataForDb.firstName,
-            fullName: userDataForDb.fullName,
-            email: userDataForDb.email,
-            registrationEmailSent: true,
-          },
-        });
+        try {
+          await finalizeClaim({
+            inviteCode,
+            profile: {
+              name: userDataForDb.name,
+              nickname: userDataForDb.nickname,
+              nicknameLower: userDataForDb.nicknameLower,
+              lastName: userDataForDb.lastName,
+              firstName: userDataForDb.firstName,
+              fullName: userDataForDb.fullName,
+              email: userDataForDb.email,
+              registrationEmailSent: true,
+            },
+          });
+        } catch (claimError: any) {
+          try {
+            await deleteUser(user);
+          } catch (rollbackError) {
+            console.error('Failed to rollback auth user after claim_existing error:', rollbackError);
+          }
+
+          setError(getClaimFinalizeErrorMessage(claimError?.code));
+          setIsLoading(false);
+          return;
+        }
       } else {
         await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
