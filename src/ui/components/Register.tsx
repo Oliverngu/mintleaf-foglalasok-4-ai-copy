@@ -108,6 +108,10 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     }
   };
 
+
+  const claimEmailInUseRecoveryMessage =
+    'Ehhez az email címhez már tartozik egy fiók. Ha ez egy korábbi félbeszakadt regisztráció, próbáld újra pár másodperc múlva.';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
@@ -124,51 +128,49 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     try {
       const trimmedUsername = username.trim();
       const inviteMode = resolveInvitationMode(inviteDetails as any);
+      const finalizeClaim = httpsCallable<
+        { inviteCode: string; profile: Record<string, unknown> },
+        { ok: boolean; userId: string }
+      >(functions, 'finalizeClaimExistingInvitation');
+      const cleanupFailedClaim = httpsCallable<
+        { inviteCode: string; email: string },
+        { ok: boolean; deleted: boolean; reason?: string }
+      >(functions, 'cleanupFailedClaimExistingAuthUser');
+      const recoverClaimExistingOrphan = httpsCallable<
+        { inviteCode: string; email: string },
+        { ok: boolean; deleted: boolean; reason?: string }
+      >(functions, 'recoverClaimExistingOrphanByEmail');
 
-      // 1. Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const user = userCredential.user;
-      if (!user) throw new Error("User creation failed.");
+      const runClaimExistingRegistrationAttempt = async () => {
+        const normalizedEmail = email.trim();
+        const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+        const user = userCredential.user;
+        if (!user) throw new Error('User creation failed.');
 
-      // 2. Persist nickname with uniqueness check
-      await saveNicknameForUser(user.uid, email.trim(), trimmedUsername);
+        await saveNicknameForUser(user.uid, normalizedEmail, trimmedUsername);
+        await sendEmailVerification(user);
 
-      // 3. Send verification email
-      await sendEmailVerification(user);
+        const userFullName = `${lastName.trim()} ${firstName.trim()}`;
+        await updateProfile(user, {
+          displayName: userFullName,
+        });
 
-      // 4. Update Firebase Auth profile
-      const userFullName = `${lastName.trim()} ${firstName.trim()}`;
-      await updateProfile(user, {
-        displayName: userFullName,
-      });
-
-      // 5. Create or claim user document in Firestore
-      const userDataForDb = {
-        name: trimmedUsername,
-        nickname: trimmedUsername,
-        nicknameLower: trimmedUsername.toLowerCase(),
-        lastName: lastName.trim(),
-        firstName: firstName.trim(),
-        fullName: userFullName,
-        email: email.trim(),
-        role: inviteDetails.role,
-        unitIds: [inviteDetails.unitId], // Assign unitId into the new array structure
-        position: inviteDetails.position,
-        registrationEmailSent: true, // Mark as sent immediately
-        notifications: {
-          newSchedule: true, // Default to on
-        },
-      };
-
-      if (inviteMode === 'claim_existing') {
-        const finalizeClaim = httpsCallable<
-          { inviteCode: string; profile: Record<string, unknown> },
-          { ok: boolean; userId: string }
-        >(functions, 'finalizeClaimExistingInvitation');
-        const cleanupFailedClaim = httpsCallable<
-          { inviteCode: string; email: string },
-          { ok: boolean; deleted: boolean; reason?: string }
-        >(functions, 'cleanupFailedClaimExistingAuthUser');
+        const userDataForDb = {
+          name: trimmedUsername,
+          nickname: trimmedUsername,
+          nicknameLower: trimmedUsername.toLowerCase(),
+          lastName: lastName.trim(),
+          firstName: firstName.trim(),
+          fullName: userFullName,
+          email: normalizedEmail,
+          role: inviteDetails.role,
+          unitIds: [inviteDetails.unitId],
+          position: inviteDetails.position,
+          registrationEmailSent: true,
+          notifications: {
+            newSchedule: true,
+          },
+        };
 
         try {
           await finalizeClaim({
@@ -194,33 +196,122 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
           try {
             await cleanupFailedClaim({
               inviteCode,
-              email: email.trim(),
+              email: normalizedEmail,
             });
           } catch (cleanupError) {
             console.error('Failed to cleanup orphaned auth user after claim_existing error:', cleanupError);
           }
 
-          setError(getClaimFinalizeErrorMessage(claimError?.code));
-          setIsLoading(false);
-          return;
+          const mappedError: any = new Error('Claim finalize failed');
+          mappedError.code = 'claim-finalize-failed';
+          mappedError.userMessage = getClaimFinalizeErrorMessage(claimError?.code);
+          throw mappedError;
         }
-      } else {
-        await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
-        await updateDoc(doc(db, 'invitations', inviteCode), {
-          status: 'used',
-          usedBy: user.uid,
-          usedAt: new Date(),
+        return userDataForDb;
+      };
+
+      if (inviteMode === 'claim_existing') {
+        let claimResultData;
+        try {
+          claimResultData = await runClaimExistingRegistrationAttempt();
+        } catch (claimAttemptError: any) {
+          if (claimAttemptError?.code === 'claim-finalize-failed') {
+            setError(claimAttemptError?.userMessage || getClaimFinalizeErrorMessage());
+            setIsLoading(false);
+            return;
+          }
+
+          if (claimAttemptError?.code === 'auth/email-already-in-use') {
+            try {
+              const recoveryResult = await recoverClaimExistingOrphan({
+                inviteCode,
+                email: email.trim(),
+              });
+
+              if (!recoveryResult.data?.deleted) {
+                setError(claimEmailInUseRecoveryMessage);
+                setIsLoading(false);
+                return;
+              }
+            } catch (recoveryError) {
+              console.error('Failed to recover claim_existing orphan auth user:', recoveryError);
+              setError(claimEmailInUseRecoveryMessage);
+              setIsLoading(false);
+              return;
+            }
+
+            try {
+              claimResultData = await runClaimExistingRegistrationAttempt();
+            } catch (retryError: any) {
+              if (retryError?.code === 'claim-finalize-failed') {
+                setError(retryError?.userMessage || getClaimFinalizeErrorMessage());
+              } else if (retryError?.code === 'auth/email-already-in-use') {
+                setError(claimEmailInUseRecoveryMessage);
+              } else {
+                throw retryError;
+              }
+              setIsLoading(false);
+              return;
+            }
+          } else {
+            throw claimAttemptError;
+          }
+        }
+
+        await enqueueQueuedEmail('register_welcome', null, {
+          name: claimResultData.firstName,
+          email: claimResultData.email,
         });
+
+        onRegisterSuccess();
+        return;
       }
 
-      // 6. Send registration email via the new service
-      await enqueueQueuedEmail('register_welcome', null, {
-        name: userDataForDb.firstName,
-        email: userDataForDb.email
+      // create mode unchanged
+      const normalizedEmail = email.trim();
+      const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      const user = userCredential.user;
+      if (!user) throw new Error('User creation failed.');
+
+      await saveNicknameForUser(user.uid, normalizedEmail, trimmedUsername);
+      await sendEmailVerification(user);
+
+      const userFullName = `${lastName.trim()} ${firstName.trim()}`;
+      await updateProfile(user, {
+        displayName: userFullName,
       });
 
-      // 7. Call success callback
+      const userDataForDb = {
+        name: trimmedUsername,
+        nickname: trimmedUsername,
+        nicknameLower: trimmedUsername.toLowerCase(),
+        lastName: lastName.trim(),
+        firstName: firstName.trim(),
+        fullName: userFullName,
+        email: normalizedEmail,
+        role: inviteDetails.role,
+        unitIds: [inviteDetails.unitId],
+        position: inviteDetails.position,
+        registrationEmailSent: true,
+        notifications: {
+          newSchedule: true,
+        },
+      };
+
+      await setDoc(doc(db, 'users', user.uid), userDataForDb);
+
+      await updateDoc(doc(db, 'invitations', inviteCode), {
+        status: 'used',
+        usedBy: user.uid,
+        usedAt: new Date(),
+      });
+
+      await enqueueQueuedEmail('register_welcome', null, {
+        name: userDataForDb.firstName,
+        email: userDataForDb.email,
+      });
+
       onRegisterSuccess();
     } catch (err: any) {
       switch (err.code) {
