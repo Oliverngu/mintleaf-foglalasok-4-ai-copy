@@ -7,11 +7,9 @@ export class SchedulerGuardError extends Error {
   }
 }
 
-export const assertCanManageSchedule = (canManage: boolean, role?: User['role']): void => {
+export const assertCanManageSchedule = (canManage: boolean, _role?: User['role']): void => {
   if (canManage) return;
-  throw new SchedulerGuardError(
-    role ? `Nincs jogosultság a beosztás módosításához (${role}).` : 'Nincs jogosultság a beosztás módosításához.'
-  );
+  throw new SchedulerGuardError('Nincs jogosultság a beosztás módosításához.');
 };
 
 export const assertSingleActiveUnit = (activeUnitIds: string[]): string => {

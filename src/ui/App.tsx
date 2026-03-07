@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Login from './components/Login';
 import Register from './components/Register';
+import { isInvitationRedeemable } from './components/registerInvitationFlow';
 import Dashboard from './components/Dashboard';
 import ReservationPage from './components/public/ReservationPage';
 import ManageReservationPage from './components/public/ManageReservationPage';
@@ -166,7 +167,8 @@ const App: React.FC = () => {
       (async () => {
         try {
           const inviteDoc = await getDoc(doc(db, 'invitations', registerCode));
-          if (inviteDoc.exists() && inviteDoc.data()?.status === 'active') {
+          const inviteData = inviteDoc.data();
+          if (inviteDoc.exists() && isInvitationRedeemable(inviteData as any)) {
             setInviteCode(registerCode);
             setAppState('register');
           } else {
@@ -225,25 +227,40 @@ const App: React.FC = () => {
         const userDoc = await getDoc(userDocRef);
 
         let userData: User;
+        let resolvedUserDocId = firebaseUser.uid;
+        let resolvedData: any | null = userDoc.exists() ? userDoc.data() : null;
 
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          const unitIds = normalizeUserUnitIds(data);
+        if (!resolvedData) {
+          const boundQuery = query(
+            collection(db, 'users'),
+            where('authUid', '==', firebaseUser.uid),
+            limit(1)
+          );
+          const boundSnapshot = await getDocs(boundQuery);
+          const boundDoc = boundSnapshot.docs[0];
+          if (boundDoc) {
+            resolvedUserDocId = boundDoc.id;
+            resolvedData = boundDoc.data();
+          }
+        }
 
-          const lastName = (data as any)?.lastName || '';
-          const firstName = (data as any)?.firstName || '';
+        if (resolvedData) {
+          const unitIds = normalizeUserUnitIds(resolvedData);
+
+          const lastName = (resolvedData as any)?.lastName || '';
+          const firstName = (resolvedData as any)?.firstName || '';
 
           userData = {
-            id: firebaseUser.uid,
-            name: (data as any)?.name || firebaseUser.email!,
+            id: resolvedUserDocId,
+            name: (resolvedData as any)?.name || firebaseUser.email!,
             lastName,
             firstName,
-            fullName: (data as any)?.fullName || `${lastName} ${firstName}`.trim(),
-            email: (data as any)?.email || firebaseUser.email!,
-            role: (data as any)?.role || 'User',
+            fullName: (resolvedData as any)?.fullName || `${lastName} ${firstName}`.trim(),
+            email: (resolvedData as any)?.email || firebaseUser.email!,
+            role: (resolvedData as any)?.role || 'User',
             unitIds,
-            position: (data as any)?.position,
-            dashboardConfig: (data as any)?.dashboardConfig,
+            position: (resolvedData as any)?.position,
+            dashboardConfig: (resolvedData as any)?.dashboardConfig,
           };
         } else {
           // first user -> Admin, else User

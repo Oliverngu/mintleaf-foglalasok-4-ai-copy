@@ -13,7 +13,8 @@
     "test:ui": "node src/scripts/uiTestRunner.mjs",
     "test:scripts": "node src/scripts/scriptsTestRunner.mjs",
     "test:all": "node src/scripts/testAllRunner.mjs",
-    "test:quick": "node src/scripts/testAllRunner.mjs --quick"
+    "test:quick": "node src/scripts/testAllRunner.mjs --quick",
+    "test:scheduler-modules": "sh -c 'LOADER=$(node --input-type=module -e \"import { buildLoaderRegister } from \\\"./src/scripts/testLoaderRegister.mjs\\\"; console.log(buildLoaderRegister(process.cwd()).loaderRegister);\"); node --experimental-strip-types --import \"$LOADER\" --experimental-detect-module --test src/ui/components/apps/schedulerModules.test.ts'"
   },
   "dependencies": {
     "react": "^19.2.0",
