@@ -27,13 +27,37 @@ const SHIFT_ALLOWED_FIELDS: Array<keyof Omit<Shift, 'id'>> = [
   'dayKey',
 ];
 
-const isFirestoreTimestamp = (value: unknown): value is Timestamp =>
-  value instanceof Timestamp;
+type TimestampLike = {
+  toDate: () => Date;
+  seconds: number;
+  nanoseconds: number;
+};
+
+const isFirestoreTimestampLike = (value: unknown): value is TimestampLike => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { toDate?: unknown; seconds?: unknown; nanoseconds?: unknown };
+  return (
+    typeof candidate.toDate === 'function' &&
+    typeof candidate.seconds === 'number' &&
+    typeof candidate.nanoseconds === 'number'
+  );
+};
+
+const toCanonicalTimestamp = (value: { toDate: () => Date }): Timestamp =>
+  Timestamp.fromDate(value.toDate());
+
+export const normalizeShiftTimeInput = (value: unknown): Timestamp | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value instanceof Date) return Timestamp.fromDate(value);
+  return isFirestoreTimestampLike(value) ? toCanonicalTimestamp(value) : undefined;
+};
 
 const normalizeTimeField = (value: unknown): Timestamp | null | undefined => {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return isFirestoreTimestamp(value) ? value : undefined;
+  if (value instanceof Date) return Timestamp.fromDate(value);
+  return isFirestoreTimestampLike(value) ? toCanonicalTimestamp(value) : undefined;
 };
 
 const normalizeNoteField = (value: unknown): string | null | undefined => {

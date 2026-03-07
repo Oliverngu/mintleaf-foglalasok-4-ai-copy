@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Unit, Position } from '../../../core/models/data';
 import { db } from '../../../core/firebase/config';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, setDoc, Timestamp } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import UserPlusIcon from '../../../../components/icons/UserPlusIcon';
 import SearchIcon from '../../../../components/icons/SearchIcon';
 import AddUserModal from './AddUserModal';
 import PencilIcon from '../../../../components/icons/PencilIcon';
+import CopyIcon from '../../../../components/icons/CopyIcon';
 import TrashIcon from '../../../../components/icons/TrashIcon';
 import CheckIcon from '../../../../components/icons/CheckIcon';
 import XIcon from '../../../../components/icons/XIcon';
@@ -16,7 +17,7 @@ interface FelhasznalokAppProps {
   canGenerateInvites: boolean; // Not used here, but passed by parent
 }
 
-const FelhasznalokApp: React.FC<FelhasznalokAppProps> = ({ currentUser }) => {
+const FelhasznalokApp: React.FC<FelhasznalokAppProps> = ({ currentUser, canGenerateInvites }) => {
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [allUnits, setAllUnits] = useState<Unit[]>([]);
     const [positions, setPositions] = useState<Position[]>([]);
@@ -25,6 +26,7 @@ const FelhasznalokApp: React.FC<FelhasznalokAppProps> = ({ currentUser }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [editFormData, setEditFormData] = useState<Partial<User>>({});
+    const [copiedClaimUserId, setCopiedClaimUserId] = useState<string | null>(null);
 
     useEffect(() => {
         const unsubUsers = onSnapshot(query(collection(db, 'users'), orderBy('lastName')), snapshot => {
@@ -85,6 +87,48 @@ const FelhasznalokApp: React.FC<FelhasznalokAppProps> = ({ currentUser }) => {
         setEditFormData(prev => ({ ...prev, unitIds: newUnitIds }));
     };
 
+
+    const handleGenerateReRegistrationLink = async (user: User) => {
+        try {
+            const unitCandidates = (user.unitIds || []).filter(Boolean);
+            const unitId = currentUser.role === 'Admin'
+                ? (unitCandidates[0] || '')
+                : unitCandidates.find(id => (currentUser.unitIds || []).includes(id)) || '';
+
+            if (!unitId) {
+                alert('A link generálásához a felhasználónak legalább egy egységgel kell rendelkeznie.');
+                return;
+            }
+
+            const inviteRef = doc(collection(db, 'invitations'));
+            const expiresAt = Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 2));
+
+            await setDoc(inviteRef, {
+                code: inviteRef.id,
+                mode: 'claim_existing',
+                existingUserId: user.id,
+                email: user.email || '',
+                role: user.role,
+                unitId,
+                position: user.position || '',
+                prefilledLastName: user.lastName || '',
+                prefilledFirstName: user.firstName || '',
+                status: 'active',
+                createdAt: Timestamp.now(),
+                expiresAt,
+            });
+
+            const link = `${window.location.origin}?register=${inviteRef.id}`;
+            await navigator.clipboard.writeText(link);
+            setCopiedClaimUserId(user.id);
+            setTimeout(() => setCopiedClaimUserId(null), 2000);
+            alert('Egyszer használatos újraregisztrációs link vágólapra másolva.');
+        } catch (error) {
+            console.error('Failed to generate re-registration link:', error);
+            alert('Nem sikerült újraregisztrációs linket generálni.');
+        }
+    };
+
     if (isLoading) {
         return <div className="relative h-64"><LoadingSpinner /></div>;
     }
@@ -140,6 +184,15 @@ const FelhasznalokApp: React.FC<FelhasznalokAppProps> = ({ currentUser }) => {
                                         <td className="px-6 py-4">{user.position}</td>
                                         <td className="px-6 py-4">{user.unitIds?.map(uid => allUnits.find(u => u.id === uid)?.name).join(', ')}</td>
                                         <td className="px-6 py-4 text-right space-x-2">
+                                            <button
+                                                onClick={() => handleGenerateReRegistrationLink(user)}
+                                                disabled={!canGenerateInvites}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title="Újraregisztrációs link generálása"
+                                            >
+                                                <CopyIcon className="h-4 w-4" />
+                                                {copiedClaimUserId === user.id ? 'Másolva!' : 'Újrareg link'}
+                                            </button>
                                             <button onClick={() => startEditing(user)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-full" title="Szerkesztés"><PencilIcon /></button>
                                             {currentUser.id !== user.id && <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600 hover:bg-red-100 rounded-full" title="Törlés"><TrashIcon /></button>}
                                         </td>

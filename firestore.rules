@@ -86,7 +86,13 @@ function userUnits() {
     }
 
     function isSelf(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return isSignedIn() && (
+        request.auth.uid == userId
+        || (
+          exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.authUid == request.auth.uid
+        )
+      );
     }
 
     // --- Public reservation reads ---
@@ -361,7 +367,7 @@ function userUnits() {
         );
 
       allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && isSelf(request.resource.data.userId);
 
       allow update, delete: if isAdmin()
         || (
