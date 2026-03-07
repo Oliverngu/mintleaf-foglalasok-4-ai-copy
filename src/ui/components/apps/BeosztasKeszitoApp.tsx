@@ -3526,11 +3526,13 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
 
       const [hours, minutes] = value.split(':').map(Number);
       if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+        setSuccessToast('Érvénytelen időformátum.');
         setBulkTimeModal(null);
         return;
       }
 
       if (activeUnitIds.length !== 1) {
+        setSuccessToast('Bulk művelethez pontosan 1 egységet válassz.');
         setBulkTimeModal(null);
         return;
       }
@@ -3635,15 +3637,15 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         );
       }
 
-      if (skippedLegacyOrOtherUnit > 0) {
+      if (isDevEnv && skippedLegacyOrOtherUnit > 0) {
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
 
-      if (skippedEndWithoutStart > 0) {
+      if (isDevEnv && skippedEndWithoutStart > 0) {
         console.info('Skipped end time without existing start:', skippedEndWithoutStart);
       }
 
-      if (skippedInvalidDayKey > 0) {
+      if (isDevEnv && skippedInvalidDayKey > 0) {
         console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
       }
 
@@ -3657,6 +3659,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       selectedCellKeys,
       shiftsByUserDay,
       userById,
+      isDevEnv,
       isHighlightOnlyShift,
       selectExistingShiftForCell,
       viewMode,
@@ -3664,7 +3667,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   );
 
   const handleBulkDayOff = useCallback(async () => {
-    if (activeUnitIds.length !== 1) return;
+    if (activeUnitIds.length !== 1) {
+      setSuccessToast('Bulk művelethez pontosan 1 egységet válassz.');
+      return;
+    }
 
     const unitId = activeUnitIds[0];
     if (!unitId) return;
@@ -3738,17 +3744,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       );
     }
 
-    if (skippedLegacyOrOtherUnit > 0) {
+    if (isDevEnv && skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
 
-    if (skippedInvalidDayKey > 0) {
+    if (isDevEnv && skippedInvalidDayKey > 0) {
       console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
     }
   }, [
     activeUnitIds,
     canManage,
     currentUser.id,
+    isDevEnv,
     parseDayKeyToDate,
     parseSelectionKey,
     selectedCellKeys,
@@ -3759,7 +3766,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   ]);
 
   const handleBulkDeleteNote = useCallback(async () => {
-    if (activeUnitIds.length !== 1) return;
+    if (activeUnitIds.length !== 1) {
+      setSuccessToast('Bulk művelethez pontosan 1 egységet válassz.');
+      return;
+    }
 
     const unitId = activeUnitIds[0];
     if (!unitId) return;
@@ -3802,17 +3812,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       await batch.commit();
     }
 
-    if (skippedLegacyOrOtherUnit > 0) {
+    if (isDevEnv && skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
 
-    if (skippedInvalidDayKey > 0) {
+    if (isDevEnv && skippedInvalidDayKey > 0) {
       console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
     }
   }, [
     activeUnitIds,
     canManage,
     currentUser.id,
+    isDevEnv,
     parseSelectionKey,
     selectedCellKeys,
     selectExistingShiftForCell,
@@ -3821,7 +3832,10 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
   ]);
 
   const handleBulkClearCells = useCallback(async () => {
-    if (activeUnitIds.length !== 1) return;
+    if (activeUnitIds.length !== 1) {
+      setSuccessToast('Bulk művelethez pontosan 1 egységet válassz.');
+      return;
+    }
 
     const unitId = activeUnitIds[0];
     if (!unitId) return;
@@ -3862,17 +3876,18 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
       await batch.commit();
     }
 
-    if (skippedLegacyOrOtherUnit > 0) {
+    if (isDevEnv && skippedLegacyOrOtherUnit > 0) {
       console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
     }
 
-    if (skippedInvalidDayKey > 0) {
+    if (isDevEnv && skippedInvalidDayKey > 0) {
       console.info('Skipped invalid dayKey cells:', skippedInvalidDayKey);
     }
   }, [
     activeUnitIds,
     canManage,
     currentUser.id,
+    isDevEnv,
     parseSelectionKey,
     selectedCellKeys,
     selectExistingShiftForCell,
@@ -4015,7 +4030,7 @@ export const BeosztasApp: FC<BeosztasAppProps> = ({
         await batch.commit();
       }
 
-      if (skippedLegacyOrOtherUnit > 0) {
+      if (isDevEnv && skippedLegacyOrOtherUnit > 0) {
         console.info('Skipped legacy/other-unit shifts:', skippedLegacyOrOtherUnit);
       }
 
