@@ -4337,6 +4337,378 @@ const enqueueQueuedEmailInternal = async (
   await db.collection("email_queue").add(doc);
 };
 
+
+const CLAIM_INVITE_ALLOWED_PROFILE_KEYS = new Set([
+  'name',
+  'nickname',
+  'nicknameLower',
+  'lastName',
+  'firstName',
+  'fullName',
+  'email',
+  'registrationEmailSent',
+]);
+
+export const finalizeClaimExistingInvitation = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const inviteCode = (data as any).inviteCode;
+  const profile = ((data as any).profile || {}) as Record<string, unknown>;
+
+  if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
+  }
+  if (typeof profile !== 'object' || Array.isArray(profile)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen profil adatok');
+  }
+
+  const profileKeys = Object.keys(profile);
+  if (profileKeys.some(key => !CLAIM_INVITE_ALLOWED_PROFILE_KEYS.has(key))) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen profil mezők');
+  }
+
+  const invitationRef = db.collection('invitations').doc(inviteCode);
+  const now = Timestamp.now();
+
+  const result = await db.runTransaction(async tx => {
+    const inviteSnap = await tx.get(invitationRef);
+    if (!inviteSnap.exists) {
+      throw new HttpsError('not-found', 'A meghívó nem található.');
+    }
+
+    const invite = inviteSnap.data() as Record<string, any>;
+    if (invite.status !== 'active') {
+      throw new HttpsError('failed-precondition', 'A meghívó már felhasznált.');
+    }
+    if (invite.mode !== 'claim_existing') {
+      throw new HttpsError('failed-precondition', 'A meghívó típusa nem támogatott ehhez a művelethez.');
+    }
+
+    const expiresAt = invite.expiresAt as Timestamp | undefined;
+    if (expiresAt && expiresAt.toMillis() <= now.toMillis()) {
+      throw new HttpsError('deadline-exceeded', 'A meghívó lejárt.');
+    }
+
+    const existingUserId = invite.existingUserId;
+    if (typeof existingUserId !== 'string' || !existingUserId.trim()) {
+      throw new HttpsError('failed-precondition', 'A meghívó hibás: hiányzó user azonosító.');
+    }
+
+    const userRef = db.collection('users').doc(existingUserId);
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'A meghívóhoz tartozó felhasználó nem található.');
+    }
+
+    const userData = (userSnap.data() || {}) as Record<string, any>;
+    if (
+      typeof userData.authUid === 'string' &&
+      userData.authUid &&
+      userData.authUid !== request.auth.uid
+    ) {
+      throw new HttpsError('already-exists', 'A felhasználó már egy másik fiókhoz van kapcsolva.');
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      authUid: request.auth.uid,
+    };
+
+    if (typeof profile.name === 'string' && profile.name.trim()) {
+      updatePayload.name = profile.name.trim();
+    }
+    if (typeof profile.nickname === 'string' && profile.nickname.trim()) {
+      updatePayload.nickname = profile.nickname.trim();
+    }
+    if (typeof profile.nicknameLower === 'string' && profile.nicknameLower.trim()) {
+      updatePayload.nicknameLower = profile.nicknameLower.trim();
+    }
+    if (typeof profile.lastName === 'string') {
+      updatePayload.lastName = profile.lastName.trim();
+    }
+    if (typeof profile.firstName === 'string') {
+      updatePayload.firstName = profile.firstName.trim();
+    }
+    if (typeof profile.fullName === 'string' && profile.fullName.trim()) {
+      updatePayload.fullName = profile.fullName.trim();
+    }
+    if (typeof profile.email === 'string' && profile.email.trim()) {
+      updatePayload.email = profile.email.trim();
+    } else if (!userData.email && typeof invite.email === 'string' && invite.email.trim()) {
+      updatePayload.email = invite.email.trim();
+    }
+    if (typeof profile.registrationEmailSent === 'boolean') {
+      updatePayload.registrationEmailSent = profile.registrationEmailSent;
+    }
+
+    tx.update(userRef, updatePayload);
+    tx.update(invitationRef, {
+      status: 'used',
+      usedBy: request.auth.uid,
+      usedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { userId: existingUserId };
+  });
+
+  return { ok: true, userId: result.userId };
+});
+
+
+
+export const cleanupFailedClaimExistingAuthUser = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const inviteCode = (data as any).inviteCode;
+  const email = (data as any).email;
+  if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
+  }
+  if (typeof email !== 'string' || !email.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen email cím');
+  }
+
+  const invitationRef = db.collection('invitations').doc(inviteCode.trim());
+  const invitationSnap = await invitationRef.get();
+  if (!invitationSnap.exists) {
+    throw new HttpsError('not-found', 'A meghívó nem található.');
+  }
+
+  const invite = (invitationSnap.data() || {}) as Record<string, any>;
+  if (invite.mode !== 'claim_existing') {
+    throw new HttpsError('failed-precondition', 'A meghívó típusa nem támogatott ehhez a művelethez.');
+  }
+
+  const existingUserId = invite.existingUserId;
+  if (typeof existingUserId !== 'string' || !existingUserId.trim()) {
+    throw new HttpsError('failed-precondition', 'A meghívó hibás: hiányzó user azonosító.');
+  }
+
+  const targetUserRef = db.collection('users').doc(existingUserId);
+  const targetUserSnap = await targetUserRef.get();
+  if (!targetUserSnap.exists) {
+    throw new HttpsError('not-found', 'A meghívóhoz tartozó felhasználó nem található.');
+  }
+
+  const targetUserData = (targetUserSnap.data() || {}) as Record<string, any>;
+  if (
+    typeof targetUserData.authUid === 'string' &&
+    targetUserData.authUid &&
+    targetUserData.authUid !== request.auth.uid
+  ) {
+    throw new HttpsError('already-exists', 'A felhasználó már egy másik fiókhoz van kapcsolva.');
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  let authUser;
+  try {
+    authUser = await admin.auth().getUserByEmail(normalizedEmail);
+  } catch (error: any) {
+    if (error?.code === 'auth/user-not-found') {
+      return { ok: true, deleted: false, reason: 'auth-user-not-found' };
+    }
+    throw new HttpsError('internal', 'Nem sikerült ellenőrizni a fiókot.');
+  }
+
+  if (authUser.uid !== request.auth.uid) {
+    throw new HttpsError('permission-denied', 'A cleanup csak a saját fiókra engedélyezett.');
+  }
+
+  await admin.auth().deleteUser(authUser.uid);
+  return { ok: true, deleted: true };
+});
+
+
+
+export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, async request => {
+  const data = request.data || {};
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
+  }
+
+  const inviteCode = (data as any).inviteCode;
+  const email = (data as any).email;
+
+  logger.info('recoverClaimExistingOrphanByEmail.start', {
+    inviteCode: typeof inviteCode === 'string' ? inviteCode : null,
+    email: typeof email === 'string' ? email : null,
+  });
+  if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen meghívó kód');
+  }
+  if (typeof email !== 'string' || !email.trim()) {
+    throw new HttpsError('invalid-argument', 'Érvénytelen email cím');
+  }
+
+  const invitationRef = db.collection('invitations').doc(inviteCode.trim());
+  const invitationSnap = await invitationRef.get();
+  if (!invitationSnap.exists) {
+    throw new HttpsError('not-found', 'A meghívó nem található.');
+  }
+
+  const invite = (invitationSnap.data() || {}) as Record<string, any>;
+  logger.info('recoverClaimExistingOrphanByEmail.inviteLoaded', {
+    inviteCode,
+    mode: invite.mode ?? null,
+    status: invite.status ?? null,
+    existingUserId: invite.existingUserId ?? null,
+    inviteEmail: invite.email ?? null,
+  });
+
+  if (invite.mode !== 'claim_existing') {
+    throw new HttpsError('failed-precondition', 'A meghívó típusa nem támogatott ehhez a művelethez.');
+  }
+  if (invite.status !== 'active') {
+    throw new HttpsError('failed-precondition', 'A meghívó már nem használható fel.');
+  }
+
+  const now = Timestamp.now();
+  const expiresAt = invite.expiresAt as Timestamp | undefined;
+  if (expiresAt && expiresAt.toMillis() <= now.toMillis()) {
+    throw new HttpsError('deadline-exceeded', 'A meghívó lejárt.');
+  }
+
+  const existingUserId = invite.existingUserId;
+  if (typeof existingUserId !== 'string' || !existingUserId.trim()) {
+    throw new HttpsError('failed-precondition', 'A meghívó hibás: hiányzó user azonosító.');
+  }
+
+  const targetUserRef = db.collection('users').doc(existingUserId);
+  const targetUserSnap = await targetUserRef.get();
+  if (!targetUserSnap.exists) {
+    throw new HttpsError('not-found', 'A meghívóhoz tartozó felhasználó nem található.');
+  }
+
+  const normalizedRequestedEmail = email.trim().toLowerCase();
+  const normalizedInviteEmail = typeof invite.email === 'string' ? invite.email.trim().toLowerCase() : '';
+
+  let authUser;
+  try {
+    authUser = await admin.auth().getUserByEmail(normalizedRequestedEmail);
+
+    logger.info('recoverClaimExistingOrphanByEmail.authUserFound', {
+      uid: authUser.uid,
+      email: authUser.email ?? null,
+      emailVerified: authUser.emailVerified,
+    });
+  } catch (error: any) {
+    logger.error('recoverClaimExistingOrphanByEmail.getUserByEmail.failed', {
+      email: normalizedRequestedEmail,
+      error,
+    });
+
+    if (error?.code === 'auth/user-not-found') {
+      return { ok: true, deleted: false, reason: 'auth-user-not-found' };
+    }
+    throw new HttpsError('internal', 'Auth lookup failed');
+  }
+
+  const targetUserData = (targetUserSnap.data() || {}) as Record<string, any>;
+  logger.info('recoverClaimExistingOrphanByEmail.targetUserLoaded', {
+    existingUserId,
+    targetUserEmail: targetUserData.email ?? null,
+    authUid: targetUserData.authUid ?? null,
+  });
+
+  const normalizedTargetUserEmail = typeof targetUserData.email === 'string'
+    ? targetUserData.email.trim().toLowerCase()
+    : '';
+  const normalizedAuthEmail = typeof authUser.email === 'string' ? authUser.email.trim().toLowerCase() : '';
+
+  logger.info('recoverClaimExistingOrphanByEmail.emailCheck', {
+    requested: normalizedRequestedEmail,
+    invite: normalizedInviteEmail,
+    targetUser: normalizedTargetUserEmail,
+    auth: normalizedAuthEmail,
+  });
+
+  if (
+    !normalizedRequestedEmail
+    || !normalizedInviteEmail
+    || !normalizedTargetUserEmail
+    || !normalizedAuthEmail
+    || normalizedInviteEmail !== normalizedRequestedEmail
+    || normalizedTargetUserEmail !== normalizedRequestedEmail
+    || normalizedAuthEmail !== normalizedRequestedEmail
+  ) {
+    logger.info('recoverClaimExistingOrphanByEmail.emailMismatch', {
+      requested: normalizedRequestedEmail,
+      invite: normalizedInviteEmail,
+      targetUser: normalizedTargetUserEmail,
+      auth: normalizedAuthEmail,
+    });
+    return { ok: true, deleted: false, reason: 'email-mismatch' };
+  }
+
+  if (authUser.emailVerified === true) {
+    logger.info('recoverClaimExistingOrphanByEmail.emailAlreadyVerified', {
+      uid: authUser.uid,
+    });
+    return { ok: true, deleted: false, reason: 'email-already-verified' };
+  }
+
+  if (typeof targetUserData.authUid === 'string' && targetUserData.authUid) {
+    if (targetUserData.authUid !== authUser.uid) {
+      throw new HttpsError('already-exists', 'A felhasználó már egy másik fiókhoz van kapcsolva.');
+    }
+    return { ok: true, deleted: false, reason: 'already-bound' };
+  }
+
+  const linkedUsersSnapshot = await db
+    .collection('users')
+    .where('authUid', '==', authUser.uid)
+    .limit(2)
+    .get();
+
+  logger.info('recoverClaimExistingOrphanByEmail.linkedUsersCheck', {
+    uid: authUser.uid,
+    linkedCount: linkedUsersSnapshot.size,
+  });
+
+  if (!linkedUsersSnapshot.empty) {
+    const linkedToDifferentUser = linkedUsersSnapshot.docs.some(doc => doc.id !== existingUserId);
+    if (linkedToDifferentUser) {
+      throw new HttpsError('failed-precondition', 'A fiók már másik felhasználóhoz kapcsolódik.');
+    }
+    return { ok: true, deleted: false, reason: 'already-bound' };
+  }
+
+  try {
+    await admin.auth().deleteUser(authUser.uid);
+
+    logger.info('recoverClaimExistingOrphanByEmail.authUserDeleted', {
+      uid: authUser.uid,
+      email: normalizedAuthEmail,
+    });
+  } catch (deleteError) {
+    logger.error('recoverClaimExistingOrphanByEmail.deleteUser.failed', {
+      uid: authUser.uid,
+      email: normalizedAuthEmail,
+      deleteError,
+    });
+    throw new HttpsError('internal', 'Auth delete failed');
+  }
+
+  logger.info('recoverClaimExistingOrphanByEmail.success', {
+    deleted: true,
+    uid: authUser.uid,
+  });
+  return { ok: true, deleted: true };
+});
+
 export const enqueueQueuedEmail = onCall({ region: REGION }, async request => {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Unauthorized");

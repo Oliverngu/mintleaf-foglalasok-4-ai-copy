@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Invitation, Unit, Position, User } from '../../../core/models/data';
 import { db, serverTimestamp } from '../../../core/firebase/config';
-import { collection, onSnapshot, query, orderBy, addDoc, doc, deleteDoc, getDocs, where, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, setDoc, Timestamp } from 'firebase/firestore';
 import LoadingSpinner from '../../../../components/LoadingSpinner';
 import PlusIcon from '../../../../components/icons/PlusIcon';
 import CopyIcon from '../../../../components/icons/CopyIcon';
@@ -35,9 +35,11 @@ const CreateInviteModal: React.FC<{
       const newInviteRef = doc(collection(db, 'invitations'));
       await setDoc(newInviteRef, {
         code: newInviteRef.id, // Using the doc ID as the code
+        mode: 'create',
         ...formData,
         status: 'active',
         createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 7)),
       });
       onClose();
     } catch (err) {
@@ -163,8 +165,12 @@ const MeghivokApp: React.FC = () => {
                                 <td className="px-6 py-4 font-medium text-gray-900">
                                     {getUnitName(invite.unitId)} / {invite.position}
                                     <span className="block text-xs font-normal text-gray-500">Szerepkör: {invite.role}</span>
+                                    <span className="block text-xs font-normal text-gray-500">Mód: {invite.mode === 'claim_existing' ? 'Meglévő user claim' : 'Új account'}</span>
                                 </td>
-                                <td className="px-6 py-4">{invite.createdAt?.toDate().toLocaleDateString('hu-HU')}</td>
+                                <td className="px-6 py-4">
+                                    {invite.createdAt?.toDate().toLocaleDateString('hu-HU')}
+                                    <span className="block text-xs text-gray-500">Lejár: {invite.expiresAt?.toDate ? invite.expiresAt.toDate().toLocaleDateString('hu-HU') : '-'}</span>
+                                </td>
                                 <td className="px-6 py-4">{invite.usedAt ? `${getUserName(invite.usedBy || '')} - ${invite.usedAt.toDate().toLocaleDateString('hu-HU')}` : '-'}</td>
                                 <td className="px-6 py-4 flex items-center gap-2">
                                     {invite.status === 'active' && (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../../core/firebase/config';
-import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
+import { auth, db, functions } from '../../core/firebase/config';
+import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification, updateProfile } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import MintLeafLogo from '../../../components/icons/AppleLogo';
 import ArrowIcon from '../../../components/icons/ArrowIcon';
@@ -8,6 +9,11 @@ import EyeIcon from '../../../components/icons/EyeIcon';
 import EyeSlashIcon from '../../../components/icons/EyeSlashIcon';
 import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers';
 import { enqueueQueuedEmail } from '../../core/services/emailQueueService';
+import {
+  isInvitationRedeemable,
+  resolveInvitationMode,
+  validateClaimExistingInvitation,
+} from './registerInvitationFlow';
 
 interface RegisterProps {
   inviteCode: string;
@@ -33,6 +39,10 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       position: string; 
       prefilledLastName?: string;
       prefilledFirstName?: string;
+      mode: 'create' | 'claim_existing';
+      existingUserId?: string;
+      email?: string;
+      expiresAt?: { toDate: () => Date } | null;
     } | null>(null);
 
   useEffect(() => {
@@ -40,19 +50,37 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       try {
         const inviteDoc = await getDoc(doc(db, 'invitations', inviteCode));
         if (inviteDoc.exists()) {
-          const data = inviteDoc.data();
+          const data = inviteDoc.data() || {};
+          if (!isInvitationRedeemable(data as any)) {
+            setError('A meghívó lejárt vagy már felhasznált.');
+            return;
+          }
+
+          const claimValidationError = validateClaimExistingInvitation(data as any);
+          if (claimValidationError) {
+            setError(claimValidationError);
+            return;
+          }
+
           setInviteDetails({
             role: data?.role || 'User',
             unitId: data?.unitId || '',
             position: data?.position || '',
             prefilledLastName: data?.prefilledLastName,
             prefilledFirstName: data?.prefilledFirstName,
+            mode: resolveInvitationMode(data as any),
+            existingUserId: data?.existingUserId,
+            email: data?.email,
+            expiresAt: data?.expiresAt || null,
           });
           if (data?.prefilledLastName) {
               setLastName(data.prefilledLastName);
           }
           if (data?.prefilledFirstName) {
               setFirstName(data.prefilledFirstName);
+          }
+          if (typeof data?.email === 'string' && data.email.trim()) {
+            setEmail(data.email.trim());
           }
         } else {
           setError('Érvénytelen meghívó kód.');
@@ -64,6 +92,25 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
     };
     fetchInviteDetails();
   }, [inviteCode]);
+
+  const getClaimFinalizeErrorMessage = (code?: string) => {
+    switch (code) {
+      case 'already-exists':
+        return 'Ez a felhasználó már egy másik fiókhoz van kapcsolva.';
+      case 'deadline-exceeded':
+        return 'A meghívó lejárt.';
+      case 'failed-precondition':
+        return 'A meghívó már nem használható fel.';
+      case 'not-found':
+        return 'A meghívóhoz tartozó felhasználó nem található.';
+      default:
+        return 'Hiba a meglévő felhasználó aktiválása során. Próbáld újra később.';
+    }
+  };
+
+
+  const claimEmailInUseRecoveryMessage =
+    'Ehhez az email címhez már tartozik egy fiók. Ha ez egy korábbi félbeszakadt regisztráció, próbáld újra pár másodperc múlva.';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,25 +127,161 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
 
     try {
       const trimmedUsername = username.trim();
+      const inviteMode = resolveInvitationMode(inviteDetails as any);
+      const finalizeClaim = httpsCallable<
+        { inviteCode: string; profile: Record<string, unknown> },
+        { ok: boolean; userId: string }
+      >(functions, 'finalizeClaimExistingInvitation');
+      const cleanupFailedClaim = httpsCallable<
+        { inviteCode: string; email: string },
+        { ok: boolean; deleted: boolean; reason?: string }
+      >(functions, 'cleanupFailedClaimExistingAuthUser');
+      const recoverClaimExistingOrphan = httpsCallable<
+        { inviteCode: string; email: string },
+        { ok: boolean; deleted: boolean; reason?: string }
+      >(functions, 'recoverClaimExistingOrphanByEmail');
 
-      // 1. Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const runClaimExistingRegistrationAttempt = async () => {
+        const normalizedEmail = email.trim();
+        const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+        const user = userCredential.user;
+        if (!user) throw new Error('User creation failed.');
+
+        await saveNicknameForUser(user.uid, normalizedEmail, trimmedUsername);
+        await sendEmailVerification(user);
+
+        const userFullName = `${lastName.trim()} ${firstName.trim()}`;
+        await updateProfile(user, {
+          displayName: userFullName,
+        });
+
+        const userDataForDb = {
+          name: trimmedUsername,
+          nickname: trimmedUsername,
+          nicknameLower: trimmedUsername.toLowerCase(),
+          lastName: lastName.trim(),
+          firstName: firstName.trim(),
+          fullName: userFullName,
+          email: normalizedEmail,
+          role: inviteDetails.role,
+          unitIds: [inviteDetails.unitId],
+          position: inviteDetails.position,
+          registrationEmailSent: true,
+          notifications: {
+            newSchedule: true,
+          },
+        };
+
+        try {
+          await finalizeClaim({
+            inviteCode,
+            profile: {
+              name: userDataForDb.name,
+              nickname: userDataForDb.nickname,
+              nicknameLower: userDataForDb.nicknameLower,
+              lastName: userDataForDb.lastName,
+              firstName: userDataForDb.firstName,
+              fullName: userDataForDb.fullName,
+              email: userDataForDb.email,
+              registrationEmailSent: true,
+            },
+          });
+        } catch (claimError: any) {
+          try {
+            await deleteUser(user);
+          } catch (rollbackError) {
+            console.error('Failed to rollback auth user after claim_existing error:', rollbackError);
+          }
+
+          try {
+            await cleanupFailedClaim({
+              inviteCode,
+              email: normalizedEmail,
+            });
+          } catch (cleanupError) {
+            console.error('Failed to cleanup orphaned auth user after claim_existing error:', cleanupError);
+          }
+
+          const mappedError: any = new Error('Claim finalize failed');
+          mappedError.code = 'claim-finalize-failed';
+          mappedError.userMessage = getClaimFinalizeErrorMessage(claimError?.code);
+          throw mappedError;
+        }
+
+        return userDataForDb;
+      };
+
+      if (inviteMode === 'claim_existing') {
+        let claimResultData;
+        try {
+          claimResultData = await runClaimExistingRegistrationAttempt();
+        } catch (claimAttemptError: any) {
+          if (claimAttemptError?.code === 'claim-finalize-failed') {
+            setError(claimAttemptError?.userMessage || getClaimFinalizeErrorMessage());
+            setIsLoading(false);
+            return;
+          }
+
+          if (claimAttemptError?.code === 'auth/email-already-in-use') {
+            try {
+              const recoveryResult = await recoverClaimExistingOrphan({
+                inviteCode,
+                email: email.trim(),
+              });
+
+              if (!recoveryResult.data?.deleted) {
+                setError(claimEmailInUseRecoveryMessage);
+                setIsLoading(false);
+                return;
+              }
+            } catch (recoveryError) {
+              console.error('Failed to recover claim_existing orphan auth user:', recoveryError);
+              setError(claimEmailInUseRecoveryMessage);
+              setIsLoading(false);
+              return;
+            }
+
+            try {
+              claimResultData = await runClaimExistingRegistrationAttempt();
+            } catch (retryError: any) {
+              if (retryError?.code === 'claim-finalize-failed') {
+                setError(retryError?.userMessage || getClaimFinalizeErrorMessage());
+              } else if (retryError?.code === 'auth/email-already-in-use') {
+                setError(claimEmailInUseRecoveryMessage);
+              } else {
+                throw retryError;
+              }
+              setIsLoading(false);
+              return;
+            }
+          } else {
+            throw claimAttemptError;
+          }
+        }
+
+        await enqueueQueuedEmail('register_welcome', null, {
+          name: claimResultData.firstName,
+          email: claimResultData.email,
+        });
+
+        onRegisterSuccess();
+        return;
+      }
+
+      // create mode unchanged
+      const normalizedEmail = email.trim();
+      const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       const user = userCredential.user;
-      if (!user) throw new Error("User creation failed.");
+      if (!user) throw new Error('User creation failed.');
 
-      // 2. Persist nickname with uniqueness check
-      await saveNicknameForUser(user.uid, email.trim(), trimmedUsername);
-
-      // 3. Send verification email
+      await saveNicknameForUser(user.uid, normalizedEmail, trimmedUsername);
       await sendEmailVerification(user);
 
-      // 4. Update Firebase Auth profile
       const userFullName = `${lastName.trim()} ${firstName.trim()}`;
       await updateProfile(user, {
         displayName: userFullName,
       });
 
-      // 5. Create user document in Firestore
       const userDataForDb = {
         name: trimmedUsername,
         nickname: trimmedUsername,
@@ -106,31 +289,29 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
         lastName: lastName.trim(),
         firstName: firstName.trim(),
         fullName: userFullName,
-        email: email.trim(),
+        email: normalizedEmail,
         role: inviteDetails.role,
-        unitIds: [inviteDetails.unitId], // Assign unitId into the new array structure
+        unitIds: [inviteDetails.unitId],
         position: inviteDetails.position,
-        registrationEmailSent: true, // Mark as sent immediately
+        registrationEmailSent: true,
         notifications: {
-          newSchedule: true, // Default to on
+          newSchedule: true,
         },
       };
+
       await setDoc(doc(db, 'users', user.uid), userDataForDb);
 
-      // 6. Send registration email via the new service
-      await enqueueQueuedEmail('register_welcome', null, {
-        name: userDataForDb.firstName,
-        email: userDataForDb.email
-      });
-
-      // 7. Mark invitation as used
       await updateDoc(doc(db, 'invitations', inviteCode), {
         status: 'used',
         usedBy: user.uid,
         usedAt: new Date(),
       });
 
-      // 8. Call success callback
+      await enqueueQueuedEmail('register_welcome', null, {
+        name: userDataForDb.firstName,
+        email: userDataForDb.email,
+      });
+
       onRegisterSuccess();
     } catch (err: any) {
       switch (err.code) {
@@ -200,7 +381,7 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
             />
         </div>
         <div><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Felhasználónév" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500"/></div>
-        <div><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email cím" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500"/></div>
+        <div><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email cím" required className={`w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 ${inviteDetails?.email ? 'bg-gray-100 cursor-not-allowed' : ''}`} readOnly={!!inviteDetails?.email}/></div>
         <div className="relative">
             <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Jelszó" required className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 pr-12"/>
             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-4 flex items-center text-gray-500 hover:text-green-600">
