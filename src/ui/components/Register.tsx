@@ -165,6 +165,10 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
           { inviteCode: string; profile: Record<string, unknown> },
           { ok: boolean; userId: string }
         >(functions, 'finalizeClaimExistingInvitation');
+        const cleanupFailedClaim = httpsCallable<
+          { inviteCode: string; email: string },
+          { ok: boolean; deleted: boolean; reason?: string }
+        >(functions, 'cleanupFailedClaimExistingAuthUser');
 
         try {
           await finalizeClaim({
@@ -185,6 +189,15 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
             await deleteUser(user);
           } catch (rollbackError) {
             console.error('Failed to rollback auth user after claim_existing error:', rollbackError);
+          }
+
+          try {
+            await cleanupFailedClaim({
+              inviteCode,
+              email: email.trim(),
+            });
+          } catch (cleanupError) {
+            console.error('Failed to cleanup orphaned auth user after claim_existing error:', cleanupError);
           }
 
           setError(getClaimFinalizeErrorMessage(claimError?.code));
