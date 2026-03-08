@@ -4534,6 +4534,40 @@ export const cleanupFailedClaimExistingAuthUser = onCall({ region: REGION }, asy
 
 
 export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, async request => {
+  const throwRecoverError = (
+    step: string,
+    error: any,
+    fallbackCode: 'internal' | 'permission-denied' | 'deadline-exceeded' | 'already-exists' | 'not-found',
+    fallbackMessage: string,
+    context: Record<string, unknown> = {}
+  ): never => {
+    logger.error(`recoverClaimExistingOrphanByEmail.${step}.failed`, {
+      ...context,
+      error,
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    const rawCode = typeof error?.code === 'string' ? error.code : '';
+    const normalizedCode = rawCode.replace(/^functions\//, '');
+    if (normalizedCode === 'deadline-exceeded') {
+      throw new HttpsError('deadline-exceeded', `${fallbackMessage} (timeout)`);
+    }
+    if (normalizedCode === 'permission-denied' || rawCode === 'auth/insufficient-permission') {
+      throw new HttpsError('permission-denied', `${fallbackMessage} (permission denied)`);
+    }
+    if (normalizedCode === 'already-exists') {
+      throw new HttpsError('already-exists', fallbackMessage);
+    }
+    if (normalizedCode === 'not-found') {
+      throw new HttpsError('not-found', fallbackMessage);
+    }
+
+    throw new HttpsError(fallbackCode, fallbackMessage);
+  };
+
   const data = request.data || {};
   if (typeof data !== 'object' || Array.isArray(data)) {
     throw new HttpsError('invalid-argument', 'Érvénytelen kérés');
@@ -4554,7 +4588,14 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
   }
 
   const invitationRef = db.collection('invitations').doc(inviteCode.trim());
-  const invitationSnap = await invitationRef.get();
+  let invitationSnap;
+  try {
+    invitationSnap = await invitationRef.get();
+  } catch (error) {
+    throwRecoverError('invitationFetch', error, 'internal', 'A meghívó beolvasása sikertelen volt.', {
+      inviteCode,
+    });
+  }
   if (!invitationSnap.exists) {
     throw new HttpsError('not-found', 'A meghívó nem található.');
   }
@@ -4587,7 +4628,15 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
   }
 
   const targetUserRef = db.collection('users').doc(existingUserId);
-  const targetUserSnap = await targetUserRef.get();
+  let targetUserSnap;
+  try {
+    targetUserSnap = await targetUserRef.get();
+  } catch (error) {
+    throwRecoverError('targetUserFetch', error, 'internal', 'A cél felhasználó beolvasása sikertelen volt.', {
+      inviteCode,
+      existingUserId,
+    });
+  }
   if (!targetUserSnap.exists) {
     throw new HttpsError('not-found', 'A meghívóhoz tartozó felhasználó nem található.');
   }
@@ -4605,15 +4654,17 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
       emailVerified: authUser.emailVerified,
     });
   } catch (error: any) {
-    logger.error('recoverClaimExistingOrphanByEmail.getUserByEmail.failed', {
-      email: normalizedRequestedEmail,
-      error,
-    });
-
     if (error?.code === 'auth/user-not-found') {
       return { ok: true, deleted: false, reason: 'auth-user-not-found' };
     }
-    throw new HttpsError('internal', 'Auth lookup failed');
+
+    if (error?.code === 'auth/invalid-email') {
+      throw new HttpsError('invalid-argument', 'Érvénytelen email cím.');
+    }
+
+    throwRecoverError('getUserByEmail', error, 'internal', 'Auth lookup failed', {
+      email: normalizedRequestedEmail,
+    });
   }
 
   const targetUserData = (targetUserSnap.data() || {}) as Record<string, any>;
@@ -4667,11 +4718,19 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
     return { ok: true, deleted: false, reason: 'already-bound' };
   }
 
-  const linkedUsersSnapshot = await db
-    .collection('users')
-    .where('authUid', '==', authUser.uid)
-    .limit(2)
-    .get();
+  let linkedUsersSnapshot;
+  try {
+    linkedUsersSnapshot = await db
+      .collection('users')
+      .where('authUid', '==', authUser.uid)
+      .limit(2)
+      .get();
+  } catch (error) {
+    throwRecoverError('linkedUsersQuery', error, 'internal', 'A kapcsolt felhasználók lekérdezése sikertelen volt.', {
+      uid: authUser.uid,
+      existingUserId,
+    });
+  }
 
   logger.info('recoverClaimExistingOrphanByEmail.linkedUsersCheck', {
     uid: authUser.uid,
@@ -4693,13 +4752,18 @@ export const recoverClaimExistingOrphanByEmail = onCall({ region: REGION }, asyn
       uid: authUser.uid,
       email: normalizedAuthEmail,
     });
-  } catch (deleteError) {
-    logger.error('recoverClaimExistingOrphanByEmail.deleteUser.failed', {
+  } catch (deleteError: any) {
+    if (deleteError?.code === 'auth/user-not-found') {
+      logger.info('recoverClaimExistingOrphanByEmail.authUserAlreadyDeleted', {
+        uid: authUser.uid,
+        email: normalizedAuthEmail,
+      });
+      return { ok: true, deleted: false, reason: 'auth-user-not-found' };
+    }
+    throwRecoverError('deleteUser', deleteError, 'internal', 'Auth delete failed', {
       uid: authUser.uid,
       email: normalizedAuthEmail,
-      deleteError,
     });
-    throw new HttpsError('internal', 'Auth delete failed');
   }
 
   logger.info('recoverClaimExistingOrphanByEmail.success', {
