@@ -106,6 +106,27 @@ const ThemeManagerBridge: React.FC<{
   );
 };
 
+
+const CLAIM_BOOTSTRAP_GUARD_KEY = 'mintleaf_claim_existing_in_progress';
+
+const isClaimBootstrapGuardActive = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return Boolean(window.sessionStorage.getItem(CLAIM_BOOTSTRAP_GUARD_KEY));
+  } catch {
+    return false;
+  }
+};
+
+const clearClaimBootstrapGuard = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(CLAIM_BOOTSTRAP_GUARD_KEY);
+  } catch {
+    // no-op
+  }
+};
+
 const normalizeUserUnitIds = (data: any): string[] => {
   const u1 = Array.isArray(data?.unitIds) ? data.unitIds : [];
   const u2 = Array.isArray(data?.unitIDs) ? data.unitIDs : [];
@@ -242,8 +263,17 @@ const App: React.FC = () => {
       setFirestoreError(null);
 
       if (!firebaseUser) {
+        clearClaimBootstrapGuard();
         setCurrentUser(null);
         setAppState(isReservePage || isManagePage ? 'public' : 'login');
+        return;
+      }
+
+      const claimGuardActive = isClaimBootstrapGuardActive();
+      const isRegisterFlowActive = appState === 'register' || Boolean(inviteCode);
+      if (claimGuardActive && isRegisterFlowActive) {
+        console.log('claim_existing bootstrap guard active, delaying auth bootstrap');
+        setAppState('register');
         return;
       }
 
@@ -308,6 +338,11 @@ const App: React.FC = () => {
               setAppState('login');
               return;
             } else if (normalizedCode === 'permission-denied' || normalizedCode === 'internal') {
+              if (isClaimBootstrapGuardActive() && (appState === 'register' || Boolean(inviteCode))) {
+                console.log('claim_existing guard active during resolve error, keeping register state');
+                setAppState('register');
+                return;
+              }
               setLoginMessage({
                 type: 'error',
                 text: 'A bejelentkezés most nem sikerült. Próbáld újra később.',
@@ -396,7 +431,7 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [isDemoMode]);
+  }, [isDemoMode, appState, inviteCode]);
 
   // ---------- Global theme Firestore listener (ONLY after currentUser exists) ----------
   useEffect(() => {
