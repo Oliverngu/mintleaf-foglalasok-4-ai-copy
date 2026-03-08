@@ -4460,6 +4460,37 @@ export const finalizeClaimExistingInvitation = onCall({ region: REGION }, async 
   return { ok: true, userId: result.userId };
 });
 
+export const resolveUserDocByAuthUid = onCall({ region: REGION }, async request => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Unauthorized');
+  }
+
+  const authUid = request.auth.uid;
+  const snapshot = await db
+    .collection('users')
+    .where('authUid', '==', authUid)
+    .limit(2)
+    .get();
+
+  if (snapshot.empty) {
+    logger.info('resolveUserDocByAuthUid.notFound', { authUid });
+    return { ok: false, reason: 'not-found' as const };
+  }
+
+  if (snapshot.size > 1) {
+    logger.error('resolveUserDocByAuthUid.duplicateAuthUid', {
+      authUid,
+      count: snapshot.size,
+      userIds: snapshot.docs.map(docSnap => docSnap.id),
+    });
+    throw new HttpsError('failed-precondition', 'Duplicate authUid bindings found for this account.');
+  }
+
+  const userId = snapshot.docs[0].id;
+  logger.info('resolveUserDocByAuthUid.resolved', { authUid, userId });
+  return { ok: true, userId };
+});
+
 
 
 export const cleanupFailedClaimExistingAuthUser = onCall({ region: REGION }, async request => {

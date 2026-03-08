@@ -22,8 +22,9 @@ import {
   Poll,
 } from '../core/models/data';
 
-import { auth, db } from '../core/firebase/config';
+import { auth, db, functions } from '../core/firebase/config';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 
 import {
   collection,
@@ -55,6 +56,10 @@ type PublicPage =
   | { type: 'reserve'; unitId: string }
   | { type: 'manage'; unitId: string; reservationId: string; manageToken: string }
   | { type: 'error'; message: string };
+
+type ResolveUserDocByAuthUidResponse =
+  | { ok: true; userId: string }
+  | { ok: false; reason: 'not-found' };
 
 const ThemeManagerBridge: React.FC<{
   allUnits: Unit[];
@@ -225,22 +230,60 @@ const App: React.FC = () => {
       try {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
+        const resolveBoundUserDoc = httpsCallable<Record<string, never>, ResolveUserDocByAuthUidResponse>(
+          functions,
+          'resolveUserDocByAuthUid'
+        );
 
         let userData: User;
         let resolvedUserDocId = firebaseUser.uid;
         let resolvedData: any | null = userDoc.exists() ? userDoc.data() : null;
+        let allowUserDocCreate = false;
 
         if (!resolvedData) {
-          const boundQuery = query(
-            collection(db, 'users'),
-            where('authUid', '==', firebaseUser.uid),
-            limit(1)
-          );
-          const boundSnapshot = await getDocs(boundQuery);
-          const boundDoc = boundSnapshot.docs[0];
-          if (boundDoc) {
-            resolvedUserDocId = boundDoc.id;
-            resolvedData = boundDoc.data();
+          try {
+            const resolveResult = await resolveBoundUserDoc({});
+            const resolvedPayload = resolveResult.data;
+            if (resolvedPayload?.ok && resolvedPayload.userId) {
+              resolvedUserDocId = resolvedPayload.userId;
+              const resolvedDoc = await getDoc(doc(db, 'users', resolvedUserDocId));
+              if (resolvedDoc.exists()) {
+                resolvedData = resolvedDoc.data();
+              }
+            } else {
+              allowUserDocCreate = true;
+            }
+          } catch (resolveError: any) {
+            const rawCode = typeof resolveError?.code === 'string' ? resolveError.code : '';
+            const normalizedCode = rawCode.replace(/^functions\//, '');
+            console.error('resolveUserDocByAuthUid failed', {
+              code: normalizedCode || rawCode || 'unknown',
+              message: resolveError?.message || String(resolveError),
+            });
+
+            if (normalizedCode === 'not-found') {
+              allowUserDocCreate = true;
+            } else if (normalizedCode === 'failed-precondition') {
+              setLoginMessage({
+                type: 'error',
+                text: 'A felhasználói fiók adatai hibás állapotban vannak. Próbáld újra később.',
+              });
+              await signOut(auth);
+              setCurrentUser(null);
+              setAppState('login');
+              return;
+            } else if (normalizedCode === 'permission-denied' || normalizedCode === 'internal') {
+              setLoginMessage({
+                type: 'error',
+                text: 'A bejelentkezés most nem sikerült. Próbáld újra később.',
+              });
+              await signOut(auth);
+              setCurrentUser(null);
+              setAppState('login');
+              return;
+            } else {
+              throw resolveError;
+            }
           }
         }
 
@@ -262,7 +305,7 @@ const App: React.FC = () => {
             position: (resolvedData as any)?.position,
             dashboardConfig: (resolvedData as any)?.dashboardConfig,
           };
-        } else {
+        } else if (allowUserDocCreate) {
           // first user -> Admin, else User
           const allUsersQuery = query(collection(db, 'users'), limit(1));
           const allUsersSnapshot = await getDocs(allUsersQuery);
@@ -293,6 +336,15 @@ const App: React.FC = () => {
             role: userData.role,
             unitIds: userData.unitIds,
           });
+        } else {
+          setLoginMessage({
+            type: 'error',
+            text: 'A felhasználóhoz tartozó profil nem található. Próbáld újra később.',
+          });
+          await signOut(auth);
+          setCurrentUser(null);
+          setAppState('login');
+          return;
         }
 
         setCurrentUser(userData);
