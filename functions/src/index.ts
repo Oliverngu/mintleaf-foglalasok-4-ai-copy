@@ -4460,6 +4460,57 @@ export const finalizeClaimExistingInvitation = onCall({ region: REGION }, async 
   return { ok: true, userId: result.userId };
 });
 
+type ResolvedUserBootstrapPayload = {
+  id: string;
+  name: string;
+  lastName: string;
+  firstName: string;
+  fullName: string;
+  email: string;
+  role: string;
+  unitIds: string[];
+  position?: string;
+  dashboardConfig?: any;
+  authUid?: string;
+};
+
+const mapUserDocToResolvedBootstrapPayload = (
+  userId: string,
+  userData: Record<string, any>,
+  authUid: string
+): ResolvedUserBootstrapPayload => {
+  const unitIds = Array.isArray(userData.unitIds)
+    ? userData.unitIds.filter((id: unknown): id is string => typeof id === 'string')
+    : Array.isArray(userData.unitIDs)
+      ? userData.unitIDs.filter((id: unknown): id is string => typeof id === 'string')
+      : typeof userData.unitId === 'string' && userData.unitId
+        ? [userData.unitId]
+        : [];
+
+  const lastName = typeof userData.lastName === 'string' ? userData.lastName : '';
+  const firstName = typeof userData.firstName === 'string' ? userData.firstName : '';
+  const fullName =
+    typeof userData.fullName === 'string' && userData.fullName.trim()
+      ? userData.fullName
+      : `${lastName} ${firstName}`.trim();
+
+  const payload: ResolvedUserBootstrapPayload = {
+    id: userId,
+    name: typeof userData.name === 'string' && userData.name.trim() ? userData.name : '',
+    lastName,
+    firstName,
+    fullName,
+    email: typeof userData.email === 'string' && userData.email.trim() ? userData.email : '',
+    role: typeof userData.role === 'string' && userData.role.trim() ? userData.role : 'User',
+    unitIds,
+    position: typeof userData.position === 'string' ? userData.position : undefined,
+    dashboardConfig: userData.dashboardConfig,
+    authUid: typeof userData.authUid === 'string' ? userData.authUid : authUid,
+  };
+
+  return payload;
+};
+
 export const resolveUserDocByAuthUid = onCall({ region: REGION }, async request => {
   if (!request.auth?.uid) {
     throw new HttpsError('unauthenticated', 'Unauthorized');
@@ -4486,9 +4537,13 @@ export const resolveUserDocByAuthUid = onCall({ region: REGION }, async request 
     throw new HttpsError('failed-precondition', 'Duplicate authUid bindings found for this account.');
   }
 
-  const userId = snapshot.docs[0].id;
+  const resolvedDoc = snapshot.docs[0];
+  const userId = resolvedDoc.id;
+  const userData = (resolvedDoc.data() || {}) as Record<string, any>;
+  const user = mapUserDocToResolvedBootstrapPayload(userId, userData, authUid);
+
   logger.info('resolveUserDocByAuthUid.resolved', { authUid, userId });
-  return { ok: true, userId };
+  return { ok: true, userId, user };
 });
 
 

@@ -21,6 +21,27 @@ interface RegisterProps {
   onRegisterSuccess: () => void;
 }
 
+
+const CLAIM_BOOTSTRAP_GUARD_KEY = 'mintleaf_claim_existing_in_progress';
+
+const setClaimBootstrapGuard = (activeInviteCode: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(CLAIM_BOOTSTRAP_GUARD_KEY, activeInviteCode || '1');
+  } catch {
+    // no-op
+  }
+};
+
+const clearClaimBootstrapGuard = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(CLAIM_BOOTSTRAP_GUARD_KEY);
+  } catch {
+    // no-op
+  }
+};
+
 const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -213,67 +234,78 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
       };
 
       if (inviteMode === 'claim_existing') {
-        let claimResultData;
+        setClaimBootstrapGuard(inviteCode);
+        let claimGuardActive = true;
+
         try {
-          claimResultData = await runClaimExistingRegistrationAttempt();
-        } catch (claimAttemptError: any) {
-          if (claimAttemptError?.code === 'claim-finalize-failed') {
-            setError(claimAttemptError?.userMessage || getClaimFinalizeErrorMessage());
-            setIsLoading(false);
-            return;
-          }
+          let claimResultData;
+          try {
+            claimResultData = await runClaimExistingRegistrationAttempt();
+          } catch (claimAttemptError: any) {
+            if (claimAttemptError?.code === 'claim-finalize-failed') {
+              setError(claimAttemptError?.userMessage || getClaimFinalizeErrorMessage());
+              setIsLoading(false);
+              return;
+            }
 
-          if (claimAttemptError?.code === 'auth/email-already-in-use') {
-            try {
-              const recoveryResult = await recoverClaimExistingOrphan({
-                inviteCode,
-                email: email.trim(),
-              });
+            if (claimAttemptError?.code === 'auth/email-already-in-use') {
+              try {
+                const recoveryResult = await recoverClaimExistingOrphan({
+                  inviteCode,
+                  email: email.trim(),
+                });
 
-              if (!recoveryResult.data?.deleted) {
-                setError(claimEmailInUseRecoveryMessage);
+                if (!recoveryResult.data?.deleted) {
+                  setError(claimEmailInUseRecoveryMessage);
+                  setIsLoading(false);
+                  return;
+                }
+              } catch (recoveryError) {
+                const recoveryCode = recoveryError?.code;
+                const recoveryDetails = recoveryError?.details;
+                console.error('Failed to recover claim_existing orphan auth user:', {
+                  code: recoveryCode,
+                  message: recoveryError?.message,
+                  details: recoveryDetails,
+                  raw: recoveryError,
+                });
+                setError(mapClaimRecoveryErrorMessage(claimEmailInUseRecoveryMessage, recoveryCode, recoveryDetails));
                 setIsLoading(false);
                 return;
               }
-            } catch (recoveryError) {
-              const recoveryCode = recoveryError?.code;
-              const recoveryDetails = recoveryError?.details;
-              console.error('Failed to recover claim_existing orphan auth user:', {
-                code: recoveryCode,
-                message: recoveryError?.message,
-                details: recoveryDetails,
-                raw: recoveryError,
-              });
-              setError(mapClaimRecoveryErrorMessage(claimEmailInUseRecoveryMessage, recoveryCode, recoveryDetails));
-              setIsLoading(false);
-              return;
-            }
 
-            try {
-              claimResultData = await runClaimExistingRegistrationAttempt();
-            } catch (retryError: any) {
-              if (retryError?.code === 'claim-finalize-failed') {
-                setError(retryError?.userMessage || getClaimFinalizeErrorMessage());
-              } else if (retryError?.code === 'auth/email-already-in-use') {
-                setError(claimEmailInUseRecoveryMessage);
-              } else {
-                throw retryError;
+              try {
+                claimResultData = await runClaimExistingRegistrationAttempt();
+              } catch (retryError: any) {
+                if (retryError?.code === 'claim-finalize-failed') {
+                  setError(retryError?.userMessage || getClaimFinalizeErrorMessage());
+                } else if (retryError?.code === 'auth/email-already-in-use') {
+                  setError(claimEmailInUseRecoveryMessage);
+                } else {
+                  throw retryError;
+                }
+                setIsLoading(false);
+                return;
               }
-              setIsLoading(false);
-              return;
+            } else {
+              throw claimAttemptError;
             }
-          } else {
-            throw claimAttemptError;
+          }
+
+          await enqueueQueuedEmail('register_welcome', null, {
+            name: claimResultData.firstName,
+            email: claimResultData.email,
+          });
+
+          clearClaimBootstrapGuard();
+          claimGuardActive = false;
+          onRegisterSuccess();
+          return;
+        } finally {
+          if (claimGuardActive) {
+            clearClaimBootstrapGuard();
           }
         }
-
-        await enqueueQueuedEmail('register_welcome', null, {
-          name: claimResultData.firstName,
-          email: claimResultData.email,
-        });
-
-        onRegisterSuccess();
-        return;
       }
 
       // create mode unchanged
