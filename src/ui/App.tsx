@@ -57,9 +57,29 @@ type PublicPage =
   | { type: 'manage'; unitId: string; reservationId: string; manageToken: string }
   | { type: 'error'; message: string };
 
+type ResolvedUserBootstrapPayload = {
+  id: string;
+  name?: string;
+  lastName?: string;
+  firstName?: string;
+  fullName?: string;
+  email?: string;
+  role?: User['role'];
+  unitIds?: string[];
+  position?: string;
+  dashboardConfig?: User['dashboardConfig'];
+  authUid?: string;
+};
+
 type ResolveUserDocByAuthUidResponse =
-  | { ok: true; userId: string }
+  | { ok: true; userId: string; user?: ResolvedUserBootstrapPayload }
   | { ok: false; reason: 'not-found' };
+
+const isPermissionDeniedError = (err: any): boolean => {
+  const rawCode = typeof err?.code === 'string' ? err.code : '';
+  const normalizedCode = rawCode.replace(/^functions\//, '');
+  return normalizedCode === 'permission-denied';
+};
 
 const ThemeManagerBridge: React.FC<{
   allUnits: Unit[];
@@ -229,7 +249,6 @@ const App: React.FC = () => {
 
       try {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
         const resolveBoundUserDoc = httpsCallable<Record<string, never>, ResolveUserDocByAuthUidResponse>(
           functions,
           'resolveUserDocByAuthUid'
@@ -237,8 +256,20 @@ const App: React.FC = () => {
 
         let userData: User;
         let resolvedUserDocId = firebaseUser.uid;
-        let resolvedData: any | null = userDoc.exists() ? userDoc.data() : null;
+        let resolvedData: any | null = null;
         let allowUserDocCreate = false;
+
+        try {
+          const userDoc = await getDoc(userDocRef);
+          resolvedData = userDoc.exists() ? userDoc.data() : null;
+        } catch (directReadError: any) {
+          if (isPermissionDeniedError(directReadError)) {
+            console.log('direct read denied for auth uid');
+            resolvedData = null;
+          } else {
+            throw directReadError;
+          }
+        }
 
         if (!resolvedData) {
           try {
@@ -246,12 +277,16 @@ const App: React.FC = () => {
             const resolvedPayload = resolveResult.data;
             if (resolvedPayload?.ok && resolvedPayload.userId) {
               resolvedUserDocId = resolvedPayload.userId;
-              const resolvedDoc = await getDoc(doc(db, 'users', resolvedUserDocId));
-              if (resolvedDoc.exists()) {
-                resolvedData = resolvedDoc.data();
+              console.log('resolved bound user doc id', resolvedUserDocId);
+              if (resolvedPayload.user) {
+                resolvedData = resolvedPayload.user;
+              } else {
+                console.error('resolved bound doc read failed', 'missing callable user payload');
               }
             } else {
-              allowUserDocCreate = true;
+              if (resolvedPayload?.reason === 'not-found') {
+                allowUserDocCreate = true;
+              }
             }
           } catch (resolveError: any) {
             const rawCode = typeof resolveError?.code === 'string' ? resolveError.code : '';
