@@ -11,6 +11,7 @@ import { NICKNAME_TAKEN, saveNicknameForUser } from '../../core/auth/authHelpers
 import { enqueueQueuedEmail } from '../../core/services/emailQueueService';
 import {
   isInvitationRedeemable,
+  mapClaimRecoveryErrorMessage,
   resolveInvitationMode,
   validateClaimExistingInvitation,
 } from './registerInvitationFlow';
@@ -235,8 +236,15 @@ const Register: React.FC<RegisterProps> = ({ inviteCode, onRegisterSuccess }) =>
                 return;
               }
             } catch (recoveryError) {
-              console.error('Failed to recover claim_existing orphan auth user:', recoveryError);
-              setError(claimEmailInUseRecoveryMessage);
+              const recoveryCode = recoveryError?.code;
+              const recoveryDetails = recoveryError?.details;
+              console.error('Failed to recover claim_existing orphan auth user:', {
+                code: recoveryCode,
+                message: recoveryError?.message,
+                details: recoveryDetails,
+                raw: recoveryError,
+              });
+              setError(mapClaimRecoveryErrorMessage(claimEmailInUseRecoveryMessage, recoveryCode, recoveryDetails));
               setIsLoading(false);
               return;
             }

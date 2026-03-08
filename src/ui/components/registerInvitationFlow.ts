@@ -33,3 +33,29 @@ export const validateClaimExistingInvitation = (value: InvitationLike): string |
   }
   return null;
 };
+
+export const mapClaimRecoveryErrorMessage = (
+  fallbackMessage: string,
+  code?: string,
+  details?: unknown
+): string => {
+  const normalizedCode = typeof code === 'string' ? code.replace(/^functions\//, '') : code;
+
+  switch (normalizedCode) {
+    case 'not-found':
+      return 'A helyreállításhoz szükséges meghívó vagy felhasználó nem található.';
+    case 'failed-precondition':
+      return 'A meghívó állapota miatt most nem futtatható helyreállítás.';
+    case 'permission-denied':
+      return 'Nincs jogosultság a helyreállításhoz. Próbáld újra később.';
+    case 'deadline-exceeded':
+      return 'A helyreállítás időtúllépés miatt megszakadt. Próbáld újra.';
+    case 'already-exists':
+      return 'A fiók már másik felhasználóhoz kapcsolódik, nem törölhető automatikusan.';
+    default:
+      if (typeof details === 'string' && details.trim()) {
+        return details;
+      }
+      return fallbackMessage;
+  }
+};
