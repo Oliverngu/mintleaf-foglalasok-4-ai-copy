@@ -263,6 +263,17 @@ const App: React.FC = () => {
       setFirestoreError(null);
 
       if (!firebaseUser) {
+        const registerCodeFromUrl = new URLSearchParams(window.location.search).get('register');
+        const shouldStayOnRegister =
+          appState === 'register' || Boolean(inviteCode) || Boolean(registerCodeFromUrl);
+
+        if (shouldStayOnRegister) {
+          console.log('keeping register state while unauthenticated invite flow is active');
+          setCurrentUser(null);
+          setAppState('register');
+          return;
+        }
+
         clearClaimBootstrapGuard();
         setCurrentUser(null);
         setAppState(isReservePage || isManagePage ? 'public' : 'login');
