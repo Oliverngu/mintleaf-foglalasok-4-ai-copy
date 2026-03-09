@@ -472,7 +472,9 @@ const App: React.FC = () => {
   // Units: Admin => all, non-admin => only documentId in unitIds
   useEffect(() => {
     if (isDemoMode) return;
+    if (appState !== 'dashboard') return;
     if (!currentUser) return;
+    if (!currentUser?.id) return;
 
     const isAdmin = currentUser.role === 'Admin';
     const unitIds = currentUser.unitIds || [];
@@ -516,11 +518,13 @@ const App: React.FC = () => {
       unsubPerms?.();
       unsubUnits?.();
     };
-  }, [isDemoMode, currentUser?.id, currentUser?.role, JSON.stringify(currentUser?.unitIds ?? [])]);
+  }, [appState, isDemoMode, currentUser?.id, currentUser?.role, JSON.stringify(currentUser?.unitIds ?? [])]);
 
   // ---------- Authenticated data listeners (NO collectionGroup for top-level polls/feedback) ----------
   useEffect(() => {
-    if (!currentUser || isDemoMode) return;
+    if (isDemoMode) return;
+    if (appState !== 'dashboard') return;
+    if (!currentUser || !currentUser?.id) return;
 
     setFirestoreError(null);
 
@@ -659,7 +663,7 @@ const App: React.FC = () => {
       unsubFeedback();
       unsubPolls();
     };
-  }, [currentUser?.id, currentUser?.role, isDemoMode, JSON.stringify(currentUser?.unitIds ?? [])]);
+  }, [appState, currentUser?.id, currentUser?.role, isDemoMode, JSON.stringify(currentUser?.unitIds ?? [])]);
 
   // ---------- Title ----------
   useEffect(() => {
