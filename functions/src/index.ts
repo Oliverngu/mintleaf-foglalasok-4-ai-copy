@@ -219,6 +219,41 @@ const serializeError = (err: unknown) => {
   return { message: String(err) };
 };
 
+const trimDebugStack = (stack: unknown, maxLength = 2000): string | undefined => {
+  if (typeof stack !== 'string') return undefined;
+  const trimmed = stack.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 1)}…` : trimmed;
+};
+
+const toSerializableObject = (value: unknown): unknown => {
+  if (value === null || typeof value === 'undefined') return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.map(toSerializableObject);
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toSerializableObject(v)])
+    );
+  }
+  return String(value);
+};
+
+type AutoAllocateDebugDetails = {
+  source: 'adminTriggerAutoAllocateDayCallable';
+  unitId: string;
+  dateKey: string;
+  mode: AutoAllocateDayMode;
+  force: boolean;
+  correlationId: string;
+  error: {
+    name: string;
+    message: string;
+    stack?: string;
+    serialized: unknown;
+  };
+};
+
 const normalizeOptionalText = (value: unknown) => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -3511,6 +3546,7 @@ type AutoAllocateDayResult = {
     diagnostics?: { conflict?: boolean; noFit?: boolean };
     startTimeMs?: number;
     endTimeMs?: number;
+    debugStack?: string;
   }>;
 };
 
@@ -3816,11 +3852,13 @@ async function runAdminAutoAllocateDay({
       });
     } catch (err) {
       totals.skipped += 1;
-      items.push({ bookingId, status: 'error', reason: 'decision_failed' });
+      const debugStack = trimDebugStack(err instanceof Error ? err.stack : undefined, 1200);
+      items.push({ bookingId, status: 'error', reason: 'decision_failed', debugStack });
       logger.warn('adminTriggerAutoAllocateDay decision failed', {
         unitId,
         bookingId,
-        err,
+        error: serializeError(err),
+        debugStack,
       });
     }
   }
@@ -3986,17 +4024,26 @@ export const adminTriggerAutoAllocateDayCallable = onCall(
       if (err instanceof HttpsError) {
         throw err;
       }
+      const correlationId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const serializedError = serializeError(err);
-      const serializedText =
-        typeof serializedError === 'string' ? serializedError : JSON.stringify(serializedError);
-      const safeDebug =
-        serializedText.length > 800 ? `${serializedText.slice(0, 799)}…` : serializedText;
+      const details: AutoAllocateDebugDetails = {
+        source: 'adminTriggerAutoAllocateDayCallable',
+        unitId,
+        dateKey,
+        mode,
+        force,
+        correlationId,
+        error: {
+          name: err instanceof Error ? err.name || 'Error' : 'UnknownError',
+          message: err instanceof Error ? err.message : String(err),
+          stack: trimDebugStack(err instanceof Error ? err.stack : undefined),
+          serialized: toSerializableObject(serializedError),
+        },
+      };
       logger.error('adminTriggerAutoAllocateDayCallable error', {
-        error: safeDebug,
+        ...details,
       });
-      throw new HttpsError('internal', 'Auto-allocate internal error', {
-        debug: safeDebug,
-      });
+      throw new HttpsError('internal', 'Auto-allocate internal error', details);
     }
   }
 );

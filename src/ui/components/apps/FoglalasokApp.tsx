@@ -87,9 +87,28 @@ type DebugErrorInfo = {
   reason?: unknown;
 };
 
+type AutoAllocateUiError = {
+  code: string;
+  message: string;
+  details: unknown;
+  raw?: unknown;
+};
+
 function safeStringify(value: unknown) {
+  const seen = new WeakSet<object>();
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(
+      value,
+      (_key, nestedValue) => {
+        if (typeof nestedValue === 'bigint') return nestedValue.toString();
+        if (typeof nestedValue === 'object' && nestedValue !== null) {
+          if (seen.has(nestedValue)) return '[Circular]';
+          seen.add(nestedValue);
+        }
+        return nestedValue;
+      },
+      2
+    );
   } catch {
     return String(value);
   }
@@ -1991,7 +2010,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
   const [autoAllocateRunning, setAutoAllocateRunning] = useState(false);
   const [autoAllocateSummary, setAutoAllocateSummary] =
     useState<AutoAllocateDayResult | null>(null);
-  const [autoAllocateError, setAutoAllocateError] = useState<string | null>(null);
+  const [autoAllocateError, setAutoAllocateError] = useState<AutoAllocateUiError | null>(null);
   const [manualMode, setManualMode] = useState<{
     active: boolean;
     bookingId: string | null;
@@ -2740,28 +2759,51 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
     window.open(`/reserve?unit=${activeUnitId}`, '_blank');
   };
 
-  const normalizeUnknownError = (err: unknown) => {
-    const trimTo = (value: string, max: number) =>
-      value.length > max ? `${value.slice(0, max - 1)}…` : value;
-
-    if (err instanceof Error) {
-      const summary = trimTo(`${err.name || 'Error'}: ${err.message || 'Ismeretlen hiba'}`, 280);
-      const detailParts = [err.stack, err.cause ? `cause: ${safeStringify(err.cause)}` : ''].filter(Boolean);
-      const details = trimTo(detailParts.join('\n\n') || 'Nincs további részlet.', 700);
-      return { summary, details };
-    }
+  const normalizeUnknownError = (err: unknown): AutoAllocateUiError => {
+    const fallback = {
+      code: 'unknown',
+      message: 'Ismeretlen hiba történt az automatikus ültetés során.',
+      details: { raw: safeStringify(err) },
+      raw: err,
+    };
 
     if (typeof err === 'string') {
-      return {
-        summary: trimTo(err || 'Ismeretlen hiba', 280),
-        details: trimTo(err || 'Nincs további részlet.', 700),
-      };
+      return { code: 'unknown', message: err, details: { raw: err }, raw: err };
     }
 
-    const serialized = safeStringify(err);
+    if (!err || typeof err !== 'object') {
+      return fallback;
+    }
+
+    const candidate = err as { code?: unknown; message?: unknown; details?: unknown };
+    let details = candidate.details;
+    let code = typeof candidate.code === 'string' ? candidate.code : 'unknown';
+    const message =
+      typeof candidate.message === 'string' && candidate.message.trim()
+        ? candidate.message
+        : fallback.message;
+
+    if (typeof candidate.message === 'string' && candidate.message.includes(' | ')) {
+      const [baseMessage, maybeJson] = candidate.message.split(/\s\|\s(.+)/s);
+      if (baseMessage?.trim()) {
+        if (baseMessage.includes('/')) {
+          code = baseMessage.split('/')[0] || code;
+        }
+      }
+      if (!details && maybeJson) {
+        try {
+          details = JSON.parse(maybeJson);
+        } catch {
+          details = maybeJson;
+        }
+      }
+    }
+
     return {
-      summary: 'Ismeretlen hiba történt az automatikus ültetés során.',
-      details: trimTo(serialized || 'Nincs további részlet.', 700),
+      code,
+      message,
+      details: typeof details === 'undefined' ? { raw: safeStringify(err) } : details,
+      raw: err,
     };
   };
 
@@ -2778,14 +2820,11 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
       setAutoAllocateSummary(result);
     } catch (err) {
       const normalizedError = normalizeUnknownError(err);
-      const errorMessage = `Auto-allocate failed: ${normalizedError.summary}\n${normalizedError.details}`.slice(
-        0,
-        1000
-      );
       console.error('[autoAllocate] failed', {
-        summary: normalizedError.summary,
+        code: normalizedError.code,
+        message: normalizedError.message,
         details: normalizedError.details,
-        err,
+        err: normalizedError.raw,
       });
       if (isFpDebug) {
         console.debug('[autoAllocate] context', {
@@ -2798,7 +2837,7 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
           hasSeatingSettings: Boolean(reservationSettings),
         });
       }
-      setAutoAllocateError(errorMessage);
+      setAutoAllocateError(normalizedError);
     } finally {
       setAutoAllocateRunning(false);
     }
@@ -3368,9 +3407,16 @@ const FoglalasokApp: React.FC<FoglalasokAppProps> = ({
               <div className="fixed inset-0 pointer-events-none bg-black/10 backdrop-blur-[1px] z-20" />
             )}
             {autoAllocateError && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {autoAllocateError}
-              </div>
+              <details className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" open>
+                <summary className="cursor-pointer font-semibold">Auto-allocate failed</summary>
+                <div className="mt-2 space-y-1">
+                  <div><span className="font-semibold">code:</span> {autoAllocateError.code}</div>
+                  <div><span className="font-semibold">message:</span> {autoAllocateError.message}</div>
+                  <pre className="max-h-56 overflow-auto rounded border border-red-100 bg-white/70 p-2 text-xs font-mono whitespace-pre-wrap">
+                    {safeStringify(autoAllocateError.details)}
+                  </pre>
+                </div>
+              </details>
             )}
           </div>
           {logsLoading ? (
